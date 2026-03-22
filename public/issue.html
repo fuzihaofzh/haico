@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Argus - Issue</title>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <link rel="stylesheet" href="/public/css/issues.css">
+</head>
+<body>
+  <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-header">
+      <h3><span style="color:var(--accent)">Argus</span></h3>
+      <button class="drawer-close" onclick="closeDrawer()">&times;</button>
+    </div>
+    <div class="drawer-content">
+      <div class="drawer-section">
+        <div class="drawer-section-header">Navigation</div>
+        <a href="/" class="drawer-link">Dashboard</a>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-header">Settings</div>
+        <div class="settings-section">
+          <div class="setting-group">
+            <label>Theme</label>
+            <select id="theme-select" onchange="changeTheme(this.value)">
+              <option value="github-dark">GitHub Dark</option>
+              <option value="dracula">Dracula</option>
+              <option value="nord">Nord</option>
+              <option value="monokai">Monokai</option>
+              <option value="solarized-dark">Solarized Dark</option>
+              <option value="solarized-light">Solarized Light</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="drawer-section">
+        <a href="/change-password" class="drawer-link">Change Password</a>
+        <a href="#" class="drawer-link" onclick="logout();return false" style="color:var(--error)">Logout</a>
+      </div>
+    </div>
+  </div>
+
+  <header>
+    <button class="menu-btn" onclick="toggleDrawer()">
+      <span></span><span></span><span></span>
+    </button>
+    <h1><a href="/" style="color:var(--accent);text-decoration:none">Argus</a></h1>
+    <div class="breadcrumb" style="margin-left:12px">
+      <a href="/">Projects</a> / <a id="project-link" href="#">Project</a> / <span id="issue-title-breadcrumb">Issue</span>
+    </div>
+  </header>
+
+  <div class="container" id="issue-page">
+    <div class="empty-state">Loading...</div>
+  </div>
+
+  <script src="/public/js/common.js"></script>
+  <script src="/public/vendor/marked.js"></script>
+  <script src="/public/js/issue.js"></script>
+</body>
+</html>

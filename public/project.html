@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Argus - Project</title>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <link rel="stylesheet" href="/public/css/issues.css">
+</head>
+<body>
+  <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-header">
+      <h3><span style="color:var(--accent)">Argus</span></h3>
+      <button class="drawer-close" onclick="closeDrawer()">&times;</button>
+    </div>
+    <div class="drawer-content">
+      <div class="drawer-section">
+        <div class="drawer-section-header">Navigation</div>
+        <a href="/" class="drawer-link">Dashboard</a>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-header">Settings</div>
+        <div class="settings-section">
+          <div class="setting-group">
+            <label>Theme</label>
+            <select id="theme-select" onchange="changeTheme(this.value)">
+              <option value="github-dark">GitHub Dark</option>
+              <option value="dracula">Dracula</option>
+              <option value="nord">Nord</option>
+              <option value="monokai">Monokai</option>
+              <option value="solarized-dark">Solarized Dark</option>
+              <option value="solarized-light">Solarized Light</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="drawer-section">
+        <a href="/change-password" class="drawer-link">Change Password</a>
+        <a href="#" class="drawer-link" onclick="logout();return false" style="color:var(--error)">Logout</a>
+      </div>
+    </div>
+  </div>
+
+  <header>
+    <button class="menu-btn" onclick="toggleDrawer()">
+      <span></span><span></span><span></span>
+    </button>
+    <h1><a href="/" style="color:var(--accent);text-decoration:none">Argus</a></h1>
+    <div class="breadcrumb" style="margin-left:12px">
+      <a href="/">Projects</a> / <span id="project-name">Loading...</span>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Header bar with project name + actions -->
+    <div class="flex-between mb-16">
+      <div class="flex">
+        <h2 id="project-title">Project</h2>
+        <span id="project-status" class="status-badge"></span>
+      </div>
+      <div class="flex">
+        <button class="btn btn-sm" id="btn-toggle" onclick="toggleProjectStatus()">Pause</button>
+        <button class="btn btn-sm btn-primary" id="btn-trigger" onclick="triggerController()">Trigger Controller</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteProject()">Delete</button>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tab-bar">
+      <div class="tab active" onclick="switchTab('overview')">Overview</div>
+      <div class="tab" onclick="switchTab('agents')">Agents</div>
+      <div class="tab" onclick="switchTab('issues')">Issues</div>
+      <div class="tab" onclick="switchTab('activity')">Activity</div>
+    </div>
+
+    <!-- Overview Tab -->
+    <div id="tab-overview">
+      <div class="card">
+        <div class="form-group">
+          <label>Project Name</label>
+          <input type="text" id="project-name-edit" style="font-size:15px;font-weight:600">
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" id="project-desc-edit" placeholder="Short description">
+        </div>
+        <div class="form-group">
+          <label>Task Description</label>
+          <textarea id="project-task" rows="4" placeholder="What should the controller agent do?"></textarea>
+        </div>
+        <div style="display:flex;gap:16px">
+          <div class="form-group" style="flex:1">
+            <label>Tool Path</label>
+            <input type="text" id="project-cmd" style="font-family:monospace" placeholder="claude">
+          </div>
+          <div class="form-group" style="width:120px">
+            <label>Interval (min)</label>
+            <input type="number" id="project-interval-edit" min="1">
+          </div>
+          <div class="form-group" style="width:160px">
+            <label>Schedule Hours</label>
+            <input type="text" id="project-schedule" placeholder="e.g. 9-18 or 22-6" title="Leave empty = always run. Supports overnight: 22-6">
+          </div>
+        </div>
+        <div style="display:flex;gap:16px;font-size:11px;color:var(--text-secondary);margin-bottom:12px">
+          <span>Created: <span id="project-created"></span></span>
+          <span id="project-cost" style="display:none">Cost: <strong id="project-cost-value"></strong></span>
+        </div>
+        <button class="btn btn-primary" onclick="saveOverview()">Save Changes</button>
+      </div>
+    </div>
+
+    <!-- Agents Tab -->
+    <div id="tab-agents" style="display:none">
+      <div class="flex-between mb-16">
+        <h3>Agents</h3>
+        <button class="btn btn-primary btn-sm" onclick="showCreateAgentModal()">+ New Agent</button>
+      </div>
+      <div id="agent-error-banner" style="display:none;padding:10px 14px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:6px;margin-bottom:12px;color:var(--error);font-size:12px"></div>
+      <div class="card">
+        <ul id="agent-list" class="agent-list">
+          <li class="empty-state">Loading agents...</li>
+        </ul>
+      </div>
+      <div id="agent-detail" style="display:none"></div>
+    </div>
+
+    <!-- Issues Tab -->
+    <div id="tab-issues" style="display:none">
+      <!-- Search + controls -->
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="issue-search" placeholder="Search issues..." onkeyup="if(event.key==='Enter')searchIssues()" style="flex:1;min-width:200px;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px">
+        <select id="issue-sort" onchange="loadIssues()" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:12px">
+          <option value="priority">Priority</option>
+          <option value="newest">Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="updated">Recently updated</option>
+          <option value="comments">Most comments</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="showCreateIssueModal()">+ New Issue</button>
+      </div>
+      <!-- Filter tabs -->
+      <div id="issue-filter-tabs" style="display:flex;gap:2px;font-size:13px;margin-bottom:12px"></div>
+      <div id="issue-list"></div>
+      <div id="issue-pagination" style="display:flex;justify-content:center;gap:8px;margin-top:12px"></div>
+      <!-- Issue Detail (inline) -->
+    </div>
+
+    <!-- Activity Tab -->
+    <div id="tab-activity" style="display:none">
+      <div class="card" id="activity-list">
+        <div class="empty-state">Loading activity...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Agent Modal -->
+  <div class="modal-overlay" id="createAgentModal">
+    <div class="modal">
+      <h3>Create New Agent</h3>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="agent-name" placeholder="worker-1">
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <textarea id="agent-role" rows="3" placeholder="Describe the agent's role in detail..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Working Directory</label>
+        <input type="text" id="agent-workdir" placeholder="/path/to/project (optional)">
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="hideModal('createAgentModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="createAgent()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Start Agent Modal -->
+  <div class="modal-overlay" id="startAgentModal">
+    <div class="modal">
+      <h3>Start with Custom Prompt</h3>
+      <div class="form-group">
+        <label>Custom Prompt (optional — leave empty to auto-generate from role and task)</label>
+        <textarea id="start-prompt" placeholder="Override prompt, or leave empty..." rows="5"></textarea>
+      </div>
+      <input type="hidden" id="start-agent-id">
+      <div class="modal-actions">
+        <button class="btn" onclick="hideModal('startAgentModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="startAgent()">Start</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Issue Modal -->
+  <div class="modal-overlay" id="createIssueModal">
+    <div class="modal">
+      <h3>New Issue</h3>
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="issue-title" placeholder="Issue title">
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="issue-body" rows="4" placeholder="Describe the issue..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Assign to</label>
+        <select id="issue-assign"><option value="">Unassigned</option></select>
+      </div>
+      <div class="form-group">
+        <label>Labels (comma-separated)</label>
+        <input type="text" id="issue-labels" placeholder="bug, urgent, feature">
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="hideModal('createIssueModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="createIssue()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/public/js/common.js"></script>
+  <script src="/public/vendor/marked.js"></script>
+  <script src="/public/js/project.js"></script>
+</body>
+</html>

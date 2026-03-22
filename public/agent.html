@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Argus - Agent Terminal</title>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <link rel="stylesheet" href="/public/vendor/xterm.css">
+</head>
+<body>
+  <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-header">
+      <h3><span style="color:var(--accent)">Argus</span></h3>
+      <button class="drawer-close" onclick="closeDrawer()">&times;</button>
+    </div>
+    <div class="drawer-content">
+      <div class="drawer-section">
+        <div class="drawer-section-header">Navigation</div>
+        <a href="/" class="drawer-link">Dashboard</a>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-header">Settings</div>
+        <div class="settings-section">
+          <div class="setting-group">
+            <label>Theme</label>
+            <select id="theme-select" onchange="changeTheme(this.value)">
+              <option value="github-dark">GitHub Dark</option>
+              <option value="dracula">Dracula</option>
+              <option value="nord">Nord</option>
+              <option value="monokai">Monokai</option>
+              <option value="solarized-dark">Solarized Dark</option>
+              <option value="solarized-light">Solarized Light</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="drawer-section">
+        <a href="/change-password" class="drawer-link">Change Password</a>
+        <a href="#" class="drawer-link" onclick="logout();return false" style="color:var(--error)">Logout</a>
+      </div>
+    </div>
+  </div>
+
+  <header>
+    <button class="menu-btn" onclick="toggleDrawer()">
+      <span></span><span></span><span></span>
+    </button>
+    <h1><a href="/" style="color:var(--accent);text-decoration:none">Argus</a></h1>
+    <div class="breadcrumb" style="margin-left:12px">
+      <a href="/">Projects</a> / <a id="project-link" href="#">Project</a> / <span id="agent-name">Agent</span>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Agent Info -->
+    <div class="card mb-16">
+      <div class="flex-between">
+        <h2 id="agent-title">Agent</h2>
+        <div class="flex">
+          <span id="agent-status" class="status-badge"></span>
+          <button class="btn btn-sm" id="btn-retry" onclick="retryAgent()" style="display:none;color:var(--warning)">Retry</button>
+          <button class="btn btn-primary btn-sm" id="btn-start" onclick="quickStart()">Start</button>
+          <button class="btn btn-danger btn-sm" id="btn-stop" onclick="stopAgent()" style="display:none">Stop</button>
+        </div>
+      </div>
+      <div class="info-panel mt-16">
+        <dt>Role</dt><dd id="agent-role"></dd>
+        <dt>Type</dt><dd id="agent-type"></dd>
+        <dt>Status</dt><dd id="agent-status-text"></dd>
+        <dt>Started</dt><dd id="agent-started"></dd>
+      </div>
+
+      <!-- Working Directory -->
+      <div class="mt-16">
+        <label style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:6px;display:block">Working Directory</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="agent-workdir" style="flex:1;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px;font-family:monospace" placeholder="(default: server cwd)">
+          <button class="btn btn-sm btn-primary" onclick="saveWorkdir()">Save</button>
+        </div>
+      </div>
+
+      <!-- Custom Instructions -->
+      <div class="mt-16">
+        <label style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:6px;display:block">Custom Instructions</label>
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <textarea id="agent-instructions" rows="4" style="flex:1;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px;font-family:inherit;resize:vertical" placeholder="Extra instructions for this agent (appended to system prompt)..."></textarea>
+          <button class="btn btn-sm btn-primary" onclick="saveInstructions()">Save</button>
+        </div>
+      </div>
+
+      <!-- System Prompt Preview -->
+      <div class="mt-16">
+        <div class="flex-between" style="margin-bottom:6px">
+          <label style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6">System Prompt (auto-generated, read-only)</label>
+          <button class="btn btn-sm" onclick="toggleSystemPrompt()">Show/Hide</button>
+        </div>
+        <pre id="system-prompt-preview" style="display:none;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text-secondary);max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-word"></pre>
+      </div>
+    </div>
+
+    <!-- Terminal -->
+    <div class="card">
+      <div class="flex-between mb-16">
+        <h2>Terminal Output</h2>
+        <button class="btn btn-sm" onclick="clearTerminal()">Clear</button>
+      </div>
+      <div id="terminal" class="terminal-container"></div>
+      <div id="thinking-indicator" style="display:none" class="thinking-bar">
+        <span class="thinking-spinner">✦</span> Agent is thinking...
+      </div>
+    </div>
+  </div>
+
+  <!-- Start Modal -->
+  <div class="modal-overlay" id="startModal">
+    <div class="modal">
+      <h3>Start with Custom Prompt</h3>
+      <div class="form-group">
+        <label>Custom Prompt (optional — leave empty to auto-generate)</label>
+        <textarea id="start-prompt" rows="5" placeholder="Override prompt, or leave empty..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="hideModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="startAgent()">Start</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/public/js/common.js"></script>
+  <script src="/public/vendor/xterm.js"></script>
+  <script src="/public/vendor/xterm-addon-fit.js"></script>
+  <script src="/public/js/terminal.js"></script>
+</body>
+</html>
