@@ -10,26 +10,9 @@ let issueData = null;
 let agentsData = [];
 const EMOJIS = ['👍','👎','❤️','🎉','😕','🚀'];
 
-function apiHeaders() { return { 'Content-Type': 'application/json' }; }
-function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 function renderMd(text) {
   if (!text) return '';
   return marked.parse(text.replace(/#(\d+)/g, (m, n) => issueData?.project_id ? `[#${n}](/projects/${issueData.project_id}/issues/${n})` : m));
-}
-function nameOf(id) {
-  if (id === 'user') return 'User'; if (id === 'all') return 'All';
-  const a = agentsData.find(x => x.id === id); return a ? a.name : (id || '').slice(0, 8);
-}
-function timeAgo(dateStr) {
-  if (!dateStr) return '-';
-  const s = Math.floor((new Date() - new Date(dateStr + 'Z')) / 1000);
-  if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s/60) + 'm ago';
-  if (s < 86400) return Math.floor(s/3600) + 'h ago'; return Math.floor(s/86400) + 'd ago';
-}
-function priorityBadge(p) {
-  if (p >= 10) return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(220,50,47,0.15);color:var(--error)">USER</span>';
-  if (p >= 5) return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(181,137,0,0.15);color:var(--warning)">CTRL</span>';
-  return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(88,110,117,0.15);color:var(--text-secondary)">AGENT</span>';
 }
 function labelHtml(text) {
   const colors = ['#e06c75','#98c379','#e5c07b','#61afef','#c678dd','#56b6c2','#d19a66','#b5bd68','#cc6666','#8abeb7'];
@@ -84,7 +67,8 @@ async function loadIssue() {
 
   try { const r = await fetch(`/api/projects/${data.project_id}/agents`, { headers: apiHeaders() }); if (r.ok) agentsData = await r.json(); } catch {}
 
-  document.getElementById('project-link').href = `/projects/${data.project_id}#issues`;
+  document.getElementById('project-link').href = `/projects/${data.project_id}`;
+  document.getElementById('issues-link').href = `/projects/${data.project_id}#issues`;
   try { const pr = await fetch(`/api/projects/${data.project_id}`, { headers: apiHeaders() }); if (pr.ok) { const p = await pr.json(); document.getElementById('project-link').textContent = p.name; } } catch {}
   document.getElementById('issue-title-breadcrumb').textContent = `#${data.number} ${data.title}`;
   document.title = `#${data.number} ${data.title} - Argus`;
@@ -120,7 +104,7 @@ function renderIssue() {
             ${c.author_id === 'user' ? `<button onclick="editComment('${c.id}')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px">edit</button><button onclick="deleteComment('${c.id}')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px">delete</button>` : ''}
           </span>
         </div>
-        <div class="timeline-comment-body markdown-body">${renderMd(c.body)}</div>
+        <div class="timeline-comment-body markdown-body" id="comment-body-${c.id}">${renderMd(c.body)}</div>
         ${reactionBar('comment', c.id, c.reactions)}
       </div>
     </div>`;
@@ -255,12 +239,13 @@ async function updateField(field, value) {
 async function deleteIssue() {
   if (!confirm('Delete this issue?')) return;
   const res = await fetch(`/api/issues/${issueId}`, { method: 'DELETE' });
-  if (res.ok) history.back(); else alert('Only open issues can be deleted');
+  if (res.ok) { showToast('Issue已删除', 'success'); history.back(); } else showToast('只能删除open状态的issue', 'error');
 }
 async function addComment() {
   const body = document.getElementById('comment-input').value.trim();
   if (!body) return;
-  await fetch(`/api/issues/${issueId}/comments`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body }) });
+  const res = await fetch(`/api/issues/${issueId}/comments`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body }) });
+  if (res.ok) showToast('评论已添加', 'success');
   await loadIssue();
 }
 async function editComment(cid) {
@@ -279,7 +264,8 @@ async function editComment(cid) {
 async function saveComment(cid) {
   const v = document.getElementById('edit-comment-' + cid)?.value;
   if (!v) return;
-  await fetch(`/api/comments/${cid}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v }) });
+  const res = await fetch(`/api/comments/${cid}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v }) });
+  if (res.ok) showToast('评论已保存', 'success');
   await loadIssue();
 }
 async function deleteComment(cid) {

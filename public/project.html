@@ -48,7 +48,7 @@
     </button>
     <h1><a href="/" style="color:var(--accent);text-decoration:none">Argus</a></h1>
     <div class="breadcrumb" style="margin-left:12px">
-      <a href="/">Projects</a> / <span id="project-name">Loading...</span>
+      <a href="/">Projects</a> / <a id="project-name" href="#" onclick="switchTab('overview');return false" style="color:var(--link);text-decoration:none">Loading...</a><span id="breadcrumb-section"></span>
     </div>
   </header>
 
@@ -72,10 +72,14 @@
       <div class="tab" onclick="switchTab('agents')">Agents</div>
       <div class="tab" onclick="switchTab('issues')">Issues</div>
       <div class="tab" onclick="switchTab('activity')">Activity</div>
+      <div class="tab" onclick="switchTab('git')">Git</div>
     </div>
 
     <!-- Overview Tab -->
     <div id="tab-overview">
+      <!-- Status Dashboard -->
+      <div id="project-dashboard" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
+
       <div class="card">
         <div class="form-group">
           <label>Project Name</label>
@@ -113,6 +117,7 @@
 
     <!-- Agents Tab -->
     <div id="tab-agents" style="display:none">
+      <div id="agent-graph-container" style="margin-bottom:16px"></div>
       <div class="flex-between mb-16">
         <h3>Agents</h3>
         <button class="btn btn-primary btn-sm" onclick="showCreateAgentModal()">+ New Agent</button>
@@ -152,6 +157,15 @@
       <div class="card" id="activity-list">
         <div class="empty-state">Loading activity...</div>
       </div>
+    </div>
+
+    <!-- Git Tab -->
+    <div id="tab-git" style="display:none">
+      <div id="git-status-summary" style="margin-bottom:16px"></div>
+      <div class="card" id="git-commit-list">
+        <div class="empty-state">Loading git information...</div>
+      </div>
+      <div id="git-uncommitted" style="margin-top:16px"></div>
     </div>
   </div>
 

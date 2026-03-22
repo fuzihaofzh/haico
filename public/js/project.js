@@ -2,33 +2,6 @@ const projectId = window.location.pathname.split('/').pop();
 let projectData = null;
 let agentsData = [];
 
-function apiHeaders() { return { 'Content-Type': 'application/json' }; }
-
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s || '';
-  return d.innerHTML;
-}
-
-async function withLoading(btn, asyncFn) {
-  if (!btn || btn.disabled) return;
-  const originalText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = originalText + '…';
-  try {
-    await asyncFn();
-  } finally {
-    btn.disabled = false;
-    btn.textContent = originalText;
-  }
-}
-
-function priorityBadge(p) {
-  if (p >= 10) return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(220,50,47,0.15);color:var(--error)">USER</span>';
-  if (p >= 5) return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(181,137,0,0.15);color:var(--warning)">CTRL</span>';
-  return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(88,110,117,0.15);color:var(--text-secondary)">AGENT</span>';
-}
-
 function statusBadge(s) {
   const map = {
     'open':        '<span class="status-badge status-active">open</span>',
@@ -37,14 +10,6 @@ function statusBadge(s) {
     'closed':      '<span class="status-badge status-idle">closed</span>',
   };
   return map[s] || s;
-}
-
-// Resolve names
-function nameOf(id) {
-  if (id === 'user') return 'User';
-  if (id === 'all') return 'All';
-  const a = agentsData.find(x => x.id === id);
-  return a ? a.name : id;
 }
 
 // ─── Project ───
@@ -89,7 +54,8 @@ async function toggleProjectStatus() {
   if (!projectData) return;
   const newStatus = projectData.status === 'active' ? 'paused' : 'active';
   const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: newStatus }) });
-  if (!res.ok) alert('Failed to update status');
+  if (res.ok) showToast('状态已更新', 'success');
+  else showToast('状态更新失败', 'error');
   loadProject();
 }
 
@@ -100,7 +66,7 @@ async function triggerController() {
     if (!controller) { alert('No controller agent found'); return; }
     if (controller.status === 'running') { alert('Controller is already running'); return; }
     const res = await fetch(`/api/agents/${controller.id}/start`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) { loadAgents(); } else { const err = await res.json().catch(() => ({})); alert('Error: ' + (err.error || 'Unknown')); }
+    if (res.ok) { loadAgents(); showToast('Controller已启动', 'success'); } else { const err = await res.json().catch(() => ({})); showToast(err.error || '启动失败', 'error'); }
   };
   if (btn) await withLoading(btn, run); else await run();
 }
@@ -119,16 +85,16 @@ async function saveOverview() {
   const btn = document.querySelector('button[onclick="saveOverview()"]');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { window._overviewLoaded = false; loadProject(); }
-    else alert('Failed to save');
+    if (res.ok) { window._overviewLoaded = false; loadProject(); showToast('已保存', 'success'); }
+    else showToast('保存失败', 'error');
   });
 }
 
 async function deleteProject() {
   if (!confirm('Delete this project and all agents/issues?')) return;
   const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
-  if (res.ok) { window.location.href = '/'; }
-  else { alert('Failed to delete project'); }
+  if (res.ok) { showToast('项目已删除', 'success'); window.location.href = '/'; }
+  else { showToast('删除失败', 'error'); }
 }
 
 // ─── Agents ───
@@ -143,13 +109,15 @@ async function loadAgents() {
 
   if (!agentsData.length) { list.innerHTML = '<li class="empty-state">No agents yet.</li>'; return; }
 
-  // Update issue assign dropdown (preserve current selection)
+  // Update issue assign dropdown (preserve current selection, default to controller)
   const assignSel = document.getElementById('issue-assign');
   if (assignSel) {
     const prev = assignSel.value;
+    const controllerId = agentsData.find(a => a.is_controller)?.id || '';
     assignSel.innerHTML = '<option value="">Unassigned</option><option value="all">All (broadcast)</option><option value="user">User (me)</option>';
-    agentsData.forEach(a => { assignSel.innerHTML += `<option value="${a.id}">${esc(a.name)}</option>`; });
+    agentsData.forEach(a => { assignSel.innerHTML += `<option value="${a.id}">${esc(a.name)}${a.is_controller ? ' [controller]' : ''}</option>`; });
     if (prev) assignSel.value = prev;
+    else if (controllerId) assignSel.value = controllerId;
   }
 
   // Fetch errors
@@ -201,14 +169,23 @@ async function loadAgents() {
     const spinner = a.status === 'running' ? '<span class="thinking-spinner">✦</span> ' : '';
     const deleteBtn = !a.is_controller && a.status !== 'running'
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();deleteAgent('${a.id}')" style="color:var(--error);padding:3px 6px" title="Delete">✕</button>` : '';
-    const retryBtn = a.status === 'error' && a.last_prompt
+    const retryBtn = a.status === 'error' && a.last_prompt && !a.paused
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();retryAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Retry last prompt">Retry</button>` : '';
-    const actions = a.status !== 'running'
-      ? `${retryBtn}<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();quickStartAgent('${a.id}')">Start</button>${deleteBtn}`
-      : `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();stopAgentById('${a.id}')">Stop</button>`;
+    const pauseBtn = !a.paused
+      ? `<button class="btn btn-sm" onclick="event.stopPropagation();pauseAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Pause agent">⏸</button>`
+      : `<button class="btn btn-sm" onclick="event.stopPropagation();unpauseAgent('${a.id}')" style="color:var(--success);padding:3px 6px" title="Resume agent">▶</button>`;
+    let actions;
+    if (a.paused) {
+      actions = `${pauseBtn}${deleteBtn}`;
+    } else if (a.status === 'running') {
+      actions = `${pauseBtn}<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();stopAgentById('${a.id}')">Stop</button>`;
+    } else {
+      actions = `${pauseBtn}${retryBtn}<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();quickStartAgent('${a.id}')">Start</button>${deleteBtn}`;
+    }
     const selected = currentAgentId === a.id ? 'background:var(--selected-bg);' : '';
+    const pausedStyle = a.paused ? 'opacity:0.55;' : '';
     return `
-    <li class="agent-item" style="cursor:pointer;${selected}" onclick="viewAgent('${a.id}')">
+    <li class="agent-item" style="cursor:pointer;${selected}${pausedStyle}" onclick="viewAgent('${a.id}')">
       <div style="flex-shrink:0;margin-right:8px">${avatarSvg(a.name, 32)}</div>
       <div class="agent-info">
         <div class="agent-name">${spinner}${esc(a.name)}${tag}</div>
@@ -216,11 +193,18 @@ async function loadAgents() {
         ${errBox}
       </div>
       <div class="flex" style="gap:8px">
-        <span class="status-badge status-${a.status}">${a.status}</span>
+        <span class="status-badge status-${a.paused ? 'paused' : a.status}">${a.paused ? 'paused' : a.status}</span>
         ${actions}
       </div>
     </li>`;
   }).join('');
+
+  // Render agent collaboration graph
+  // Cache issues for graph node task counts
+  fetch(`/api/projects/${projectId}/issues?status=open&per_page=200`, { headers: apiHeaders() })
+    .then(r => r.ok ? r.json() : {})
+    .then(d => { window._dashboardIssues = d.issues || []; renderAgentGraph(); })
+    .catch(() => renderAgentGraph());
 }
 
 let currentAgentId = null;
@@ -261,6 +245,10 @@ async function viewAgent(agentId) {
             <div>Session: <code style="color:var(--fg);font-size:10px">${agent.session_id ? agent.session_id.slice(0, 8) + '...' : 'none'}</code></div>
           </div>
 
+          <div id="agent-git-status-${agentId}" style="margin-bottom:16px"></div>
+
+          <div id="agent-cost-${agentId}" style="margin-bottom:16px"></div>
+
           <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
               <div style="${L}">Working Directory</div>
@@ -293,6 +281,13 @@ async function viewAgent(agentId) {
             <pre id="agent-sysprompt-${agentId}" style="display:none;${B};font-size:11px;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary);margin:0"></pre>
           </div>
 
+          <div style="margin-bottom:16px">
+            <div style="${L};cursor:pointer;user-select:none" onclick="toggleRunHistory('${agentId}')">
+              <span id="agent-runs-arrow-${agentId}">▶</span> Run History
+            </div>
+            <div id="agent-runs-${agentId}" style="display:none"></div>
+          </div>
+
           <div>
             <div style="${L}">Recent Output</div>
             <div id="agent-output-${agentId}" style="color:var(--text-secondary);font-size:12px">Loading output...</div>
@@ -301,11 +296,75 @@ async function viewAgent(agentId) {
       </div>
     `;
 
-    // Step 2: Load logs async (doesn't block config display)
+    // Step 2: Load cost, git status, and logs async (doesn't block config display)
+    loadAgentCost(agentId);
+    loadAgentGitStatus(agentId);
     loadAgentOutput(agentId);
 
   } catch (e) {
     el.innerHTML = '<div class="card"><div style="color:var(--error);padding:16px">Failed to load agent details.</div></div>';
+  }
+}
+
+async function loadAgentCost(agentId) {
+  const container = document.getElementById('agent-cost-' + agentId);
+  if (!container) return;
+  try {
+    const res = await fetch(`/api/agents/${agentId}/costs`, { headers: apiHeaders() });
+    if (!res.ok) { container.innerHTML = ''; return; }
+    const data = await res.json();
+    if (data.total_runs === 0) { container.innerHTML = ''; return; }
+
+    const fmtCost = v => v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
+    const fmtTokens = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
+    const avgCost = data.total_runs > 0 ? data.total_cost_usd / data.total_runs : 0;
+
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:12px">
+        <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:2px">Total Cost</div>
+          <div style="font-size:16px;font-weight:600;color:var(--accent)">${fmtCost(data.total_cost_usd)}</div>
+        </div>
+        <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:2px">Avg/Run</div>
+          <div style="font-size:16px;font-weight:600">${fmtCost(avgCost)}</div>
+        </div>
+        <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:2px">Runs</div>
+          <div style="font-size:16px;font-weight:600">${data.total_runs}</div>
+        </div>
+        <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:2px">Tokens</div>
+          <div style="font-size:14px;font-weight:600">${fmtTokens(data.total_input_tokens)}↑ ${fmtTokens(data.total_output_tokens)}↓</div>
+        </div>
+      </div>`;
+  } catch {
+    container.innerHTML = '';
+  }
+}
+
+async function loadAgentGitStatus(agentId) {
+  const container = document.getElementById('agent-git-status-' + agentId);
+  if (!container) return;
+  try {
+    const res = await fetch(`/api/agents/${agentId}/git-status`, { headers: apiHeaders() });
+    if (!res.ok) { container.innerHTML = ''; return; }
+    const data = await res.json();
+    if (!data.branch) { container.innerHTML = ''; return; }
+
+    const lastCommit = data.recent_commits && data.recent_commits[0]
+      ? `<code style="color:var(--accent)">${esc(data.recent_commits[0].hash)}</code> ${esc(data.recent_commits[0].message.slice(0, 50))} <span style="color:var(--text-secondary)">${timeAgo(data.recent_commits[0].date)}</span>`
+      : '<span style="color:var(--text-secondary)">no commits</span>';
+    const uncommitted = data.has_uncommitted
+      ? `<span style="color:var(--warning)"> | ${(data.uncommitted_files || []).length} uncommitted files</span>` : '';
+
+    container.innerHTML = `
+      <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <span style="font-family:monospace;background:var(--card);padding:2px 8px;border-radius:10px;border:1px solid var(--border)">${esc(data.branch)}</span>
+        <span style="margin-left:8px">Last commit: ${lastCommit}</span>${uncommitted}
+      </div>`;
+  } catch {
+    container.innerHTML = '';
   }
 }
 
@@ -357,14 +416,16 @@ async function saveAgentField(agentId, field, value) {
   const body = {};
   body[field] = value || null;
   const res = await fetch(`/api/agents/${agentId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
-  if (!res.ok) alert('Failed to save');
+  if (res.ok) showToast('已保存', 'success');
+  else showToast('保存失败', 'error');
 }
 
 async function updateAgentSessionMode(agentId, mode) {
-  await fetch(`/api/agents/${agentId}`, {
+  const res = await fetch(`/api/agents/${agentId}`, {
     method: 'PUT', headers: apiHeaders(),
     body: JSON.stringify({ new_session_per_run: mode === 'new' }),
   });
+  if (res.ok) showToast('已保存', 'success');
 }
 
 async function toggleAgentSystemPrompt(agentId) {
@@ -387,6 +448,144 @@ async function toggleAgentSystemPrompt(agentId) {
   } catch { el.textContent = 'Failed to load'; }
 }
 
+async function toggleRunHistory(agentId) {
+  const el = document.getElementById('agent-runs-' + agentId);
+  const arrow = document.getElementById('agent-runs-arrow-' + agentId);
+  if (!el) return;
+  if (el.style.display !== 'none') {
+    el.style.display = 'none';
+    if (arrow) arrow.textContent = '▶';
+    return;
+  }
+  el.style.display = '';
+  if (arrow) arrow.textContent = '▼';
+  if (el.innerHTML) return;
+  el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">Loading...</div>';
+  await loadRunHistory(agentId);
+}
+
+async function loadRunHistory(agentId) {
+  const container = document.getElementById('agent-runs-' + agentId);
+  if (!container) return;
+  try {
+    const res = await fetch(`/api/agents/${agentId}/runs?limit=10`, { headers: apiHeaders() });
+    if (!res.ok) { container.innerHTML = '<span style="color:var(--error);font-size:12px">Failed to load runs.</span>'; return; }
+    const data = await res.json();
+    const runs = data.runs || [];
+    if (!runs.length) { container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">No runs yet.</span>'; return; }
+
+    const fmtCost = v => v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
+    const fmtDur = ms => {
+      if (!ms) return '-';
+      if (ms < 60000) return Math.round(ms / 1000) + 's';
+      return Math.round(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's';
+    };
+
+    container.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">${runs.map((r, idx) => {
+      const statusColor = r.status === 'error' ? 'var(--error)' : 'var(--success)';
+      const statusIcon = r.status === 'error' ? '✕' : '✓';
+      return `<div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer" onclick="viewRunReport('${agentId}','${r.run_id}')">
+        <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="color:${statusColor};font-weight:600">${statusIcon}</span>
+            <span style="color:var(--text-secondary)">${timeAgo(r.started_at)}</span>
+          </div>
+          <div style="display:flex;gap:12px;color:var(--text-secondary);font-size:11px">
+            <span title="Tools">\u{1F527} ${r.tool_call_count}</span>
+            <span title="Cost">${fmtCost(r.cost_usd)}</span>
+            <span title="Duration">${fmtDur(r.duration_ms)}</span>
+          </div>
+        </div>
+        ${r.result_snippet ? `<div style="margin-top:4px;color:var(--fg);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.result_snippet.slice(0, 120))}</div>` : ''}
+      </div>`;
+    }).join('')}</div>`;
+  } catch {
+    container.innerHTML = '<span style="color:var(--error);font-size:12px">Failed to load runs.</span>';
+  }
+}
+
+async function viewRunReport(agentId, runId) {
+  const container = document.getElementById('agent-runs-' + agentId);
+  if (!container) return;
+  container.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">Loading report...</div>';
+  try {
+    const res = await fetch(`/api/agents/${agentId}/runs/${runId}/report`, { headers: apiHeaders() });
+    if (!res.ok) { container.innerHTML = '<span style="color:var(--error)">Failed to load report.</span>'; return; }
+    const r = await res.json();
+
+    const fmtCost = v => v < 0.01 ? '<$0.01' : '$' + v.toFixed(4);
+    const fmtTokens = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : String(v);
+    const fmtDur = ms => {
+      if (!ms) return '-';
+      if (ms < 60000) return Math.round(ms / 1000) + 's';
+      return Math.round(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's';
+    };
+    const statusColor = r.status === 'error' ? 'var(--error)' : 'var(--success)';
+
+    // Tool frequency
+    const toolFreqHtml = Object.entries(r.summary.tool_frequency || {})
+      .sort((a, b) => (b[1]) - (a[1]))
+      .map(([name, count]) => `<span style="padding:2px 8px;background:rgba(88,166,255,0.1);border:1px solid rgba(88,166,255,0.3);border-radius:12px;font-size:10px">${esc(name)} ×${count}</span>`)
+      .join(' ');
+
+    // File changes
+    const filesHtml = (r.summary.files_changed || []).map(f =>
+      `<div style="font-family:monospace;font-size:11px;padding:2px 0">${esc(f)}</div>`
+    ).join('') || '<span style="color:var(--text-secondary)">None</span>';
+
+    // Tool call timeline
+    const toolsHtml = (r.tool_calls || []).map((tc, i) =>
+      `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">
+        <div style="display:flex;gap:6px;align-items:baseline">
+          <span style="color:var(--accent);font-weight:600;min-width:20px">${i + 1}.</span>
+          <span style="color:var(--accent);font-weight:500">${esc(tc.name)}</span>
+          <span style="color:var(--text-secondary);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:400px">${esc(tc.input.slice(0, 100))}</span>
+        </div>
+        ${tc.result ? `<div style="margin-left:26px;color:var(--text-secondary);font-family:monospace;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px">${esc(tc.result.slice(0, 150))}</div>` : ''}
+      </div>`
+    ).join('');
+
+    container.innerHTML = `
+      <div style="padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <button class="btn btn-sm" onclick="loadRunHistory('${agentId}')" style="font-size:11px">← Back to runs</button>
+          <span style="color:${statusColor};font-weight:600">${r.status === 'error' ? 'Failed' : 'Success'}</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+          <div style="padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;text-align:center">
+            <div style="font-size:10px;text-transform:uppercase;opacity:0.6">Duration</div>
+            <div style="font-size:14px;font-weight:600">${fmtDur(r.cost?.duration_ms)}</div>
+          </div>
+          <div style="padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;text-align:center">
+            <div style="font-size:10px;text-transform:uppercase;opacity:0.6">Cost</div>
+            <div style="font-size:14px;font-weight:600;color:var(--accent)">${r.cost ? fmtCost(r.cost.total_usd) : '-'}</div>
+          </div>
+          <div style="padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;text-align:center">
+            <div style="font-size:10px;text-transform:uppercase;opacity:0.6">Tools</div>
+            <div style="font-size:14px;font-weight:600">${r.summary.total_tool_calls}</div>
+          </div>
+          <div style="padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;text-align:center">
+            <div style="font-size:10px;text-transform:uppercase;opacity:0.6">Tokens</div>
+            <div style="font-size:14px;font-weight:600">${r.cost ? fmtTokens(r.cost.input_tokens) + '↑ ' + fmtTokens(r.cost.output_tokens) + '↓' : '-'}</div>
+          </div>
+        </div>
+
+        ${r.error_message ? `<div style="margin-bottom:12px;padding:8px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:4px;font-size:11px;color:var(--error);font-family:monospace;white-space:pre-wrap">${esc(r.error_message.slice(0, 500))}</div>` : ''}
+
+        ${toolFreqHtml ? `<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Tool Usage</div><div style="display:flex;gap:6px;flex-wrap:wrap">${toolFreqHtml}</div></div>` : ''}
+
+        ${r.summary.files_changed.length > 0 ? `<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Files Changed (${r.summary.files_changed.length})</div>${filesHtml}</div>` : ''}
+
+        ${r.final_result ? `<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Final Result</div><pre style="padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0;max-height:200px;overflow-y:auto">${esc(r.final_result.slice(0, 1000))}</pre></div>` : ''}
+
+        ${toolsHtml ? `<div><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Tool Call Timeline (${r.tool_calls.length})</div><div style="max-height:300px;overflow-y:auto">${toolsHtml}</div></div>` : ''}
+      </div>`;
+  } catch {
+    container.innerHTML = '<span style="color:var(--error)">Failed to load report.</span>';
+  }
+}
+
 function closeAgentDetail() {
   console.log('closeAgentDetail called');
   currentAgentId = null;
@@ -401,15 +600,15 @@ async function deleteAgent(id) {
   const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
   if (res.ok) {
     if (currentAgentId === id) closeAgentDetail();
-    loadAgents();
-  } else { alert('Failed to delete agent'); }
+    loadAgents(); showToast('Agent已删除', 'success');
+  } else { showToast('删除失败', 'error'); }
 }
 
 async function retryAgent(id) {
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/retry`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) loadAgents(); else { const e = await res.json().catch(() => ({})); alert('Error: ' + (e.error || 'Unknown')); }
+    if (res.ok) { loadAgents(); showToast('Agent已重试', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '重试失败', 'error'); }
   });
 }
 
@@ -417,15 +616,31 @@ async function quickStartAgent(id) {
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/start`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) loadAgents(); else { const e = await res.json().catch(() => ({})); alert('Error: ' + (e.error || 'Unknown')); }
+    if (res.ok) { loadAgents(); showToast('Agent已启动', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '启动失败', 'error'); }
   });
 }
+async function pauseAgent(id) {
+  const btn = event ? event.target : null;
+  await withLoading(btn, async () => {
+    const res = await fetch(`/api/agents/${id}/pause`, { method: 'POST', headers: apiHeaders() });
+    if (res.ok) { loadAgents(); showToast('Agent已暂停', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '暂停失败', 'error'); }
+  });
+}
+
+async function unpauseAgent(id) {
+  const btn = event ? event.target : null;
+  await withLoading(btn, async () => {
+    const res = await fetch(`/api/agents/${id}/unpause`, { method: 'POST', headers: apiHeaders() });
+    if (res.ok) { loadAgents(); showToast('Agent已恢复', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '恢复失败', 'error'); }
+  });
+}
+
 async function stopAgentById(id) {
   if (!confirm('Stop this agent?')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/stop`, { method: 'POST', headers: apiHeaders() });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); alert('Failed: ' + (e.error || 'Unknown')); }
+    if (res.ok) { showToast('Agent已停止', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '停止失败', 'error'); }
     loadAgents();
   });
 }
@@ -444,7 +659,7 @@ async function createAgent() {
     const body = { name: document.getElementById('agent-name').value, role: document.getElementById('agent-role').value, working_directory: document.getElementById('agent-workdir').value || undefined };
     if (!body.name) { alert('Name is required'); return; }
     const res = await fetch(`/api/projects/${projectId}/agents`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { hideModal('createAgentModal'); loadAgents(); } else { const e = await res.json().catch(() => ({})); alert('Error: ' + (e.error || 'Unknown')); }
+    if (res.ok) { hideModal('createAgentModal'); loadAgents(); showToast('Agent已创建', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '创建失败', 'error'); }
   });
 }
 
@@ -535,22 +750,16 @@ function setIssueFilter(f) { currentIssueFilter = f; currentIssuePage = 1; loadI
 function searchIssues() { currentIssuePage = 1; loadIssues(); }
 
 
-function timeAgo(dateStr) {
-  const d = new Date(dateStr + 'Z');
-  const now = new Date();
-  const s = Math.floor((now - d) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return Math.floor(s / 60) + 'm ago';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-  return Math.floor(s / 86400) + 'd ago';
-}
 
 function showCreateIssueModal() {
   document.getElementById('issue-title').value = '';
   document.getElementById('issue-body').value = '';
   document.getElementById('issue-labels').value = '';
   const sel = document.getElementById('issue-assign');
-  if (sel) sel.selectedIndex = 0;
+  if (sel) {
+    const controllerId = agentsData.find(a => a.is_controller)?.id || '';
+    sel.value = controllerId || '';
+  }
   document.getElementById('createIssueModal').classList.add('active');
 }
 
@@ -566,7 +775,7 @@ async function createIssue() {
     };
     if (!body.title) { alert('Title is required'); return; }
     const res = await fetch(`/api/projects/${projectId}/issues`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { hideModal('createIssueModal'); loadIssues(); } else { const e = await res.json().catch(() => ({})); alert('Error: ' + (e.error || 'Unknown')); }
+    if (res.ok) { hideModal('createIssueModal'); loadIssues(); showToast('Issue已创建', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '创建失败', 'error'); }
   });
 }
 
@@ -591,8 +800,18 @@ function switchTab(tab) {
   document.getElementById('tab-agents').style.display = tab === 'agents' ? '' : 'none';
   document.getElementById('tab-issues').style.display = tab === 'issues' ? '' : 'none';
   document.getElementById('tab-activity').style.display = tab === 'activity' ? '' : 'none';
+  document.getElementById('tab-git').style.display = tab === 'git' ? '' : 'none';
+  // Update breadcrumb section
+  const sectionNames = { overview: '', agents: 'Agents', issues: 'Issues', activity: 'Activity', git: 'Git' };
+  const sectionEl = document.getElementById('breadcrumb-section');
+  if (sectionEl) {
+    sectionEl.textContent = sectionNames[tab] ? ' / ' + sectionNames[tab] : '';
+  }
+  // Update URL hash
+  window.location.hash = tab === 'overview' ? '' : tab;
   if (tab === 'issues') loadIssues();
   if (tab === 'activity') loadActivity();
+  if (tab === 'git') loadGitTab();
 }
 
 async function loadActivity() {
@@ -631,9 +850,208 @@ async function loadActivity() {
   } catch { container.innerHTML = '<div class="empty-state">Failed to load activity.</div>'; }
 }
 
+// ─── Git Tab ───
+
+async function loadGitTab() {
+  const commitContainer = document.getElementById('git-commit-list');
+  const statusContainer = document.getElementById('git-status-summary');
+  const uncommittedContainer = document.getElementById('git-uncommitted');
+
+  // Load git log and per-agent git status in parallel
+  try {
+    const [logRes, ...agentStatuses] = await Promise.all([
+      fetch(`/api/projects/${projectId}/git-log?limit=30`, { headers: apiHeaders() }),
+      ...agentsData.filter(a => a.working_directory).map(a =>
+        fetch(`/api/agents/${a.id}/git-status`, { headers: apiHeaders() }).then(r => r.ok ? r.json() : null).then(data => ({ agent: a, data }))
+      )
+    ]);
+
+    // Render status summary (branch info per agent)
+    const validStatuses = agentStatuses.filter(s => s && s.data && s.data.branch);
+    if (validStatuses.length > 0) {
+      statusContainer.innerHTML = `<div class="card" style="padding:14px 18px">
+        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:10px">Repository Status</div>
+        ${validStatuses.map(s => {
+          const d = s.data;
+          const lastCommit = d.recent_commits && d.recent_commits[0]
+            ? `<code style="color:var(--accent)">${esc(d.recent_commits[0].hash)}</code> ${esc(d.recent_commits[0].message.slice(0, 60))} <span style="color:var(--text-secondary)">${timeAgo(d.recent_commits[0].date)}</span>`
+            : '<span style="color:var(--text-secondary)">no commits</span>';
+          const uncommitted = d.has_uncommitted
+            ? `<span style="color:var(--warning);margin-left:12px">${(d.uncommitted_files || []).length} uncommitted</span>`
+            : '';
+          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+            <div style="flex-shrink:0">${avatarSvg(s.agent.name, 22)}</div>
+            <strong style="min-width:100px">${esc(s.agent.name)}</strong>
+            <span style="background:var(--bg);padding:2px 8px;border-radius:10px;border:1px solid var(--border);font-family:monospace;font-size:11px">${esc(d.branch)}</span>
+            <div style="flex:1">${lastCommit}</div>
+            ${uncommitted}
+          </div>`;
+        }).join('')}
+      </div>`;
+    } else {
+      statusContainer.innerHTML = '';
+    }
+
+    // Render commit list
+    if (!logRes.ok) { commitContainer.innerHTML = '<div class="empty-state">Failed to load git log.</div>'; return; }
+    const commits = await logRes.json();
+
+    if (!commits.length) {
+      commitContainer.innerHTML = '<div class="empty-state">No git commits found. Ensure agents have a working directory that is a git repository.</div>';
+      uncommittedContainer.innerHTML = '';
+      return;
+    }
+
+    commitContainer.innerHTML = `
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:10px;padding:0 4px">Recent Commits</div>
+      ${commits.map(c => `<div style="display:flex;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border);font-size:13px;align-items:flex-start">
+        <span style="color:var(--success);flex-shrink:0;margin-top:2px">●</span>
+        <code style="color:var(--accent);flex-shrink:0;font-size:12px">${esc(c.short_hash)}</code>
+        <div style="flex:1;min-width:0">
+          <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.message)}</div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${esc(c.author)} <span style="color:var(--text-secondary)">${timeAgo(c.date)}</span></div>
+        </div>
+      </div>`).join('')}`;
+
+    // Render uncommitted changes
+    const allUncommitted = validStatuses.filter(s => s.data.has_uncommitted && s.data.uncommitted_files && s.data.uncommitted_files.length > 0);
+    if (allUncommitted.length > 0) {
+      uncommittedContainer.innerHTML = `<div class="card" style="padding:14px 18px">
+        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:10px">Uncommitted Changes</div>
+        ${allUncommitted.map(s => s.data.uncommitted_files.map(f => `<div style="display:flex;gap:8px;padding:4px 0;font-size:12px;font-family:monospace;border-bottom:1px solid var(--border)">
+          <span style="color:${f.status === 'M' ? 'var(--warning)' : f.status === 'A' || f.status === '?' ? 'var(--success)' : 'var(--error)'};width:20px;text-align:center;flex-shrink:0">${esc(f.status)}</span>
+          <span>${esc(f.file)}</span>
+        </div>`).join('')).join('')}
+      </div>`;
+    } else {
+      uncommittedContainer.innerHTML = '';
+    }
+  } catch (e) {
+    commitContainer.innerHTML = '<div class="empty-state">Failed to load git information.</div>';
+    statusContainer.innerHTML = '';
+    uncommittedContainer.innerHTML = '';
+  }
+}
+
+// ─── Dashboard & Visualization ───
+
+async function loadDashboard() {
+  const el = document.getElementById('project-dashboard');
+  if (!el) return;
+  try {
+    const [agentsRes, issuesRes, costRes] = await Promise.all([
+      fetch(`/api/projects/${projectId}/agents`, { headers: apiHeaders() }),
+      fetch(`/api/projects/${projectId}/issues?per_page=200`, { headers: apiHeaders() }),
+      fetch(`/api/projects/${projectId}/costs`, { headers: apiHeaders() }),
+    ]);
+    const agents = agentsRes.ok ? await agentsRes.json() : [];
+    const issueData = issuesRes.ok ? await issuesRes.json() : {};
+    const issues = issueData.issues || issueData || [];
+    const cost = costRes.ok ? await costRes.json() : null;
+
+    const running = agents.filter(a => a.status === 'running').length;
+    const errors = agents.filter(a => a.status === 'error').length;
+    const paused = agents.filter(a => a.paused).length;
+    const openIssues = issues.filter(i => i.status === 'open' || i.status === 'in_progress').length;
+    const doneIssues = issues.filter(i => i.status === 'done' || i.status === 'closed').length;
+    const fmtCost = v => !v ? '$0' : v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
+
+    const card = (label, value, color, sub) => `
+      <div style="padding:12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:4px">${label}</div>
+        <div style="font-size:22px;font-weight:700;color:${color || 'var(--fg)'}">${value}</div>
+        ${sub ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${sub}</div>` : ''}
+      </div>`;
+
+    el.innerHTML =
+      card('Agents', `${running}/${agents.length}`, running > 0 ? 'var(--success)' : 'var(--fg)',
+        `${errors > 0 ? `<span style="color:var(--error)">${errors} error</span>` : ''}${paused > 0 ? ` <span style="color:var(--warning)">${paused} paused</span>` : ''}`) +
+      card('Open Issues', openIssues, openIssues > 0 ? 'var(--warning)' : 'var(--fg)',
+        `${doneIssues} completed`) +
+      card('Total Cost', fmtCost(cost?.total_cost_usd), 'var(--accent)',
+        cost ? `${cost.total_runs || 0} runs` : '') +
+      card('Issues Progress', issues.length > 0 ? Math.round(doneIssues / issues.length * 100) + '%' : '-', 'var(--fg)',
+        `${doneIssues}/${issues.length} total`);
+  } catch { el.innerHTML = ''; }
+}
+
+function renderAgentGraph() {
+  const container = document.getElementById('agent-graph-container');
+  if (!container || !agentsData.length) { if (container) container.innerHTML = ''; return; }
+
+  const W = Math.min(container.clientWidth || 600, 700);
+  const H = 280;
+  const cx = W / 2, cy = H / 2;
+
+  const controller = agentsData.find(a => a.is_controller);
+  const workers = agentsData.filter(a => !a.is_controller);
+
+  const statusColor = (a) => {
+    if (a.paused) return '#d29922';
+    switch (a.status) {
+      case 'running': return '#3fb950';
+      case 'error': return '#f85149';
+      case 'stopped': return '#d29922';
+      default: return '#8b949e';
+    }
+  };
+
+  const nodeRadius = 30;
+  const orbitRadius = Math.min(W / 2 - 60, H / 2 - 50);
+
+  let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;margin:0 auto">`;
+
+  // Draw connections from controller to workers
+  if (controller) {
+    workers.forEach((w, i) => {
+      const angle = (2 * Math.PI * i / workers.length) - Math.PI / 2;
+      const wx = cx + orbitRadius * Math.cos(angle);
+      const wy = cy + orbitRadius * Math.sin(angle);
+      svg += `<line x1="${cx}" y1="${cy}" x2="${wx}" y2="${wy}" stroke="var(--border)" stroke-width="1" stroke-dasharray="4,4" opacity="0.5"/>`;
+    });
+  }
+
+  // Draw worker nodes
+  workers.forEach((w, i) => {
+    const angle = (2 * Math.PI * i / workers.length) - Math.PI / 2;
+    const wx = cx + orbitRadius * Math.cos(angle);
+    const wy = cy + orbitRadius * Math.sin(angle);
+    const color = statusColor(w);
+    const pulse = w.status === 'running' ? `<animate attributeName="r" values="${nodeRadius};${nodeRadius+4};${nodeRadius}" dur="2s" repeatCount="indefinite"/>` : '';
+
+    // Count assigned issues
+    const assignedCount = (window._dashboardIssues || []).filter(iss => iss.assigned_to === w.id && (iss.status === 'open' || iss.status === 'in_progress')).length;
+
+    svg += `<g style="cursor:pointer" onclick="viewAgent('${w.id}')">
+      <circle cx="${wx}" cy="${wy}" r="${nodeRadius}" fill="${color}22" stroke="${color}" stroke-width="2"${w.paused ? ' stroke-dasharray="4,4"' : ''}>${pulse}</circle>
+      <text x="${wx}" y="${wy - 2}" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">${esc(w.name.length > 10 ? w.name.slice(0, 9) + '…' : w.name)}</text>
+      <text x="${wx}" y="${wy + 12}" text-anchor="middle" fill="${color}" font-size="9">${w.paused ? 'paused' : w.status}${assignedCount > 0 ? ' · ' + assignedCount + ' tasks' : ''}</text>
+    </g>`;
+  });
+
+  // Draw controller node (center)
+  if (controller) {
+    const color = statusColor(controller);
+    const pulse = controller.status === 'running' ? `<animate attributeName="r" values="34;38;34" dur="2s" repeatCount="indefinite"/>` : '';
+    svg += `<g style="cursor:pointer" onclick="viewAgent('${controller.id}')">
+      <circle cx="${cx}" cy="${cy}" r="34" fill="${color}22" stroke="${color}" stroke-width="2.5">${pulse}</circle>
+      <text x="${cx}" y="${cy - 4}" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="700">${esc(controller.name.length > 12 ? controller.name.slice(0, 11) + '…' : controller.name)}</text>
+      <text x="${cx}" y="${cy + 10}" text-anchor="middle" fill="${color}" font-size="9">${controller.status}</text>
+      <text x="${cx}" y="${cy + 21}" text-anchor="middle" fill="var(--accent)" font-size="8">controller</text>
+    </g>`;
+  }
+
+  svg += '</svg>';
+  container.innerHTML = `<div class="card" style="padding:12px;text-align:center">
+    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">Agent Collaboration</div>
+    ${svg}
+  </div>`;
+}
+
 // ─── Init ───
 loadProject();
 loadAgents();
+loadDashboard();
 
 // Slow fallback polling (WS handles real-time)
 setInterval(loadAgents, 30000);
@@ -643,6 +1061,7 @@ const _projectEvents = connectProjectEvents(projectId);
 
 _projectEvents.on('agent_status', function(data) {
   loadAgents();
+  loadDashboard();
   // If viewing this agent's detail, refresh output too
   if (currentAgentId === data.agentId) {
     loadAgentOutput(data.agentId);
@@ -663,6 +1082,6 @@ _projectEvents.on('comment_added', function() {
 
 // Handle hash navigation (e.g., #issues or #agents from dashboard)
 const hash = window.location.hash.replace('#', '');
-if (['overview', 'agents', 'issues'].includes(hash)) {
+if (['overview', 'agents', 'issues', 'activity', 'git'].includes(hash)) {
   setTimeout(() => switchTab(hash), 500);
 }
