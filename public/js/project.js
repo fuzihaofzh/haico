@@ -622,7 +622,7 @@ async function quickStartAgent(id) {
 async function pauseAgent(id) {
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
-    const res = await fetch(`/api/agents/${id}/pause`, { method: 'POST', headers: apiHeaders() });
+    const res = await fetch(`/api/agents/${id}/pause`, { method: 'POST', headers: apiHeaders(), body: '{}' });
     if (res.ok) { loadAgents(); showToast('Agent已暂停', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '暂停失败', 'error'); }
   });
 }
@@ -630,7 +630,7 @@ async function pauseAgent(id) {
 async function unpauseAgent(id) {
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
-    const res = await fetch(`/api/agents/${id}/unpause`, { method: 'POST', headers: apiHeaders() });
+    const res = await fetch(`/api/agents/${id}/unpause`, { method: 'POST', headers: apiHeaders(), body: '{}' });
     if (res.ok) { loadAgents(); showToast('Agent已恢复', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '恢复失败', 'error'); }
   });
 }
@@ -639,7 +639,7 @@ async function stopAgentById(id) {
   if (!confirm('Stop this agent?')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
-    const res = await fetch(`/api/agents/${id}/stop`, { method: 'POST', headers: apiHeaders() });
+    const res = await fetch(`/api/agents/${id}/stop`, { method: 'POST', headers: apiHeaders(), body: '{}' });
     if (res.ok) { showToast('Agent已停止', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '停止失败', 'error'); }
     loadAgents();
   });

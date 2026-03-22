@@ -199,7 +199,7 @@ async function stopAgent() {
   if (!confirm('Stop this agent?')) return;
   const btn = document.getElementById('btn-stop');
   await withLoading(btn, async () => {
-    const res = await fetch(`/api/agents/${agentId}/stop`, { method: 'POST', headers: apiHeaders() });
+    const res = await fetch(`/api/agents/${agentId}/stop`, { method: 'POST', headers: apiHeaders(), body: '{}' });
     if (res.ok) { showToast('Agent已停止', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '停止失败', 'error'); }
     loadAgentInfo();
   });
