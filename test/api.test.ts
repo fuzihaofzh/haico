@@ -602,6 +602,123 @@ describe('Argus API', () => {
     });
   });
 
+  // ─── Agent Pause / Unpause ───
+
+  describe('Agent Pause / Unpause', () => {
+    it('pause nonexistent agent returns 404', async () => {
+      const { status } = await api(app, '/api/agents/nonexistent/pause', { method: 'POST' });
+      assert.equal(status, 404);
+    });
+
+    it('unpause nonexistent agent returns 404', async () => {
+      const { status } = await api(app, '/api/agents/nonexistent/unpause', { method: 'POST' });
+      assert.equal(status, 404);
+    });
+
+    it('pause idle agent succeeds', async () => {
+      // Ensure agent is idle first
+      const { body: st } = await api(app, `/api/agents/${workerId}/status`);
+      if (st.status === 'running') {
+        await api(app, `/api/agents/${workerId}/stop`, { method: 'POST' });
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      const { status, body } = await api(app, `/api/agents/${workerId}/pause`, { method: 'POST' });
+      assert.equal(status, 200);
+      assert.equal(body.success, true);
+
+      // Verify agent is paused and stopped
+      const { body: agent } = await api(app, `/api/agents/${workerId}`);
+      assert.equal(agent.paused, 1);
+      assert.equal(agent.status, 'stopped');
+    });
+
+    it('pause already paused agent returns 409', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/pause`, { method: 'POST' });
+      assert.equal(status, 409);
+      assert.ok(body.error.includes('already paused'));
+    });
+
+    it('start paused agent returns 409', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/start`, {
+        method: 'POST', body: { prompt: 'should not start' },
+      });
+      assert.equal(status, 409);
+      assert.ok(body.error.includes('paused'));
+    });
+
+    it('status endpoint shows paused=true', async () => {
+      const { body } = await api(app, `/api/agents/${workerId}/status`);
+      assert.equal(body.paused, true);
+    });
+
+    it('unpause agent succeeds', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/unpause`, { method: 'POST' });
+      assert.equal(status, 200);
+      assert.equal(body.success, true);
+
+      // Verify agent is unpaused and idle
+      const { body: agent } = await api(app, `/api/agents/${workerId}`);
+      assert.equal(agent.paused, 0);
+      assert.equal(agent.status, 'idle');
+    });
+
+    it('unpause already unpaused agent returns 409', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/unpause`, { method: 'POST' });
+      assert.equal(status, 409);
+      assert.ok(body.error.includes('not paused'));
+    });
+
+    it('status endpoint shows paused=false after unpause', async () => {
+      const { body } = await api(app, `/api/agents/${workerId}/status`);
+      assert.equal(body.paused, false);
+    });
+
+    it('agent can be started after unpause', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/start`, {
+        method: 'POST', body: { prompt: 'after unpause' },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.success, true);
+
+      // Wait for it to finish
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const { body: st } = await api(app, `/api/agents/${workerId}/status`);
+        if (st.status !== 'running') break;
+      }
+    });
+
+    it('pause stops a running agent', async () => {
+      // Start with long-running command
+      await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { command_template: 'tail -f /dev/null #' },
+      });
+      await api(app, `/api/agents/${workerId}/start`, {
+        method: 'POST', body: { prompt: 'long running' },
+      });
+      await new Promise(r => setTimeout(r, 500));
+
+      // Pause while running
+      const { status, body } = await api(app, `/api/agents/${workerId}/pause`, { method: 'POST' });
+      assert.equal(status, 200);
+      assert.equal(body.success, true);
+
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Verify agent is paused and not running
+      const { body: st } = await api(app, `/api/agents/${workerId}/status`);
+      assert.equal(st.paused, true);
+      assert.equal(st.is_running, false);
+
+      // Unpause and restore
+      await api(app, `/api/agents/${workerId}/unpause`, { method: 'POST' });
+      await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { command_template: 'echo' },
+      });
+    });
+  });
+
   // ─── Error Recovery (process-manager) ───
 
   describe('Error Recovery', () => {
@@ -1058,6 +1175,247 @@ describe('Argus API', () => {
     it('search by q parameter works', async () => {
       const { body } = await api(app, `/api/projects/${projectId}/issues?q=Test`);
       assert.ok(body.issues.length >= 1);
+    });
+  });
+
+  // ─── Agent Costs ───
+
+  describe('Agent Costs', () => {
+    it('GET /api/agents/:id/costs returns cost structure', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/costs`);
+      assert.equal(status, 200);
+      assert.equal(typeof body.total_cost_usd, 'number');
+      assert.equal(typeof body.total_input_tokens, 'number');
+      assert.equal(typeof body.total_output_tokens, 'number');
+      assert.equal(typeof body.total_runs, 'number');
+      assert.ok(Array.isArray(body.runs));
+    });
+
+    it('GET /api/agents/:id/costs returns 404 for nonexistent agent', async () => {
+      const { status } = await api(app, '/api/agents/nonexistent/costs');
+      assert.equal(status, 404);
+    });
+
+    it('agent with no cost records returns total_runs 0', async () => {
+      // Create a fresh agent that has never been started
+      const { body: freshAgent } = await api(app, `/api/projects/${projectId}/agents`, {
+        method: 'POST', body: { name: 'no-cost-agent', role: 'Test' },
+      });
+      const { status, body } = await api(app, `/api/agents/${freshAgent.id}/costs`);
+      assert.equal(status, 200);
+      assert.equal(body.total_runs, 0);
+      assert.equal(body.total_cost_usd, 0);
+      assert.equal(body.runs.length, 0);
+
+      await api(app, `/api/agents/${freshAgent.id}`, { method: 'DELETE' });
+    });
+  });
+
+  // ─── Dashboard Summary ───
+
+  describe('Dashboard Summary', () => {
+    it('GET /api/dashboard/summary returns aggregate stats (with auth)', async () => {
+      const { status, body } = await api(app, '/api/dashboard/summary', {
+        headers: { cookie: `argus-auth=${sessionToken}` },
+      });
+      assert.equal(status, 200);
+      assert.ok(typeof body.agents === 'object');
+      assert.equal(typeof body.agents.total, 'number');
+      assert.equal(typeof body.agents.running, 'number');
+      assert.equal(typeof body.agents.error_count, 'number');
+      assert.ok(typeof body.issues === 'object');
+      assert.equal(typeof body.issues.total, 'number');
+      assert.equal(typeof body.issues.open, 'number');
+      assert.equal(typeof body.total_cost_usd, 'number');
+      assert.ok(typeof body.last_activity === 'object');
+    });
+
+    it('GET /api/dashboard/summary requires auth (not localhost-safe)', async () => {
+      const { status } = await api(app, '/api/dashboard/summary');
+      assert.equal(status, 401);
+    });
+  });
+
+  // ─── Project Export ───
+
+  describe('Project Export', () => {
+    it('GET /api/projects/:id/export returns full project data', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}/export`);
+      assert.equal(status, 200);
+      assert.ok(body.exported_at);
+      assert.ok(body.project);
+      assert.ok(Array.isArray(body.agents));
+      assert.ok(Array.isArray(body.issues));
+      assert.ok(body.cost_summary);
+      assert.equal(typeof body.cost_summary.total_cost_usd, 'number');
+    });
+
+    it('GET /api/projects/:id/export returns 404 for nonexistent project', async () => {
+      const { status } = await api(app, '/api/projects/nonexistent/export');
+      assert.equal(status, 404);
+    });
+
+    it('GET /api/projects/:id/export/issues.csv returns CSV', async () => {
+      const res = await inject(app, { url: `/api/projects/${projectId}/export/issues.csv` });
+      assert.equal(res.statusCode, 200);
+      assert.ok(res.headers['content-type']?.toString().includes('text/csv'));
+      assert.ok(res.body.includes('number,title,status'));
+    });
+
+    it('CSV export returns 404 for nonexistent project', async () => {
+      const { status } = await api(app, '/api/projects/nonexistent/export/issues.csv');
+      assert.equal(status, 404);
+    });
+  });
+
+  // ─── Costs with time-series ───
+
+  describe('Project Costs Extended', () => {
+    it('GET /api/projects/:id/costs with period=day returns time_series', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}/costs?period=day`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.time_series));
+      assert.ok(Array.isArray(body.runs));
+    });
+  });
+
+  // ─── Agent Runs & Report ───
+
+  describe('Agent Runs', () => {
+    it('GET /api/agents/:id/runs returns run list structure', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/runs`);
+      assert.equal(status, 200);
+      assert.ok(body.runs !== undefined, 'response should have runs array');
+      assert.ok(Array.isArray(body.runs));
+    });
+
+    it('GET /api/agents/:id/runs returns 404 for nonexistent agent', async () => {
+      const { status, body } = await api(app, '/api/agents/nonexistent-id/runs');
+      assert.equal(status, 404);
+      assert.equal(body.error, 'Agent not found');
+    });
+
+    it('run items contain expected fields', async () => {
+      const { body } = await api(app, `/api/agents/${workerId}/runs`);
+      // Agent may have no runs — if it does, check the shape
+      if (body.runs.length > 0) {
+        const run = body.runs[0];
+        assert.equal(typeof run.run_id, 'string');
+        assert.equal(typeof run.started_at, 'string');
+        assert.equal(typeof run.status, 'string');
+        assert.ok(run.status === 'success' || run.status === 'error');
+        assert.equal(typeof run.cost_usd, 'number');
+        assert.equal(typeof run.tool_call_count, 'number');
+        assert.ok('result_snippet' in run);
+      }
+    });
+
+    it('GET /api/agents/:id/runs respects limit param', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/runs?limit=1`);
+      assert.equal(status, 200);
+      assert.ok(body.runs.length <= 1);
+    });
+  });
+
+  describe('Agent Run Report', () => {
+    it('GET /api/agents/:id/runs/:runId/report returns 404 for nonexistent run', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/runs/fake-run-id/report`);
+      assert.equal(status, 404);
+      assert.equal(body.error, 'Run not found');
+    });
+
+    it('GET /api/agents/:id/runs/:runId/report returns 404 for nonexistent agent', async () => {
+      const { status, body } = await api(app, '/api/agents/nonexistent-id/runs/fake/report');
+      assert.equal(status, 404);
+      assert.equal(body.error, 'Agent not found');
+    });
+  });
+
+  // ─── Git Integration ───
+
+  describe('Git Integration', () => {
+    it('GET /api/projects/:id/git-log returns commit list', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}/git-log?limit=5`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body));
+      // Test project agents have no working_directory, so expect empty
+    });
+
+    it('GET /api/projects/:id/git-log respects limit param', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}/git-log?limit=1`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body));
+    });
+
+    it('GET /api/agents/:id/git-status returns status for agent without working_directory', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/git-status`);
+      assert.equal(status, 200);
+      assert.equal(body.branch, null);
+      assert.deepEqual(body.recent_commits, []);
+      assert.equal(body.has_uncommitted, false);
+    });
+
+    it('GET /api/agents/:id/git-status with working_directory set', async () => {
+      // Set working_directory to current repo for testing
+      await api(app, `/api/agents/${workerId}`, {
+        method: 'PUT', body: { working_directory: process.cwd() },
+      });
+      const { status, body } = await api(app, `/api/agents/${workerId}/git-status`);
+      assert.equal(status, 200);
+      assert.ok(body.branch, 'Should have a branch name');
+      assert.ok(Array.isArray(body.recent_commits), 'Should have recent_commits array');
+      if (body.recent_commits.length > 0) {
+        assert.ok(body.recent_commits[0].hash, 'Commit should have hash');
+        assert.ok(body.recent_commits[0].message, 'Commit should have message');
+      }
+    });
+
+    it('GET /api/agents/nonexistent/git-status returns 404', async () => {
+      const { status } = await api(app, '/api/agents/nonexistent/git-status');
+      assert.equal(status, 404);
+    });
+
+    it('git-log returns commits when agent has working_directory', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}/git-log?limit=5`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body));
+      // Now that workerId has cwd as working_directory, should have commits
+      if (body.length > 0) {
+        assert.ok(body[0].hash, 'Commit should have full hash');
+        assert.ok(body[0].short_hash, 'Commit should have short_hash');
+        assert.ok(body[0].author, 'Commit should have author');
+        assert.ok(body[0].message, 'Commit should have message');
+        assert.ok(body[0].date, 'Commit should have date');
+      }
+    });
+  });
+
+  // ─── Breadcrumb Navigation ───
+
+  describe('Breadcrumb Navigation', () => {
+    it('issue.html has breadcrumb with Issues link', async () => {
+      const res = await inject(app, { url: '/issues/nonexistent' });
+      assert.equal(res.statusCode, 200);
+      assert.ok(res.body.includes('id="issues-link"'), 'Should have issues-link element');
+      assert.ok(res.body.includes('id="project-link"'), 'Should have project-link element');
+      assert.ok(res.body.includes('id="issue-title-breadcrumb"'), 'Should have issue-title breadcrumb');
+    });
+
+    it('project.html has breadcrumb with section span', async () => {
+      const res = await inject(app, { url: `/projects/${projectId}` });
+      assert.equal(res.statusCode, 200);
+      assert.ok(res.body.includes('id="breadcrumb-section"'), 'Should have breadcrumb-section element');
+      assert.ok(res.body.includes('id="project-name"'), 'Should have project-name element');
+    });
+
+    it('project.html has 5 tabs including Git', async () => {
+      const res = await inject(app, { url: `/projects/${projectId}` });
+      assert.equal(res.statusCode, 200);
+      assert.ok(res.body.includes("switchTab('git')"), 'Should have Git tab');
+      assert.ok(res.body.includes("switchTab('overview')"), 'Should have Overview tab');
+      assert.ok(res.body.includes("switchTab('agents')"), 'Should have Agents tab');
+      assert.ok(res.body.includes("switchTab('issues')"), 'Should have Issues tab');
+      assert.ok(res.body.includes("switchTab('activity')"), 'Should have Activity tab');
     });
   });
 

@@ -30,6 +30,7 @@ export function initializeDatabase(db: Database.Database): void {
       custom_instructions TEXT DEFAULT '',
       new_session_per_run BOOLEAN DEFAULT 0,
       status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'error', 'stopped')),
+      paused BOOLEAN DEFAULT 0,
       pid INTEGER,
       last_prompt TEXT,
       started_at DATETIME,
@@ -101,6 +102,13 @@ export function initializeDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_logs_agent ON conversation_logs(agent_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);
   `);
+
+  // Migration: add paused column if missing
+  const cols = db.prepare("PRAGMA table_info(agents)").all() as any[];
+  if (!cols.find((c: any) => c.name === 'paused')) {
+    db.exec("ALTER TABLE agents ADD COLUMN paused BOOLEAN DEFAULT 0");
+    logger.info('Migration: added paused column to agents table');
+  }
 
   // Reset any agents stuck in 'running' from a previous crash
   const reset = db.prepare("UPDATE agents SET status = 'idle', pid = NULL WHERE status = 'running'");

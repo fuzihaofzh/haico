@@ -65,15 +65,21 @@ async function loadIssue() {
   }
   issueData = data; issueId = data.id;
 
-  try { const r = await fetch(`/api/projects/${data.project_id}/agents`, { headers: apiHeaders() }); if (r.ok) agentsData = await r.json(); } catch {}
+  // Fetch agents and project info in parallel
+  const [agentsRes, projectRes] = await Promise.allSettled([
+    fetch(`/api/projects/${data.project_id}/agents`, { headers: apiHeaders() }),
+    fetch(`/api/projects/${data.project_id}`, { headers: apiHeaders() })
+  ]);
+  if (agentsRes.status === 'fulfilled' && agentsRes.value.ok) agentsData = await agentsRes.value.json();
 
   document.getElementById('project-link').href = `/projects/${data.project_id}`;
   document.getElementById('issues-link').href = `/projects/${data.project_id}#issues`;
-  try { const pr = await fetch(`/api/projects/${data.project_id}`, { headers: apiHeaders() }); if (pr.ok) { const p = await pr.json(); document.getElementById('project-link').textContent = p.name; } } catch {}
+  if (projectRes.status === 'fulfilled' && projectRes.value.ok) { const p = await projectRes.value.json(); document.getElementById('project-link').textContent = p.name; }
   document.getElementById('issue-title-breadcrumb').textContent = `#${data.number} ${data.title}`;
   document.title = `#${data.number} ${data.title} - Argus`;
 
   renderIssue();
+  setupIssueWS();
 }
 
 function renderIssue() {
@@ -279,16 +285,13 @@ loadIssue();
 // Connect to project WebSocket for real-time comment updates
 // Set up after first load when we know the projectId
 let _issueEvents = null;
-(async function setupIssueWS() {
-  // Wait for initial load to complete
-  await new Promise(r => { const check = () => issueData ? r() : setTimeout(check, 200); check(); });
-  if (issueData && issueData.project_id) {
-    _issueEvents = connectProjectEvents(issueData.project_id);
-    _issueEvents.on('comment_added', function(data) {
-      if (data.issueId === issueId) loadIssue();
-    });
-    _issueEvents.on('issue_updated', function(data) {
-      if (data.issue && data.issue.id === issueId) loadIssue();
-    });
-  }
-})();
+function setupIssueWS() {
+  if (!issueData || !issueData.project_id || _issueEvents) return;
+  _issueEvents = connectProjectEvents(issueData.project_id);
+  _issueEvents.on('comment_added', function(data) {
+    if (data.issueId === issueId) loadIssue();
+  });
+  _issueEvents.on('issue_updated', function(data) {
+    if (data.issue && data.issue.id === issueId) loadIssue();
+  });
+}

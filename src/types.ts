@@ -22,6 +22,7 @@ export interface Agent {
   custom_instructions: string;
   new_session_per_run: boolean;
   status: 'idle' | 'running' | 'error' | 'stopped';
+  paused: boolean;
   pid: number | null;
   last_prompt: string | null;
   started_at: string | null;

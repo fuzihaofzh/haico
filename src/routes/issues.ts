@@ -90,7 +90,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       // Auto-start assigned agent when user creates issue
       if (created_by === 'user' && assigned_to && assigned_to !== 'user' && assigned_to !== 'all') {
         const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(assigned_to) as Agent | undefined;
-        if (agent && agent.status !== 'running' && !isAgentRunning(agent.id)) {
+        if (agent && !agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
           if (project) {
             const prompt = `New issue #${number} "${title}" has been assigned to you. Review and take action.\n\nDescription: ${(body || '').slice(0, 500)}`;
@@ -173,7 +173,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       // Auto-start agent when user assigns an issue to them
       if (actorId === 'user' && assigned_to && assigned_to !== existing.assigned_to && assigned_to !== 'user' && assigned_to !== 'all') {
         const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(assigned_to) as Agent | undefined;
-        if (agent && agent.status !== 'running' && !isAgentRunning(agent.id)) {
+        if (agent && !agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(updated.project_id) as Project | undefined;
           if (project) {
             const prompt = `You have been assigned issue #${updated.number} "${updated.title}". Review it and take action.\n\nDescription: ${updated.body?.slice(0, 500) || '(none)'}`;
@@ -217,7 +217,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
     // Recent comments on any issue (last 20)
     const recentComments = db.prepare(
-      "SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id FROM issue_comments c JOIN issues i ON c.issue_id = i.id WHERE c.author_id != 'user' ORDER BY c.created_at DESC LIMIT 20"
+      "SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name FROM issue_comments c JOIN issues i ON c.issue_id = i.id JOIN projects p ON i.project_id = p.id WHERE c.author_id != 'user' ORDER BY c.created_at DESC LIMIT 20"
     ).all() as any[];
 
     return { user_issues: userIssues, recent_comments: recentComments };
@@ -256,7 +256,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         if (iss.assigned_to && iss.assigned_to !== 'user' && iss.assigned_to !== 'all') {
           // Start the assigned agent
           const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(iss.assigned_to) as Agent | undefined;
-          if (agent && agent.status !== 'running' && !isAgentRunning(agent.id)) {
+          if (agent && !agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
             const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(iss.project_id) as Project | undefined;
             if (project) {
               const prompt = `User just commented on issue #${iss.number} "${iss.title}" assigned to you. Review the comment and respond.\n\nComment: ${body}`;

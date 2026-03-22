@@ -56,6 +56,36 @@
   </header>
 
   <div class="container">
+    <!-- Aggregate Stats -->
+    <div id="dashboard-stats" class="dashboard-stats" style="display:none">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-running">0</div>
+        <div class="stat-label">Running Agents</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-open-issues">0</div>
+        <div class="stat-label">Open Issues</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-cost">$0.00</div>
+        <div class="stat-label">Total Cost</div>
+      </div>
+      <div class="stat-card stat-card-errors" id="stat-errors-card" style="display:none">
+        <div class="stat-value" id="stat-errors" style="color:var(--error)">0</div>
+        <div class="stat-label">Agent Errors</div>
+      </div>
+    </div>
+
+    <!-- Notifications Panel -->
+    <div id="notifications-panel" class="notifications-panel" style="display:none">
+      <div class="notifications-header" onclick="toggleNotifications()">
+        <span>Notifications</span>
+        <span class="notif-badge" id="notif-count" style="display:none">0</span>
+        <span class="notif-toggle" id="notif-toggle-icon">&#9660;</span>
+      </div>
+      <div class="notifications-body" id="notifications-body"></div>
+    </div>
+
     <div id="projects" class="grid">
       <div class="empty-state">Loading projects...</div>
     </div>

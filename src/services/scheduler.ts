@@ -2,9 +2,11 @@ import cron from 'node-cron';
 import { getDatabase } from '../db/database';
 import { Project } from '../types';
 import { triggerControllerAgent } from './controller';
+import { config } from '../config';
 import logger from '../logger';
 
 const scheduledTasks = new Map<string, cron.ScheduledTask>();
+let logCleanupTask: cron.ScheduledTask | null = null;
 
 export function scheduleProject(project: Project): void {
   // Remove existing schedule if any
@@ -50,6 +52,25 @@ export function unscheduleProject(projectId: string): void {
   }
 }
 
+function startLogCleanup(): void {
+  // Run daily at 3:00 AM
+  logCleanupTask = cron.schedule('0 3 * * *', () => {
+    try {
+      const db = getDatabase();
+      const days = config.logRetentionDays;
+      const result = db.prepare(
+        "DELETE FROM conversation_logs WHERE created_at < datetime('now', ?)"
+      ).run(`-${days} days`);
+      if (result.changes > 0) {
+        logger.info(`Log cleanup: deleted ${result.changes} log entries older than ${days} days`);
+      }
+    } catch (e) {
+      logger.error(e, 'Log cleanup failed');
+    }
+  });
+  logger.info(`Log cleanup scheduled: retain ${config.logRetentionDays} days`);
+}
+
 export function initializeScheduler(): void {
   const db = getDatabase();
   const projects = db.prepare("SELECT * FROM projects WHERE status = 'active'").all() as Project[];
@@ -57,6 +78,8 @@ export function initializeScheduler(): void {
   for (const project of projects) {
     scheduleProject(project);
   }
+
+  startLogCleanup();
 
   logger.info(`Initialized scheduler with ${projects.length} active project(s)`);
 }
@@ -66,5 +89,9 @@ export function stopAllSchedulers(): void {
     task.stop();
   }
   scheduledTasks.clear();
+  if (logCleanupTask) {
+    logCleanupTask.stop();
+    logCleanupTask = null;
+  }
   logger.info('All schedulers stopped');
 }

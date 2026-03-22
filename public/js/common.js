@@ -1,4 +1,125 @@
-// Avatars — GitHub-style identicon based on name hash
+// ─── Shared utility functions ───
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function apiHeaders() {
+  return { 'Content-Type': 'application/json' };
+}
+
+async function withLoading(btn, asyncFn) {
+  if (!btn || btn.disabled) return;
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = originalText + '…';
+  try {
+    await asyncFn();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return '-';
+  const now = Date.now();
+  const then = new Date(dateStr + (dateStr.includes('Z') ? '' : 'Z')).getTime();
+  const diff = now - then;
+  if (diff < 0) return 'just now';
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + 'h ago';
+  const days = Math.floor(hours / 24);
+  return days + 'd ago';
+}
+
+function priorityBadge(p) {
+  if (p >= 10) return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(220,50,47,0.15);color:var(--error)">USER</span>';
+  if (p >= 5) return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(181,137,0,0.15);color:var(--warning)">CTRL</span>';
+  return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(88,110,117,0.15);color:var(--text-secondary)">AGENT</span>';
+}
+
+// nameOf resolves agent IDs to names. Uses the global `agentsData` array if available.
+function nameOf(id) {
+  if (id === 'user') return 'User';
+  if (id === 'all') return 'All';
+  if (typeof agentsData !== 'undefined') {
+    const a = agentsData.find(x => x.id === id);
+    if (a) return a.name;
+  }
+  return (id || '').slice(0, 8);
+}
+
+// Toast notifications
+function showToast(message, type) {
+  type = type || 'info';
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-' + type;
+  toast.textContent = message;
+  toast.onclick = function() { toast.remove(); };
+  container.appendChild(toast);
+  setTimeout(function() { toast.remove(); }, 3000);
+}
+
+// ─── Keyboard shortcuts ───
+
+// ESC to close modals
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    // Close the topmost open modal-overlay
+    const modals = document.querySelectorAll('.modal-overlay.active');
+    if (modals.length > 0) {
+      modals[modals.length - 1].classList.remove('active');
+      e.preventDefault();
+      return;
+    }
+    // Close drawer if open
+    const drawer = document.getElementById('drawer');
+    if (drawer && drawer.classList.contains('open')) {
+      closeDrawer();
+      e.preventDefault();
+    }
+  }
+});
+
+// Click overlay background to close modal
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('modal-overlay') && e.target.classList.contains('active')) {
+    e.target.classList.remove('active');
+  }
+});
+
+// Ctrl+Enter to submit forms
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    const el = e.target;
+    // Check if inside a modal — find the submit button
+    const modal = el.closest('.modal-overlay.active');
+    if (modal) {
+      const submitBtn = modal.querySelector('.btn-primary');
+      if (submitBtn) { submitBtn.click(); e.preventDefault(); return; }
+    }
+    // Comment input on issue page
+    if (el.id === 'comment-input') {
+      const submitBtn = document.querySelector('button[onclick="addComment()"]');
+      if (submitBtn) { submitBtn.click(); e.preventDefault(); }
+    }
+  }
+});
+
+// ─── Avatars — GitHub-style identicon based on name hash ───
 const AVATAR_COLORS = ['#e06c75','#98c379','#e5c07b','#61afef','#c678dd','#56b6c2','#be5046','#d19a66','#7ec8e3','#b5bd68','#cc6666','#8abeb7','#f0c674','#81a2be','#b294bb'];
 
 function hashCode(s) {

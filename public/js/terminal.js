@@ -3,8 +3,6 @@ let term = null;
 let fitAddon = null;
 let lastLogId = 0;
 
-function apiHeaders() { return { 'Content-Type': 'application/json' }; }
-
 function initTerminal() {
   const cs = getComputedStyle(document.documentElement);
   term = new Terminal({
@@ -147,27 +145,14 @@ const refreshAgentInfo = loadAgentInfo;
 
 // ─── Actions ───
 
-async function withLoading(btn, asyncFn) {
-  if (!btn || btn.disabled) return;
-  const originalText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = originalText + '…';
-  try {
-    await asyncFn();
-  } finally {
-    btn.disabled = false;
-    btn.textContent = originalText;
-  }
-}
-
 async function quickStart() {
   const btn = document.getElementById('btn-start');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${agentId}/start`, {
       method: 'POST', headers: apiHeaders(), body: JSON.stringify({}),
     });
-    if (res.ok) { loadAgentInfo(); }
-    else { const err = await res.json(); alert('Error: ' + err.error); }
+    if (res.ok) { loadAgentInfo(); showToast('Agent已启动', 'success'); }
+    else { const err = await res.json(); showToast(err.error || '启动失败', 'error'); }
   });
 }
 
@@ -178,7 +163,8 @@ async function saveWorkdir() {
     const res = await fetch(`/api/agents/${agentId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ working_directory: val || null }),
     });
-    if (!res.ok) alert('Failed to save');
+    if (res.ok) showToast('已保存', 'success');
+    else showToast('保存失败', 'error');
   });
 }
 
@@ -193,8 +179,8 @@ async function startAgent() {
     const res = await fetch(`/api/agents/${agentId}/start`, {
       method: 'POST', headers: apiHeaders(), body: JSON.stringify(body),
     });
-    if (res.ok) { hideModal(); loadAgentInfo(); }
-    else { const err = await res.json(); alert('Error: ' + err.error); }
+    if (res.ok) { hideModal(); loadAgentInfo(); showToast('Agent已启动', 'success'); }
+    else { const err = await res.json(); showToast(err.error || '启动失败', 'error'); }
   });
 }
 
@@ -204,8 +190,8 @@ async function retryAgent() {
     const res = await fetch(`/api/agents/${agentId}/retry`, {
       method: 'POST', headers: apiHeaders(), body: JSON.stringify({}),
     });
-    if (res.ok) { loadAgentInfo(); }
-    else { const err = await res.json().catch(() => ({})); alert('Error: ' + (err.error || 'Unknown')); }
+    if (res.ok) { loadAgentInfo(); showToast('Agent已重试', 'success'); }
+    else { const err = await res.json().catch(() => ({})); showToast(err.error || '重试失败', 'error'); }
   });
 }
 
@@ -214,7 +200,7 @@ async function stopAgent() {
   const btn = document.getElementById('btn-stop');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${agentId}/stop`, { method: 'POST', headers: apiHeaders() });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); alert('Failed: ' + (e.error || 'Unknown')); }
+    if (res.ok) { showToast('Agent已停止', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '停止失败', 'error'); }
     loadAgentInfo();
   });
 }
@@ -228,7 +214,8 @@ async function saveInstructions() {
     const res = await fetch(`/api/agents/${agentId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ custom_instructions: val }),
     });
-    if (!res.ok) alert('Failed to save');
+    if (res.ok) showToast('已保存', 'success');
+    else showToast('保存失败', 'error');
   });
 }
 

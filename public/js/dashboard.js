@@ -1,11 +1,121 @@
-function apiHeaders() {
-  return { 'Content-Type': 'application/json' };
+// Cache for last activity data from summary endpoint
+let _lastActivityMap = {};
+let _notificationsCollapsed = false;
+
+async function loadDashboardSummary() {
+  try {
+    const res = await fetch('/api/dashboard/summary', { headers: apiHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    document.getElementById('stat-running').textContent = data.agents.running;
+    document.getElementById('stat-open-issues').textContent = data.issues.open;
+    document.getElementById('stat-cost').textContent = '$' + data.total_cost_usd.toFixed(2);
+
+    const errCard = document.getElementById('stat-errors-card');
+    if (data.agents.error_count > 0) {
+      document.getElementById('stat-errors').textContent = data.agents.error_count;
+      errCard.style.display = '';
+    } else {
+      errCard.style.display = 'none';
+    }
+
+    document.getElementById('dashboard-stats').style.display = '';
+    _lastActivityMap = data.last_activity || {};
+  } catch (e) {
+    console.error('Failed to load dashboard summary', e);
+  }
+}
+
+async function loadNotifications() {
+  try {
+    const res = await fetch('/api/notifications', { headers: apiHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const issues = data.user_issues || [];
+    const comments = (data.recent_comments || []).slice(0, 5);
+    const totalCount = issues.length;
+
+    if (totalCount === 0 && comments.length === 0) {
+      document.getElementById('notifications-panel').style.display = 'none';
+      return;
+    }
+
+    document.getElementById('notifications-panel').style.display = '';
+    const badge = document.getElementById('notif-count');
+    if (totalCount > 0) {
+      badge.textContent = totalCount;
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    const body = document.getElementById('notifications-body');
+
+    // Merge issues and comments into a single list, sorted newest first
+    const items = [];
+    for (const issue of issues) {
+      items.push({ type: 'issue', time: issue.updated_at, data: issue });
+    }
+    for (const c of comments) {
+      items.push({ type: 'comment', time: c.created_at, data: c });
+    }
+    items.sort((a, b) => (b.time || '') > (a.time || '') ? 1 : -1);
+
+    let html = '';
+    for (const item of items) {
+      if (item.type === 'issue') {
+        const issue = item.data;
+        const projLink = `/projects/${issue.project_id}`;
+        html += `<div class="notif-item">
+          <span class="notif-icon" style="color:var(--warning)">&#9679;</span>
+          <span class="notif-text">
+            <a href="${projLink}#issues" onclick="event.stopPropagation()">#${issue.number}</a>
+            ${esc(issue.title)}
+            <span style="color:var(--text-secondary);font-size:11px"> &mdash; ${esc(issue.project_name || '')}</span>
+          </span>
+          <span class="notif-time">${timeAgo(issue.updated_at) || ''}</span>
+        </div>`;
+      } else {
+        const c = item.data;
+        const projLink = `/projects/${c.project_id}#issues`;
+        const preview = (c.body || '').slice(0, 80) + ((c.body || '').length > 80 ? '...' : '');
+        html += `<div class="notif-item">
+          <span class="notif-icon" style="color:var(--text-secondary)">&#9998;</span>
+          <span class="notif-text">
+            <a href="${projLink}" onclick="event.stopPropagation()">#${c.issue_number}</a>
+            <span style="color:var(--text-secondary)">${esc(preview)}</span>
+            <span style="color:var(--text-secondary);font-size:11px"> &mdash; ${esc(c.project_name || '')}</span>
+          </span>
+          <span class="notif-time">${timeAgo(c.created_at) || ''}</span>
+        </div>`;
+      }
+    }
+
+    body.innerHTML = html;
+    // Restore collapsed state
+    if (_notificationsCollapsed) {
+      body.classList.add('collapsed');
+      document.getElementById('notif-toggle-icon').classList.add('collapsed');
+    }
+  } catch (e) {
+    console.error('Failed to load notifications', e);
+  }
+}
+
+function toggleNotifications() {
+  const body = document.getElementById('notifications-body');
+  const icon = document.getElementById('notif-toggle-icon');
+  _notificationsCollapsed = !_notificationsCollapsed;
+  body.classList.toggle('collapsed');
+  icon.classList.toggle('collapsed');
 }
 
 async function loadProjects() {
   const container = document.getElementById('projects');
   try {
-    const res = await fetch('/api/projects', { headers: apiHeaders() });
+    const res = await fetch('/api/projects?with_stats=1', { headers: apiHeaders() });
     if (!res.ok) {
       container.innerHTML = '<div class="empty-state">Failed to load projects.</div>';
       return;
@@ -16,32 +126,17 @@ async function loadProjects() {
       return;
     }
 
-    // Fetch agent + issue counts for each project
-    const stats = {};
-    await Promise.all(projects.map(async (p) => {
-      const s = { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
-      try {
-        const r = await fetch(`/api/projects/${p.id}/agents`, { headers: apiHeaders() });
-        if (r.ok) { const a = await r.json(); s.agents = a.length; s.running = a.filter(x => x.status === 'running').length; s.agentError = a.filter(x => x.status === 'error').length; }
-      } catch (e) { console.error('Failed to fetch agents for project', p.id, e); }
-      try {
-        const r = await fetch(`/api/projects/${p.id}/issues`, { headers: apiHeaders() });
-        if (r.ok) {
-          const i = await r.json();
-          s.issues = i.length;
-          s.openIssues = i.filter(x => x.status === 'open' || x.status === 'in_progress').length;
-          s.userIssues = i.filter(x => (x.assigned_to === 'user' || x.assigned_to === 'all') && (x.status === 'open' || x.status === 'in_progress'));
-        }
-      } catch (e) { console.error('Failed to fetch issues for project', p.id, e); }
-      stats[p.id] = s;
-    }));
-
     container.innerHTML = projects.map(p => {
-      const s = stats[p.id] || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
+      const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
       const link = `/projects/${p.id}`;
       const userCount = s.userIssues?.length || 0;
       const notifBadge = userCount > 0
         ? `<span onclick="event.stopPropagation();window.location='${link}#issues'" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</span>`
+        : '';
+      const lastAct = _lastActivityMap[p.id];
+      const activityText = lastAct ? timeAgo(lastAct) : null;
+      const activityLine = activityText
+        ? `<div class="last-activity">Last activity: ${activityText}</div>`
         : '';
       return `
       <div class="card" style="cursor:pointer" onclick="window.location='${link}'">
@@ -63,6 +158,7 @@ async function loadProjects() {
             <span style="opacity:0.5">/ ${s.issues}</span>
           </div>
         </div>
+        ${activityLine}
       </div>
     `}).join('');
   } catch (e) {
@@ -73,19 +169,6 @@ async function loadProjects() {
 
 function showCreateModal() { document.getElementById('createModal').classList.add('active'); }
 function hideCreateModal() { document.getElementById('createModal').classList.remove('active'); }
-
-async function withLoading(btn, asyncFn) {
-  if (btn.disabled) return;
-  const originalText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = originalText + '…';
-  try {
-    await asyncFn();
-  } finally {
-    btn.disabled = false;
-    btn.textContent = originalText;
-  }
-}
 
 async function createProject() {
   const btn = document.querySelector('#createModal button[onclick="createProject()"]');
@@ -135,19 +218,19 @@ async function createProject() {
       window.location.href = '/projects/' + proj.id;
     } else {
       const err = await res.json();
-      alert('Error: ' + (err.error || 'Unknown error'));
+      showToast(err.error || '创建失败', 'error');
     }
   });
 }
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+// Initial load: summary + notifications + projects in parallel
+async function loadDashboard() {
+  await Promise.all([loadDashboardSummary(), loadNotifications(), loadProjects()]);
 }
 
-loadProjects();
-// Slow fallback polling (WS handles real-time); connect to each project as we discover them
+loadDashboard();
+// Polling: 10s for lightweight data, 30s for full project list
+setInterval(() => { loadDashboardSummary(); loadNotifications(); }, 10000);
 setInterval(loadProjects, 30000);
 
 // Listen for events from all projects and refresh dashboard on changes
@@ -158,7 +241,11 @@ setInterval(loadProjects, 30000);
     const projects = await res.json();
     for (const p of projects) {
       const ev = connectProjectEvents(p.id);
-      ev.on('*', function() { loadProjects(); });
+      ev.on('*', function() {
+        loadDashboardSummary();
+        loadNotifications();
+        loadProjects();
+      });
     }
   } catch {}
 })();
