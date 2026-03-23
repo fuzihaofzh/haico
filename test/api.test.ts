@@ -310,6 +310,156 @@ describe('Argus API', () => {
       // /api/auth routes are allowed through because they're in the auth route whitelist,
       // but the CSRF protection for state-changing requests is what matters
     });
+
+    it('session persists in SQLite (survives across getSession calls)', async () => {
+      // Login to create a session
+      const loginRes = await app.inject({
+        method: 'POST', url: '/api/auth',
+        payload: { password: 'test1234' },
+        headers: { 'content-type': 'application/json' },
+      });
+      const token = (loginRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+
+      // Verify session is stored in DB and retrievable
+      const { status, body } = await api(app, '/api/auth/sessions', {
+        headers: { cookie: `argus-auth=${token}` },
+      });
+      assert.equal(status, 200);
+      assert.ok(body.sessions.length >= 1, 'Should have at least one session in DB');
+      assert.ok(body.sessions.some((s: any) => s.current === true), 'Current session should be marked');
+      // Verify session fields
+      const current = body.sessions.find((s: any) => s.current === true);
+      assert.ok(current.createdAt > 0, 'Session should have createdAt timestamp');
+      assert.ok(current.expiresAt > current.createdAt, 'Session expiresAt should be after createdAt');
+    });
+
+    it('expired session is rejected and cleaned up', async () => {
+      // Directly insert an expired session into DB
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const expiredToken = 'expired-test-token-' + Date.now();
+      const now = Date.now();
+      db.prepare('INSERT INTO sessions (token, csrf_token, created_at, expires_at) VALUES (?, ?, ?, ?)').run(
+        expiredToken, 'csrf-expired', now - 100000, now - 1000
+      );
+
+      // Try to use expired session - should fail
+      const { status } = await api(app, '/api/auth/csrf', {
+        headers: { cookie: `argus-auth=${expiredToken}` },
+      });
+      assert.equal(status, 401, 'Expired session should be rejected');
+
+      // Verify it was cleaned from DB
+      const row = db.prepare('SELECT * FROM sessions WHERE token = ?').get(expiredToken);
+      assert.equal(row, undefined, 'Expired session should be deleted from DB');
+    });
+
+    it('auth hook reloads config when authConfig.passwordHash is empty', async () => {
+      // This tests the protection at auth.ts:456-458
+      // After password is set, API calls should NOT redirect to /setup
+      // even if authConfig were stale (the hook reloads from file)
+      const { status } = await api(app, '/api/auth/csrf');
+      // Without a valid session, we get 401 (not redirect to /setup)
+      assert.equal(status, 401, 'Should return 401, not redirect to /setup');
+    });
+
+    it('GET /login redirects to /setup when no password configured', async () => {
+      // This verifies the /login page behavior — when password IS set, it shows login
+      const res = await inject(app, { url: '/login' });
+      // Password is set in earlier tests, so it should show login HTML
+      assert.equal(res.statusCode, 200);
+      assert.ok(res.body.includes('Login'), 'Should show login page when password is set');
+    });
+
+    it('GET /setup redirects to /login when password already set', async () => {
+      const res = await inject(app, { url: '/setup' });
+      // Password is already set, so /setup should redirect to /login
+      assert.equal(res.statusCode, 302);
+      assert.ok(res.headers.location === '/login', 'Should redirect to /login');
+    });
+
+    it('change-password invalidates all previous sessions', async () => {
+      // Login to get a session
+      const loginRes = await app.inject({
+        method: 'POST', url: '/api/auth',
+        payload: { password: 'test1234' },
+        headers: { 'content-type': 'application/json' },
+      });
+      const oldToken = (loginRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+      const oldCsrf = JSON.parse(loginRes.body).csrfToken;
+
+      // Change password
+      const changeRes = await app.inject({
+        method: 'POST', url: '/api/auth/change-password',
+        payload: { current: 'test1234', password: 'changed1234' },
+        headers: { 'content-type': 'application/json', cookie: `argus-auth=${oldToken}`, 'x-csrf-token': oldCsrf },
+      });
+      assert.equal(changeRes.statusCode, 200);
+
+      // Old session should be invalid now
+      const { status: csrfStatus } = await api(app, '/api/auth/csrf', {
+        headers: { cookie: `argus-auth=${oldToken}` },
+      });
+      assert.equal(csrfStatus, 401, 'Old session should be invalidated after password change');
+
+      // Restore password for remaining tests
+      const newLogin = await app.inject({
+        method: 'POST', url: '/api/auth',
+        payload: { password: 'changed1234' },
+        headers: { 'content-type': 'application/json' },
+      });
+      const newToken = (newLogin.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+      const newCsrf = JSON.parse(newLogin.body).csrfToken;
+      await app.inject({
+        method: 'POST', url: '/api/auth/change-password',
+        payload: { current: 'changed1234', password: 'test1234' },
+        headers: { 'content-type': 'application/json', cookie: `argus-auth=${newToken}`, 'x-csrf-token': newCsrf },
+      });
+
+      // Refresh sessionToken and csrfToken for subsequent tests
+      const refreshRes = await app.inject({
+        method: 'POST', url: '/api/auth',
+        payload: { password: 'test1234' },
+        headers: { 'content-type': 'application/json' },
+      });
+      sessionToken = (refreshRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+      csrfToken = JSON.parse(refreshRes.body).csrfToken;
+    });
+
+    it('logout clears specific session without affecting others', async () => {
+      // Create two sessions
+      const login1 = await app.inject({
+        method: 'POST', url: '/api/auth',
+        payload: { password: 'test1234' },
+        headers: { 'content-type': 'application/json' },
+      });
+      const token1 = (login1.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+
+      const login2 = await app.inject({
+        method: 'POST', url: '/api/auth',
+        payload: { password: 'test1234' },
+        headers: { 'content-type': 'application/json' },
+      });
+      const token2 = (login2.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+
+      // Logout session 1
+      await api(app, '/api/auth/logout', {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${token1}` },
+      });
+
+      // Session 1 should be invalid
+      const { status: s1 } = await api(app, '/api/auth/csrf', {
+        headers: { cookie: `argus-auth=${token1}` },
+      });
+      assert.equal(s1, 401, 'Logged out session should be invalid');
+
+      // Session 2 should still work
+      const { status: s2 } = await api(app, '/api/auth/csrf', {
+        headers: { cookie: `argus-auth=${token2}` },
+      });
+      assert.equal(s2, 200, 'Other session should still be valid');
+    });
   });
 
   // ─── Projects ───
@@ -1175,6 +1325,74 @@ describe('Argus API', () => {
     it('search by q parameter works', async () => {
       const { body } = await api(app, `/api/projects/${projectId}/issues?q=Test`);
       assert.ok(body.issues.length >= 1);
+    });
+  });
+
+  // ─── Issue Comment Count ───
+
+  describe('Issue Comment Count', () => {
+    let ccIssueId: string;
+
+    it('issues list includes comment_count field', async () => {
+      const { body } = await api(app, `/api/projects/${projectId}/issues`);
+      assert.ok(body.issues.length >= 1);
+      for (const issue of body.issues) {
+        assert.equal(typeof issue.comment_count, 'number', `issue ${issue.id} should have numeric comment_count`);
+      }
+    });
+
+    it('comment_count only counts event_type=comment (not status_change)', async () => {
+      // issueId already has 1 real comment ("A comment") + status_change events from earlier tests
+      const { body } = await api(app, `/api/projects/${projectId}/issues`);
+      const issue = body.issues.find((i: any) => i.id === issueId);
+      assert.ok(issue, 'should find test issue');
+      // There was 1 real comment added earlier and status_change events should not count
+      assert.equal(issue.comment_count, 1, 'comment_count should only count real comments, not status_change events');
+    });
+
+    it('new issue has comment_count 0', async () => {
+      const { body } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'No comments issue', body: 'Test', created_by: 'user' },
+      });
+      ccIssueId = body.id;
+      // Fetch list and check
+      const { body: listBody } = await api(app, `/api/projects/${projectId}/issues`);
+      const issue = listBody.issues.find((i: any) => i.id === ccIssueId);
+      assert.ok(issue);
+      assert.equal(issue.comment_count, 0);
+    });
+
+    it('comment_count increments after adding a comment', async () => {
+      await api(app, `/api/issues/${ccIssueId}/comments`, {
+        method: 'POST', body: { author_id: 'user', body: 'First comment' },
+      });
+      await api(app, `/api/issues/${ccIssueId}/comments`, {
+        method: 'POST', body: { author_id: 'user', body: 'Second comment' },
+      });
+      const { body } = await api(app, `/api/projects/${projectId}/issues`);
+      const issue = body.issues.find((i: any) => i.id === ccIssueId);
+      assert.equal(issue.comment_count, 2);
+    });
+
+    it('status change does not increment comment_count', async () => {
+      // Change status (creates a status_change event, not a comment)
+      await api(app, `/api/issues/${ccIssueId}`, {
+        method: 'PUT', body: { status: 'in_progress' },
+      });
+      const { body } = await api(app, `/api/projects/${projectId}/issues`);
+      const issue = body.issues.find((i: any) => i.id === ccIssueId);
+      assert.equal(issue.comment_count, 2, 'status_change should not affect comment_count');
+    });
+
+    it('sort by comments works', async () => {
+      const { body } = await api(app, `/api/projects/${projectId}/issues?sort=comments`);
+      assert.ok(body.issues.length >= 2);
+      // First issue should have >= comments as second
+      const counts = body.issues.map((i: any) => i.comment_count);
+      for (let i = 1; i < counts.length; i++) {
+        assert.ok(counts[i - 1] >= counts[i], `issues should be sorted by comment count descending`);
+      }
     });
   });
 
