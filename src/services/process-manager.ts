@@ -48,21 +48,36 @@ export function startAgentProcess(
   // commandTemplate is just the tool path (e.g., "cld", "claude", "/usr/bin/claude")
   // We build the full command with all necessary flags
   const toolPath = commandTemplate.trim() || 'claude';
-  // Session strategy: reset by token total (preferred) or run count (fallback)
+  // Session strategy: reset by cache token (preferred) or run count (fallback)
   const maxTokens = (agent as any).session_max_tokens || 0;
-  const tokenCount = (agent as any).session_token_count || 0;
   const maxRuns = (agent as any).session_max_runs || 10;
   const runCount = ((agent as any).session_run_count || 0) + 1;
-  // Prefer token-based reset if session_max_tokens is configured (> 0)
-  const shouldReset = maxTokens > 0
-    ? tokenCount >= maxTokens
-    : runCount > maxRuns;
+  let shouldReset: boolean;
+  if (maxTokens > 0 && agent.session_id) {
+    // Query the latest cost record for this agent to get cache token usage
+    const latestCost = db.prepare(
+      "SELECT content FROM conversation_logs WHERE agent_id = ? AND stream = 'cost' ORDER BY id DESC LIMIT 1"
+    ).get(agent.id) as { content: string } | undefined;
+    let cacheTokens = 0;
+    if (latestCost) {
+      try {
+        const data = JSON.parse(latestCost.content);
+        cacheTokens = (data.cache_read || 0) + (data.cache_creation || 0);
+      } catch {}
+    }
+    shouldReset = cacheTokens >= maxTokens;
+    if (shouldReset) {
+      logger.info(`Agent ${agent.id} cache tokens (${cacheTokens}) >= max (${maxTokens}), resetting session`);
+    }
+  } else {
+    shouldReset = runCount > maxRuns;
+  }
   const existingSessionId = shouldReset ? null : agent.session_id;
   let sessionId = existingSessionId || uuidv4();
 
-  // Update run count and token count (reset if new session)
-  db.prepare('UPDATE agents SET session_run_count = ?, session_token_count = ? WHERE id = ?')
-    .run(shouldReset ? 1 : runCount, shouldReset ? 0 : tokenCount, agent.id);
+  // Update run count (reset to 1 if new session)
+  db.prepare('UPDATE agents SET session_run_count = ? WHERE id = ?')
+    .run(shouldReset ? 1 : runCount, agent.id);
   const sessionFlag = existingSessionId ? `--resume ${sessionId}` : `--session-id ${sessionId}`;
   const command = `${toolPath} -p --output-format stream-json --verbose ${sessionFlag} --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"`;
 
@@ -158,13 +173,11 @@ export function startAgentProcess(
           const input = obj.usage?.input_tokens || 0;
           const output = obj.usage?.output_tokens || 0;
           const cacheRead = obj.usage?.cache_read_input_tokens || 0;
+          const cacheCreation = obj.usage?.cache_creation_input_tokens || 0;
           logAndBroadcast(`\n--- Cost: $${costUsd.toFixed(4)} | Tokens: ${input} in, ${output} out, ${cacheRead} cache ---\n`, 'stdout');
           try {
             db.prepare("INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'cost')")
-              .run(agent.id, runId, JSON.stringify({ cost_usd: costUsd, input_tokens: input, output_tokens: output, cache_read: cacheRead, duration_ms: obj.duration_ms }));
-            // Accumulate tokens for session-based reset
-            db.prepare('UPDATE agents SET session_token_count = session_token_count + ? WHERE id = ?')
-              .run(input + output, agent.id);
+              .run(agent.id, runId, JSON.stringify({ cost_usd: costUsd, input_tokens: input, output_tokens: output, cache_read: cacheRead, cache_creation: cacheCreation, duration_ms: obj.duration_ms }));
           } catch {}
         }
       }
