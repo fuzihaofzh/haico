@@ -265,6 +265,14 @@ async function viewAgent(agentId) {
                 <button class="btn btn-sm" onclick="saveAgentField('${agentId}','working_directory',document.getElementById('ad-workdir-${agentId}').value)">Save</button>
               </div>
             </div>
+            <div style="width:140px">
+              <div style="${L}">Max Tokens/Session</div>
+              <div style="display:flex;gap:4px">
+                <input type="number" id="ad-maxtokens-${agentId}" value="${agent.session_max_tokens || 0}" min="0" style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
+                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_max_tokens',Math.max(0,parseInt(document.getElementById('ad-maxtokens-${agentId}').value))||0)">Save</button>
+              </div>
+              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0=用次数控制</div>
+            </div>
             <div style="width:120px">
               <div style="${L}">Max Runs/Session</div>
               <div style="display:flex;gap:4px">

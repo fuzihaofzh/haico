@@ -48,16 +48,21 @@ export function startAgentProcess(
   // commandTemplate is just the tool path (e.g., "cld", "claude", "/usr/bin/claude")
   // We build the full command with all necessary flags
   const toolPath = commandTemplate.trim() || 'claude';
-  // Session strategy: resume existing session, auto-reset after session_max_runs
+  // Session strategy: reset by token total (preferred) or run count (fallback)
+  const maxTokens = (agent as any).session_max_tokens || 0;
+  const tokenCount = (agent as any).session_token_count || 0;
   const maxRuns = (agent as any).session_max_runs || 10;
   const runCount = ((agent as any).session_run_count || 0) + 1;
-  const shouldReset = runCount > maxRuns;
+  // Prefer token-based reset if session_max_tokens is configured (> 0)
+  const shouldReset = maxTokens > 0
+    ? tokenCount >= maxTokens
+    : runCount > maxRuns;
   const existingSessionId = shouldReset ? null : agent.session_id;
   let sessionId = existingSessionId || uuidv4();
 
-  // Update run count (reset to 1 if new session)
-  db.prepare('UPDATE agents SET session_run_count = ? WHERE id = ?')
-    .run(shouldReset ? 1 : runCount, agent.id);
+  // Update run count and token count (reset if new session)
+  db.prepare('UPDATE agents SET session_run_count = ?, session_token_count = ? WHERE id = ?')
+    .run(shouldReset ? 1 : runCount, shouldReset ? 0 : tokenCount, agent.id);
   const sessionFlag = existingSessionId ? `--resume ${sessionId}` : `--session-id ${sessionId}`;
   const command = `${toolPath} -p --output-format stream-json --verbose ${sessionFlag} --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"`;
 
@@ -157,6 +162,9 @@ export function startAgentProcess(
           try {
             db.prepare("INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'cost')")
               .run(agent.id, runId, JSON.stringify({ cost_usd: costUsd, input_tokens: input, output_tokens: output, cache_read: cacheRead, duration_ms: obj.duration_ms }));
+            // Accumulate tokens for session-based reset
+            db.prepare('UPDATE agents SET session_token_count = session_token_count + ? WHERE id = ?')
+              .run(input + output, agent.id);
           } catch {}
         }
       }

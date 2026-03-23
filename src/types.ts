@@ -22,6 +22,8 @@ export interface Agent {
   custom_instructions: string;
   session_run_count: number;
   session_max_runs: number;
+  session_token_count: number;
+  session_max_tokens: number;
   status: 'idle' | 'running' | 'error' | 'stopped';
   paused: boolean;
   pid: number | null;

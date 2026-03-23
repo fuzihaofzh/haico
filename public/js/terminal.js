@@ -138,6 +138,8 @@ async function loadAgentInfo() {
       document.getElementById('agent-workdir').value = agent.working_directory || '';
       const maxRunsEl = document.getElementById('agent-maxruns');
       if (maxRunsEl) maxRunsEl.value = agent.session_max_runs || 10;
+      const maxTokensEl = document.getElementById('agent-maxtokens');
+      if (maxTokensEl) maxTokensEl.value = agent.session_max_tokens || 0;
       window._instructionsLoaded = true;
     }
   } catch (e) { console.error('Failed to load agent info', e); }
@@ -177,6 +179,19 @@ async function saveMaxRuns() {
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${agentId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ session_max_runs: Math.max(1, val) }),
+    });
+    if (res.ok) showToast('已保存', 'success');
+    else showToast('保存失败', 'error');
+  });
+}
+
+async function saveMaxTokens() {
+  const raw = parseInt(document.getElementById('agent-maxtokens').value);
+  const val = Number.isNaN(raw) ? 0 : raw;
+  const btn = document.querySelector('button[onclick="saveMaxTokens()"]');
+  await withLoading(btn, async () => {
+    const res = await fetch(`/api/agents/${agentId}`, {
+      method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ session_max_tokens: Math.max(0, val) }),
     });
     if (res.ok) showToast('已保存', 'success');
     else showToast('保存失败', 'error');

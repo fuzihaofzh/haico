@@ -29,6 +29,10 @@ export function initializeDatabase(db: Database.Database): void {
       working_directory TEXT,
       custom_instructions TEXT DEFAULT '',
       new_session_per_run BOOLEAN DEFAULT 0,
+      session_run_count INTEGER DEFAULT 0,
+      session_max_runs INTEGER DEFAULT 10,
+      session_token_count INTEGER DEFAULT 0,
+      session_max_tokens INTEGER DEFAULT 0,
       status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'error', 'stopped')),
       paused BOOLEAN DEFAULT 0,
       pid INTEGER,
@@ -117,6 +121,16 @@ export function initializeDatabase(db: Database.Database): void {
   if (!cols.find((c: any) => c.name === 'paused')) {
     db.exec("ALTER TABLE agents ADD COLUMN paused BOOLEAN DEFAULT 0");
     logger.info('Migration: added paused column to agents table');
+  }
+
+  // Migration: add session_token_count and session_max_tokens columns if missing
+  if (!cols.find((c: any) => c.name === 'session_token_count')) {
+    db.exec("ALTER TABLE agents ADD COLUMN session_token_count INTEGER DEFAULT 0");
+    logger.info('Migration: added session_token_count column to agents table');
+  }
+  if (!cols.find((c: any) => c.name === 'session_max_tokens')) {
+    db.exec("ALTER TABLE agents ADD COLUMN session_max_tokens INTEGER DEFAULT 0");
+    logger.info('Migration: added session_max_tokens column to agents table');
   }
 
   // Reset any agents stuck in 'running' from a previous crash
