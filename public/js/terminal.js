@@ -171,7 +171,8 @@ async function saveWorkdir() {
 }
 
 async function saveMaxRuns() {
-  const val = parseInt(document.getElementById('agent-maxruns').value) || 10;
+  const raw = parseInt(document.getElementById('agent-maxruns').value);
+  const val = Number.isNaN(raw) ? 10 : raw;
   const btn = document.querySelector('button[onclick="saveMaxRuns()"]');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${agentId}`, {

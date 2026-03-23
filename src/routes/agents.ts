@@ -59,7 +59,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
         custom_instructions = COALESCE(?, custom_instructions),
         session_max_runs = COALESCE(?, session_max_runs)
       WHERE id = ?
-    `).run(name ?? null, role ?? null, session_id ?? null, working_directory ?? null, custom_instructions ?? null, session_max_runs !== undefined ? Math.max(1, parseInt(session_max_runs) || 10) : null, request.params.id);
+    `).run(name ?? null, role ?? null, session_id ?? null, working_directory ?? null, custom_instructions ?? null, session_max_runs !== undefined ? Math.max(1, Number.isNaN(parseInt(session_max_runs)) ? 10 : parseInt(session_max_runs)) : null, request.params.id);
 
     return db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id);
   });

@@ -269,7 +269,7 @@ async function viewAgent(agentId) {
               <div style="${L}">Max Runs/Session</div>
               <div style="display:flex;gap:4px">
                 <input type="number" id="ad-maxruns-${agentId}" value="${agent.session_max_runs || 10}" min="1" style="${B};width:60px;font-size:12px;color:var(--fg);text-align:center">
-                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_max_runs',parseInt(document.getElementById('ad-maxruns-${agentId}').value)||10)">Save</button>
+                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_max_runs',Math.max(1,parseInt(document.getElementById('ad-maxruns-${agentId}').value))||10)">Save</button>
               </div>
             </div>
           </div>
