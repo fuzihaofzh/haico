@@ -265,13 +265,13 @@ async function viewAgent(agentId) {
                 <button class="btn btn-sm" onclick="saveAgentField('${agentId}','working_directory',document.getElementById('ad-workdir-${agentId}').value)">Save</button>
               </div>
             </div>
-            <div style="width:160px">
+            ${agent.is_controller ? '' : `<div style="width:160px">
               <div style="${L}">Session Mode</div>
               <select onchange="updateAgentSessionMode('${agentId}', this.value)" style="${B};width:100%;font-size:12px;color:var(--fg)">
                 <option value="continue" ${!agent.new_session_per_run ? 'selected' : ''}>Continue previous</option>
                 <option value="new" ${agent.new_session_per_run ? 'selected' : ''}>New each run</option>
               </select>
-            </div>
+            </div>`}
           </div>
 
           <div style="margin-bottom:16px">

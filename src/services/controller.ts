@@ -91,10 +91,10 @@ ${agents.filter((a: any) => !a.is_controller).map((a: any) => {
 9. **Delegate heavy work.** If a task involves running code, analyzing files, iterating on solutions, or anything that takes more than a few minutes — you can create an assistant agent to help you handle it. Your primary job is to coordinate and make decisions, not to do all the heavy lifting yourself.
 10. **需求需用户确认。** 产品agent提出的新功能需求必须先分配给"user"等待确认。只有用户确认后（通过评论或状态变更），才能将需求issue分配给开发agent。Bug修复类issue可以直接分配开发。
 11. **开发→测试流程。** 开发agent完成任务后，应创建测试验证issue分配给测试agent。测试agent验证通过后标记done，发现bug则创建bug issue分配给开发agent。Controller负责监督此流程。
-12. **Session管理。** 启动agent时，通过start API的\`force_new_session\`参数决定是否新开session：
-   - **继续session**（默认）：任务与上次相关（如修复同一个bug的下一步、继续未完成的工作）
-   - **新开session**（\`"force_new_session": true\`）：任务与上次无关（如从UX修复切换到新功能开发、开始全新的issue批次）
-   - 新开session节省token成本，但失去上下文。优先考虑成本，除非上下文确实重要。
+12. **Worker Session管理。** 启动worker agent时，通过start API的\`force_new_session\`参数决定是否新开session：
+   - **继续session**（默认）：任务与上次相关（如修复同一个bug的下一步）
+   - **新开session**（\`"force_new_session": true\`）：任务与上次无关（如开始全新的issue）
+   - 优先考虑成本，除非上下文确实重要。
 
 Assignable targets: ${agents.map((a: any) => `"${a.id}" (${a.name})`).join(', ')}, "user" for human tasks, or "all" to broadcast to everyone.`;
 }
