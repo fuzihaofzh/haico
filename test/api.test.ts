@@ -1614,6 +1614,128 @@ describe('Argus API', () => {
     });
   });
 
+  // ─── @Mention: paused agent should NOT be started ───
+
+  describe('@Mention Paused Agent', () => {
+    it('@mention of paused agent does not start it', async () => {
+      // Pause the worker
+      await api(app, `/api/agents/${workerId}`, {
+        method: 'PUT', body: { paused: true },
+      });
+      const { body: paused } = await api(app, `/api/agents/${workerId}`);
+      assert.equal(paused.paused, 1, 'Agent should be paused');
+
+      // Create issue mentioning the paused agent
+      const { status, body } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Mention paused agent', body: '@worker-1 check this', created_by: 'user' },
+      });
+      assert.equal(status, 201);
+
+      await new Promise(r => setTimeout(r, 500));
+
+      // Agent should NOT have been started
+      const { body: agentAfter } = await api(app, `/api/agents/${workerId}/status`);
+      assert.notEqual(agentAfter.status, 'running', 'Paused agent should not be started by @mention');
+
+      // No auto-start system event
+      const { body: issue } = await api(app, `/api/issues/${body.id}`);
+      const autoStartEvents = issue.comments.filter((c: any) => c.author_id === 'system' && c.body.includes('auto-started'));
+      assert.equal(autoStartEvents.length, 0, 'No auto-start event for paused agent');
+
+      // Unpause for later tests
+      await api(app, `/api/agents/${workerId}`, {
+        method: 'PUT', body: { paused: false },
+      });
+    });
+  });
+
+  // ─── Controller Wake-on-Issue ───
+
+  describe('Controller Wake-on-Issue', () => {
+    it('GET project returns controller_wake_on_issue field (default 0)', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}`);
+      assert.equal(status, 200);
+      assert.equal(body.controller_wake_on_issue, 0, 'Default should be 0 (off)');
+    });
+
+    it('PUT project can enable controller_wake_on_issue', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { controller_wake_on_issue: 1 },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.controller_wake_on_issue, 1, 'Should be enabled');
+    });
+
+    it('GET project reflects updated controller_wake_on_issue', async () => {
+      const { body } = await api(app, `/api/projects/${projectId}`);
+      assert.equal(body.controller_wake_on_issue, 1);
+    });
+
+    it('PUT project can disable controller_wake_on_issue', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { controller_wake_on_issue: 0 },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.controller_wake_on_issue, 0, 'Should be disabled');
+    });
+
+    it('creating issue triggers triggerControllerIfWakeOnIssue path', async () => {
+      // Enable wake-on-issue
+      await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { controller_wake_on_issue: 1 },
+      });
+
+      // Create an issue — this should attempt to wake controller
+      const { status } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Wake test issue', body: 'Test wake on issue', created_by: 'user' },
+      });
+      assert.equal(status, 201);
+
+      // Controller may or may not start (echo command finishes fast),
+      // but the call should not error
+      await new Promise(r => setTimeout(r, 1500));
+    });
+
+    it('updating issue status triggers triggerControllerIfWakeOnIssue path', async () => {
+      // Get an open issue
+      const { body: list } = await api(app, `/api/projects/${projectId}/issues?status=open`);
+      assert.ok(list.issues.length > 0, 'Should have open issues');
+
+      const issueId = list.issues[0].id;
+      const { status } = await api(app, `/api/issues/${issueId}`, {
+        method: 'PUT', body: { status: 'in_progress', actor: 'user' },
+      });
+      assert.equal(status, 200);
+
+      // Should not error
+      await new Promise(r => setTimeout(r, 1500));
+    });
+
+    it('adding comment triggers triggerControllerIfWakeOnIssue path', async () => {
+      const { body: list } = await api(app, `/api/projects/${projectId}/issues`);
+      const issueId = list.issues[0].id;
+
+      const { status } = await api(app, `/api/issues/${issueId}/comments`, {
+        method: 'POST',
+        body: { author_id: 'user', body: 'Wake on comment test' },
+      });
+      assert.equal(status, 201);
+
+      // Should not error
+      await new Promise(r => setTimeout(r, 1500));
+    });
+
+    it('disable wake-on-issue for cleanup', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { controller_wake_on_issue: 0 },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.controller_wake_on_issue, 0);
+    });
+  });
+
   // ─── Cascade Delete ───
 
   describe('Cleanup', () => {

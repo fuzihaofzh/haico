@@ -11,7 +11,7 @@ export function initializeDatabase(db: Database.Database): void {
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
       task_description TEXT NOT NULL,
-      controller_interval_min INTEGER DEFAULT 5,
+      controller_interval_min INTEGER DEFAULT 0,
       command_template TEXT DEFAULT 'cld',
       schedule_hours TEXT DEFAULT '',
       status TEXT DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed')),
@@ -117,13 +117,6 @@ export function initializeDatabase(db: Database.Database): void {
   if (!cols.find((c: any) => c.name === 'paused')) {
     db.exec("ALTER TABLE agents ADD COLUMN paused BOOLEAN DEFAULT 0");
     logger.info('Migration: added paused column to agents table');
-  }
-
-  // Migration: add controller_wake_on_issue column if missing
-  const projectCols = db.prepare("PRAGMA table_info(projects)").all() as any[];
-  if (!projectCols.find((c: any) => c.name === 'controller_wake_on_issue')) {
-    db.exec("ALTER TABLE projects ADD COLUMN controller_wake_on_issue INTEGER DEFAULT 0");
-    logger.info('Migration: added controller_wake_on_issue column to projects table');
   }
 
   // Reset any agents stuck in 'running' from a previous crash

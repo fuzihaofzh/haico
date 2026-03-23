@@ -14,7 +14,11 @@ export function scheduleProject(project: Project): void {
 
   if (project.status !== 'active') return;
 
-  const interval = project.controller_interval_min || 5;
+  const interval = project.controller_interval_min;
+  if (!interval || interval <= 0) {
+    logger.info(`Project "${project.name}" uses on-demand mode (interval=0), no cron scheduled`);
+    return;
+  }
   const cronExpr = `*/${interval} * * * *`;
 
   logger.info(`Scheduling project "${project.name}" every ${interval} minutes`);
@@ -39,7 +43,7 @@ export function scheduleProject(project: Project): void {
       }
 
       // Wake-on-issue mode: only trigger if controller has assigned open/in_progress issues
-      if (current.controller_wake_on_issue) {
+      if (current.controller_interval_min === 0) {
         const controller = db.prepare(
           'SELECT id FROM agents WHERE project_id = ? AND is_controller = 1'
         ).get(current.id) as { id: string } | undefined;

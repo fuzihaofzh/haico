@@ -348,7 +348,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project | undefined;
     if (!existing) return reply.code(404).send({ error: 'Project not found' });
 
-    const { name, description, task_description, controller_interval_min, command_template, status, schedule_hours, controller_wake_on_issue } = request.body as any;
+    const { name, description, task_description, controller_interval_min, command_template, status, schedule_hours } = request.body as any;
 
     db.prepare(`
       UPDATE projects SET
@@ -358,14 +358,13 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
         controller_interval_min = COALESCE(?, controller_interval_min),
         command_template = COALESCE(?, command_template),
         schedule_hours = COALESCE(?, schedule_hours),
-        controller_wake_on_issue = COALESCE(?, controller_wake_on_issue),
         status = COALESCE(?, status),
         updated_at = datetime('now')
       WHERE id = ?
     `).run(
       name ?? null, description ?? null, task_description ?? null,
       controller_interval_min ?? null, command_template ?? null, schedule_hours ?? null,
-      controller_wake_on_issue ?? null, status ?? null,
+      status ?? null,
       request.params.id
     );
 
