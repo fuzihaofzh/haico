@@ -1,12 +1,22 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
 import { getOrCreatePtySession, hasPtySession, killPtySession } from './terminal';
+import logger from '../logger';
 
 // Map of agentId -> Set of connected WebSocket clients
 const agentClients = new Map<string, Set<WebSocket>>();
 
 // Map of projectId -> Set of connected WebSocket clients (project-level events)
 const projectClients = new Map<string, Set<WebSocket>>();
+
+// Map of agentId -> Set of connected terminal WebSocket clients
+const terminalClients = new Map<string, Set<WebSocket>>();
+
+// Map of agentId -> cleanup timer (auto-kill PTY after disconnect)
+const ptyCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Auto-kill PTY session 5 minutes after last client disconnects
+const PTY_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
 export function setupWebSocket(fastify: FastifyInstance): void {
   // Per-agent terminal output stream
@@ -75,6 +85,20 @@ export function setupWebSocket(fastify: FastifyInstance): void {
     const cols = parseInt(query.cols || '120') || 120;
     const rows = parseInt(query.rows || '30') || 30;
 
+    // Track terminal client connections
+    if (!terminalClients.has(agentId)) {
+      terminalClients.set(agentId, new Set());
+    }
+    terminalClients.get(agentId)!.add(socket);
+
+    // Cancel any pending cleanup timer — a client reconnected
+    const existingTimer = ptyCleanupTimers.get(agentId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      ptyCleanupTimers.delete(agentId);
+      logger.info(`PTY cleanup timer cancelled for agent ${agentId} — client reconnected`);
+    }
+
     // Check if session already exists
     const hasExisting = hasPtySession(agentId);
 
@@ -125,16 +149,32 @@ export function setupWebSocket(fastify: FastifyInstance): void {
       }
     });
 
-    socket.on('close', () => {
+    const removeClient = () => {
       onData.dispose();
       onExit.dispose();
-      // Don't kill PTY on disconnect — allow reconnect
-    });
+      const clients = terminalClients.get(agentId);
+      if (clients) {
+        clients.delete(socket);
+        // If no more clients connected, start cleanup timer
+        if (clients.size === 0) {
+          terminalClients.delete(agentId);
+          if (hasPtySession(agentId)) {
+            logger.info(`All terminal clients disconnected for agent ${agentId}, PTY will be killed in ${PTY_CLEANUP_DELAY_MS / 1000}s`);
+            const timer = setTimeout(() => {
+              ptyCleanupTimers.delete(agentId);
+              if (hasPtySession(agentId)) {
+                logger.info(`Auto-killing PTY session for agent ${agentId} — no client reconnected`);
+                killPtySession(agentId);
+              }
+            }, PTY_CLEANUP_DELAY_MS);
+            ptyCleanupTimers.set(agentId, timer);
+          }
+        }
+      }
+    };
 
-    socket.on('error', () => {
-      onData.dispose();
-      onExit.dispose();
-    });
+    socket.on('close', removeClient);
+    socket.on('error', removeClient);
   });
 }
 
@@ -164,6 +204,13 @@ export function broadcastToProject(projectId: string, event: ProjectEvent): void
       client.send(message);
     }
   }
+}
+
+export function clearAllPtyCleanupTimers(): void {
+  for (const [, timer] of ptyCleanupTimers) {
+    clearTimeout(timer);
+  }
+  ptyCleanupTimers.clear();
 }
 
 export interface ProjectEvent {
