@@ -71,9 +71,9 @@ async function loadNotifications() {
         html += `<div class="notif-item">
           <span class="notif-icon" style="color:var(--warning)">&#9679;</span>
           <span class="notif-text">
+            <span style="color:var(--text-secondary);font-size:11px">[${esc(issue.project_name || '')}]</span>
             <a href="${projLink}#issues" onclick="event.stopPropagation()">#${issue.number}</a>
             ${esc(issue.title)}
-            <span style="color:var(--text-secondary);font-size:11px"> &mdash; ${esc(issue.project_name || '')}</span>
           </span>
           <span class="notif-time">${timeAgo(issue.updated_at) || ''}</span>
         </div>`;
@@ -84,9 +84,9 @@ async function loadNotifications() {
         html += `<div class="notif-item">
           <span class="notif-icon" style="color:var(--text-secondary)">&#9998;</span>
           <span class="notif-text">
+            <span style="color:var(--text-secondary);font-size:11px">[${esc(c.project_name || '')}]</span>
             <a href="${projLink}" onclick="event.stopPropagation()">#${c.issue_number}</a>
             <span style="color:var(--text-secondary)">${esc(preview)}</span>
-            <span style="color:var(--text-secondary);font-size:11px"> &mdash; ${esc(c.project_name || '')}</span>
           </span>
           <span class="notif-time">${timeAgo(c.created_at) || ''}</span>
         </div>`;

@@ -246,7 +246,7 @@ async function viewAgent(agentId) {
           <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${esc(agent.role)}</div>
         </div>
 
-        <div id="agent-detail-scroll" style="padding:16px 20px;max-height:700px;overflow-y:auto;overflow-x:hidden">
+        <div id="agent-detail-scroll" style="padding:16px 20px">
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 16px;font-size:12px;color:var(--text-secondary);margin-bottom:16px">
             <div>Started: <span style="color:var(--fg)">${agent.started_at || '-'}</span></div>
             <div>Finished: <span style="color:var(--fg)">${agent.finished_at || '-'}</span></div>
@@ -412,9 +412,9 @@ async function loadAgentOutput(agentId) {
       ? `<pre style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-word;margin:0;line-height:1.5;overflow-x:hidden;max-height:400px;overflow-y:auto">${html}</pre>`
       : '<span style="color:var(--text-secondary)">No output yet.</span>';
 
-    // Scroll to bottom
-    const scroll = document.getElementById('agent-detail-scroll');
-    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+    // Scroll output pre to bottom
+    const pre = container.querySelector('pre');
+    if (pre) pre.scrollTop = pre.scrollHeight;
   } catch {
     container.innerHTML = '<span style="color:var(--error)">Failed to load output.</span>';
   }
@@ -970,6 +970,10 @@ async function loadDashboard() {
     const openIssues = issues.filter(i => i.status === 'open' || i.status === 'in_progress').length;
     const doneIssues = issues.filter(i => i.status === 'done' || i.status === 'closed').length;
     const fmtCost = v => !v ? '$0' : v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
+
+    // Update issue count for tab display (fixes #97: count shows 0 until clicking Issues tab)
+    issueCount = issues.length;
+    updateTabCounts();
 
     const card = (label, value, color, sub) => `
       <div style="padding:12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
