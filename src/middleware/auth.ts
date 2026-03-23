@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import logger from '../logger';
+import { getDatabase } from '../db/database';
 
 const COOKIE_NAME = 'argus-auth';
 const CSRF_HEADER = 'x-csrf-token';
@@ -36,7 +37,7 @@ function legacySha256(pwd: string): string {
   return createHash('sha256').update(pwd).digest('hex');
 }
 
-// --- Session store (file-persisted) ---
+// --- Session store (SQLite-persisted) ---
 
 interface Session {
   token: string;
@@ -45,43 +46,17 @@ interface Session {
   expiresAt: number;
 }
 
-const SESSIONS_PATH = path.join(CONFIG_DIR, 'sessions.json');
-const sessions = new Map<string, Session>();
-
-function saveSessionsToFile(): void {
+function cleanExpiredSessions(): void {
   try {
-    if (!fs.existsSync(CONFIG_DIR)) {
-      fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    }
-    const data: Record<string, Session> = {};
-    for (const [token, session] of sessions) {
-      data[token] = session;
-    }
-    fs.writeFileSync(SESSIONS_PATH, JSON.stringify(data));
+    const db = getDatabase();
+    db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Date.now());
   } catch (e) {
-    logger.error(e, 'Failed to save sessions to file');
+    logger.error(e, 'Failed to clean expired sessions');
   }
 }
 
-function loadSessionsFromFile(): void {
-  try {
-    if (fs.existsSync(SESSIONS_PATH)) {
-      const raw = JSON.parse(fs.readFileSync(SESSIONS_PATH, 'utf-8'));
-      const now = Date.now();
-      for (const [token, session] of Object.entries(raw as Record<string, Session>)) {
-        if (session.expiresAt > now) {
-          sessions.set(token, session);
-        }
-      }
-      logger.info(`Loaded ${sessions.size} active sessions from file`);
-    }
-  } catch (e) {
-    logger.error(e, 'Failed to load sessions from file');
-  }
-}
-
-// Load persisted sessions on startup
-loadSessionsFromFile();
+// Clean expired sessions on startup
+cleanExpiredSessions();
 
 function createSession(): Session {
   const token = randomBytes(32).toString('hex');
@@ -93,30 +68,30 @@ function createSession(): Session {
     createdAt: now,
     expiresAt: now + SESSION_MAX_AGE_S * 1000,
   };
-  sessions.set(token, session);
-  saveSessionsToFile();
+  const db = getDatabase();
+  db.prepare('INSERT INTO sessions (token, csrf_token, created_at, expires_at) VALUES (?, ?, ?, ?)').run(token, csrfToken, now, session.expiresAt);
   return session;
 }
 
 function getSession(token: string): Session | undefined {
-  const s = sessions.get(token);
-  if (!s) return undefined;
-  if (Date.now() > s.expiresAt) {
-    sessions.delete(token);
-    saveSessionsToFile();
+  const db = getDatabase();
+  const row = db.prepare('SELECT token, csrf_token, created_at, expires_at FROM sessions WHERE token = ?').get(token) as any;
+  if (!row) return undefined;
+  if (Date.now() > row.expires_at) {
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     return undefined;
   }
-  return s;
+  return { token: row.token, csrfToken: row.csrf_token, createdAt: row.created_at, expiresAt: row.expires_at };
 }
 
 function deleteSession(token: string): void {
-  sessions.delete(token);
-  saveSessionsToFile();
+  const db = getDatabase();
+  db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
 }
 
 function deleteAllSessions(): void {
-  sessions.clear();
-  saveSessionsToFile();
+  const db = getDatabase();
+  db.prepare('DELETE FROM sessions').run();
 }
 
 // --- Config persistence ---
@@ -438,20 +413,17 @@ export function setupAuth(app: FastifyInstance): void {
 
   // Session management endpoint
   app.get('/api/auth/sessions', async (request, reply) => {
-    const activeSessions: { createdAt: number; expiresAt: number; current: boolean }[] = [];
+    const db = getDatabase();
+    const now = Date.now();
+    db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
+    const rows = db.prepare('SELECT token, created_at, expires_at FROM sessions WHERE expires_at > ?').all(now) as any[];
     const cookies = parseCookies(request.headers.cookie);
     const currentToken = cookies[COOKIE_NAME];
-    for (const [token, session] of sessions) {
-      if (Date.now() > session.expiresAt) {
-        sessions.delete(token);
-        continue;
-      }
-      activeSessions.push({
-        createdAt: session.createdAt,
-        expiresAt: session.expiresAt,
-        current: token === currentToken,
-      });
-    }
+    const activeSessions = rows.map(row => ({
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      current: row.token === currentToken,
+    }));
     return { sessions: activeSessions };
   });
 
