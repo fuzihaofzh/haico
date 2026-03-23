@@ -36,7 +36,7 @@ function legacySha256(pwd: string): string {
   return createHash('sha256').update(pwd).digest('hex');
 }
 
-// --- Session store (in-memory) ---
+// --- Session store (file-persisted) ---
 
 interface Session {
   token: string;
@@ -45,7 +45,43 @@ interface Session {
   expiresAt: number;
 }
 
+const SESSIONS_PATH = path.join(CONFIG_DIR, 'sessions.json');
 const sessions = new Map<string, Session>();
+
+function saveSessionsToFile(): void {
+  try {
+    if (!fs.existsSync(CONFIG_DIR)) {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    }
+    const data: Record<string, Session> = {};
+    for (const [token, session] of sessions) {
+      data[token] = session;
+    }
+    fs.writeFileSync(SESSIONS_PATH, JSON.stringify(data));
+  } catch (e) {
+    logger.error(e, 'Failed to save sessions to file');
+  }
+}
+
+function loadSessionsFromFile(): void {
+  try {
+    if (fs.existsSync(SESSIONS_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(SESSIONS_PATH, 'utf-8'));
+      const now = Date.now();
+      for (const [token, session] of Object.entries(raw as Record<string, Session>)) {
+        if (session.expiresAt > now) {
+          sessions.set(token, session);
+        }
+      }
+      logger.info(`Loaded ${sessions.size} active sessions from file`);
+    }
+  } catch (e) {
+    logger.error(e, 'Failed to load sessions from file');
+  }
+}
+
+// Load persisted sessions on startup
+loadSessionsFromFile();
 
 function createSession(): Session {
   const token = randomBytes(32).toString('hex');
@@ -58,6 +94,7 @@ function createSession(): Session {
     expiresAt: now + SESSION_MAX_AGE_S * 1000,
   };
   sessions.set(token, session);
+  saveSessionsToFile();
   return session;
 }
 
@@ -66,6 +103,7 @@ function getSession(token: string): Session | undefined {
   if (!s) return undefined;
   if (Date.now() > s.expiresAt) {
     sessions.delete(token);
+    saveSessionsToFile();
     return undefined;
   }
   return s;
@@ -73,10 +111,12 @@ function getSession(token: string): Session | undefined {
 
 function deleteSession(token: string): void {
   sessions.delete(token);
+  saveSessionsToFile();
 }
 
 function deleteAllSessions(): void {
   sessions.clear();
+  saveSessionsToFile();
 }
 
 // --- Config persistence ---
@@ -440,7 +480,10 @@ export function setupAuth(app: FastifyInstance): void {
       return;
     }
 
-    // No password yet -> setup
+    // No password yet -> setup (reload config first to avoid stale state)
+    if (!authConfig.passwordHash) {
+      authConfig = loadAuthConfig();
+    }
     if (!authConfig.passwordHash) {
       if (url.startsWith('/api/') || url.startsWith('/ws')) {
         reply.status(401).send({ error: 'Password not configured. Visit /setup first.' });

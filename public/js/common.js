@@ -243,7 +243,18 @@ window.fetch = function(input, init) {
       }
     }
   }
-  return _originalFetch.call(this, input, init);
+  return _originalFetch.call(this, input, init).then(function(response) {
+    // Global 401 handling: redirect to /login when session expires
+    if (response.status === 401) {
+      const reqUrl = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+      // Skip auth-related APIs to avoid redirect loops
+      if (!reqUrl.startsWith('/api/auth')) {
+        localStorage.removeItem('argus-csrf');
+        window.location.href = '/login';
+      }
+    }
+    return response;
+  });
 };
 
 // Logout
