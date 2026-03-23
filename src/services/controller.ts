@@ -161,10 +161,8 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
   const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
   const systemPrompt = isRawShell ? undefined : buildSystemPrompt(controller, project);
 
-  // Controller is stateless (rebuilds full state from DB each run).
-  // Always use fresh session to prevent conversation history accumulation and cost growth.
-  const controllerFresh = { ...controller, session_id: null } as Agent;
-
+  // Controller uses the same session_max_runs logic as other agents.
+  // session_max_runs controls when to create a new session vs resume.
   logger.info(`Triggering controller agent for project "${project.name}"`);
-  startAgentProcess(controllerFresh, taskPrompt, commandTemplate, systemPrompt);
+  startAgentProcess(controller, taskPrompt, commandTemplate, systemPrompt);
 }
