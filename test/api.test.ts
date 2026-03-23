@@ -139,7 +139,7 @@ describe('Argus API', () => {
       assert.ok(setCookie.includes('argus-auth='), 'Cookie should be argus-auth');
       assert.ok(setCookie.includes('HttpOnly'), 'Cookie should be HttpOnly');
       assert.ok(setCookie.includes('SameSite=Lax'), 'Cookie should have SameSite');
-      assert.ok(setCookie.includes('Max-Age=2592000'), 'Cookie should have Max-Age=2592000 (30 days)');
+      assert.ok(!setCookie.includes('Max-Age'), 'Cookie should NOT have Max-Age (session cookie)');
 
       const match = setCookie.match(/argus-auth=([^;]+)/);
       assert.ok(match, 'Should extract token');

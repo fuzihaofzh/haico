@@ -364,9 +364,16 @@ export function setupAuth(app: FastifyInstance): void {
       return;
     }
 
-    // No password yet -> setup (reload config first to avoid stale state)
+    // No password yet -> setup (always re-check file to be safe)
     if (!authConfig.passwordHash) {
       authConfig = loadAuthConfig();
+    }
+    // Double-check: if config file has password but memory doesn't, reload
+    if (!authConfig.passwordHash && fs.existsSync(CONFIG_PATH)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+        if (raw.passwordHash) authConfig = raw;
+      } catch {}
     }
     if (!authConfig.passwordHash) {
       if (url.startsWith('/api/') || url.startsWith('/ws')) {
