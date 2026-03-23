@@ -1059,10 +1059,173 @@ function renderAgentGraph() {
   </div>`;
 }
 
+// ─── Cost Time-Series Chart ───
+
+let _costPeriod = 'day';
+const _agentColors = ['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#39d2c0','#ff7b72','#79c0ff','#7ee787','#e3b341'];
+
+function switchCostPeriod(period) {
+  _costPeriod = period;
+  document.querySelectorAll('.cost-period-btn').forEach(b => {
+    b.style.background = b.dataset.period === period ? 'var(--accent)' : '';
+    b.style.color = b.dataset.period === period ? '#fff' : '';
+  });
+  loadCostChart();
+}
+
+async function loadCostChart() {
+  try {
+    const res = await fetch(`/api/projects/${projectId}/costs?period=${_costPeriod}`, { headers: apiHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const panel = document.getElementById('cost-chart-panel');
+    if (!data.time_series || data.time_series.length === 0) {
+      panel.style.display = 'none';
+      return;
+    }
+    panel.style.display = '';
+
+    // Render total cost chart
+    const totalEl = document.getElementById('cost-chart-total');
+    totalEl.innerHTML = '<div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--fg)">Total Cost</div>' +
+      renderLineChart(data.time_series, 'var(--accent)', 600, 160);
+
+    // Render per-agent charts
+    const agentsEl = document.getElementById('cost-chart-agents');
+    if (data.time_series_by_agent && Object.keys(data.time_series_by_agent).length > 0) {
+      const agents = Object.entries(data.time_series_by_agent);
+      // Render stacked: all agents on one chart with legend
+      agentsEl.innerHTML = '<div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--fg)">Cost by Agent</div>' +
+        renderMultiLineChart(agents, data.time_series, 600, 200);
+    } else {
+      agentsEl.innerHTML = '';
+    }
+  } catch {}
+}
+
+function renderLineChart(series, color, width, height) {
+  const PAD_L = 50, PAD_R = 16, PAD_T = 12, PAD_B = 32;
+  const W = width, H = height;
+  const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B;
+
+  const costs = series.map(d => d.cost);
+  const maxCost = Math.max(...costs, 0.001);
+
+  const pts = series.map((d, i) => {
+    const x = PAD_L + (series.length > 1 ? (i / (series.length - 1)) * cw : cw / 2);
+    const y = PAD_T + ch - (d.cost / maxCost) * ch;
+    return { x, y, ...d };
+  });
+
+  const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const areaD = pathD + ` L${pts[pts.length - 1].x.toFixed(1)},${PAD_T + ch} L${pts[0].x.toFixed(1)},${PAD_T + ch} Z`;
+
+  // Y-axis labels
+  const yLabels = [0, maxCost / 2, maxCost].map(v => {
+    const y = PAD_T + ch - (v / maxCost) * ch;
+    return `<text x="${PAD_L - 6}" y="${y + 3}" text-anchor="end" fill="var(--text-secondary)" font-size="9">$${v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}</text>
+    <line x1="${PAD_L}" y1="${y}" x2="${W - PAD_R}" y2="${y}" stroke="var(--border)" stroke-width="0.5" opacity="0.5"/>`;
+  }).join('');
+
+  // X-axis labels (show a few)
+  const step = Math.max(1, Math.floor(series.length / 5));
+  const xLabels = pts.filter((_, i) => i % step === 0 || i === pts.length - 1).map(p => {
+    const label = p.period_start.length > 7 ? p.period_start.slice(5) : p.period_start;
+    return `<text x="${p.x}" y="${H - 4}" text-anchor="middle" fill="var(--text-secondary)" font-size="9">${label}</text>`;
+  }).join('');
+
+  // Tooltip dots
+  const dots = pts.map(p =>
+    `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="${color}" opacity="0">
+      <title>${p.period_start}: $${p.cost.toFixed(4)} (${p.runs} runs)</title>
+    </circle>
+    <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="8" fill="transparent">
+      <title>${p.period_start}: $${p.cost.toFixed(4)} (${p.runs} runs)</title>
+    </circle>`
+  ).join('');
+
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
+    ${yLabels}${xLabels}
+    <path d="${areaD}" fill="${color}" opacity="0.08"/>
+    <path d="${pathD}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>
+    ${dots}
+  </svg>`;
+}
+
+function renderMultiLineChart(agents, totalSeries, width, height) {
+  const PAD_L = 50, PAD_R = 16, PAD_T = 12, PAD_B = 32;
+  const W = width, H = height;
+  const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B;
+
+  // Build unified x-axis from total series
+  const allDates = totalSeries.map(d => d.period_start);
+  const maxCost = Math.max(...totalSeries.map(d => d.cost), 0.001);
+
+  // Y-axis labels
+  const yLabels = [0, maxCost / 2, maxCost].map(v => {
+    const y = PAD_T + ch - (v / maxCost) * ch;
+    return `<text x="${PAD_L - 6}" y="${y + 3}" text-anchor="end" fill="var(--text-secondary)" font-size="9">$${v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}</text>
+    <line x1="${PAD_L}" y1="${y}" x2="${W - PAD_R}" y2="${y}" stroke="var(--border)" stroke-width="0.5" opacity="0.5"/>`;
+  }).join('');
+
+  // X-axis labels
+  const step = Math.max(1, Math.floor(allDates.length / 5));
+  const xLabels = allDates.filter((_, i) => i % step === 0 || i === allDates.length - 1).map((d, _, arr) => {
+    const idx = allDates.indexOf(d);
+    const x = PAD_L + (allDates.length > 1 ? (idx / (allDates.length - 1)) * cw : cw / 2);
+    const label = d.length > 7 ? d.slice(5) : d;
+    return `<text x="${x}" y="${H - 4}" text-anchor="middle" fill="var(--text-secondary)" font-size="9">${label}</text>`;
+  }).join('');
+
+  // Draw lines for each agent
+  let lines = '';
+  agents.forEach(([agentName, series], idx) => {
+    const color = _agentColors[idx % _agentColors.length];
+    const dateMap = {};
+    series.forEach(d => { dateMap[d.period_start] = d; });
+
+    const pts = allDates.map((date, i) => {
+      const x = PAD_L + (allDates.length > 1 ? (i / (allDates.length - 1)) * cw : cw / 2);
+      const cost = dateMap[date]?.cost || 0;
+      const y = PAD_T + ch - (cost / maxCost) * ch;
+      return { x, y, cost, date, runs: dateMap[date]?.runs || 0 };
+    }).filter(p => p.cost > 0);
+
+    if (pts.length === 0) return;
+    const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    lines += `<path d="${pathD}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" opacity="0.8"/>`;
+
+    pts.forEach(p => {
+      lines += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="${color}" opacity="0">
+        <title>${agentName} ${p.date}: $${p.cost.toFixed(4)} (${p.runs} runs)</title>
+      </circle>
+      <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="8" fill="transparent">
+        <title>${agentName} ${p.date}: $${p.cost.toFixed(4)} (${p.runs} runs)</title>
+      </circle>`;
+    });
+  });
+
+  // Legend
+  const legend = agents.map(([name], idx) => {
+    const color = _agentColors[idx % _agentColors.length];
+    return `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11px;color:var(--text-secondary)">
+      <span style="width:10px;height:3px;background:${color};border-radius:2px;display:inline-block"></span>${name.length > 15 ? name.slice(0, 14) + '…' : name}
+    </span>`;
+  }).join('');
+
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
+    ${yLabels}${xLabels}${lines}
+  </svg>
+  <div style="margin-top:6px;line-height:1.8">${legend}</div>`;
+}
+
 // ─── Init ───
 loadProject();
 loadAgents();
 loadDashboard();
+loadCostChart();
+switchCostPeriod('day');
 
 // Slow fallback polling (WS handles real-time)
 setInterval(loadAgents, 30000);

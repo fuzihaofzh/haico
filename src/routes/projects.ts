@@ -111,6 +111,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const byAgent: Record<string, { cost: number; runs: number }> = {};
     const runs: Array<{ run_id: string; agent_name: string; cost_usd: number; input_tokens: number; output_tokens: number; timestamp: string }> = [];
     const timeSeries: Record<string, { cost: number; runs: number }> = {};
+    const timeSeriesByAgent: Record<string, Record<string, { cost: number; runs: number }>> = {};
 
     for (const c of costs) {
       try {
@@ -155,6 +156,12 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
           if (!timeSeries[key]) timeSeries[key] = { cost: 0, runs: 0 };
           timeSeries[key].cost += costUsd;
           timeSeries[key].runs++;
+
+          // Per-agent time-series
+          if (!timeSeriesByAgent[c.agent_name]) timeSeriesByAgent[c.agent_name] = {};
+          if (!timeSeriesByAgent[c.agent_name][key]) timeSeriesByAgent[c.agent_name][key] = { cost: 0, runs: 0 };
+          timeSeriesByAgent[c.agent_name][key].cost += costUsd;
+          timeSeriesByAgent[c.agent_name][key].runs++;
         }
       } catch {}
     }
@@ -171,6 +178,16 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       result.time_series = Object.entries(timeSeries)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([period_start, data]) => ({ period_start, ...data }));
+
+      // Per-agent time-series breakdown
+      result.time_series_by_agent = Object.fromEntries(
+        Object.entries(timeSeriesByAgent).map(([agent, series]) => [
+          agent,
+          Object.entries(series)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([period_start, data]) => ({ period_start, ...data })),
+        ])
+      );
     }
 
     return result;

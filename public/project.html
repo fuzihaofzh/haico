@@ -80,6 +80,22 @@
       <!-- Status Dashboard -->
       <div id="project-dashboard" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
 
+      <!-- Cost Time-Series Chart -->
+      <div id="cost-chart-panel" style="display:none;margin-bottom:16px">
+        <div class="card" style="padding:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6">Cost Trend</div>
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-sm cost-period-btn" data-period="day" onclick="switchCostPeriod('day')" style="padding:2px 8px;font-size:11px">Day</button>
+              <button class="btn btn-sm cost-period-btn" data-period="week" onclick="switchCostPeriod('week')" style="padding:2px 8px;font-size:11px">Week</button>
+              <button class="btn btn-sm cost-period-btn" data-period="month" onclick="switchCostPeriod('month')" style="padding:2px 8px;font-size:11px">Month</button>
+            </div>
+          </div>
+          <div id="cost-chart-total" style="margin-bottom:16px"></div>
+          <div id="cost-chart-agents"></div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="form-group">
           <label>Project Name</label>
