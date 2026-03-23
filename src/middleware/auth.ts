@@ -263,10 +263,19 @@ const CHANGE_PASSWORD_HTML = `<!DOCTYPE html>
  * Follows the same pattern as swarmie for maximum reliability.
  */
 export function setupAuth(app: FastifyInstance): void {
-  const initial = loadAuthConfig();
+  let initial = loadAuthConfig();
+  // Retry once on transient read errors at startup (e.g. NFS timeout)
+  if (initial.readError) {
+    const retry = loadAuthConfig();
+    if (!retry.readError) {
+      initial = retry;
+    }
+  }
   let authConfig = initial.config;
   // Track whether password was ever successfully loaded — prevents downgrade to "no password" on transient errors
-  let passwordWasEverSet = !!authConfig.passwordHash;
+  // If config file exists but had a read error at startup (e.g. NFS timeout), assume password was set.
+  // This prevents redirect to /setup when the file is temporarily unreadable.
+  let passwordWasEverSet = !!authConfig.passwordHash || (initial.fileExists && initial.readError);
 
   function checkPassword(pwd: string): boolean {
     if (!authConfig.passwordHash) return false;
@@ -375,9 +384,13 @@ export function setupAuth(app: FastifyInstance): void {
       return;
     }
 
-    // No password in memory -> try to reload from file
+    // No password in memory -> try to reload from file (with retry on read errors)
     if (!authConfig.passwordHash) {
-      const result = loadAuthConfig();
+      let result = loadAuthConfig();
+      // Retry once on transient read errors (e.g. NFS timeout)
+      if (result.readError) {
+        result = loadAuthConfig();
+      }
       if (result.config.passwordHash) {
         authConfig = result.config;
         passwordWasEverSet = true;
