@@ -1076,11 +1076,6 @@ async function loadCostChart() {
     }
     panel.style.display = '';
 
-    // Render total cost bar chart
-    const totalEl = document.getElementById('cost-chart-total');
-    totalEl.innerHTML = '<div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--fg)">Total Cost</div>' +
-      renderBarChart(data.time_series, 'var(--accent)', 600, 160);
-
     // Render per-agent stacked bar chart
     const agentsEl = document.getElementById('cost-chart-agents');
     if (data.time_series_by_agent && Object.keys(data.time_series_by_agent).length > 0) {
@@ -1091,48 +1086,6 @@ async function loadCostChart() {
       agentsEl.innerHTML = '';
     }
   } catch {}
-}
-
-function renderBarChart(series, color, width, height) {
-  const PAD_L = 50, PAD_R = 16, PAD_T = 12, PAD_B = 32;
-  const W = width, H = height;
-  const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B;
-  const n = series.length;
-
-  const costs = series.map(d => d.cost);
-  const maxCost = Math.max(...costs, 0.001);
-  const barW = Math.max(2, (cw / n) * 0.7);
-  const gap = cw / n;
-
-  // Y-axis labels
-  const yLabels = [0, maxCost / 2, maxCost].map(v => {
-    const y = PAD_T + ch - (v / maxCost) * ch;
-    return `<text x="${PAD_L - 6}" y="${y + 3}" text-anchor="end" fill="var(--text-secondary)" font-size="9">$${v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}</text>
-    <line x1="${PAD_L}" y1="${y}" x2="${W - PAD_R}" y2="${y}" stroke="var(--border)" stroke-width="0.5" opacity="0.5"/>`;
-  }).join('');
-
-  // X-axis labels
-  const step = Math.max(1, Math.floor(n / 6));
-  const xLabels = series.map((d, i) => {
-    if (i % step !== 0 && i !== n - 1) return '';
-    const x = PAD_L + i * gap + gap / 2;
-    const label = d.period_start.slice(5); // MM-DD HH
-    return `<text x="${x}" y="${H - 4}" text-anchor="middle" fill="var(--text-secondary)" font-size="8">${label}</text>`;
-  }).join('');
-
-  // Bars
-  const bars = series.map((d, i) => {
-    const x = PAD_L + i * gap + (gap - barW) / 2;
-    const barH = (d.cost / maxCost) * ch;
-    const y = PAD_T + ch - barH;
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color}" opacity="0.8" rx="1">
-      <title>${d.period_start}: $${d.cost.toFixed(4)} (${d.runs} runs)</title>
-    </rect>`;
-  }).join('');
-
-  return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
-    ${yLabels}${xLabels}${bars}
-  </svg>`;
 }
 
 function renderStackedBarChart(agents, totalSeries, width, height) {
