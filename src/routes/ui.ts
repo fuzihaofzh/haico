@@ -23,6 +23,10 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('agent.html'));
   });
 
+  fastify.get('/terminal', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('terminal.html'));
+  });
+
   fastify.get('/issues/:id', async (_request, reply) => {
     return reply.type('text/html').send(serveHtml('issue.html'));
   });

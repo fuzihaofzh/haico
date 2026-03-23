@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Argus - Terminal</title>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <link rel="stylesheet" href="/public/vendor/xterm.css">
+  <style>
+    body { margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    header { flex-shrink: 0; }
+    .terminal-wrap { flex: 1; display: flex; flex-direction: column; padding: 0 12px 12px; overflow: hidden; }
+    .terminal-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 4px; gap: 8px; flex-shrink: 0; }
+    .terminal-toolbar .agent-name { font-weight: bold; font-size: 14px; }
+    .terminal-toolbar .status { font-size: 12px; color: var(--text-secondary); }
+    #terminal { flex: 1; border-radius: 6px; overflow: hidden; }
+    .session-dialog { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .session-dialog .dialog-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; max-width: 400px; width: 90%; }
+    .session-dialog h3 { margin: 0 0 16px; }
+    .session-dialog .actions { display: flex; gap: 8px; margin-top: 16px; }
+    .session-dialog .actions button { flex: 1; }
+  </style>
+</head>
+<body>
+  <header>
+    <button class="menu-btn" onclick="window.close()">
+      <span></span><span></span><span></span>
+    </button>
+    <h1><a href="/" style="color:var(--accent);text-decoration:none">Argus</a></h1>
+    <div class="breadcrumb" style="margin-left:12px">
+      <a href="/">Projects</a> / <a id="project-link" href="#">Project</a> / <a id="agent-link" href="#">Agent</a> / <span>Terminal</span>
+    </div>
+  </header>
+
+  <div class="terminal-wrap">
+    <div class="terminal-toolbar">
+      <div>
+        <span class="agent-name" id="agent-name">Agent</span>
+        <span class="status" id="connection-status">Connecting...</span>
+      </div>
+      <div class="flex" style="gap:8px">
+        <button class="btn btn-sm" onclick="reconnect(true)">New Session</button>
+        <button class="btn btn-sm btn-danger" onclick="killSession()">Kill</button>
+      </div>
+    </div>
+    <div id="terminal"></div>
+  </div>
+
+  <!-- Session choice dialog -->
+  <div class="session-dialog" id="sessionDialog" style="display:none">
+    <div class="dialog-box">
+      <h3>Terminal Session</h3>
+      <p id="dialog-text">An existing session was found. Continue or start new?</p>
+      <div class="actions">
+        <button class="btn" onclick="startSession(false)">Continue Session</button>
+        <button class="btn btn-primary" onclick="startSession(true)">New Session</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/public/js/common.js"></script>
+  <script src="/public/vendor/xterm.js"></script>
+  <script src="/public/vendor/xterm-addon-fit.js"></script>
+  <script src="/public/js/interactive-terminal.js"></script>
+</body>
+</html>

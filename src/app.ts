@@ -14,6 +14,7 @@ import { initializeScheduler } from './services/scheduler';
 import { setOnAgentFinish, stopAllProcesses } from './services/process-manager';
 import { triggerControllerAgent } from './services/controller';
 import { stopAllSchedulers } from './services/scheduler';
+import { killAllPtySessions } from './services/terminal';
 import { Agent, Project } from './types';
 
 export interface AppOptions {
@@ -69,6 +70,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
 export async function destroyApp(fastify: FastifyInstance): Promise<void> {
   stopAllSchedulers();
   stopAllProcesses();
+  killAllPtySessions();
   await fastify.close();
   closeDatabase();
 }

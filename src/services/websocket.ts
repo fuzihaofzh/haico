@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
+import { getOrCreatePtySession, hasPtySession, killPtySession } from './terminal';
 
 // Map of agentId -> Set of connected WebSocket clients
 const agentClients = new Map<string, Set<WebSocket>>();
@@ -64,6 +65,76 @@ export function setupWebSocket(fastify: FastifyInstance): void {
     });
 
     socket.send(JSON.stringify({ type: 'connected', projectId: id }));
+  });
+
+  // Interactive PTY terminal for agent chat
+  fastify.get('/ws/terminal/:agentId', { websocket: true }, (socket, request) => {
+    const { agentId } = request.params as { agentId: string };
+    const query = (request.query || {}) as { newSession?: string; cols?: string; rows?: string };
+    const newSession = query.newSession === 'true';
+    const cols = parseInt(query.cols || '120') || 120;
+    const rows = parseInt(query.rows || '30') || 30;
+
+    // Check if session already exists
+    const hasExisting = hasPtySession(agentId);
+
+    socket.send(JSON.stringify({
+      type: 'connected',
+      agentId,
+      hasExistingSession: hasExisting,
+    }));
+
+    // Create or resume PTY session
+    const session = getOrCreatePtySession(agentId, newSession, cols, rows);
+
+    // Forward PTY output -> WebSocket (base64 encoded)
+    const onData = session.pty.onData((data: string) => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: 'output',
+          data: Buffer.from(data).toString('base64'),
+        }));
+      }
+    });
+
+    const onExit = session.pty.onExit(({ exitCode }) => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'exit', exitCode }));
+      }
+    });
+
+    // Handle messages from browser
+    socket.on('message', (raw: Buffer | string) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        switch (msg.type) {
+          case 'input':
+            session.pty.write(msg.data);
+            break;
+          case 'resize':
+            if (msg.cols && msg.rows) {
+              session.pty.resize(msg.cols, msg.rows);
+            }
+            break;
+          case 'kill':
+            killPtySession(agentId);
+            break;
+        }
+      } catch {
+        // Ignore malformed messages
+      }
+    });
+
+    socket.on('close', () => {
+      onData.dispose();
+      onExit.dispose();
+      // Don't kill PTY on disconnect — allow reconnect
+    });
+
+    socket.on('error', () => {
+      onData.dispose();
+      onExit.dispose();
+    });
   });
 }
 

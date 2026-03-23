@@ -178,13 +178,14 @@ async function loadAgents() {
     const pauseBtn = !a.paused
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();pauseAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Pause agent">⏸</button>`
       : `<button class="btn btn-sm" onclick="event.stopPropagation();unpauseAgent('${a.id}')" style="color:var(--success);padding:3px 6px" title="Resume agent">▶</button>`;
+    const chatBtn = `<button class="btn btn-sm" onclick="event.stopPropagation();openTerminal('${a.id}')" style="padding:3px 6px" title="Open terminal chat">Chat</button>`;
     let actions;
     if (a.paused) {
-      actions = `${pauseBtn}${deleteBtn}`;
+      actions = `${chatBtn}${pauseBtn}${deleteBtn}`;
     } else if (a.status === 'running') {
-      actions = `${pauseBtn}<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();stopAgentById('${a.id}')">Stop</button>`;
+      actions = `${chatBtn}${pauseBtn}<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();stopAgentById('${a.id}')">Stop</button>`;
     } else {
-      actions = `${pauseBtn}${retryBtn}<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();quickStartAgent('${a.id}')">Start</button>${deleteBtn}`;
+      actions = `${chatBtn}${pauseBtn}${retryBtn}<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();quickStartAgent('${a.id}')">Start</button>${deleteBtn}`;
     }
     const selected = currentAgentId === a.id ? 'background:var(--selected-bg);' : '';
     const pausedStyle = a.paused ? 'opacity:0.55;' : '';
@@ -236,8 +237,11 @@ async function viewAgent(agentId) {
         <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
           <div class="flex-between">
             <h3 style="display:flex;align-items:center;gap:8px">${avatarSvg(agent.name, 28)} ${esc(agent.name)} ${agent.is_controller ? '<span style="color:var(--accent);font-size:12px">[controller]</span>' : ''}</h3>
-            ${agent.status === 'error' && agent.last_prompt ? `<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>` : ''}
-            <span class="status-badge status-${agent.status}">${agent.status}${agent.pid ? ' (PID:' + agent.pid + ')' : ''}</span>
+            <div class="flex" style="gap:6px">
+              <button class="btn btn-sm" onclick="openTerminal('${agentId}')" title="Open terminal chat">Chat</button>
+              ${agent.status === 'error' && agent.last_prompt ? `<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>` : ''}
+              <span class="status-badge status-${agent.status}">${agent.status}${agent.pid ? ' (PID:' + agent.pid + ')' : ''}</span>
+            </div>
           </div>
           <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${esc(agent.role)}</div>
         </div>
@@ -614,6 +618,10 @@ async function retryAgent(id) {
     const res = await fetch(`/api/agents/${id}/retry`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
     if (res.ok) { loadAgents(); showToast('Agent已重试', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '重试失败', 'error'); }
   });
+}
+
+function openTerminal(agentId) {
+  window.open(`/terminal?agentId=${agentId}`, `terminal-${agentId}`, 'width=900,height=600');
 }
 
 async function quickStartAgent(id) {
