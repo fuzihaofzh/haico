@@ -45,8 +45,10 @@ export function startAgentProcess(
   // Write prompt to temp file (written later after fullPrompt is determined)
   let promptFile: string;
 
-  // commandTemplate is just the tool path (e.g., "cld", "claude", "/usr/bin/claude")
-  // We build the full command with all necessary flags
+  // commandTemplate is the tool command name (e.g., "cld", "claude",
+  // "codex", "gemini"). For Claude Code / Codex / Gemini we append
+  // appropriate flags so they behave like non-interactive agents; for other
+  // CLIs we run the template as-is.
   const toolPath = commandTemplate.trim() || 'claude';
   // Session strategy: reset by cache token (preferred) or run count (fallback)
   const maxTokens = (agent as any).session_max_tokens || 200000;
@@ -78,8 +80,48 @@ export function startAgentProcess(
   // Update run count (reset to 1 if new session)
   db.prepare('UPDATE agents SET session_run_count = ? WHERE id = ?')
     .run(shouldReset ? 1 : runCount, agent.id);
-  const sessionFlag = existingSessionId ? `--resume ${sessionId}` : `--session-id ${sessionId}`;
-  const command = `${toolPath} -p --output-format stream-json --verbose ${sessionFlag} --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"`;
+
+  // Build command per tool. For Claude Code (cld/claude) we use stream-json
+  // and pass session flags; for Codex and Gemini we use their non-interactive
+  // JSON/stream-json modes; other commands are executed as-is.
+  const lowerTool = toolPath.toLowerCase();
+  let command: string;
+  let useStreamJson = false;
+
+  if (lowerTool.startsWith('cld') || lowerTool.startsWith('claude')) {
+    const sessionFlag = existingSessionId ? `--resume ${sessionId}` : `--session-id ${sessionId}`;
+    command = `${toolPath} -p --output-format stream-json --verbose ${sessionFlag} --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"`;
+    useStreamJson = true;
+  } else if (lowerTool === 'codex') {
+    // Codex CLI: non-interactive exec mode with JSONL output.
+    // Support resume like Claude: use existing session's thread_id to resume,
+    // otherwise start a new session. The resume subcommand uses
+    // --dangerously-bypass-approvals-and-sandbox instead of --sandbox.
+    if (existingSessionId) {
+      // Resume: prompt is read from stdin (using -)
+      command = `codex exec resume --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check ${sessionId} -`;
+    } else {
+      command = 'codex exec --json --sandbox danger-full-access --skip-git-repo-check';
+    }
+    useStreamJson = true;
+  } else if (lowerTool.startsWith('codex ')) {
+    // Allow advanced users to fully customize Codex invocation via
+    // command_template (e.g. "codex exec --json --sandbox workspace-write").
+    // We respect their flags and only enable JSON parsing if --json is
+    // explicitly requested.
+    command = toolPath;
+    useStreamJson = toolPath.includes('--json');
+  } else if (lowerTool.startsWith('gemini')) {
+    // Gemini CLI: use stream-json output and sandboxed auto-approval so
+    // long-running agents can operate with minimal friction.
+    command = `${toolPath} --output-format stream-json --sandbox --approval-mode yolo`;
+    useStreamJson = true;
+  } else {
+    // Other CLIs: execute as provided. We still send the prompt via stdin but
+    // do not assume any particular JSON schema.
+    command = toolPath;
+    useStreamJson = false;
+  }
 
   // Resume session时跳过systemPrompt以节省token，只发送任务内容
   const fullPrompt = (existingSessionId || !systemPrompt) ? prompt : systemPrompt + prompt;
@@ -138,8 +180,10 @@ export function startAgentProcess(
   // Log the input prompt
   logStmt.run(agent.id, runId, fullPrompt, 'stdin');
 
-  // Always use stream-json output format (set in command building above)
-  const isStreamJson = true;
+  // Use stream-json parser only for Claude Code / Codex; other tools are
+  // logged as plain text so we don't depend on their JSON schema.
+  const isStreamJson = useStreamJson;
+  const isCodex = lowerTool === 'codex' || (lowerTool.startsWith('codex ') && useStreamJson);
   let stdoutBuffer = '';
 
   function logAndBroadcast(content: string, stream: string) {
@@ -151,7 +195,47 @@ export function startAgentProcess(
   function parseStreamJsonLine(line: string) {
     try {
       const obj = JSON.parse(line);
-      if (obj.type === 'assistant' && obj.message?.content) {
+      let handled = false;
+
+      // --- Codex-specific events ---
+      if (isCodex) {
+        if (obj.type === 'thread.started' && obj.thread_id) {
+          // Capture Codex's thread_id as session_id for future resume
+          handled = true;
+          sessionId = obj.thread_id;
+          db.prepare('UPDATE agents SET session_id = ? WHERE id = ?')
+            .run(sessionId, agent.id);
+          logger.info(`Agent ${agent.id} Codex thread started: ${sessionId}`);
+        } else if (obj.type === 'item.completed' && obj.item) {
+          handled = true;
+          if (obj.item.type === 'agent_message' && obj.item.text) {
+            logAndBroadcast(obj.item.text + '\n', 'stdout');
+          } else if (obj.item.type === 'tool_call') {
+            logAndBroadcast(`[Tool: ${obj.item.name || 'unknown'}] ${JSON.stringify(obj.item).slice(0, 200)}\n`, 'stdout');
+          } else if (obj.item.type === 'tool_call_output') {
+            const output = (obj.item.output || obj.item.text || '').slice(0, 500);
+            logAndBroadcast(`[Result] ${output}\n`, 'stdout');
+          }
+        } else if (obj.type === 'turn.completed' && obj.usage) {
+          handled = true;
+          const input = obj.usage.input_tokens || 0;
+          const output = obj.usage.output_tokens || 0;
+          const cacheRead = obj.usage.cached_input_tokens || 0;
+          // Codex doesn't report cache_creation separately; estimate as input - cached
+          const cacheCreation = Math.max(0, input - cacheRead);
+          logAndBroadcast(`\n--- Tokens: ${input} in, ${output} out, ${cacheRead} cache ---\n`, 'stdout');
+          try {
+            db.prepare("INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'cost')")
+              .run(agent.id, runId, JSON.stringify({ cost_usd: 0, input_tokens: input, output_tokens: output, cache_read: cacheRead, cache_creation: cacheCreation }));
+          } catch {}
+        } else if (obj.type === 'turn.started') {
+          handled = true; // silently consume
+        }
+      }
+
+      // --- Claude Code events ---
+      if (!handled && obj.type === 'assistant' && obj.message?.content) {
+        handled = true;
         for (const block of obj.message.content) {
           if (block.type === 'text' && block.text) {
             logAndBroadcast(block.text + '\n', 'stdout');
@@ -159,11 +243,13 @@ export function startAgentProcess(
             logAndBroadcast(`[Tool: ${block.name}] ${JSON.stringify(block.input).slice(0, 200)}\n`, 'stdout');
           }
         }
-      } else if (obj.type === 'user' && obj.tool_use_result !== undefined) {
+      } else if (!handled && obj.type === 'user' && obj.tool_use_result !== undefined) {
+        handled = true;
         const raw = obj.tool_use_result;
         const result = (typeof raw === 'string' ? raw : JSON.stringify(raw)).slice(0, 500);
         logAndBroadcast(`[Result] ${result}\n`, 'stdout');
-      } else if (obj.type === 'result') {
+      } else if (!handled && obj.type === 'result') {
+        handled = true;
         if (obj.result) {
           logAndBroadcast('\n--- Final Result ---\n' + obj.result + '\n', 'stdout');
         }
@@ -180,6 +266,13 @@ export function startAgentProcess(
               .run(agent.id, runId, JSON.stringify({ cost_usd: costUsd, input_tokens: input, output_tokens: output, cache_read: cacheRead, cache_creation: cacheCreation, duration_ms: obj.duration_ms }));
           } catch {}
         }
+      }
+
+      // For unknown JSON shapes (e.g. other CLIs' stream-json), log the raw
+      // line so that output is still visible even if we don't understand the
+      // schema.
+      if (!handled) {
+        logAndBroadcast(line + '\n', 'stdout');
       }
     } catch {
       // Not JSON (proxychains noise etc), skip or log as-is
