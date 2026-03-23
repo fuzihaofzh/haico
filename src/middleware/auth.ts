@@ -52,20 +52,27 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return cookies;
 }
 
-function loadAuthConfig(): AuthConfig {
+function loadAuthConfig(): { config: AuthConfig; fileExists: boolean; readError: boolean } {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+      const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+      return { config, fileExists: true, readError: false };
     }
-  } catch (e) { logger.error(e, 'Failed to load auth config'); }
-  return {};
+    return { config: {}, fileExists: false, readError: false };
+  } catch (e) {
+    logger.error(e, 'Failed to load auth config from %s', CONFIG_PATH);
+    return { config: {}, fileExists: true, readError: true };
+  }
 }
 
 function saveAuthConfig(config: AuthConfig): void {
   if (!fs.existsSync(CONFIG_DIR)) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
   }
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  // Atomic write: write to temp file first, then rename to avoid partial reads
+  const tmpPath = CONFIG_PATH + '.tmp';
+  fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2));
+  fs.renameSync(tmpPath, CONFIG_PATH);
 }
 
 // --- Localhost bypass: only safe (agent-usable) routes ---
@@ -256,7 +263,10 @@ const CHANGE_PASSWORD_HTML = `<!DOCTYPE html>
  * Follows the same pattern as swarmie for maximum reliability.
  */
 export function setupAuth(app: FastifyInstance): void {
-  let authConfig = loadAuthConfig();
+  const initial = loadAuthConfig();
+  let authConfig = initial.config;
+  // Track whether password was ever successfully loaded — prevents downgrade to "no password" on transient errors
+  let passwordWasEverSet = !!authConfig.passwordHash;
 
   function checkPassword(pwd: string): boolean {
     if (!authConfig.passwordHash) return false;
@@ -269,6 +279,7 @@ export function setupAuth(app: FastifyInstance): void {
   function setPassword(pwd: string): void {
     const { hash, salt } = hashPassword(pwd);
     authConfig = { passwordHash: hash, passwordSalt: salt };
+    passwordWasEverSet = true;
     saveAuthConfig(authConfig);
   }
 
@@ -364,18 +375,35 @@ export function setupAuth(app: FastifyInstance): void {
       return;
     }
 
-    // No password yet -> setup (always re-check file to be safe)
+    // No password in memory -> try to reload from file
     if (!authConfig.passwordHash) {
-      authConfig = loadAuthConfig();
-    }
-    // Double-check: if config file has password but memory doesn't, reload
-    if (!authConfig.passwordHash && fs.existsSync(CONFIG_PATH)) {
-      try {
-        const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-        if (raw.passwordHash) authConfig = raw;
-      } catch {}
+      const result = loadAuthConfig();
+      if (result.config.passwordHash) {
+        authConfig = result.config;
+        passwordWasEverSet = true;
+      } else if (result.readError && passwordWasEverSet) {
+        // File exists but read failed, and we know password was set before.
+        // Do NOT redirect to /setup — this is a transient error.
+        logger.warn('Auth config file read error but password was previously set — denying access instead of redirecting to /setup');
+        if (url.startsWith('/api/') || url.startsWith('/ws')) {
+          reply.status(503).send({ error: 'Auth config temporarily unavailable. Please retry.' });
+        } else {
+          reply.redirect('/login');
+        }
+        return;
+      }
     }
     if (!authConfig.passwordHash) {
+      if (passwordWasEverSet) {
+        // Password was set before but config file is now missing — likely a bug, not first-time setup
+        logger.error('Auth config file missing but password was previously set! Config path: %s', CONFIG_PATH);
+        if (url.startsWith('/api/') || url.startsWith('/ws')) {
+          reply.status(503).send({ error: 'Auth config missing. This may be a system error.' });
+        } else {
+          reply.redirect('/login');
+        }
+        return;
+      }
       if (url.startsWith('/api/') || url.startsWith('/ws')) {
         reply.status(401).send({ error: 'Password not configured. Visit /setup first.' });
       } else {
