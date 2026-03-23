@@ -208,7 +208,7 @@ async function stopAgent() {
 function clearTerminal() { if (term) { term.clear(); } }
 
 function openTerminal() {
-  window.open(`/terminal?agentId=${agentId}`, `terminal-${agentId}`, 'width=900,height=600');
+  window.location.href = `/terminal?agentId=${agentId}`;
 }
 
 async function saveInstructions() {

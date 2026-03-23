@@ -621,7 +621,7 @@ async function retryAgent(id) {
 }
 
 function openTerminal(agentId) {
-  window.open(`/terminal?agentId=${agentId}`, `terminal-${agentId}`, 'width=900,height=600');
+  window.location.href = `/terminal?agentId=${agentId}`;
 }
 
 async function quickStartAgent(id) {
