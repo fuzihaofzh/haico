@@ -162,6 +162,10 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
     ? taskPrompt
     : buildSystemPrompt(controller, project) + taskPrompt;
 
+  // Controller is stateless (rebuilds full state from DB each run).
+  // Always use fresh session to prevent conversation history accumulation and cost growth.
+  const controllerFresh = { ...controller, session_id: null } as Agent;
+
   logger.info(`Triggering controller agent for project "${project.name}"`);
-  startAgentProcess(controller, fullPrompt, commandTemplate);
+  startAgentProcess(controllerFresh, fullPrompt, commandTemplate);
 }
