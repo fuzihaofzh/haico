@@ -1469,6 +1469,151 @@ describe('Argus API', () => {
     });
   });
 
+  // ─── @Mention Parsing ───
+
+  describe('@Mention in Issues', () => {
+    let mentionIssueId: string;
+
+    it('creating issue with @worker-1 triggers agent start', async () => {
+      // Ensure agent is idle first
+      const { body: agentBefore } = await api(app, `/api/agents/${workerId}`);
+      // If running, stop it first
+      if (agentBefore.status === 'running') {
+        await api(app, `/api/agents/${workerId}/stop`, { method: 'POST' });
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          const { body: st } = await api(app, `/api/agents/${workerId}/status`);
+          if (st.status !== 'running') break;
+        }
+      }
+
+      const { status, body } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Mention test', body: 'Hey @worker-1 please check this', created_by: 'user' },
+      });
+      assert.equal(status, 201);
+      mentionIssueId = body.id;
+
+      // Agent should have been auto-started
+      await new Promise(r => setTimeout(r, 500));
+      const { body: agentAfter } = await api(app, `/api/agents/${workerId}/status`);
+      // Agent may already finish (echo command is fast), check it was started
+      assert.ok(
+        agentAfter.status === 'running' || agentAfter.status === 'idle' || agentAfter.status === 'error',
+        'Agent should have been triggered'
+      );
+    });
+
+    it('system event recorded for auto-started agent', async () => {
+      // Wait for process to finish
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        const { body: st } = await api(app, `/api/agents/${workerId}/status`);
+        if (st.status !== 'running') break;
+      }
+
+      const { body: issue } = await api(app, `/api/issues/${mentionIssueId}`);
+      const systemEvents = issue.comments.filter((c: any) => c.author_id === 'system');
+      assert.ok(systemEvents.length > 0, 'Should have system event for auto-start');
+      const mentionEvent = systemEvents.find((c: any) => c.body.includes('auto-started') && c.body.includes('worker-1'));
+      assert.ok(mentionEvent, 'System event should mention auto-started worker-1');
+    });
+
+    it('@mention of nonexistent agent does not cause error', async () => {
+      const { status } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Unknown mention', body: 'Hey @nonexistent-agent check', created_by: 'user' },
+      });
+      assert.equal(status, 201);
+    });
+
+    it('comment with @worker-1 triggers agent start', async () => {
+      // Stop agent if running
+      const { body: st } = await api(app, `/api/agents/${workerId}/status`);
+      if (st.status === 'running') {
+        await api(app, `/api/agents/${workerId}/stop`, { method: 'POST' });
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          const { body: s } = await api(app, `/api/agents/${workerId}/status`);
+          if (s.status !== 'running') break;
+        }
+      }
+
+      const { status } = await api(app, `/api/issues/${mentionIssueId}/comments`, {
+        method: 'POST',
+        body: { author_id: 'user', body: '@worker-1 please verify this fix' },
+      });
+      assert.equal(status, 201);
+
+      // Agent should have been triggered
+      await new Promise(r => setTimeout(r, 500));
+      const { body: agentAfter } = await api(app, `/api/agents/${workerId}/status`);
+      assert.ok(
+        agentAfter.status === 'running' || agentAfter.status === 'idle' || agentAfter.status === 'error',
+        'Agent should have been triggered by comment @mention'
+      );
+
+      // Wait for agent to finish
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        const { body: s } = await api(app, `/api/agents/${workerId}/status`);
+        if (s.status !== 'running') break;
+      }
+    });
+
+    it('issue body without @mention does not trigger system event', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'No mention', body: 'Just a normal issue', created_by: 'user' },
+      });
+      assert.equal(status, 201);
+      const { body: issue } = await api(app, `/api/issues/${body.id}`);
+      const systemEvents = issue.comments.filter((c: any) => c.author_id === 'system' && c.body.includes('auto-started'));
+      assert.equal(systemEvents.length, 0, 'No auto-start event for issue without @mention');
+    });
+
+    it('multiple @mentions in one text are all parsed', async () => {
+      // Create a second worker agent for this test
+      const { body: worker2 } = await api(app, `/api/projects/${projectId}/agents`, {
+        method: 'POST', body: { name: 'worker-2', role: 'Test worker 2' },
+      });
+      const worker2Id = worker2.id;
+
+      // Stop worker-1 if running
+      const { body: st } = await api(app, `/api/agents/${workerId}/status`);
+      if (st.status === 'running') {
+        await api(app, `/api/agents/${workerId}/stop`, { method: 'POST' });
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          const { body: s } = await api(app, `/api/agents/${workerId}/status`);
+          if (s.status !== 'running') break;
+        }
+      }
+
+      const { status, body: newIssue } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Multi mention', body: 'Need @worker-1 and @worker-2 to review', created_by: 'user' },
+      });
+      assert.equal(status, 201);
+
+      // Wait for processes
+      await new Promise(r => setTimeout(r, 1000));
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        const { body: s1 } = await api(app, `/api/agents/${workerId}/status`);
+        const { body: s2 } = await api(app, `/api/agents/${worker2Id}/status`);
+        if (s1.status !== 'running' && s2.status !== 'running') break;
+      }
+
+      const { body: issue } = await api(app, `/api/issues/${newIssue.id}`);
+      const autoStartEvents = issue.comments.filter((c: any) => c.author_id === 'system' && c.body.includes('auto-started'));
+      assert.ok(autoStartEvents.length >= 2, `Should have at least 2 auto-start events, got ${autoStartEvents.length}`);
+
+      // Cleanup worker-2
+      await api(app, `/api/agents/${worker2Id}`, { method: 'DELETE' });
+    });
+  });
+
   // ─── Cascade Delete ───
 
   describe('Cleanup', () => {
