@@ -216,7 +216,7 @@ function cancelEditTitle() {
 async function saveTitle() {
   const v = document.getElementById('edit-title-input').value.trim();
   if (!v) return;
-  await fetch(`/api/issues/${issueId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ title: v }) });
+  await fetch(`/api/issues/${issueId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ title: v, actor: 'user' }) });
   await loadIssue();
 }
 function startEditBody() {
@@ -231,14 +231,14 @@ function cancelEditBody() {
 }
 async function saveBody() {
   const v = document.getElementById('edit-body-input').value;
-  await fetch(`/api/issues/${issueId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v }) });
+  await fetch(`/api/issues/${issueId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v, actor: 'user' }) });
   await loadIssue();
 }
 
 // ─── Actions ───
 
 async function updateField(field, value) {
-  const body = {}; body[field] = value;
+  const body = {}; body[field] = value; body.actor = 'user';
   await fetch(`/api/issues/${issueId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
   await loadIssue();
 }
