@@ -136,6 +136,8 @@ async function loadAgentInfo() {
     if (!window._instructionsLoaded) {
       document.getElementById('agent-instructions').value = agent.custom_instructions || '';
       document.getElementById('agent-workdir').value = agent.working_directory || '';
+      const maxRunsEl = document.getElementById('agent-maxruns');
+      if (maxRunsEl) maxRunsEl.value = agent.session_max_runs || 10;
       window._instructionsLoaded = true;
     }
   } catch (e) { console.error('Failed to load agent info', e); }
@@ -162,6 +164,18 @@ async function saveWorkdir() {
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${agentId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ working_directory: val || null }),
+    });
+    if (res.ok) showToast('已保存', 'success');
+    else showToast('保存失败', 'error');
+  });
+}
+
+async function saveMaxRuns() {
+  const val = parseInt(document.getElementById('agent-maxruns').value) || 10;
+  const btn = document.querySelector('button[onclick="saveMaxRuns()"]');
+  await withLoading(btn, async () => {
+    const res = await fetch(`/api/agents/${agentId}`, {
+      method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ session_max_runs: Math.max(1, val) }),
     });
     if (res.ok) showToast('已保存', 'success');
     else showToast('保存失败', 'error');

@@ -272,6 +272,13 @@ async function viewAgent(agentId) {
                 <option value="new" ${agent.new_session_per_run ? 'selected' : ''}>New each run</option>
               </select>
             </div>`}
+            <div style="width:120px">
+              <div style="${L}">Max Runs/Session</div>
+              <div style="display:flex;gap:4px">
+                <input type="number" id="ad-maxruns-${agentId}" value="${agent.session_max_runs || 10}" min="1" style="${B};width:60px;font-size:12px;color:var(--fg);text-align:center">
+                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_max_runs',parseInt(document.getElementById('ad-maxruns-${agentId}').value)||10)">Save</button>
+              </div>
+            </div>
           </div>
 
           <div style="margin-bottom:16px">

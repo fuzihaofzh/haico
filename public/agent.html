@@ -81,6 +81,19 @@
         </div>
       </div>
 
+      <!-- Session Settings -->
+      <div class="mt-16">
+        <label style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:6px;display:block">Session Settings</label>
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+          <div>
+            <span style="font-size:12px;color:var(--text-secondary)">Max Runs per Session:</span>
+            <input type="number" id="agent-maxruns" min="1" value="10" style="width:60px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px;text-align:center;margin:0 4px">
+            <button class="btn btn-sm" onclick="saveMaxRuns()">Save</button>
+          </div>
+          <span style="font-size:11px;color:var(--text-secondary);opacity:0.7">Session auto-resets after this many runs</span>
+        </div>
+      </div>
+
       <!-- Custom Instructions -->
       <div class="mt-16">
         <label style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:6px;display:block">Custom Instructions</label>
