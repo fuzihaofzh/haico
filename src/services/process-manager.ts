@@ -49,7 +49,7 @@ export function startAgentProcess(
   // We build the full command with all necessary flags
   const toolPath = commandTemplate.trim() || 'claude';
   // Session strategy: reset by cache token (preferred) or run count (fallback)
-  const maxTokens = (agent as any).session_max_tokens || 0;
+  const maxTokens = (agent as any).session_max_tokens || 200000;
   const maxRuns = (agent as any).session_max_runs || 10;
   const runCount = ((agent as any).session_run_count || 0) + 1;
   let shouldReset: boolean;

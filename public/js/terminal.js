@@ -139,7 +139,7 @@ async function loadAgentInfo() {
       const maxRunsEl = document.getElementById('agent-maxruns');
       if (maxRunsEl) maxRunsEl.value = agent.session_max_runs || 10;
       const maxTokensEl = document.getElementById('agent-maxtokens');
-      if (maxTokensEl) maxTokensEl.value = agent.session_max_tokens || 0;
+      if (maxTokensEl) maxTokensEl.value = agent.session_max_tokens || 200000;
       window._instructionsLoaded = true;
     }
   } catch (e) { console.error('Failed to load agent info', e); }

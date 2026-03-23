@@ -268,8 +268,8 @@ async function viewAgent(agentId) {
             <div style="width:140px">
               <div style="${L}">Max Cache Tokens</div>
               <div style="display:flex;gap:4px">
-                <input type="number" id="ad-maxtokens-${agentId}" value="${agent.session_max_tokens || 0}" min="0" style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
-                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_max_tokens',Math.max(0,parseInt(document.getElementById('ad-maxtokens-${agentId}').value))||0)">Save</button>
+                <input type="number" id="ad-maxtokens-${agentId}" value="${agent.session_max_tokens || 200000}" min="0" style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
+                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_max_tokens',Math.max(0,parseInt(document.getElementById('ad-maxtokens-${agentId}').value))||200000)">Save</button>
               </div>
               <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0=用次数控制</div>
             </div>
