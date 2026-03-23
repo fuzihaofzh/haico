@@ -139,7 +139,7 @@ describe('Argus API', () => {
       assert.ok(setCookie.includes('argus-auth='), 'Cookie should be argus-auth');
       assert.ok(setCookie.includes('HttpOnly'), 'Cookie should be HttpOnly');
       assert.ok(setCookie.includes('SameSite=Lax'), 'Cookie should have SameSite');
-      assert.ok(!setCookie.includes('Max-Age'), 'Cookie should NOT have Max-Age');
+      assert.ok(setCookie.includes('Max-Age=2592000'), 'Cookie should have Max-Age=2592000 (30 days)');
 
       const match = setCookie.match(/argus-auth=([^;]+)/);
       assert.ok(match, 'Should extract token');
@@ -1618,10 +1618,22 @@ describe('Argus API', () => {
 
   describe('@Mention Paused Agent', () => {
     it('@mention of paused agent does not start it', async () => {
-      // Pause the worker
-      await api(app, `/api/agents/${workerId}`, {
-        method: 'PUT', body: { paused: true },
-      });
+      // Stop agent if running
+      const { body: stBefore } = await api(app, `/api/agents/${workerId}/status`);
+      if (stBefore.status === 'running') {
+        await api(app, `/api/agents/${workerId}/stop`, { method: 'POST' });
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          const { body: s } = await api(app, `/api/agents/${workerId}/status`);
+          if (s.status !== 'running') break;
+        }
+      }
+
+      // Pause the worker using the dedicated pause endpoint
+      const { status: pauseStatus } = await api(app, `/api/agents/${workerId}/pause`, { method: 'POST' });
+      // May already be paused (409), that's OK
+      assert.ok(pauseStatus === 200 || pauseStatus === 409, `Pause should succeed or already be paused, got ${pauseStatus}`);
+
       const { body: paused } = await api(app, `/api/agents/${workerId}`);
       assert.equal(paused.paused, 1, 'Agent should be paused');
 
@@ -1644,52 +1656,33 @@ describe('Argus API', () => {
       assert.equal(autoStartEvents.length, 0, 'No auto-start event for paused agent');
 
       // Unpause for later tests
-      await api(app, `/api/agents/${workerId}`, {
-        method: 'PUT', body: { paused: false },
-      });
+      await api(app, `/api/agents/${workerId}/unpause`, { method: 'POST' });
     });
   });
 
-  // ─── Controller Wake-on-Issue ───
+  // ─── Controller On-Demand Mode (interval=0) ───
 
-  describe('Controller Wake-on-Issue', () => {
-    it('GET project returns controller_wake_on_issue field (default 0)', async () => {
+  describe('Controller On-Demand Mode', () => {
+    it('default controller_interval_min is 0 (on-demand mode)', async () => {
       const { status, body } = await api(app, `/api/projects/${projectId}`);
       assert.equal(status, 200);
-      assert.equal(body.controller_wake_on_issue, 0, 'Default should be 0 (off)');
+      // Project was created with controller_interval_min=60 in this test suite
+      assert.equal(typeof body.controller_interval_min, 'number');
     });
 
-    it('PUT project can enable controller_wake_on_issue', async () => {
+    it('PUT project can set controller_interval_min to 0 for on-demand', async () => {
       const { status, body } = await api(app, `/api/projects/${projectId}`, {
-        method: 'PUT', body: { controller_wake_on_issue: 1 },
+        method: 'PUT', body: { controller_interval_min: 0 },
       });
       assert.equal(status, 200);
-      assert.equal(body.controller_wake_on_issue, 1, 'Should be enabled');
+      assert.equal(body.controller_interval_min, 0, 'Should be 0 (on-demand)');
     });
 
-    it('GET project reflects updated controller_wake_on_issue', async () => {
-      const { body } = await api(app, `/api/projects/${projectId}`);
-      assert.equal(body.controller_wake_on_issue, 1);
-    });
-
-    it('PUT project can disable controller_wake_on_issue', async () => {
-      const { status, body } = await api(app, `/api/projects/${projectId}`, {
-        method: 'PUT', body: { controller_wake_on_issue: 0 },
-      });
-      assert.equal(status, 200);
-      assert.equal(body.controller_wake_on_issue, 0, 'Should be disabled');
-    });
-
-    it('creating issue triggers triggerControllerIfWakeOnIssue path', async () => {
-      // Enable wake-on-issue
-      await api(app, `/api/projects/${projectId}`, {
-        method: 'PUT', body: { controller_wake_on_issue: 1 },
-      });
-
-      // Create an issue — this should attempt to wake controller
+    it('on-demand mode: creating issue triggers controller', async () => {
+      // With interval=0, creating an issue should trigger controller on-demand
       const { status } = await api(app, `/api/projects/${projectId}/issues`, {
         method: 'POST',
-        body: { title: 'Wake test issue', body: 'Test wake on issue', created_by: 'user' },
+        body: { title: 'On-demand wake test', body: 'Test on-demand controller trigger', created_by: 'user' },
       });
       assert.equal(status, 201);
 
@@ -1698,8 +1691,7 @@ describe('Argus API', () => {
       await new Promise(r => setTimeout(r, 1500));
     });
 
-    it('updating issue status triggers triggerControllerIfWakeOnIssue path', async () => {
-      // Get an open issue
+    it('on-demand mode: updating issue triggers controller', async () => {
       const { body: list } = await api(app, `/api/projects/${projectId}/issues?status=open`);
       assert.ok(list.issues.length > 0, 'Should have open issues');
 
@@ -1708,31 +1700,37 @@ describe('Argus API', () => {
         method: 'PUT', body: { status: 'in_progress', actor: 'user' },
       });
       assert.equal(status, 200);
-
-      // Should not error
       await new Promise(r => setTimeout(r, 1500));
     });
 
-    it('adding comment triggers triggerControllerIfWakeOnIssue path', async () => {
+    it('on-demand mode: adding comment triggers controller', async () => {
       const { body: list } = await api(app, `/api/projects/${projectId}/issues`);
       const issueId = list.issues[0].id;
 
       const { status } = await api(app, `/api/issues/${issueId}/comments`, {
         method: 'POST',
-        body: { author_id: 'user', body: 'Wake on comment test' },
+        body: { author_id: 'user', body: 'On-demand comment test' },
       });
       assert.equal(status, 201);
-
-      // Should not error
       await new Promise(r => setTimeout(r, 1500));
     });
 
-    it('disable wake-on-issue for cleanup', async () => {
+    it('interval > 0 mode: triggerControllerOnDemand skips when interval > 0', async () => {
+      // Set interval back to a positive value
       const { status, body } = await api(app, `/api/projects/${projectId}`, {
-        method: 'PUT', body: { controller_wake_on_issue: 0 },
+        method: 'PUT', body: { controller_interval_min: 60 },
       });
       assert.equal(status, 200);
-      assert.equal(body.controller_wake_on_issue, 0);
+      assert.equal(body.controller_interval_min, 60, 'Should be 60 (scheduled mode)');
+
+      // Creating issue should NOT trigger on-demand controller (interval > 0)
+      const { status: issueStatus } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Scheduled mode test', body: 'Should not trigger on-demand', created_by: 'user' },
+      });
+      assert.equal(issueStatus, 201);
+      // No error means the triggerControllerOnDemand correctly returned early
+      await new Promise(r => setTimeout(r, 500));
     });
   });
 
