@@ -26,7 +26,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       const db = getDatabase();
       const { status, assigned_to, label, q, sort, page, per_page, milestone_id } = request.query;
 
-      let sql = 'SELECT * FROM issues WHERE project_id = ?';
+      let sql = `SELECT issues.*, (SELECT COUNT(*) FROM issue_comments WHERE issue_id = issues.id AND event_type = 'comment') as comment_count FROM issues WHERE project_id = ?`;
       const params: any[] = [request.params.pid];
 
       if (status) { sql += ' AND status = ?'; params.push(status); }
@@ -48,7 +48,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       // Pagination
       const limit = Math.min(parseInt(per_page || '100'), 200);
       const offset = (Math.max(parseInt(page || '1'), 1) - 1) * limit;
-      const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
+      const countSql = sql.replace(/SELECT issues\.\*.*?FROM issues/, 'SELECT COUNT(*) as total FROM issues');
       const total = (db.prepare(countSql).get(...params) as any)?.total || 0;
 
       sql += ` LIMIT ${limit} OFFSET ${offset}`;
