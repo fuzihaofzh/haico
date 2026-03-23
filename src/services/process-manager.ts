@@ -36,13 +36,14 @@ export function setOnAgentFinish(cb: OnAgentFinishCallback): void {
 export function startAgentProcess(
   agent: Agent,
   prompt: string,
-  commandTemplate: string
+  commandTemplate: string,
+  systemPrompt?: string
 ): { runId: string; pid: number } {
   const db = getDatabase();
   const runId = uuidv4();
 
-  // Write prompt to temp file
-  const promptFile = writePromptFile(runId, prompt);
+  // Write prompt to temp file (written later after fullPrompt is determined)
+  let promptFile: string;
 
   // commandTemplate is just the tool path (e.g., "cld", "claude", "/usr/bin/claude")
   // We build the full command with all necessary flags
@@ -60,11 +61,21 @@ export function startAgentProcess(
   const sessionFlag = existingSessionId ? `--resume ${sessionId}` : `--session-id ${sessionId}`;
   const command = `${toolPath} -p --output-format stream-json --verbose ${sessionFlag} --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"`;
 
+  // Resume session时跳过systemPrompt以节省token，只发送任务内容
+  const fullPrompt = (existingSessionId || !systemPrompt) ? prompt : systemPrompt + prompt;
+
+  // Write prompt file now that fullPrompt is determined
+  promptFile = writePromptFile(runId, fullPrompt);
+
+  if (existingSessionId && systemPrompt) {
+    logger.info(`Agent ${agent.id} resuming session ${sessionId}, skipping system prompt (saved ~${systemPrompt.length} chars)`);
+  }
+
   // Update agent status
   db.prepare(`
     UPDATE agents SET status = 'running', last_prompt = ?, session_id = ?, started_at = datetime('now'), pid = NULL
     WHERE id = ?
-  `).run(prompt, sessionId, agent.id);
+  `).run(fullPrompt, sessionId, agent.id);
 
   broadcastToProject(agent.project_id, {
     type: 'agent_status', projectId: agent.project_id,
@@ -80,7 +91,7 @@ export function startAgentProcess(
       ...process.env,
       no_proxy: [process.env.no_proxy, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
       NO_PROXY: [process.env.NO_PROXY, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
-      ARGUS_PROMPT: prompt,
+      ARGUS_PROMPT: fullPrompt,
       ARGUS_PROMPT_FILE: promptFile,
       ARGUS_SESSION_ID: sessionId,
       ARGUS_AGENT_ID: agent.id,
@@ -91,7 +102,7 @@ export function startAgentProcess(
 
   // Feed prompt via stdin (so command template doesn't need to handle it)
   if (child.stdin) {
-    child.stdin.write(prompt);
+    child.stdin.write(fullPrompt);
     child.stdin.end();
   }
 
@@ -105,7 +116,7 @@ export function startAgentProcess(
   );
 
   // Log the input prompt
-  logStmt.run(agent.id, runId, prompt, 'stdin');
+  logStmt.run(agent.id, runId, fullPrompt, 'stdin');
 
   // Always use stream-json output format (set in command building above)
   const isStreamJson = true;

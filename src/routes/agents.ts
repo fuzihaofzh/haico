@@ -131,11 +131,9 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
 
     // Inject system prompt by default; skip for raw shell commands (bash -c / sh -c)
     const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-    const fullPrompt = isRawShell
-      ? prompt
-      : buildSystemPrompt(agent, project) + prompt;
+    const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agent, project);
 
-    const result = startAgentProcess(agent, fullPrompt, commandTemplate);
+    const result = startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
     return { success: true, runId: result.runId, pid: result.pid };
   });
 
