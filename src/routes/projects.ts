@@ -141,7 +141,9 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
         if (period && c.created_at) {
           let key: string;
           const date = c.created_at.slice(0, 10); // YYYY-MM-DD
-          if (period === 'day') {
+          if (period === 'hour') {
+            key = c.created_at.slice(0, 13); // YYYY-MM-DD HH
+          } else if (period === 'day') {
             key = date;
           } else if (period === 'week') {
             const d = new Date(date);
