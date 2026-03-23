@@ -59,6 +59,20 @@ function nameOfAgent(agentId: string, agents: Agent[]): string {
   return a ? a.name : agentId;
 }
 
+// Trigger controller if wake-on-issue is enabled and the issue is relevant to controller
+function triggerControllerIfWakeOnIssue(projectId: string): void {
+  const db = getDatabase();
+  const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
+  if (!project || !project.controller_wake_on_issue) return;
+
+  const controller = db.prepare(
+    'SELECT * FROM agents WHERE project_id = ? AND is_controller = 1'
+  ).get(projectId) as Agent | undefined;
+  if (!controller || controller.status === 'running' || controller.paused) return;
+
+  setTimeout(() => { try { triggerControllerAgent(project); } catch {} }, 1000);
+}
+
 function resolvePriority(createdBy: string, projectId: string): number {
   if (createdBy === 'user' || createdBy === 'system') return 10;
   const db = getDatabase();
@@ -162,6 +176,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         parseMentionsAndStartAgents(body, request.params.pid, id, number, title, created_by);
       }
 
+      // Wake-on-issue: trigger controller when any issue is created
+      triggerControllerIfWakeOnIssue(request.params.pid);
+
       return reply.code(201).send(created);
     }
   );
@@ -226,6 +243,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         type: 'issue_updated', projectId: updated.project_id,
         data: { issue: updated },
       });
+
+      // Wake-on-issue: trigger controller when issue status/assignment changes
+      triggerControllerIfWakeOnIssue(updated.project_id);
 
       // Auto-start agent when user assigns an issue to them
       if (actorId === 'user' && assigned_to && assigned_to !== existing.assigned_to && assigned_to !== 'user' && assigned_to !== 'all') {
@@ -310,6 +330,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
       // Parse @mentions in comment and auto-start mentioned agents
       parseMentionsAndStartAgents(body, iss.project_id, request.params.id, iss.number, iss.title, author_id);
+
+      // Wake-on-issue: trigger controller when comment is added
+      triggerControllerIfWakeOnIssue(iss.project_id);
 
       // If user commented, auto-start the assigned agent to check the issue
       if (author_id === 'user') {

@@ -6,6 +6,7 @@ export interface Project {
   controller_interval_min: number;
   command_template: string;
   schedule_hours: string;
+  controller_wake_on_issue: number;
   status: 'active' | 'paused' | 'completed';
   created_at: string;
   updated_at: string;

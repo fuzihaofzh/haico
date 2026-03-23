@@ -37,6 +37,29 @@ export function scheduleProject(project: Project): void {
           }
         }
       }
+
+      // Wake-on-issue mode: only trigger if controller has assigned open/in_progress issues
+      if (current.controller_wake_on_issue) {
+        const controller = db.prepare(
+          'SELECT id FROM agents WHERE project_id = ? AND is_controller = 1'
+        ).get(current.id) as { id: string } | undefined;
+        if (controller) {
+          const hasIssues = db.prepare(
+            "SELECT 1 FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') LIMIT 1"
+          ).get(current.id, controller.id);
+          if (!hasIssues) {
+            // Also check for unassigned issues (controller should handle them)
+            const hasUnassigned = db.prepare(
+              "SELECT 1 FROM issues WHERE project_id = ? AND assigned_to IS NULL AND status IN ('open', 'in_progress') LIMIT 1"
+            ).get(current.id);
+            if (!hasUnassigned) {
+              logger.info(`Wake-on-issue: no relevant issues for project "${current.name}", skipping controller trigger`);
+              return;
+            }
+          }
+        }
+      }
+
       triggerControllerAgent(current);
     }
   });

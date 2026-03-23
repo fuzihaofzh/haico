@@ -34,6 +34,7 @@ async function loadProject() {
     document.getElementById('project-cmd').value = projectData.command_template;
     document.getElementById('project-interval-edit').value = projectData.controller_interval_min;
     document.getElementById('project-schedule').value = projectData.schedule_hours || '';
+    document.getElementById('project-wake-on-issue').checked = !!projectData.controller_wake_on_issue;
   }
   document.getElementById('project-created').textContent = projectData.created_at;
 
@@ -79,6 +80,7 @@ async function saveOverview() {
     command_template: document.getElementById('project-cmd').value.trim() || 'cld',
     controller_interval_min: parseInt(document.getElementById('project-interval-edit').value) || 5,
     schedule_hours: document.getElementById('project-schedule').value.trim(),
+    controller_wake_on_issue: document.getElementById('project-wake-on-issue').checked ? 1 : 0,
   };
   if (!body.name) { alert('Name cannot be empty'); return; }
   if (!body.task_description) { alert('Task description cannot be empty'); return; }

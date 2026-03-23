@@ -119,6 +119,13 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: added paused column to agents table');
   }
 
+  // Migration: add controller_wake_on_issue column if missing
+  const projectCols = db.prepare("PRAGMA table_info(projects)").all() as any[];
+  if (!projectCols.find((c: any) => c.name === 'controller_wake_on_issue')) {
+    db.exec("ALTER TABLE projects ADD COLUMN controller_wake_on_issue INTEGER DEFAULT 0");
+    logger.info('Migration: added controller_wake_on_issue column to projects table');
+  }
+
   // Reset any agents stuck in 'running' from a previous crash
   const reset = db.prepare("UPDATE agents SET status = 'idle', pid = NULL WHERE status = 'running'");
   const changes = reset.run();
