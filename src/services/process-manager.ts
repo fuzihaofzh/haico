@@ -11,6 +11,10 @@ import logger from '../logger';
 const runningProcesses = new Map<string, ChildProcess>();
 const PROMPT_DIR = path.join(os.tmpdir(), 'argus-prompts');
 
+// Track consecutive error count per agent for session invalidation
+const agentErrorCount = new Map<string, number>();
+const MAX_CONSECUTIVE_ERRORS = 3;
+
 function writePromptFile(runId: string, prompt: string): string {
   if (!fs.existsSync(PROMPT_DIR)) fs.mkdirSync(PROMPT_DIR, { recursive: true });
   const fp = path.join(PROMPT_DIR, runId + '.txt');
@@ -177,12 +181,27 @@ export function startAgentProcess(
     runningProcesses.delete(agent.id);
     cleanupPromptFile(promptFile);
     const status = code === 0 ? 'idle' : 'error';
-    // On error, reset session_id so next run starts fresh (avoid resuming broken session)
+
     if (status === 'error') {
-      db.prepare(`
-        UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now'), session_id = NULL WHERE id = ?
-      `).run(status, agent.id);
+      // P1: Track consecutive errors — only clear session after MAX_CONSECUTIVE_ERRORS
+      const errorCount = (agentErrorCount.get(agent.id) || 0) + 1;
+      agentErrorCount.set(agent.id, errorCount);
+
+      if (errorCount >= MAX_CONSECUTIVE_ERRORS) {
+        logger.info(`Agent ${agent.id} hit ${errorCount} consecutive errors, clearing session`);
+        db.prepare(`
+          UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now'), session_id = NULL WHERE id = ?
+        `).run(status, agent.id);
+        agentErrorCount.delete(agent.id);
+      } else {
+        logger.info(`Agent ${agent.id} error (${errorCount}/${MAX_CONSECUTIVE_ERRORS}), preserving session for reuse`);
+        db.prepare(`
+          UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now') WHERE id = ?
+        `).run(status, agent.id);
+      }
     } else {
+      // Success — reset error count
+      agentErrorCount.delete(agent.id);
       db.prepare(`
         UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now') WHERE id = ?
       `).run(status, agent.id);

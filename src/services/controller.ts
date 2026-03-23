@@ -99,7 +99,34 @@ ${agents.filter((a: any) => !a.is_controller).map((a: any) => {
 Assignable targets: ${agents.map((a: any) => `"${a.id}" (${a.name})`).join(', ')}, "user" for human tasks, or "all" to broadcast to everyone.`;
 }
 
-export function triggerControllerAgent(project: Project): void {
+// Track last trigger time per project for incremental activity check
+const lastTriggerTime = new Map<string, string>();
+
+function hasNewActivity(projectId: string, since: string): boolean {
+  const db = getDatabase();
+
+  // Check for new or updated issues since last trigger
+  const newIssues = db.prepare(
+    "SELECT 1 FROM issues WHERE project_id = ? AND (created_at > ? OR updated_at > ?) LIMIT 1"
+  ).get(projectId, since, since);
+  if (newIssues) return true;
+
+  // Check for new comments since last trigger
+  const newComments = db.prepare(
+    "SELECT 1 FROM issue_comments ic JOIN issues i ON ic.issue_id = i.id WHERE i.project_id = ? AND ic.created_at > ? LIMIT 1"
+  ).get(projectId, since);
+  if (newComments) return true;
+
+  // Check for agent status changes (recently finished agents)
+  const agentChanges = db.prepare(
+    "SELECT 1 FROM agents WHERE project_id = ? AND is_controller = 0 AND finished_at > ? LIMIT 1"
+  ).get(projectId, since);
+  if (agentChanges) return true;
+
+  return false;
+}
+
+export function triggerControllerAgent(project: Project, skipActivityCheck = false): void {
   const db = getDatabase();
   const controller = db.prepare(
     'SELECT * FROM agents WHERE project_id = ? AND is_controller = 1'
@@ -114,6 +141,18 @@ export function triggerControllerAgent(project: Project): void {
     logger.info(`Controller agent for project ${project.id} is already running, skipping.`);
     return;
   }
+
+  // P0: Incremental check — skip if no new activity since last trigger
+  if (!skipActivityCheck) {
+    const since = lastTriggerTime.get(project.id);
+    if (since && !hasNewActivity(project.id, since)) {
+      logger.info(`Skipping controller trigger: no new activity since last run for project "${project.name}"`);
+      return;
+    }
+  }
+
+  // Record trigger time
+  lastTriggerTime.set(project.id, new Date().toISOString().replace('T', ' ').replace('Z', ''));
 
   const taskPrompt = buildControllerTaskPrompt(project);
   const commandTemplate = project.command_template || config.defaultCommandTemplate;
