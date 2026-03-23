@@ -103,119 +103,56 @@ describe('Argus API', () => {
       assert.equal(status, 401);
     });
 
-    it('POST /api/auth accepts correct password and returns csrfToken', async () => {
-      const res = await inject(app, {
-        method: 'POST', url: '/api/auth',
-        headers: { 'content-type': 'application/json' },
-      });
-      // Login with correct password
+    it('POST /api/auth accepts correct password and returns token', async () => {
       const { status, body } = await api(app, '/api/auth', {
         method: 'POST', body: { password: 'test1234' },
       });
       assert.equal(status, 200);
       assert.equal(body.ok, true);
-      assert.ok(body.csrfToken, 'Login should return a CSRF token');
+      assert.ok(body.token, 'Login should return a token (passwordHash)');
     });
 
-    it('POST /api/auth/setup returns csrfToken and sets cookie', async () => {
-      // Setup was already done, so we just verify it worked by checking the login returns csrf
+    it('POST /api/auth/setup sets cookie on first setup', async () => {
+      // Setup was already done, so we just verify login works
       const { body } = await api(app, '/api/auth', {
         method: 'POST', body: { password: 'test1234' },
       });
-      assert.ok(body.csrfToken, 'Should return CSRF token');
+      assert.ok(body.token, 'Should return token');
     });
   });
 
-  // ─── Auth Security (Session, CSRF, Logout, Change Password) ───
+  // ─── Auth Security (Cookie-based, no server-side sessions) ───
 
   let sessionToken: string;
-  let csrfToken: string;
 
   describe('Auth Security', () => {
-    it('login returns session cookie and CSRF token', async () => {
-      const res = await inject(app, {
-        method: 'POST',
-        url: '/api/auth',
-        headers: { 'content-type': 'application/json' },
-      });
-      // Actually do the login
-      const loginRes = await inject(app, {
-        method: 'POST',
-        url: '/api/auth',
-        headers: { 'content-type': 'application/json' },
-      });
-      // Need to parse properly - use api helper
-      const { status, body } = await api(app, '/api/auth', {
-        method: 'POST', body: { password: 'test1234' },
-      });
-      assert.equal(status, 200);
-      csrfToken = body.csrfToken;
-      assert.ok(csrfToken, 'Should have CSRF token');
-
-      // Extract session token from raw response
-      const rawRes = await inject(app, {
-        method: 'POST',
-        url: '/api/auth',
-        headers: { 'content-type': 'application/json' },
-      });
-      // Parse cookie from Set-Cookie header
-      const loginRes2 = await app.inject({
+    it('login returns cookie with passwordHash', async () => {
+      const loginRes = await app.inject({
         method: 'POST',
         url: '/api/auth',
         payload: { password: 'test1234' },
         headers: { 'content-type': 'application/json' },
       });
-      const setCookie = loginRes2.headers['set-cookie'] as string;
+      assert.equal(loginRes.statusCode, 200);
+      const setCookie = loginRes.headers['set-cookie'] as string;
       assert.ok(setCookie, 'Should set a cookie');
       assert.ok(setCookie.includes('argus-auth='), 'Cookie should be argus-auth');
       assert.ok(setCookie.includes('HttpOnly'), 'Cookie should be HttpOnly');
       assert.ok(setCookie.includes('SameSite=Lax'), 'Cookie should have SameSite');
+      assert.ok(!setCookie.includes('Max-Age'), 'Cookie should NOT have Max-Age');
 
-      // Extract token from cookie
       const match = setCookie.match(/argus-auth=([^;]+)/);
-      assert.ok(match, 'Should extract session token');
+      assert.ok(match, 'Should extract token');
       sessionToken = match![1];
 
-      // Parse CSRF from body
-      const loginBody = JSON.parse(loginRes2.body);
-      csrfToken = loginBody.csrfToken;
+      const loginBody = JSON.parse(loginRes.body);
+      assert.ok(loginBody.token, 'Should return token in body');
+      assert.equal(loginBody.token, sessionToken, 'Body token should match cookie');
     });
 
-    it('GET /api/auth/csrf returns CSRF token for authenticated session', async () => {
-      const { status, body } = await api(app, '/api/auth/csrf', {
-        headers: { cookie: `argus-auth=${sessionToken}` },
-      });
-      assert.equal(status, 200);
-      assert.ok(body.csrfToken, 'Should return CSRF token');
-    });
-
-    it('GET /api/auth/csrf returns 401 without session', async () => {
-      const { status } = await api(app, '/api/auth/csrf');
-      assert.equal(status, 401);
-    });
-
-    it('GET /api/auth/sessions lists active sessions', async () => {
-      const { status, body } = await api(app, '/api/auth/sessions', {
-        headers: { cookie: `argus-auth=${sessionToken}` },
-      });
-      assert.equal(status, 200);
-      assert.ok(Array.isArray(body.sessions));
-      assert.ok(body.sessions.length >= 1);
-      assert.ok(body.sessions.some((s: any) => s.current === true), 'Should mark current session');
-    });
-
-    it('POST /api/auth/logout clears session', async () => {
-      // Create a session to logout
-      const loginRes = await app.inject({
-        method: 'POST', url: '/api/auth',
-        payload: { password: 'test1234' },
-        headers: { 'content-type': 'application/json' },
-      });
-      const logoutCookie = (loginRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
-
+    it('POST /api/auth/logout clears cookie', async () => {
       const { status, body } = await api(app, '/api/auth/logout', {
         method: 'POST',
-        headers: { cookie: `argus-auth=${logoutCookie}` },
       });
       assert.equal(status, 200);
       assert.equal(body.ok, true);
@@ -224,7 +161,7 @@ describe('Argus API', () => {
     it('POST /api/auth/change-password rejects wrong current password', async () => {
       const { status } = await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'wrongpass', password: 'newpass1234' },
-        headers: { cookie: `argus-auth=${sessionToken}`, 'x-csrf-token': csrfToken },
+        headers: { cookie: `argus-auth=${sessionToken}` },
       });
       assert.equal(status, 401);
     });
@@ -232,28 +169,18 @@ describe('Argus API', () => {
     it('POST /api/auth/change-password rejects short new password', async () => {
       const { status } = await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'test1234', password: 'ab' },
-        headers: { cookie: `argus-auth=${sessionToken}`, 'x-csrf-token': csrfToken },
+        headers: { cookie: `argus-auth=${sessionToken}` },
       });
       assert.equal(status, 400);
     });
 
     it('POST /api/auth/change-password works with correct current password', async () => {
-      // Get a fresh session for this test
-      const loginRes = await app.inject({
-        method: 'POST', url: '/api/auth',
-        payload: { password: 'test1234' },
-        headers: { 'content-type': 'application/json' },
-      });
-      const cookie = (loginRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
-      const csrf = JSON.parse(loginRes.body).csrfToken;
-
       const { status, body } = await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'test1234', password: 'newpass1234' },
-        headers: { cookie: `argus-auth=${cookie}`, 'x-csrf-token': csrf },
+        headers: { cookie: `argus-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.ok, true);
-      assert.ok(body.csrfToken, 'Should return new CSRF token');
 
       // Verify login with new password works
       const { status: s2 } = await api(app, '/api/auth', {
@@ -274,24 +201,21 @@ describe('Argus API', () => {
         headers: { 'content-type': 'application/json' },
       });
       const cookie2 = (loginRes2.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
-      const csrf2 = JSON.parse(loginRes2.body).csrfToken;
       await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'newpass1234', password: 'test1234' },
-        headers: { cookie: `argus-auth=${cookie2}`, 'x-csrf-token': csrf2 },
+        headers: { cookie: `argus-auth=${cookie2}` },
       });
 
-      // Refresh our session for subsequent tests
+      // Refresh sessionToken for subsequent tests
       const refreshRes = await app.inject({
         method: 'POST', url: '/api/auth',
         payload: { password: 'test1234' },
         headers: { 'content-type': 'application/json' },
       });
       sessionToken = (refreshRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
-      csrfToken = JSON.parse(refreshRes.body).csrfToken;
     });
 
-    it('GET /change-password returns HTML (authenticated) or redirect', async () => {
-      // With auth cookie it should return the page
+    it('GET /change-password returns HTML', async () => {
       const res = await inject(app, {
         url: '/change-password',
         headers: { cookie: `argus-auth=${sessionToken}` },
@@ -301,106 +225,32 @@ describe('Argus API', () => {
     });
 
     it('localhost bypass only works for safe API routes', async () => {
-      // Fastify inject simulates 127.0.0.1, so this tests localhost bypass
-      // Safe routes should work (projects, issues, agents)
       const { status: projStatus } = await api(app, '/api/projects');
       assert.equal(projStatus, 200);
-
-      // Auth routes should NOT be bypassed by localhost
-      // /api/auth routes are allowed through because they're in the auth route whitelist,
-      // but the CSRF protection for state-changing requests is what matters
     });
 
-    it('session persists in SQLite (survives across getSession calls)', async () => {
-      // Login to create a session
-      const loginRes = await app.inject({
-        method: 'POST', url: '/api/auth',
-        payload: { password: 'test1234' },
-        headers: { 'content-type': 'application/json' },
-      });
-      const token = (loginRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
-
-      // Verify session is stored in DB and retrievable
-      const { status, body } = await api(app, '/api/auth/sessions', {
-        headers: { cookie: `argus-auth=${token}` },
-      });
-      assert.equal(status, 200);
-      assert.ok(body.sessions.length >= 1, 'Should have at least one session in DB');
-      assert.ok(body.sessions.some((s: any) => s.current === true), 'Current session should be marked');
-      // Verify session fields
-      const current = body.sessions.find((s: any) => s.current === true);
-      assert.ok(current.createdAt > 0, 'Session should have createdAt timestamp');
-      assert.ok(current.expiresAt > current.createdAt, 'Session expiresAt should be after createdAt');
-    });
-
-    it('expired session is rejected and cleaned up', async () => {
-      // Directly insert an expired session into DB
-      const { getDatabase } = await import('../src/db/database');
-      const db = getDatabase();
-      const expiredToken = 'expired-test-token-' + Date.now();
-      const now = Date.now();
-      db.prepare('INSERT INTO sessions (token, csrf_token, created_at, expires_at) VALUES (?, ?, ?, ?)').run(
-        expiredToken, 'csrf-expired', now - 100000, now - 1000
-      );
-
-      // Try to use expired session - should fail
-      const { status } = await api(app, '/api/auth/csrf', {
-        headers: { cookie: `argus-auth=${expiredToken}` },
-      });
-      assert.equal(status, 401, 'Expired session should be rejected');
-
-      // Verify it was cleaned from DB
-      const row = db.prepare('SELECT * FROM sessions WHERE token = ?').get(expiredToken);
-      assert.equal(row, undefined, 'Expired session should be deleted from DB');
-    });
-
-    it('auth hook reloads config when authConfig.passwordHash is empty', async () => {
-      // This tests the protection at auth.ts:456-458
-      // After password is set, API calls should NOT redirect to /setup
-      // even if authConfig were stale (the hook reloads from file)
-      const { status } = await api(app, '/api/auth/csrf');
-      // Without a valid session, we get 401 (not redirect to /setup)
-      assert.equal(status, 401, 'Should return 401, not redirect to /setup');
-    });
-
-    it('GET /login redirects to /setup when no password configured', async () => {
-      // This verifies the /login page behavior — when password IS set, it shows login
-      const res = await inject(app, { url: '/login' });
-      // Password is set in earlier tests, so it should show login HTML
-      assert.equal(res.statusCode, 200);
-      assert.ok(res.body.includes('Login'), 'Should show login page when password is set');
-    });
-
-    it('GET /setup redirects to /login when password already set', async () => {
-      const res = await inject(app, { url: '/setup' });
-      // Password is already set, so /setup should redirect to /login
-      assert.equal(res.statusCode, 302);
-      assert.ok(res.headers.location === '/login', 'Should redirect to /login');
-    });
-
-    it('change-password invalidates all previous sessions', async () => {
-      // Login to get a session
+    it('change-password invalidates old cookie (hash changes)', async () => {
+      // Login to get current token
       const loginRes = await app.inject({
         method: 'POST', url: '/api/auth',
         payload: { password: 'test1234' },
         headers: { 'content-type': 'application/json' },
       });
       const oldToken = (loginRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
-      const oldCsrf = JSON.parse(loginRes.body).csrfToken;
 
       // Change password
       const changeRes = await app.inject({
         method: 'POST', url: '/api/auth/change-password',
         payload: { current: 'test1234', password: 'changed1234' },
-        headers: { 'content-type': 'application/json', cookie: `argus-auth=${oldToken}`, 'x-csrf-token': oldCsrf },
+        headers: { 'content-type': 'application/json', cookie: `argus-auth=${oldToken}` },
       });
       assert.equal(changeRes.statusCode, 200);
 
-      // Old session should be invalid now
-      const { status: csrfStatus } = await api(app, '/api/auth/csrf', {
+      // Old token should be invalid (passwordHash changed)
+      const { status: oldStatus } = await api(app, '/api/dashboard/summary', {
         headers: { cookie: `argus-auth=${oldToken}` },
       });
-      assert.equal(csrfStatus, 401, 'Old session should be invalidated after password change');
+      assert.equal(oldStatus, 401, 'Old token should be invalidated after password change');
 
       // Restore password for remaining tests
       const newLogin = await app.inject({
@@ -409,56 +259,38 @@ describe('Argus API', () => {
         headers: { 'content-type': 'application/json' },
       });
       const newToken = (newLogin.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
-      const newCsrf = JSON.parse(newLogin.body).csrfToken;
       await app.inject({
         method: 'POST', url: '/api/auth/change-password',
         payload: { current: 'changed1234', password: 'test1234' },
-        headers: { 'content-type': 'application/json', cookie: `argus-auth=${newToken}`, 'x-csrf-token': newCsrf },
+        headers: { 'content-type': 'application/json', cookie: `argus-auth=${newToken}` },
       });
 
-      // Refresh sessionToken and csrfToken for subsequent tests
+      // Refresh sessionToken for subsequent tests
       const refreshRes = await app.inject({
         method: 'POST', url: '/api/auth',
         payload: { password: 'test1234' },
         headers: { 'content-type': 'application/json' },
       });
       sessionToken = (refreshRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
-      csrfToken = JSON.parse(refreshRes.body).csrfToken;
     });
 
-    it('logout clears specific session without affecting others', async () => {
-      // Create two sessions
-      const login1 = await app.inject({
-        method: 'POST', url: '/api/auth',
-        payload: { password: 'test1234' },
-        headers: { 'content-type': 'application/json' },
+    it('invalid cookie token is rejected', async () => {
+      const { status } = await api(app, '/api/dashboard/summary', {
+        headers: { cookie: 'argus-auth=invalid-token-value' },
       });
-      const token1 = (login1.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+      assert.equal(status, 401, 'Invalid token should be rejected');
+    });
 
-      const login2 = await app.inject({
-        method: 'POST', url: '/api/auth',
-        payload: { password: 'test1234' },
-        headers: { 'content-type': 'application/json' },
-      });
-      const token2 = (login2.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+    it('GET /login shows login page when password is set', async () => {
+      const res = await inject(app, { url: '/login' });
+      assert.equal(res.statusCode, 200);
+      assert.ok(res.body.includes('Login'), 'Should show login page when password is set');
+    });
 
-      // Logout session 1
-      await api(app, '/api/auth/logout', {
-        method: 'POST',
-        headers: { cookie: `argus-auth=${token1}` },
-      });
-
-      // Session 1 should be invalid
-      const { status: s1 } = await api(app, '/api/auth/csrf', {
-        headers: { cookie: `argus-auth=${token1}` },
-      });
-      assert.equal(s1, 401, 'Logged out session should be invalid');
-
-      // Session 2 should still work
-      const { status: s2 } = await api(app, '/api/auth/csrf', {
-        headers: { cookie: `argus-auth=${token2}` },
-      });
-      assert.equal(s2, 200, 'Other session should still be valid');
+    it('GET /setup redirects to /login when password already set', async () => {
+      const res = await inject(app, { url: '/setup' });
+      assert.equal(res.statusCode, 302);
+      assert.ok(res.headers.location === '/login', 'Should redirect to /login');
     });
   });
 

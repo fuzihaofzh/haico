@@ -203,53 +203,13 @@ function closeDrawer() {
   document.getElementById('overlay').classList.remove('open');
 }
 
-// CSRF token management
-let _csrfToken = localStorage.getItem('argus-csrf') || '';
-
-async function fetchCsrfToken() {
-  try {
-    const res = await fetch('/api/auth/csrf');
-    if (res.ok) {
-      const data = await res.json();
-      _csrfToken = data.csrfToken || '';
-      localStorage.setItem('argus-csrf', _csrfToken);
-    }
-  } catch {}
-}
-
-function getCsrfToken() { return _csrfToken; }
-
-// Fetch CSRF token on page load if we have a session
-fetchCsrfToken();
-
-// Override fetch to inject CSRF token for non-GET requests
+// Override fetch with global 401 handling
 const _originalFetch = window.fetch;
 window.fetch = function(input, init) {
-  init = init || {};
-  const method = (init.method || 'GET').toUpperCase();
-  if (method !== 'GET' && method !== 'HEAD') {
-    init.headers = init.headers || {};
-    if (init.headers instanceof Headers) {
-      if (!init.headers.has('X-CSRF-Token')) {
-        init.headers.set('X-CSRF-Token', getCsrfToken());
-      }
-    } else if (Array.isArray(init.headers)) {
-      if (!init.headers.some(([k]) => k.toLowerCase() === 'x-csrf-token')) {
-        init.headers.push(['X-CSRF-Token', getCsrfToken()]);
-      }
-    } else {
-      if (!init.headers['X-CSRF-Token'] && !init.headers['x-csrf-token']) {
-        init.headers['X-CSRF-Token'] = getCsrfToken();
-      }
-    }
-  }
   return _originalFetch.call(this, input, init).then(function(response) {
-    // Global 401 handling: redirect to /login when session expires
     if (response.status === 401) {
       const reqUrl = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-      // Skip auth-related APIs to avoid redirect loops
       if (!reqUrl.startsWith('/api/auth')) {
-        localStorage.removeItem('argus-csrf');
         window.location.href = '/login';
       }
     }
@@ -260,7 +220,6 @@ window.fetch = function(input, init) {
 // Logout
 async function logout() {
   await fetch('/api/auth/logout', { method: 'POST' });
-  localStorage.removeItem('argus-csrf');
   window.location.href = '/login';
 }
 

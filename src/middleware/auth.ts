@@ -1,16 +1,13 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHash, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import logger from '../logger';
-import { getDatabase } from '../db/database';
 
 const COOKIE_NAME = 'argus-auth';
-const CSRF_HEADER = 'x-csrf-token';
 const CONFIG_DIR = path.join(os.homedir(), '.argus');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
-const SESSION_MAX_AGE_S = 7 * 24 * 3600; // 7 days
 
 // --- Password hashing with scrypt ---
 
@@ -35,63 +32,6 @@ function isLegacySha256(config: AuthConfig): boolean {
 
 function legacySha256(pwd: string): string {
   return createHash('sha256').update(pwd).digest('hex');
-}
-
-// --- Session store (SQLite-persisted) ---
-
-interface Session {
-  token: string;
-  csrfToken: string;
-  createdAt: number;
-  expiresAt: number;
-}
-
-function cleanExpiredSessions(): void {
-  try {
-    const db = getDatabase();
-    db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Date.now());
-  } catch (e) {
-    logger.error(e, 'Failed to clean expired sessions');
-  }
-}
-
-// Clean expired sessions on startup
-cleanExpiredSessions();
-
-function createSession(): Session {
-  const token = randomBytes(32).toString('hex');
-  const csrfToken = randomBytes(32).toString('hex');
-  const now = Date.now();
-  const session: Session = {
-    token,
-    csrfToken,
-    createdAt: now,
-    expiresAt: now + SESSION_MAX_AGE_S * 1000,
-  };
-  const db = getDatabase();
-  db.prepare('INSERT INTO sessions (token, csrf_token, created_at, expires_at) VALUES (?, ?, ?, ?)').run(token, csrfToken, now, session.expiresAt);
-  return session;
-}
-
-function getSession(token: string): Session | undefined {
-  const db = getDatabase();
-  const row = db.prepare('SELECT token, csrf_token, created_at, expires_at FROM sessions WHERE token = ?').get(token) as any;
-  if (!row) return undefined;
-  if (Date.now() > row.expires_at) {
-    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
-    return undefined;
-  }
-  return { token: row.token, csrfToken: row.csrf_token, createdAt: row.created_at, expiresAt: row.expires_at };
-}
-
-function deleteSession(token: string): void {
-  const db = getDatabase();
-  db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
-}
-
-function deleteAllSessions(): void {
-  const db = getDatabase();
-  db.prepare('DELETE FROM sessions').run();
 }
 
 // --- Config persistence ---
@@ -142,23 +82,19 @@ const LOCALHOST_SAFE_PREFIXES = [
 
 // Admin-only operations that localhost should NOT bypass
 const LOCALHOST_BLOCKED_PATTERNS = [
-  // Auth changes from localhost are blocked (must use browser session)
   { method: 'POST', prefix: '/api/auth/' },
   { method: 'GET', prefix: '/api/auth/' },
 ];
 
 function isLocalhostSafe(method: string, url: string): boolean {
-  // Block admin operations even from localhost
   for (const pattern of LOCALHOST_BLOCKED_PATTERNS) {
     if (method === pattern.method && url.startsWith(pattern.prefix)) {
       return false;
     }
   }
-  // Allow safe API routes
   for (const prefix of LOCALHOST_SAFE_PREFIXES) {
     if (url.startsWith(prefix)) return true;
   }
-  // Also allow WebSocket connections for agent terminals
   if (url.startsWith('/ws/')) return true;
   return false;
 }
@@ -266,11 +202,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
       e.preventDefault();
       const password = document.getElementById('password').value;
       const res = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.csrfToken) { localStorage.setItem('argus-csrf', data.csrfToken); }
-        window.location.href = '/';
-      } else { document.getElementById('error').style.display = 'block'; }
+      if (res.ok) { window.location.href = '/'; } else { document.getElementById('error').style.display = 'block'; }
     });
   </script>
 </body>
@@ -312,20 +244,22 @@ const CHANGE_PASSWORD_HTML = `<!DOCTYPE html>
       const confirm = document.getElementById('confirm').value;
       if (password.length < 4) { errEl.textContent = 'New password must be at least 4 characters'; errEl.style.display = 'block'; return; }
       if (password !== confirm) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
-      const csrf = localStorage.getItem('argus-csrf') || '';
-      const res = await fetch('/api/auth/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify({ current, password }) });
+      const res = await fetch('/api/auth/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current, password }) });
       if (res.ok) { successEl.style.display = 'block'; document.getElementById('form').reset(); } else { const data = await res.json(); errEl.textContent = data.error || 'Failed'; errEl.style.display = 'block'; }
     });
   </script>
 </body>
 </html>`;
 
+/**
+ * Simplified auth: cookie stores passwordHash directly, no server-side sessions.
+ * Follows the same pattern as swarmie for maximum reliability.
+ */
 export function setupAuth(app: FastifyInstance): void {
   let authConfig = loadAuthConfig();
 
   function checkPassword(pwd: string): boolean {
     if (!authConfig.passwordHash) return false;
-    // Handle legacy SHA-256 hashes (auto-migrate on next login)
     if (isLegacySha256(authConfig)) {
       return legacySha256(pwd) === authConfig.passwordHash;
     }
@@ -336,6 +270,14 @@ export function setupAuth(app: FastifyInstance): void {
     const { hash, salt } = hashPassword(pwd);
     authConfig = { passwordHash: hash, passwordSalt: salt };
     saveAuthConfig(authConfig);
+  }
+
+  function setAuthCookie(reply: FastifyReply): void {
+    reply.header('Set-Cookie', `${COOKIE_NAME}=${authConfig.passwordHash}; HttpOnly; Path=/; SameSite=Lax`);
+  }
+
+  function isValidToken(token: string): boolean {
+    return !!authConfig.passwordHash && token === authConfig.passwordHash;
   }
 
   // Setup page
@@ -353,8 +295,8 @@ export function setupAuth(app: FastifyInstance): void {
     }
     setPassword(body.password);
     logger.info('Password has been set');
-    const session = createSession();
-    reply.header('Set-Cookie', `${COOKIE_NAME}=${session.token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_S}`).send({ ok: true, csrfToken: session.csrfToken });
+    setAuthCookie(reply);
+    reply.send({ ok: true });
   });
 
   // Login page
@@ -373,8 +315,8 @@ export function setupAuth(app: FastifyInstance): void {
         setPassword(body.password);
         logger.info('Migrated password hash from SHA-256 to scrypt');
       }
-      const session = createSession();
-      reply.header('Set-Cookie', `${COOKIE_NAME}=${session.token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_S}`).send({ ok: true, csrfToken: session.csrfToken });
+      setAuthCookie(reply);
+      reply.send({ ok: true, token: authConfig.passwordHash });
     } else {
       reply.status(401).send({ error: 'Invalid password' });
     }
@@ -396,44 +338,14 @@ export function setupAuth(app: FastifyInstance): void {
       return reply.status(400).send({ error: 'New password must be at least 4 characters' });
     }
     setPassword(body.password);
-    // Invalidate all existing sessions
-    deleteAllSessions();
-    logger.info('Password has been changed, all sessions invalidated');
-    const session = createSession();
-    reply.header('Set-Cookie', `${COOKIE_NAME}=${session.token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_S}`).send({ ok: true, csrfToken: session.csrfToken });
+    logger.info('Password has been changed');
+    setAuthCookie(reply);
+    reply.send({ ok: true });
   });
 
   // Logout
-  app.post('/api/auth/logout', async (request, reply) => {
-    const cookies = parseCookies(request.headers.cookie);
-    const token = cookies[COOKIE_NAME];
-    if (token) deleteSession(token);
+  app.post('/api/auth/logout', async (_request, reply) => {
     reply.header('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`).send({ ok: true });
-  });
-
-  // Session management endpoint
-  app.get('/api/auth/sessions', async (request, reply) => {
-    const db = getDatabase();
-    const now = Date.now();
-    db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
-    const rows = db.prepare('SELECT token, created_at, expires_at FROM sessions WHERE expires_at > ?').all(now) as any[];
-    const cookies = parseCookies(request.headers.cookie);
-    const currentToken = cookies[COOKIE_NAME];
-    const activeSessions = rows.map(row => ({
-      createdAt: row.created_at,
-      expiresAt: row.expires_at,
-      current: row.token === currentToken,
-    }));
-    return { sessions: activeSessions };
-  });
-
-  // CSRF token endpoint (for pages that need it after cookie-based auth)
-  app.get('/api/auth/csrf', async (request, reply) => {
-    const cookies = parseCookies(request.headers.cookie);
-    const token = cookies[COOKIE_NAME];
-    const session = token ? getSession(token) : undefined;
-    if (!session) return reply.status(401).send({ error: 'Not authenticated' });
-    return { csrfToken: session.csrfToken };
   });
 
   // Auth hook
@@ -465,33 +377,23 @@ export function setupAuth(app: FastifyInstance): void {
       return;
     }
 
-    // Check session cookie
+    // Check cookie
     const cookies = parseCookies(request.headers.cookie);
-    const sessionToken = cookies[COOKIE_NAME];
-    const session = sessionToken ? getSession(sessionToken) : undefined;
-
-    if (session) {
-      // CSRF check for state-changing requests from browser (cookie auth)
-      if (request.method !== 'GET' && request.method !== 'HEAD') {
-        const csrfToken = request.headers[CSRF_HEADER] as string | undefined;
-        if (!csrfToken || csrfToken !== session.csrfToken) {
-          reply.status(403).send({ error: 'Invalid CSRF token' });
-          return;
-        }
-      }
-      return; // authenticated via session
+    const token = cookies[COOKIE_NAME];
+    if (token && isValidToken(token)) {
+      return;
     }
 
-    // Check Authorization: Bearer <session-token> (for programmatic/agent use, no CSRF needed)
+    // Check Authorization: Bearer <token>
     const authHeader = request.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
       const bearerToken = authHeader.slice(7);
-      if (getSession(bearerToken)) return;
+      if (isValidToken(bearerToken)) return;
     }
 
     // Check query token (for WebSocket connections)
     const queryToken = (request.query as Record<string, string>)?.token;
-    if (queryToken && getSession(queryToken)) return;
+    if (queryToken && isValidToken(queryToken)) return;
 
     // Allow static assets and UI page routes — only protect API/WS
     if (url.startsWith('/public/') || url.startsWith('/css/') || url.startsWith('/js/') || url.startsWith('/vendor/')) {
