@@ -291,3 +291,145 @@ function connectProjectEvents(projectId) {
   };
 }
 
+// ─── @mention autocomplete for textareas ───
+// Usage: setupMentionAutocomplete(textareaElement, agentsArray)
+// agentsArray: [{name, role, ...}, ...]
+function setupMentionAutocomplete(textarea, agents) {
+  if (!textarea || textarea._mentionSetup) return;
+  textarea._mentionSetup = true;
+
+  let dropdown = null;
+  let mentionStart = -1;
+  let selectedIdx = 0;
+
+  function removeDropdown() {
+    if (dropdown) { dropdown.remove(); dropdown = null; }
+    mentionStart = -1;
+    selectedIdx = 0;
+  }
+
+  function getCaretPixelPos() {
+    // Use a mirror element to measure caret position within textarea
+    const mirror = document.createElement('div');
+    const style = getComputedStyle(textarea);
+    ['font', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing',
+     'padding', 'paddingTop', 'paddingLeft', 'paddingRight', 'paddingBottom',
+     'border', 'borderWidth', 'boxSizing', 'whiteSpace', 'wordWrap', 'wordBreak', 'overflowWrap'
+    ].forEach(p => { mirror.style[p] = style[p]; });
+    mirror.style.position = 'absolute';
+    mirror.style.visibility = 'hidden';
+    mirror.style.whiteSpace = 'pre-wrap';
+    mirror.style.wordWrap = 'break-word';
+    mirror.style.overflow = 'hidden';
+    mirror.style.width = style.width;
+    mirror.style.height = 'auto';
+
+    const textBefore = textarea.value.substring(0, textarea.selectionStart);
+    const textNode = document.createTextNode(textBefore);
+    const span = document.createElement('span');
+    span.textContent = '\u200b'; // zero-width space as caret marker
+    mirror.appendChild(textNode);
+    mirror.appendChild(span);
+    document.body.appendChild(mirror);
+
+    const textareaRect = textarea.getBoundingClientRect();
+    const mirrorRect = mirror.getBoundingClientRect();
+    const spanRect = span.getBoundingClientRect();
+
+    const top = textareaRect.top + (spanRect.top - mirrorRect.top) - textarea.scrollTop;
+    const left = textareaRect.left + (spanRect.left - mirrorRect.left) - textarea.scrollLeft;
+    mirror.remove();
+    return { top, left };
+  }
+
+  function showDropdown(items) {
+    removeDropdown();
+    if (items.length === 0) return;
+    dropdown = document.createElement('div');
+    dropdown.className = 'mention-dropdown';
+    dropdown.style.cssText = 'position:fixed;z-index:300;background:var(--header-bg);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-height:200px;overflow-y:auto;min-width:200px;';
+
+    const coords = getCaretPixelPos();
+    dropdown.style.top = (coords.top + 22) + 'px';
+    dropdown.style.left = coords.left + 'px';
+
+    items.forEach((agent, i) => {
+      const item = document.createElement('div');
+      item.style.cssText = 'padding:6px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;';
+      if (i === selectedIdx) item.style.background = 'var(--selected-bg)';
+      const roleText = (agent.role || '').slice(0, 30);
+      item.innerHTML = `${avatarSvg(agent.name, 18)}<span><strong>${esc(agent.name)}</strong> <span style="color:var(--text-secondary);font-size:11px">${esc(roleText)}</span></span>`;
+      item.onmouseenter = () => { selectedIdx = i; updateSelection(); };
+      item.onmousedown = (e) => { e.preventDefault(); selectItem(agent.name); };
+      dropdown.appendChild(item);
+    });
+    document.body.appendChild(dropdown);
+  }
+
+  function updateSelection() {
+    if (!dropdown) return;
+    const children = dropdown.children;
+    for (let i = 0; i < children.length; i++) {
+      children[i].style.background = i === selectedIdx ? 'var(--selected-bg)' : '';
+    }
+    // Scroll selected into view
+    if (children[selectedIdx]) children[selectedIdx].scrollIntoView({ block: 'nearest' });
+  }
+
+  function selectItem(name) {
+    const before = textarea.value.substring(0, mentionStart);
+    const after = textarea.value.substring(textarea.selectionStart);
+    textarea.value = before + '@' + name + ' ' + after;
+    const newPos = mentionStart + name.length + 2;
+    textarea.setSelectionRange(newPos, newPos);
+    textarea.focus();
+    removeDropdown();
+  }
+
+  function getFilteredAgents(query) {
+    if (!query) return agents.slice();
+    const q = query.toLowerCase();
+    return agents.filter(a => a.name.toLowerCase().includes(q));
+  }
+
+  textarea.addEventListener('input', () => {
+    const pos = textarea.selectionStart;
+    const text = textarea.value.substring(0, pos);
+    const match = text.match(/(?:^|[\s])@([\w-]*)$/);
+    if (match) {
+      mentionStart = text.length - match[0].length + (match[0].startsWith('@') ? 0 : 1);
+      selectedIdx = 0;
+      showDropdown(getFilteredAgents(match[1]));
+    } else {
+      removeDropdown();
+    }
+  });
+
+  textarea.addEventListener('keydown', (e) => {
+    if (!dropdown) return;
+    const items = dropdown.children;
+    if (items.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedIdx = (selectedIdx + 1) % items.length;
+      updateSelection();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedIdx = (selectedIdx - 1 + items.length) % items.length;
+      updateSelection();
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      const query = textarea.value.substring(mentionStart + 1, textarea.selectionStart);
+      const filtered = getFilteredAgents(query);
+      if (filtered[selectedIdx]) selectItem(filtered[selectedIdx].name);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      removeDropdown();
+    }
+  });
+
+  textarea.addEventListener('blur', () => {
+    setTimeout(removeDropdown, 200);
+  });
+}
+

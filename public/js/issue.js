@@ -12,7 +12,16 @@ const EMOJIS = ['👍','👎','❤️','🎉','😕','🚀'];
 
 function renderMd(text) {
   if (!text) return '';
-  return marked.parse(text.replace(/#(\d+)/g, (m, n) => issueData?.project_id ? `[#${n}](/projects/${issueData.project_id}/issues/${n})` : m));
+  let processed = text
+    .replace(/#(\d+)/g, (m, n) => issueData?.project_id ? `[#${n}](/projects/${issueData.project_id}/issues/${n})` : m);
+  let html = marked.parse(processed);
+  // Highlight @mentions — match @agent-name patterns and style them
+  const agentNames = agentsData.map(a => a.name);
+  html = html.replace(/@([\w-]+)/g, (m, name) => {
+    const isAgent = agentNames.includes(name);
+    return `<span style="color:${isAgent ? '#61afef' : '#e5c07b'};font-weight:500;background:${isAgent ? '#61afef18' : '#e5c07b18'};padding:0 4px;border-radius:3px">${m}</span>`;
+  });
+  return html;
 }
 function labelHtml(text) {
   const colors = ['#e06c75','#98c379','#e5c07b','#61afef','#c678dd','#56b6c2','#d19a66','#b5bd68','#cc6666','#8abeb7'];
@@ -162,7 +171,7 @@ function renderIssue() {
         <div class="comment-box" style="margin-top:16px">
           <textarea id="comment-input" placeholder="Leave a comment... (Markdown supported)"></textarea>
           <div class="comment-box-footer" style="display:flex;justify-content:space-between;align-items:center">
-            <span style="font-size:11px;color:var(--text-secondary)">Markdown · #N auto-links</span>
+            <span style="font-size:11px;color:var(--text-secondary)">Markdown · #N auto-links · @agent-name to mention</span>
             <button class="btn btn-sm btn-primary" onclick="addComment()">Comment</button>
           </div>
         </div>
@@ -281,6 +290,14 @@ async function deleteComment(cid) {
 }
 
 loadIssue();
+
+// Attach @mention autocomplete after each render
+const _origRenderIssue = renderIssue;
+renderIssue = function() {
+  _origRenderIssue();
+  const commentInput = document.getElementById('comment-input');
+  if (commentInput) setupMentionAutocomplete(commentInput, agentsData);
+};
 
 // Connect to project WebSocket for real-time comment updates
 // Set up after first load when we know the projectId

@@ -762,6 +762,8 @@ function showCreateIssueModal() {
     sel.value = controllerId || '';
   }
   document.getElementById('createIssueModal').classList.add('active');
+  const issueBodyTextarea = document.getElementById('issue-body');
+  if (issueBodyTextarea) setupMentionAutocomplete(issueBodyTextarea, agentsData);
 }
 
 async function createIssue() {

@@ -7,6 +7,58 @@ import { buildSystemPrompt } from '../services/system-prompt';
 import { triggerControllerAgent } from '../services/controller';
 import { broadcastToProject } from '../services/websocket';
 
+// Parse @agent-name mentions from text and auto-start mentioned agents
+function parseMentionsAndStartAgents(
+  text: string,
+  projectId: string,
+  issueId: string,
+  issueNumber: number,
+  issueTitle: string,
+  authorId: string
+): void {
+  if (!text) return;
+  const mentionPattern = /@([\w-]+)/g;
+  const mentions = new Set<string>();
+  let match;
+  while ((match = mentionPattern.exec(text)) !== null) {
+    mentions.add(match[1]);
+  }
+  if (mentions.size === 0) return;
+
+  const db = getDatabase();
+  const agents = db.prepare('SELECT * FROM agents WHERE project_id = ?').all(projectId) as Agent[];
+  const eventStmt = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
+
+  for (const agentName of mentions) {
+    const agent = agents.find(a => a.name === agentName);
+    if (!agent) continue;
+
+    // Auto-start if idle and not paused
+    if (!agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
+      if (project) {
+        const prompt = `You were mentioned (@${agentName}) in issue #${issueNumber} "${issueTitle}". Review the issue and take action.\n\nContext: ${text.slice(0, 500)}`;
+        const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(project.command_template);
+        const fullPrompt = isRaw ? prompt : buildSystemPrompt(agent, project) + prompt;
+        startAgentProcess(agent, fullPrompt, project.command_template);
+
+        // Record system event
+        eventStmt.run(
+          uuidv4(), issueId, 'system',
+          `auto-started ${agent.name} (mentioned by ${authorId === 'user' ? 'user' : nameOfAgent(authorId, agents)})`,
+          'status_change',
+          JSON.stringify({ mention: agentName, agent_id: agent.id, triggered_by: authorId })
+        );
+      }
+    }
+  }
+}
+
+function nameOfAgent(agentId: string, agents: Agent[]): string {
+  const a = agents.find(x => x.id === agentId);
+  return a ? a.name : agentId;
+}
+
 function resolvePriority(createdBy: string, projectId: string): number {
   if (createdBy === 'user' || createdBy === 'system') return 10;
   const db = getDatabase();
@@ -103,6 +155,11 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         // Trigger controller for unassigned/broadcast issues
         const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
         if (project) setTimeout(() => { try { triggerControllerAgent(project); } catch {} }, 1000);
+      }
+
+      // Parse @mentions in body and auto-start mentioned agents
+      if (body) {
+        parseMentionsAndStartAgents(body, request.params.pid, id, number, title, created_by);
       }
 
       return reply.code(201).send(created);
@@ -250,6 +307,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         type: 'comment_added', projectId: iss.project_id,
         data: { comment, issueId: request.params.id, issueNumber: iss.number },
       });
+
+      // Parse @mentions in comment and auto-start mentioned agents
+      parseMentionsAndStartAgents(body, iss.project_id, request.params.id, iss.number, iss.title, author_id);
 
       // If user commented, auto-start the assigned agent to check the issue
       if (author_id === 'user') {
