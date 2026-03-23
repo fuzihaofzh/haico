@@ -47,9 +47,16 @@ export function startAgentProcess(
   // commandTemplate is just the tool path (e.g., "cld", "claude", "/usr/bin/claude")
   // We build the full command with all necessary flags
   const toolPath = commandTemplate.trim() || 'claude';
-  // Try resume existing session, fallback to new session on failure
-  const existingSessionId = agent.new_session_per_run ? null : agent.session_id;
+  // Session strategy: resume existing session, auto-reset after session_max_runs
+  const maxRuns = (agent as any).session_max_runs || 10;
+  const runCount = ((agent as any).session_run_count || 0) + 1;
+  const shouldReset = runCount > maxRuns;
+  const existingSessionId = shouldReset ? null : agent.session_id;
   let sessionId = existingSessionId || uuidv4();
+
+  // Update run count (reset to 1 if new session)
+  db.prepare('UPDATE agents SET session_run_count = ? WHERE id = ?')
+    .run(shouldReset ? 1 : runCount, agent.id);
   const sessionFlag = existingSessionId ? `--resume ${sessionId}` : `--session-id ${sessionId}`;
   const command = `${toolPath} -p --output-format stream-json --verbose ${sessionFlag} --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"`;
 
@@ -230,7 +237,7 @@ export function startAgentProcess(
     // If resume failed, retry with a fresh session
     if (existingSessionId && err.code === 'ENOENT') {
       logger.info(`Retrying agent ${agent.id} with fresh session (resume failed)`);
-      const freshAgent = { ...agent, session_id: null, new_session_per_run: false };
+      const freshAgent = { ...agent, session_id: null };
       db.prepare("UPDATE agents SET session_id = NULL, status = 'idle' WHERE id = ?").run(agent.id);
       startAgentProcess(freshAgent, prompt, commandTemplate);
       return;

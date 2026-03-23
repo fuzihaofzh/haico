@@ -20,7 +20,8 @@ export interface Agent {
   session_id: string | null;
   working_directory: string | null;
   custom_instructions: string;
-  new_session_per_run: boolean;
+  session_run_count: number;
+  session_max_runs: number;
   status: 'idle' | 'running' | 'error' | 'stopped';
   paused: boolean;
   pid: number | null;

@@ -265,13 +265,6 @@ async function viewAgent(agentId) {
                 <button class="btn btn-sm" onclick="saveAgentField('${agentId}','working_directory',document.getElementById('ad-workdir-${agentId}').value)">Save</button>
               </div>
             </div>
-            ${agent.is_controller ? '' : `<div style="width:160px">
-              <div style="${L}">Session Mode</div>
-              <select onchange="updateAgentSessionMode('${agentId}', this.value)" style="${B};width:100%;font-size:12px;color:var(--fg)">
-                <option value="continue" ${!agent.new_session_per_run ? 'selected' : ''}>Continue previous</option>
-                <option value="new" ${agent.new_session_per_run ? 'selected' : ''}>New each run</option>
-              </select>
-            </div>`}
             <div style="width:120px">
               <div style="${L}">Max Runs/Session</div>
               <div style="display:flex;gap:4px">
@@ -433,14 +426,6 @@ async function saveAgentField(agentId, field, value) {
   const res = await fetch(`/api/agents/${agentId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
   if (res.ok) showToast('已保存', 'success');
   else showToast('保存失败', 'error');
-}
-
-async function updateAgentSessionMode(agentId, mode) {
-  const res = await fetch(`/api/agents/${agentId}`, {
-    method: 'PUT', headers: apiHeaders(),
-    body: JSON.stringify({ new_session_per_run: mode === 'new' }),
-  });
-  if (res.ok) showToast('已保存', 'success');
 }
 
 async function toggleAgentSystemPrompt(agentId) {

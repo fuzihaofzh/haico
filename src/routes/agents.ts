@@ -49,7 +49,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const existing = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id);
     if (!existing) return reply.code(404).send({ error: 'Agent not found' });
 
-    const { name, role, session_id, working_directory, custom_instructions, new_session_per_run, session_max_runs } = request.body as any;
+    const { name, role, session_id, working_directory, custom_instructions, session_max_runs } = request.body as any;
     db.prepare(`
       UPDATE agents SET
         name = COALESCE(?, name),
@@ -57,10 +57,9 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
         session_id = COALESCE(?, session_id),
         working_directory = COALESCE(?, working_directory),
         custom_instructions = COALESCE(?, custom_instructions),
-        new_session_per_run = COALESCE(?, new_session_per_run),
         session_max_runs = COALESCE(?, session_max_runs)
       WHERE id = ?
-    `).run(name ?? null, role ?? null, session_id ?? null, working_directory ?? null, custom_instructions ?? null, new_session_per_run !== undefined ? (new_session_per_run ? 1 : 0) : null, session_max_runs !== undefined ? Math.max(1, parseInt(session_max_runs) || 10) : null, request.params.id);
+    `).run(name ?? null, role ?? null, session_id ?? null, working_directory ?? null, custom_instructions ?? null, session_max_runs !== undefined ? Math.max(1, parseInt(session_max_runs) || 10) : null, request.params.id);
 
     return db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id);
   });
