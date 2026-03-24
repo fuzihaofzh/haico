@@ -669,6 +669,7 @@ function showCreateAgentModal() {
   document.getElementById('agent-name').value = '';
   document.getElementById('agent-role').value = '';
   document.getElementById('agent-workdir').value = '';
+  document.getElementById('agent-cmdtpl').value = '';
   document.getElementById('createAgentModal').classList.add('active');
 }
 function hideModal(id) { document.getElementById(id).classList.remove('active'); }
@@ -676,7 +677,7 @@ function hideModal(id) { document.getElementById(id).classList.remove('active');
 async function createAgent() {
   const btn = document.querySelector('#createAgentModal button[onclick="createAgent()"]');
   await withLoading(btn, async () => {
-    const body = { name: document.getElementById('agent-name').value, role: document.getElementById('agent-role').value, working_directory: document.getElementById('agent-workdir').value || undefined };
+    const body = { name: document.getElementById('agent-name').value, role: document.getElementById('agent-role').value, working_directory: document.getElementById('agent-workdir').value || undefined, command_template: document.getElementById('agent-cmdtpl').value.trim() || undefined };
     if (!body.name) { alert('Name is required'); return; }
     const res = await fetch(`/api/projects/${projectId}/agents`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) { hideModal('createAgentModal'); loadAgents(); showToast('Agent已创建', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '创建失败', 'error'); }
