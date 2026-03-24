@@ -52,27 +52,37 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return cookies;
 }
 
-function loadAuthConfig(): { config: AuthConfig; fileExists: boolean; readError: boolean } {
+function loadAuthConfig(): AuthConfig {
+  try {
+    const { getDatabase } = require('../db/database');
+    const db = getDatabase();
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'auth'").get() as { value: string } | undefined;
+    if (row) return JSON.parse(row.value);
+  } catch (e) {
+    logger.error(e, 'Failed to load auth config from database');
+  }
+  // Fallback: try legacy file config and migrate
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-      return { config, fileExists: true, readError: false };
+      if (config.passwordHash) {
+        logger.info('Migrating auth config from file to database');
+        saveAuthConfig(config);
+        return config;
+      }
     }
-    return { config: {}, fileExists: false, readError: false };
-  } catch (e) {
-    logger.error(e, 'Failed to load auth config from %s', CONFIG_PATH);
-    return { config: {}, fileExists: true, readError: true };
-  }
+  } catch {}
+  return {};
 }
 
 function saveAuthConfig(config: AuthConfig): void {
-  if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  try {
+    const { getDatabase } = require('../db/database');
+    const db = getDatabase();
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('auth', ?)").run(JSON.stringify(config));
+  } catch (e) {
+    logger.error(e, 'Failed to save auth config to database');
   }
-  // Atomic write: write to temp file first, then rename to avoid partial reads
-  const tmpPath = CONFIG_PATH + '.tmp';
-  fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2));
-  fs.renameSync(tmpPath, CONFIG_PATH);
 }
 
 // --- Localhost bypass: only safe (agent-usable) routes ---
@@ -263,19 +273,7 @@ const CHANGE_PASSWORD_HTML = `<!DOCTYPE html>
  * Follows the same pattern as swarmie for maximum reliability.
  */
 export function setupAuth(app: FastifyInstance): void {
-  let initial = loadAuthConfig();
-  // Retry once on transient read errors at startup (e.g. NFS timeout)
-  if (initial.readError) {
-    const retry = loadAuthConfig();
-    if (!retry.readError) {
-      initial = retry;
-    }
-  }
-  let authConfig = initial.config;
-  // Track whether password was ever successfully loaded — prevents downgrade to "no password" on transient errors
-  // If config file exists but had a read error at startup (e.g. NFS timeout), assume password was set.
-  // This prevents redirect to /setup when the file is temporarily unreadable.
-  let passwordWasEverSet = !!authConfig.passwordHash || (initial.fileExists && initial.readError);
+  let authConfig = loadAuthConfig();
 
   function checkPassword(pwd: string): boolean {
     if (!authConfig.passwordHash) return false;
@@ -288,7 +286,6 @@ export function setupAuth(app: FastifyInstance): void {
   function setPassword(pwd: string): void {
     const { hash, salt } = hashPassword(pwd);
     authConfig = { passwordHash: hash, passwordSalt: salt };
-    passwordWasEverSet = true;
     saveAuthConfig(authConfig);
   }
 
@@ -384,39 +381,11 @@ export function setupAuth(app: FastifyInstance): void {
       return;
     }
 
-    // No password in memory -> try to reload from file (with retry on read errors)
+    // No password in memory -> reload from DB
     if (!authConfig.passwordHash) {
-      let result = loadAuthConfig();
-      // Retry once on transient read errors (e.g. NFS timeout)
-      if (result.readError) {
-        result = loadAuthConfig();
-      }
-      if (result.config.passwordHash) {
-        authConfig = result.config;
-        passwordWasEverSet = true;
-      } else if (result.readError && passwordWasEverSet) {
-        // File exists but read failed, and we know password was set before.
-        // Do NOT redirect to /setup — this is a transient error.
-        logger.warn('Auth config file read error but password was previously set — denying access instead of redirecting to /setup');
-        if (url.startsWith('/api/') || url.startsWith('/ws')) {
-          reply.status(503).send({ error: 'Auth config temporarily unavailable. Please retry.' });
-        } else {
-          reply.redirect('/login');
-        }
-        return;
-      }
+      authConfig = loadAuthConfig();
     }
     if (!authConfig.passwordHash) {
-      if (passwordWasEverSet) {
-        // Password was set before but config file is now missing — likely a bug, not first-time setup
-        logger.error('Auth config file missing but password was previously set! Config path: %s', CONFIG_PATH);
-        if (url.startsWith('/api/') || url.startsWith('/ws')) {
-          reply.status(503).send({ error: 'Auth config missing. This may be a system error.' });
-        } else {
-          reply.redirect('/login');
-        }
-        return;
-      }
       if (url.startsWith('/api/') || url.startsWith('/ws')) {
         reply.status(401).send({ error: 'Password not configured. Visit /setup first.' });
       } else {
@@ -430,6 +399,11 @@ export function setupAuth(app: FastifyInstance): void {
     const token = cookies[COOKIE_NAME];
     if (token && isValidToken(token)) {
       return;
+    }
+
+    // Debug: log why auth failed for non-static requests
+    if (!url.startsWith('/public/') && !url.startsWith('/css/') && !url.startsWith('/js/') && !url.startsWith('/vendor/')) {
+      console.error(`[AUTH FAIL] url=${url} method=${request.method} hasToken=${!!token} tokenValid=${token ? isValidToken(token) : 'no-token'} hasPassword=${!!authConfig.passwordHash} ip=${request.ip}`);
     }
 
     // Check Authorization: Bearer <token>

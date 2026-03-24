@@ -63,7 +63,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     const { description, tool_path } = request.body;
     if (!description) return reply.code(400).send({ error: 'description is required' });
 
-    const tool = tool_path || config.defaultCommandTemplate;
+    const tool = (tool_path || config.defaultCommandTemplate || '').trim() || 'cld';
     const prompt = `Given the user's input below, generate a JSON object. IMPORTANT: Use the SAME LANGUAGE as the user's input (if Chinese, respond in Chinese; if English, respond in English).
 
 Fields:
@@ -78,7 +78,26 @@ User's input: "${description.replace(/"/g, '\\"')}"
 Respond with ONLY valid JSON, no markdown, no explanation.`;
 
     try {
-      const result = execSync(`echo ${JSON.stringify(prompt)} | ${tool} -p`, {
+      const lowerTool = tool.toLowerCase();
+      let cmd: string;
+
+      if (lowerTool.startsWith('cld') || lowerTool.startsWith('claude')) {
+        // Claude Code / cld — keep existing non-interactive print mode
+        cmd = `${tool} -p`;
+      } else if (lowerTool.startsWith('gemini')) {
+        // Gemini CLI — use text output mode with -p prompt flag
+        cmd = `${tool} --output-format text -p`;
+      } else if (lowerTool.startsWith('codex')) {
+        // Codex CLI — non-interactive exec. We avoid --json here to keep
+        // output as plain text so that JSON extraction via regex still works.
+        // PROMPT is read from stdin when '-' is used.
+        cmd = 'codex exec --sandbox workspace-write --skip-git-repo-check -';
+      } else {
+        // Fallback: run the tool as-is, reading prompt from stdin
+        cmd = tool;
+      }
+
+      const result = execSync(`echo ${JSON.stringify(prompt)} | ${cmd}`, {
         timeout: 60000,
         encoding: 'utf-8',
         env: { ...process.env },
