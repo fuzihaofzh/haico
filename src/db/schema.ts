@@ -6,6 +6,11 @@ export function initializeDatabase(db: Database.Database): void {
   db.pragma('foreign_keys = ON');
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -33,6 +38,7 @@ export function initializeDatabase(db: Database.Database): void {
       session_max_runs INTEGER DEFAULT 10,
       session_token_count INTEGER DEFAULT 0,
       session_max_tokens INTEGER DEFAULT 200000,
+      command_template TEXT DEFAULT NULL,
       status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'error', 'stopped')),
       paused BOOLEAN DEFAULT 0,
       pid INTEGER,
@@ -137,6 +143,12 @@ export function initializeDatabase(db: Database.Database): void {
   const updated = db.prepare("UPDATE agents SET session_max_tokens = 200000 WHERE session_max_tokens = 0").run();
   if (updated.changes > 0) {
     logger.info(`Migration: updated session_max_tokens from 0 to 200000 for ${updated.changes} agent(s)`);
+  }
+
+  // Migration: add command_template column to agents if missing
+  if (!cols.find((c: any) => c.name === 'command_template')) {
+    db.exec("ALTER TABLE agents ADD COLUMN command_template TEXT DEFAULT NULL");
+    logger.info('Migration: added command_template column to agents table');
   }
 
   // Reset any agents stuck in 'running' from a previous crash

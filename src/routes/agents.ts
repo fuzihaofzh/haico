@@ -19,7 +19,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
 
   // Create agent
   fastify.post<{ Params: { pid: string }; Body: CreateAgentInput }>('/api/projects/:pid/agents', async (request, reply) => {
-    const { name, role, is_controller, session_id, working_directory } = request.body;
+    const { name, role, is_controller, session_id, working_directory, command_template } = request.body;
     if (!name) return reply.code(400).send({ error: 'name is required' });
 
     const db = getDatabase();
@@ -28,9 +28,9 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
 
     const id = uuidv4();
     db.prepare(`
-      INSERT INTO agents (id, project_id, name, role, is_controller, session_id, working_directory, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'idle')
-    `).run(id, request.params.pid, name, role || '', is_controller ? 1 : 0, session_id || null, working_directory || null);
+      INSERT INTO agents (id, project_id, name, role, is_controller, session_id, working_directory, command_template, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle')
+    `).run(id, request.params.pid, name, role || '', is_controller ? 1 : 0, session_id || null, working_directory || null, command_template || null);
 
     return reply.code(201).send(db.prepare('SELECT * FROM agents WHERE id = ?').get(id));
   });
@@ -49,18 +49,33 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const existing = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id);
     if (!existing) return reply.code(404).send({ error: 'Agent not found' });
 
-    const { name, role, session_id, working_directory, custom_instructions, session_max_runs, session_max_tokens } = request.body as any;
-    db.prepare(`
-      UPDATE agents SET
-        name = COALESCE(?, name),
-        role = COALESCE(?, role),
-        session_id = COALESCE(?, session_id),
-        working_directory = COALESCE(?, working_directory),
-        custom_instructions = COALESCE(?, custom_instructions),
-        session_max_runs = COALESCE(?, session_max_runs),
-        session_max_tokens = COALESCE(?, session_max_tokens)
-      WHERE id = ?
-    `).run(name ?? null, role ?? null, session_id ?? null, working_directory ?? null, custom_instructions ?? null, session_max_runs !== undefined ? Math.max(1, Number.isNaN(parseInt(session_max_runs)) ? 10 : parseInt(session_max_runs)) : null, session_max_tokens !== undefined ? Math.max(0, Number.isNaN(parseInt(session_max_tokens)) ? 0 : parseInt(session_max_tokens)) : null, request.params.id);
+    const { name, role, session_id, working_directory, custom_instructions, session_max_runs, session_max_tokens, command_template } = request.body as any;
+
+    // Build update fields dynamically — command_template needs special handling
+    // because COALESCE(NULL, col) preserves the old value, but we want to allow
+    // explicitly setting command_template to NULL (empty string → use project default)
+    const fields: string[] = [
+      'name = COALESCE(?, name)',
+      'role = COALESCE(?, role)',
+      'session_id = COALESCE(?, session_id)',
+      'working_directory = COALESCE(?, working_directory)',
+      'custom_instructions = COALESCE(?, custom_instructions)',
+      'session_max_runs = COALESCE(?, session_max_runs)',
+      'session_max_tokens = COALESCE(?, session_max_tokens)',
+    ];
+    const params: any[] = [
+      name ?? null, role ?? null, session_id ?? null, working_directory ?? null, custom_instructions ?? null,
+      session_max_runs !== undefined ? Math.max(1, Number.isNaN(parseInt(session_max_runs)) ? 10 : parseInt(session_max_runs)) : null,
+      session_max_tokens !== undefined ? Math.max(0, Number.isNaN(parseInt(session_max_tokens)) ? 0 : parseInt(session_max_tokens)) : null,
+    ];
+
+    if (command_template !== undefined) {
+      fields.push('command_template = ?');
+      params.push(command_template || null);
+    }
+
+    params.push(request.params.id);
+    db.prepare(`UPDATE agents SET ${fields.join(', ')} WHERE id = ?`).run(...params);
 
     return db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id);
   });
@@ -128,7 +143,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
 
     if (!prompt) return reply.code(400).send({ error: 'No prompt could be generated. Set agent role or project task_description.' });
 
-    const commandTemplate = project.command_template || config.defaultCommandTemplate;
+    const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
 
     // Inject system prompt by default; skip for raw shell commands (bash -c / sh -c)
     const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
@@ -159,7 +174,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     db.prepare('UPDATE agents SET session_id = NULL WHERE id = ?').run(agent.id);
     const freshAgent = { ...agent, session_id: null };
 
-    const commandTemplate = project.command_template || config.defaultCommandTemplate;
+    const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
     const result = startAgentProcess(freshAgent, agent.last_prompt, commandTemplate);
     return { success: true, runId: result.runId, pid: result.pid };
   });

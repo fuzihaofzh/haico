@@ -24,6 +24,7 @@ export interface Agent {
   session_max_runs: number;
   session_token_count: number;
   session_max_tokens: number;
+  command_template: string | null;
   status: 'idle' | 'running' | 'error' | 'stopped';
   paused: boolean;
   pid: number | null;
@@ -80,6 +81,7 @@ export interface CreateAgentInput {
   is_controller?: boolean;
   session_id?: string;
   working_directory?: string;
+  command_template?: string;
 }
 
 export interface StartAgentInput {

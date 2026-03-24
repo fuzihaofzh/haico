@@ -265,6 +265,14 @@ async function viewAgent(agentId) {
                 <button class="btn btn-sm" onclick="saveAgentField('${agentId}','working_directory',document.getElementById('ad-workdir-${agentId}').value)">Save</button>
               </div>
             </div>
+            <div style="flex:1;min-width:200px">
+              <div style="${L}">Tool Path</div>
+              <div style="display:flex;gap:4px">
+                <input type="text" id="ad-cmdtpl-${agentId}" value="${esc(agent.command_template || '')}" placeholder="(使用项目默认)" style="${B};flex:1;font-size:12px;font-family:monospace;color:var(--fg)">
+                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','command_template',document.getElementById('ad-cmdtpl-${agentId}').value)">Save</button>
+              </div>
+              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">留空=使用项目默认</div>
+            </div>
             <div style="width:140px">
               <div style="${L}">Max Cache Tokens</div>
               <div style="display:flex;gap:4px">

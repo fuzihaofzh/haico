@@ -156,7 +156,7 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
   lastTriggerTime.set(project.id, new Date().toISOString().replace('T', ' ').replace('Z', ''));
 
   const taskPrompt = buildControllerTaskPrompt(project);
-  const commandTemplate = project.command_template || config.defaultCommandTemplate;
+  const commandTemplate = controller.command_template || project.command_template || config.defaultCommandTemplate;
 
   const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
   const systemPrompt = isRawShell ? undefined : buildSystemPrompt(controller, project);
