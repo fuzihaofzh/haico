@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { getDatabase } from '../db/database';
 import { Agent } from '../types';
+import { config } from '../config';
 import logger from '../logger';
 
 export interface PtySession {
@@ -38,12 +39,18 @@ export function getOrCreatePtySession(
   let cwd = agent?.working_directory || process.cwd();
   if (cwd.startsWith('~/')) cwd = path.join(os.homedir(), cwd.slice(2));
 
-  // Get command template from project
+  // Get command template: agent-level > project-level > default
   let command = 'claude';
   if (agent) {
-    const project = db.prepare('SELECT command_template FROM projects WHERE id = ?').get(agent.project_id) as { command_template: string } | undefined;
-    if (project?.command_template) {
-      command = project.command_template.trim() || 'claude';
+    if (agent.command_template) {
+      command = agent.command_template.trim() || 'claude';
+    } else {
+      const project = db.prepare('SELECT command_template FROM projects WHERE id = ?').get(agent.project_id) as { command_template: string } | undefined;
+      if (project?.command_template) {
+        command = project.command_template.trim() || 'claude';
+      } else {
+        command = config.defaultCommandTemplate || 'claude';
+      }
     }
   }
 

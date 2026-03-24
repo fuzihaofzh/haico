@@ -6,6 +6,7 @@ import { startAgentProcess, isAgentRunning } from '../services/process-manager';
 import { buildSystemPrompt } from '../services/system-prompt';
 import { triggerControllerAgent } from '../services/controller';
 import { broadcastToProject } from '../services/websocket';
+import { config } from '../config';
 
 // Parse @agent-name mentions from text and auto-start mentioned agents
 function parseMentionsAndStartAgents(
@@ -38,9 +39,10 @@ function parseMentionsAndStartAgents(
       const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
       if (project) {
         const prompt = `You were mentioned (@${agentName}) in issue #${issueNumber} "${issueTitle}". Review the issue and take action.\n\nContext: ${text.slice(0, 500)}`;
-        const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(project.command_template);
+        const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
+        const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
         const fullPrompt = isRaw ? prompt : buildSystemPrompt(agent, project) + prompt;
-        startAgentProcess(agent, fullPrompt, project.command_template);
+        startAgentProcess(agent, fullPrompt, commandTemplate);
 
         // Record system event
         eventStmt.run(
@@ -160,9 +162,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
           if (project) {
             const prompt = `New issue #${number} "${title}" has been assigned to you. Review and take action.\n\nDescription: ${(body || '').slice(0, 500)}`;
-            const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(project.command_template);
+            const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
+            const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
             const fullPrompt = isRaw ? prompt : buildSystemPrompt(agent, project) + prompt;
-            startAgentProcess(agent, fullPrompt, project.command_template);
+            startAgentProcess(agent, fullPrompt, commandTemplate);
           }
         }
       } else if (created_by === 'user' && (!assigned_to || assigned_to === 'all')) {
@@ -254,9 +257,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(updated.project_id) as Project | undefined;
           if (project) {
             const prompt = `You have been assigned issue #${updated.number} "${updated.title}". Review it and take action.\n\nDescription: ${updated.body?.slice(0, 500) || '(none)'}`;
-            const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(project.command_template);
+            const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
+            const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
             const fullPrompt = isRaw ? prompt : buildSystemPrompt(agent, project) + prompt;
-            startAgentProcess(agent, fullPrompt, project.command_template);
+            startAgentProcess(agent, fullPrompt, commandTemplate);
           }
         }
       }
@@ -343,9 +347,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
             const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(iss.project_id) as Project | undefined;
             if (project) {
               const prompt = `User just commented on issue #${iss.number} "${iss.title}" assigned to you. Review the comment and respond.\n\nComment: ${body}`;
-              const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(project.command_template);
+              const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
+              const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
               const fullPrompt = isRawShell ? prompt : buildSystemPrompt(agent, project) + prompt;
-              startAgentProcess(agent, fullPrompt, project.command_template);
+              startAgentProcess(agent, fullPrompt, commandTemplate);
             }
           }
         } else if (iss.assigned_to === 'all' || !iss.assigned_to) {
