@@ -140,6 +140,8 @@ async function loadAgentInfo() {
       if (maxRunsEl) maxRunsEl.value = agent.session_max_runs || 10;
       const maxTokensEl = document.getElementById('agent-maxtokens');
       if (maxTokensEl) maxTokensEl.value = agent.session_max_tokens || 200000;
+      const resumeTimeoutEl = document.getElementById('agent-resumetimeout');
+      if (resumeTimeoutEl) resumeTimeoutEl.value = agent.session_resume_timeout ?? 300;
       window._instructionsLoaded = true;
     }
   } catch (e) { console.error('Failed to load agent info', e); }
@@ -192,6 +194,19 @@ async function saveMaxTokens() {
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${agentId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ session_max_tokens: Math.max(0, val) }),
+    });
+    if (res.ok) showToast('已保存', 'success');
+    else showToast('保存失败', 'error');
+  });
+}
+
+async function saveResumeTimeout() {
+  const raw = parseInt(document.getElementById('agent-resumetimeout').value);
+  const val = Number.isNaN(raw) ? 300 : raw;
+  const btn = document.querySelector('button[onclick="saveResumeTimeout()"]');
+  await withLoading(btn, async () => {
+    const res = await fetch(`/api/agents/${agentId}`, {
+      method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ session_resume_timeout: Math.max(0, val) }),
     });
     if (res.ok) showToast('已保存', 'success');
     else showToast('保存失败', 'error');

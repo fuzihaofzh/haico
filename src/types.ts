@@ -24,6 +24,7 @@ export interface Agent {
   session_max_runs: number;
   session_token_count: number;
   session_max_tokens: number;
+  session_resume_timeout: number;
   command_template: string | null;
   status: 'idle' | 'running' | 'error' | 'stopped';
   paused: boolean;

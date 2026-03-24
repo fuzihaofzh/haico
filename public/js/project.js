@@ -288,6 +288,14 @@ async function viewAgent(agentId) {
                 <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_max_runs',Math.max(1,parseInt(document.getElementById('ad-maxruns-${agentId}').value))||10)">Save</button>
               </div>
             </div>
+            <div style="width:140px">
+              <div style="${L}">Resume Timeout(s)</div>
+              <div style="display:flex;gap:4px">
+                <input type="number" id="ad-resumetimeout-${agentId}" value="${agent.session_resume_timeout ?? 300}" min="0" style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
+                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_resume_timeout',Math.max(0,parseInt(document.getElementById('ad-resumetimeout-${agentId}').value))||0)">Save</button>
+              </div>
+              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0=不限时间</div>
+            </div>
           </div>
 
           <div style="margin-bottom:16px">

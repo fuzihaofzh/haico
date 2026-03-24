@@ -38,6 +38,7 @@ export function initializeDatabase(db: Database.Database): void {
       session_max_runs INTEGER DEFAULT 10,
       session_token_count INTEGER DEFAULT 0,
       session_max_tokens INTEGER DEFAULT 200000,
+      session_resume_timeout INTEGER DEFAULT 300,
       command_template TEXT DEFAULT NULL,
       status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'error', 'stopped')),
       paused BOOLEAN DEFAULT 0,
@@ -143,6 +144,12 @@ export function initializeDatabase(db: Database.Database): void {
   const updated = db.prepare("UPDATE agents SET session_max_tokens = 200000 WHERE session_max_tokens = 0").run();
   if (updated.changes > 0) {
     logger.info(`Migration: updated session_max_tokens from 0 to 200000 for ${updated.changes} agent(s)`);
+  }
+
+  // Migration: add session_resume_timeout column if missing (default 300s = 5 minutes)
+  if (!cols.find((c: any) => c.name === 'session_resume_timeout')) {
+    db.exec("ALTER TABLE agents ADD COLUMN session_resume_timeout INTEGER DEFAULT 300");
+    logger.info('Migration: added session_resume_timeout column to agents table');
   }
 
   // Migration: add command_template column to agents if missing

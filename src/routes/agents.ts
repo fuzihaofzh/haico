@@ -49,7 +49,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const existing = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id);
     if (!existing) return reply.code(404).send({ error: 'Agent not found' });
 
-    const { name, role, session_id, working_directory, custom_instructions, session_max_runs, session_max_tokens, command_template } = request.body as any;
+    const { name, role, session_id, working_directory, custom_instructions, session_max_runs, session_max_tokens, session_resume_timeout, command_template } = request.body as any;
 
     // Build update fields dynamically — command_template needs special handling
     // because COALESCE(NULL, col) preserves the old value, but we want to allow
@@ -62,11 +62,13 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       'custom_instructions = COALESCE(?, custom_instructions)',
       'session_max_runs = COALESCE(?, session_max_runs)',
       'session_max_tokens = COALESCE(?, session_max_tokens)',
+      'session_resume_timeout = COALESCE(?, session_resume_timeout)',
     ];
     const params: any[] = [
       name ?? null, role ?? null, session_id ?? null, working_directory ?? null, custom_instructions ?? null,
       session_max_runs !== undefined ? Math.max(1, Number.isNaN(parseInt(session_max_runs)) ? 10 : parseInt(session_max_runs)) : null,
       session_max_tokens !== undefined ? Math.max(0, Number.isNaN(parseInt(session_max_tokens)) ? 0 : parseInt(session_max_tokens)) : null,
+      session_resume_timeout !== undefined ? Math.max(0, Number.isNaN(parseInt(session_resume_timeout)) ? 300 : parseInt(session_resume_timeout)) : null,
     ];
 
     if (command_template !== undefined) {

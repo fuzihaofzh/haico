@@ -50,29 +50,44 @@ export function startAgentProcess(
   // appropriate flags so they behave like non-interactive agents; for other
   // CLIs we run the template as-is.
   const toolPath = commandTemplate.trim() || 'claude';
-  // Session strategy: reset by cache token (preferred) or run count (fallback)
+  // Session strategy: time-based timeout → cache token (preferred) → run count (fallback)
+  const resumeTimeout = (agent as any).session_resume_timeout ?? 300; // default 5 minutes
   const maxTokens = (agent as any).session_max_tokens || 200000;
   const maxRuns = (agent as any).session_max_runs || 10;
   const runCount = ((agent as any).session_run_count || 0) + 1;
-  let shouldReset: boolean;
-  if (maxTokens > 0 && agent.session_id) {
-    // Query the latest cost record for this agent to get cache token usage
-    const latestCost = db.prepare(
-      "SELECT content FROM conversation_logs WHERE agent_id = ? AND stream = 'cost' ORDER BY id DESC LIMIT 1"
-    ).get(agent.id) as { content: string } | undefined;
-    let cacheTokens = 0;
-    if (latestCost) {
-      try {
-        const data = JSON.parse(latestCost.content);
-        cacheTokens = (data.cache_read || 0) + (data.cache_creation || 0);
-      } catch {}
+  let shouldReset = false;
+
+  // Time-based reset: if last session ended more than resumeTimeout seconds ago, start fresh
+  if (resumeTimeout > 0 && agent.session_id && agent.finished_at) {
+    const finishedTime = new Date(agent.finished_at + (agent.finished_at.includes('Z') ? '' : 'Z')).getTime();
+    const elapsed = (Date.now() - finishedTime) / 1000;
+    if (elapsed > resumeTimeout) {
+      shouldReset = true;
+      logger.info(`Agent ${agent.id} session idle for ${Math.round(elapsed)}s (timeout=${resumeTimeout}s), starting new session`);
     }
-    shouldReset = cacheTokens >= maxTokens;
-    if (shouldReset) {
-      logger.info(`Agent ${agent.id} cache tokens (${cacheTokens}) >= max (${maxTokens}), resetting session`);
+  }
+
+  // If time check didn't trigger reset, fall back to token/run-count strategy
+  if (!shouldReset) {
+    if (maxTokens > 0 && agent.session_id) {
+      // Query the latest cost record for this agent to get cache token usage
+      const latestCost = db.prepare(
+        "SELECT content FROM conversation_logs WHERE agent_id = ? AND stream = 'cost' ORDER BY id DESC LIMIT 1"
+      ).get(agent.id) as { content: string } | undefined;
+      let cacheTokens = 0;
+      if (latestCost) {
+        try {
+          const data = JSON.parse(latestCost.content);
+          cacheTokens = (data.cache_read || 0) + (data.cache_creation || 0);
+        } catch {}
+      }
+      shouldReset = cacheTokens >= maxTokens;
+      if (shouldReset) {
+        logger.info(`Agent ${agent.id} cache tokens (${cacheTokens}) >= max (${maxTokens}), resetting session`);
+      }
+    } else {
+      shouldReset = runCount > maxRuns;
     }
-  } else {
-    shouldReset = runCount > maxRuns;
   }
   const existingSessionId = shouldReset ? null : agent.session_id;
   let sessionId = existingSessionId || uuidv4();
