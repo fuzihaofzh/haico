@@ -548,40 +548,4 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     return { issues, comments };
   });
 
-  // ─── Quick Commands ───
-
-  // Submit a quick command for the controller to process
-  fastify.post<{ Params: { pid: string }; Body: { message: string } }>(
-    '/api/projects/:pid/quick-commands',
-    async (request, reply) => {
-      const db = getDatabase();
-      const { message } = request.body;
-      if (!message?.trim()) return reply.code(400).send({ error: 'message required' });
-
-      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
-      if (!project) return reply.code(404).send({ error: 'Project not found' });
-
-      const id = uuidv4();
-      db.prepare('INSERT INTO quick_commands (id, project_id, message, status) VALUES (?, ?, ?, ?)')
-        .run(id, request.params.pid, message.trim(), 'pending');
-
-      // Try to trigger controller immediately
-      triggerControllerOnDemand(request.params.pid);
-
-      return reply.code(201).send({ id, status: 'pending', message: message.trim() });
-    }
-  );
-
-  // List quick commands for a project
-  fastify.get<{ Params: { pid: string }; Querystring: { status?: string } }>(
-    '/api/projects/:pid/quick-commands',
-    async (request) => {
-      const db = getDatabase();
-      const { status } = request.query;
-      if (status) {
-        return db.prepare('SELECT * FROM quick_commands WHERE project_id = ? AND status = ? ORDER BY created_at DESC').all(request.params.pid, status);
-      }
-      return db.prepare('SELECT * FROM quick_commands WHERE project_id = ? ORDER BY created_at DESC LIMIT 50').all(request.params.pid);
-    }
-  );
 }

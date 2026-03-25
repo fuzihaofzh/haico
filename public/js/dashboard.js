@@ -292,13 +292,21 @@ async function sendQuickCmd(projectId) {
   btn.disabled = true;
   btn.textContent = '...';
   try {
-    const res = await fetch(`/api/projects/${projectId}/quick-commands`, {
+    // Find controller agent for this project
+    const agentsRes = await fetch(`/api/projects/${projectId}/agents`, { headers: apiHeaders() });
+    if (!agentsRes.ok) { showToast('Failed to find controller', 'error'); return; }
+    const agents = await agentsRes.json();
+    const controller = agents.find(a => a.is_controller);
+    if (!controller) { showToast('No controller agent found', 'error'); return; }
+
+    // Create issue assigned to controller
+    const res = await fetch(`/api/projects/${projectId}/issues`, {
       method: 'POST', headers: apiHeaders(),
-      body: JSON.stringify({ message: msg })
+      body: JSON.stringify({ title: msg, body: msg, created_by: 'user', assigned_to: controller.id })
     });
     if (res.ok) {
       input.value = '';
-      showToast('Command queued', 'success');
+      showToast('Issue created', 'success');
     } else {
       const err = await res.json();
       showToast(err.error || 'Failed', 'error');

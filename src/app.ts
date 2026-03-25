@@ -56,16 +56,6 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
         setTimeout(() => {
           try { triggerControllerAgent(project); } catch (e) { fastify.log.error(e, 'Failed to trigger controller agent'); }
         }, 2000);
-      } else {
-        // Controller finished → check for pending quick commands that arrived while it was running
-        const pending = db.prepare(
-          "SELECT 1 FROM quick_commands WHERE project_id = ? AND status = 'pending' LIMIT 1"
-        ).get(project.id);
-        if (pending) {
-          setTimeout(() => {
-            try { triggerControllerAgent(project, true); } catch (e) { fastify.log.error(e, 'Failed to trigger controller for pending quick commands'); }
-          }, 3000);
-        }
       }
     } catch (e) {
       // DB may be closed during shutdown

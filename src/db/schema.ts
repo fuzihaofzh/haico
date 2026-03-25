@@ -137,16 +137,6 @@ export function initializeDatabase(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
-    CREATE TABLE IF NOT EXISTS quick_commands (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      message TEXT NOT NULL,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'done')),
-      created_at DATETIME DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_quick_commands_project_status ON quick_commands(project_id, status);
-
     CREATE INDEX IF NOT EXISTS idx_logs_agent ON conversation_logs(agent_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);
     CREATE INDEX IF NOT EXISTS idx_orch_runs_project_created ON orchestration_runs(project_id, created_at DESC);

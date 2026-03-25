@@ -60,17 +60,6 @@ function buildActivitySnapshot(projectId: string): string {
 export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?: number): string {
   const db = getDatabase();
 
-  // Fetch and consume pending quick commands
-  const pendingCommands = db.prepare(
-    "SELECT * FROM quick_commands WHERE project_id = ? AND status = 'pending' ORDER BY created_at"
-  ).all(project.id) as Array<{ id: string; message: string; created_at: string }>;
-  if (pendingCommands.length > 0) {
-    const ids = pendingCommands.map(c => c.id);
-    db.prepare(
-      `UPDATE quick_commands SET status = 'done' WHERE id IN (${ids.map(() => '?').join(',')})`
-    ).run(...ids);
-  }
-
   const issues = triggerIssueNumber
     ? db.prepare(
         "SELECT * FROM issues WHERE project_id = ? AND number = ?"
@@ -119,16 +108,9 @@ export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?:
     ? `\n## Trigger Context\n本次由 issue #${triggerIssueNumber} 触发，仅展示该 issue 信息。如需查看所有 issue，请通过 API 查询。\n`
     : '';
 
-  const quickCmdSection = pendingCommands.length > 0
-    ? `\n## Quick Commands from User (${pendingCommands.length}) - ACTION REQUIRED
-用户通过快速命令框发送了以下消息，请为每条消息创建对应的issue（设置合适的标题、描述、优先级和分配）：
-${pendingCommands.map((c, i) => `${i + 1}. "${c.message}" (${c.created_at})`).join('\n')}
-`
-    : '';
-
   return `## Project Task
 ${project.task_description}
-${triggerHint}${quickCmdSection}
+${triggerHint}
 ## Unassigned Issues (${unassigned.length}) - ACTION REQUIRED
 ${unassigned.map(formatIssue).join('\n\n') || 'None - all issues are assigned.'}
 
