@@ -259,39 +259,24 @@ let _notifAudioCtx = null;
 let _notifLastPlayTime = 0;
 
 // Unlock AudioContext on first user interaction (browser autoplay policy)
-document.addEventListener('click', function _unlockAudio() {
+// Listen on multiple event types to maximize chances of unlocking
+function _unlockAudioCtx() {
   if (!_notifAudioCtx) {
     _notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
   if (_notifAudioCtx.state === 'suspended') {
     _notifAudioCtx.resume();
   }
-}, { once: false });
+}
+['click', 'keydown', 'touchstart', 'mousedown'].forEach(function(evt) {
+  document.addEventListener(evt, _unlockAudioCtx, { once: false, passive: true });
+});
 
-function playNotificationSound() {
-  // Check setting
-  if (localStorage.getItem('argus-notification-sound') === 'off') return;
-
-  // Throttle: no more than once per 5 seconds
-  const now = Date.now();
-  if (now - _notifLastPlayTime < 5000) return;
-  _notifLastPlayTime = now;
-
-  // Create or resume AudioContext
-  if (!_notifAudioCtx) {
-    _notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  if (_notifAudioCtx.state === 'suspended') {
-    _notifAudioCtx.resume();
-  }
-
-  const ctx = _notifAudioCtx;
-  const t = ctx.currentTime;
-
-  // Two-tone "ding" sound
-  const osc1 = ctx.createOscillator();
-  const osc2 = ctx.createOscillator();
-  const gain = ctx.createGain();
+function _playDingSound(ctx) {
+  var t = ctx.currentTime;
+  var osc1 = ctx.createOscillator();
+  var osc2 = ctx.createOscillator();
+  var gain = ctx.createGain();
 
   osc1.type = 'sine';
   osc1.frequency.setValueAtTime(880, t);       // A5
@@ -309,6 +294,34 @@ function playNotificationSound() {
   osc1.stop(t + 0.15);
   osc2.start(t + 0.1);
   osc2.stop(t + 0.4);
+}
+
+function playNotificationSound() {
+  // Check setting
+  if (localStorage.getItem('argus-notification-sound') === 'off') return;
+
+  // Throttle: no more than once per 5 seconds
+  var now = Date.now();
+  if (now - _notifLastPlayTime < 5000) return;
+  _notifLastPlayTime = now;
+
+  // Create AudioContext if needed
+  if (!_notifAudioCtx) {
+    _notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  var ctx = _notifAudioCtx;
+
+  // If suspended, resume first then play after resume completes
+  if (ctx.state === 'suspended') {
+    ctx.resume().then(function() {
+      if (ctx.state === 'running') {
+        _playDingSound(ctx);
+      }
+    });
+  } else if (ctx.state === 'running') {
+    _playDingSound(ctx);
+  }
 }
 
 function toggleNotificationSound() {
