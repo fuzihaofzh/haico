@@ -154,11 +154,12 @@ function startIssueScan(): void {
         // Check for stale in_progress issues: assigned agent is idle (not paused),
         // issue not updated for 5+ minutes. This catches cases where agent crashed
         // or controller was interrupted mid-assignment.
+        // Exclude issues assigned to the controller itself to avoid self-trigger loops.
         const staleIssue = db.prepare(`
           SELECT i.number FROM issues i
           JOIN agents a ON i.assigned_to = a.id
           WHERE i.project_id = ? AND i.status = 'in_progress'
-            AND a.status = 'idle' AND a.paused = 0
+            AND a.status = 'idle' AND a.paused = 0 AND a.is_controller = 0
             AND i.updated_at < datetime('now', '-5 minutes')
           ORDER BY i.priority DESC
           LIMIT 1
@@ -166,7 +167,7 @@ function startIssueScan(): void {
 
         if (staleIssue) {
           logger.info(`Issue scan: stale in_progress issue #${staleIssue.number} with idle agent in project "${project.name}", re-triggering controller`);
-          triggerControllerAgent(project, true, staleIssue.number);
+          triggerControllerAgent(project, false, staleIssue.number);
         }
       }
     } catch (e) {

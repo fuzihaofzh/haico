@@ -63,7 +63,8 @@ function nameOfAgent(agentId: string, agents: Agent[]): string {
 }
 
 // Trigger controller on-demand when interval=0 (wake-on-issue mode)
-function triggerControllerOnDemand(projectId: string, triggerIssueNumber?: number): void {
+// actorId: skip triggering if the actor is the controller itself (avoid self-trigger loops)
+function triggerControllerOnDemand(projectId: string, triggerIssueNumber?: number, actorId?: string): void {
   const db = getDatabase();
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
   if (!project || project.controller_interval_min > 0) return;
@@ -75,6 +76,9 @@ function triggerControllerOnDemand(projectId: string, triggerIssueNumber?: numbe
     'SELECT * FROM agents WHERE project_id = ? AND is_controller = 1'
   ).get(projectId) as Agent | undefined;
   if (!controller || controller.status === 'running' || controller.paused) return;
+
+  // Skip if the action was performed by the controller itself to avoid self-trigger loops
+  if (actorId && actorId === controller.id) return;
 
   setTimeout(() => { try { triggerControllerAgent(project, false, triggerIssueNumber); } catch {} }, 1000);
 }
@@ -202,7 +206,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       }
 
       // Wake-on-issue: trigger controller when any issue is created
-      triggerControllerOnDemand(request.params.pid, number);
+      triggerControllerOnDemand(request.params.pid, number, created_by);
 
       return reply.code(201).send(created);
     }
@@ -274,7 +278,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       });
 
       // Wake-on-issue: trigger controller when issue status/assignment changes
-      triggerControllerOnDemand(updated.project_id, updated.number);
+      triggerControllerOnDemand(updated.project_id, updated.number, actorId);
 
       // Auto-start agent when user assigns an issue to them
       if (actorId === 'user' && assigned_to && assigned_to !== existing.assigned_to && assigned_to !== 'user' && assigned_to !== 'all') {
@@ -391,7 +395,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       parseMentionsAndStartAgents(body, iss.project_id, request.params.id, iss.number, iss.title, author_id);
 
       // Wake-on-issue: trigger controller when comment is added
-      triggerControllerOnDemand(iss.project_id, iss.number);
+      triggerControllerOnDemand(iss.project_id, iss.number, author_id);
 
       // If user commented, auto-reassign issue and start the target agent
       if (author_id === 'user') {

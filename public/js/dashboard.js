@@ -102,8 +102,9 @@ function renderInboxItems(items) {
       const issue = item.data;
       // Apply search
       if (query && !matchesSearch(query, '#' + issue.number, issue.title, issue.body || '')) continue;
-      html += `<div class="notif-item notif-action-required" id="notif-issue-${issue.id}">
-        <span class="notif-icon" style="color:var(--error)">&#9679;</span>
+      const isAction = item.actionRequired;
+      html += `<div class="notif-item${isAction ? ' notif-action-required' : ''}" id="notif-issue-${issue.id}">
+        <span class="notif-icon" style="color:${isAction ? 'var(--error)' : 'var(--text-secondary)'}">&#9679;</span>
         <span class="notif-text">
           <span style="color:var(--text-secondary);font-size:10px">[${esc(issue.project_name || '')}]</span>
           <a href="/projects/${issue.project_id}/issues/${issue.number}" onclick="event.stopPropagation()">#${issue.number}</a>
@@ -164,11 +165,13 @@ async function searchInboxIssues(query) {
     const res = await fetch('/api/inbox/search?q=' + encodeURIComponent(query), { headers: apiHeaders() });
     if (!res.ok) return;
     const results = await res.json();
+    // Only mark items as action-required if they are already in the inbox notifications
+    const actionIds = new Set(_inboxAllItems.filter(i => i.actionRequired && i.data && i.data.id).map(i => i.data.id));
     const items = results.map(issue => ({
       type: 'issue',
       time: issue.updated_at,
       data: issue,
-      actionRequired: issue.assigned_to === 'user' && !issue.acknowledged_at && ['open', 'in_progress'].includes(issue.status)
+      actionRequired: actionIds.has(issue.id)
     }));
     // Sort: action-required first, then by time desc
     items.sort((a, b) => {
@@ -235,6 +238,13 @@ async function loadProjects() {
       return;
     }
 
+    // Preserve quick-cmd input values before re-render
+    const savedInputs = {};
+    container.querySelectorAll('.quick-cmd-input').forEach(input => {
+      if (input.value) savedInputs[input.id] = input.value;
+    });
+    const focusedId = document.activeElement?.classList.contains('quick-cmd-input') ? document.activeElement.id : null;
+
     container.innerHTML = projects.map(p => {
       const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
       const link = `/projects/${p.id}`;
@@ -274,6 +284,16 @@ async function loadProjects() {
         </div>
       </div>
     `}).join('');
+
+    // Restore quick-cmd input values after re-render
+    for (const [id, value] of Object.entries(savedInputs)) {
+      const input = document.getElementById(id);
+      if (input) input.value = value;
+    }
+    if (focusedId) {
+      const el = document.getElementById(focusedId);
+      if (el) el.focus();
+    }
   } catch (e) {
     container.innerHTML = '<div class="empty-state"></div>';
     container.querySelector('.empty-state').textContent = 'Error loading projects: ' + e.message;
