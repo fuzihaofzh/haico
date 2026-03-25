@@ -172,7 +172,12 @@ function renderIssue() {
           <textarea id="comment-input" placeholder="Leave a comment... (Markdown supported)"></textarea>
           <div class="comment-box-footer" style="display:flex;justify-content:space-between;align-items:center">
             <span style="font-size:11px;color:var(--text-secondary)">Markdown · #N auto-links · @agent-name to mention</span>
-            <button class="btn btn-sm btn-primary" onclick="addComment()">Comment</button>
+            <div style="display:flex;gap:8px;align-items:center">
+              ${issue.status !== 'closed' && issue.status !== 'done'
+                ? `<button class="btn btn-sm" id="close-issue-btn" onclick="closeWithComment()" style="color:var(--error);border-color:var(--error)">Close issue</button>`
+                : `<button class="btn btn-sm" onclick="reopenWithComment()" style="color:var(--success);border-color:var(--success)">Reopen issue</button>`}
+              <button class="btn btn-sm btn-primary" onclick="addComment()">Comment</button>
+            </div>
           </div>
         </div>
       </div>
@@ -201,10 +206,7 @@ function renderIssue() {
           <div class="sidebar-section-title">Priority</div>
           ${priorityBadge(issue.priority)}
         </div>
-        <div style="margin-top:12px;display:flex;gap:6px;flex-direction:column">
-          ${issue.status !== 'closed' ? `<button class="btn btn-sm" onclick="updateField('status','closed')" style="color:var(--error)">Close Issue</button>` : `<button class="btn btn-sm" onclick="updateField('status','open')" style="color:var(--success)">Reopen</button>`}
-          ${issue.status === 'open' ? `<button class="btn btn-sm btn-danger" onclick="deleteIssue()">Delete</button>` : ''}
-        </div>
+        ${issue.status === 'open' ? `<div style="margin-top:12px"><button class="btn btn-sm btn-danger" onclick="deleteIssue()">Delete</button></div>` : ''}
       </div>
     </div>
   `;
@@ -256,6 +258,24 @@ async function deleteIssue() {
   const res = await fetch(`/api/issues/${issueId}`, { method: 'DELETE' });
   if (res.ok) { showToast('Issue已删除', 'success'); history.back(); } else showToast('只能删除open状态的issue', 'error');
 }
+async function closeWithComment() {
+  const body = document.getElementById('comment-input').value.trim();
+  if (body) {
+    await fetch(`/api/issues/${issueId}/comments`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body }) });
+  }
+  await fetch(`/api/issues/${issueId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: 'closed', actor: 'user' }) });
+  showToast(body ? '评论已添加并关闭Issue' : 'Issue已关闭', 'success');
+  await loadIssue();
+}
+async function reopenWithComment() {
+  const body = document.getElementById('comment-input').value.trim();
+  if (body) {
+    await fetch(`/api/issues/${issueId}/comments`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body }) });
+  }
+  await fetch(`/api/issues/${issueId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: 'open', actor: 'user' }) });
+  showToast(body ? '评论已添加并重新打开Issue' : 'Issue已重新打开', 'success');
+  await loadIssue();
+}
 async function addComment() {
   const body = document.getElementById('comment-input').value.trim();
   if (!body) return;
@@ -296,7 +316,15 @@ const _origRenderIssue = renderIssue;
 renderIssue = function() {
   _origRenderIssue();
   const commentInput = document.getElementById('comment-input');
-  if (commentInput) setupMentionAutocomplete(commentInput, agentsData);
+  if (commentInput) {
+    setupMentionAutocomplete(commentInput, agentsData);
+    commentInput.addEventListener('input', function() {
+      const btn = document.getElementById('close-issue-btn');
+      if (btn) {
+        btn.textContent = this.value.trim() ? 'Close with comment' : 'Close issue';
+      }
+    });
+  }
 };
 
 // Connect to project WebSocket for real-time comment updates
