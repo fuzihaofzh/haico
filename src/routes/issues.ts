@@ -41,8 +41,8 @@ function parseMentionsAndStartAgents(
         const prompt = `You were mentioned (@${agentName}) in issue #${issueNumber} "${issueTitle}". Review the issue and take action.\n\nContext: ${text.slice(0, 500)}`;
         const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
         const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-        const fullPrompt = isRaw ? prompt : buildSystemPrompt(agent, project) + prompt;
-        startAgentProcess(agent, fullPrompt, commandTemplate);
+        const systemPrompt = isRaw ? undefined : buildSystemPrompt(agent, project);
+        startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
 
         // Record system event
         eventStmt.run(
@@ -62,7 +62,7 @@ function nameOfAgent(agentId: string, agents: Agent[]): string {
 }
 
 // Trigger controller on-demand when interval=0 (wake-on-issue mode)
-function triggerControllerOnDemand(projectId: string): void {
+function triggerControllerOnDemand(projectId: string, triggerIssueNumber?: number): void {
   const db = getDatabase();
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
   if (!project || project.controller_interval_min > 0) return;
@@ -72,7 +72,7 @@ function triggerControllerOnDemand(projectId: string): void {
   ).get(projectId) as Agent | undefined;
   if (!controller || controller.status === 'running' || controller.paused) return;
 
-  setTimeout(() => { try { triggerControllerAgent(project); } catch {} }, 1000);
+  setTimeout(() => { try { triggerControllerAgent(project, false, triggerIssueNumber); } catch {} }, 1000);
 }
 
 function resolvePriority(createdBy: string, projectId: string): number {
@@ -164,14 +164,14 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
             const prompt = `New issue #${number} "${title}" has been assigned to you. Review and take action.\n\nDescription: ${(body || '').slice(0, 500)}`;
             const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
             const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-            const fullPrompt = isRaw ? prompt : buildSystemPrompt(agent, project) + prompt;
-            startAgentProcess(agent, fullPrompt, commandTemplate);
+            const systemPrompt = isRaw ? undefined : buildSystemPrompt(agent, project);
+            startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
           }
         }
       } else if (created_by === 'user' && (!assigned_to || assigned_to === 'all')) {
         // Trigger controller for unassigned/broadcast issues
         const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
-        if (project) setTimeout(() => { try { triggerControllerAgent(project); } catch {} }, 1000);
+        if (project) setTimeout(() => { try { triggerControllerAgent(project, false, number); } catch {} }, 1000);
       }
 
       // Parse @mentions in body and auto-start mentioned agents
@@ -180,7 +180,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       }
 
       // Wake-on-issue: trigger controller when any issue is created
-      triggerControllerOnDemand(request.params.pid);
+      triggerControllerOnDemand(request.params.pid, number);
 
       return reply.code(201).send(created);
     }
@@ -248,7 +248,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       });
 
       // Wake-on-issue: trigger controller when issue status/assignment changes
-      triggerControllerOnDemand(updated.project_id);
+      triggerControllerOnDemand(updated.project_id, updated.number);
 
       // Auto-start agent when user assigns an issue to them
       if (actorId === 'user' && assigned_to && assigned_to !== existing.assigned_to && assigned_to !== 'user' && assigned_to !== 'all') {
@@ -259,8 +259,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
             const prompt = `You have been assigned issue #${updated.number} "${updated.title}". Review it and take action.\n\nDescription: ${updated.body?.slice(0, 500) || '(none)'}`;
             const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
             const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-            const fullPrompt = isRaw ? prompt : buildSystemPrompt(agent, project) + prompt;
-            startAgentProcess(agent, fullPrompt, commandTemplate);
+            const systemPrompt = isRaw ? undefined : buildSystemPrompt(agent, project);
+            startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
           }
         }
       }
@@ -336,7 +336,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       parseMentionsAndStartAgents(body, iss.project_id, request.params.id, iss.number, iss.title, author_id);
 
       // Wake-on-issue: trigger controller when comment is added
-      triggerControllerOnDemand(iss.project_id);
+      triggerControllerOnDemand(iss.project_id, iss.number);
 
       // If user commented, auto-start the assigned agent to check the issue
       if (author_id === 'user') {
@@ -349,15 +349,15 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
               const prompt = `User just commented on issue #${iss.number} "${iss.title}" assigned to you. Review the comment and respond.\n\nComment: ${body}`;
               const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
               const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-              const fullPrompt = isRawShell ? prompt : buildSystemPrompt(agent, project) + prompt;
-              startAgentProcess(agent, fullPrompt, commandTemplate);
+              const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agent, project);
+              startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
             }
           }
         } else if (iss.assigned_to === 'all' || !iss.assigned_to) {
           // Trigger controller to handle user comment
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(iss.project_id) as Project | undefined;
           if (project) {
-            setTimeout(() => { try { triggerControllerAgent(project); } catch {} }, 1000);
+            setTimeout(() => { try { triggerControllerAgent(project, false, iss.number); } catch {} }, 1000);
           }
         }
       }
