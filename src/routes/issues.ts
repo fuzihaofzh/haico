@@ -126,6 +126,24 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     }
   );
 
+  // Issue counts by status (lightweight alternative to loading all issues)
+  fastify.get<{ Params: { pid: string } }>(
+    '/api/projects/:pid/issues/counts',
+    async (request) => {
+      const db = getDatabase();
+      const rows = db.prepare(
+        `SELECT status, COUNT(*) as count FROM issues WHERE project_id = ? GROUP BY status`
+      ).all(request.params.pid) as { status: string; count: number }[];
+      const counts: Record<string, number> = { open: 0, in_progress: 0, done: 0, closed: 0 };
+      let total = 0;
+      for (const row of rows) {
+        counts[row.status] = row.count;
+        total += row.count;
+      }
+      return { ...counts, total };
+    }
+  );
+
   // Create issue
   fastify.post<{ Params: { pid: string }; Body: { title: string; body?: string; created_by: string; assigned_to?: string; labels?: string } }>(
     '/api/projects/:pid/issues',

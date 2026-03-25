@@ -1,6 +1,7 @@
 const projectId = window.location.pathname.split('/').pop();
 let projectData = null;
 let agentsData = [];
+let orchestrationRunsData = [];
 
 function statusBadge(s) {
   const map = {
@@ -210,6 +211,8 @@ async function loadAgents() {
     .then(r => r.ok ? r.json() : {})
     .then(d => { window._dashboardIssues = d.issues || []; renderAgentGraph(); })
     .catch(() => renderAgentGraph());
+
+  loadOrchestrationRuns();
 }
 
 let currentAgentId = null;
@@ -637,7 +640,7 @@ async function retryAgent(id) {
 }
 
 function openTerminal(agentId) {
-  window.location.href = `/terminal?agentId=${agentId}`;
+  window.location.href = `/terminal?agentId=${agentId}&newSession=true`;
 }
 
 async function quickStartAgent(id) {
@@ -708,13 +711,10 @@ async function loadIssues() {
   const sort = document.getElementById('issue-sort')?.value || 'priority';
   const q = document.getElementById('issue-search')?.value?.trim() || '';
 
-  // Fetch all to get counts
-  const allRes = await fetch(`/api/projects/${projectId}/issues?per_page=200`, { headers: apiHeaders() });
-  const allData = await allRes.json();
-  const allIssues = allData.issues || allData || [];
-  const counts = { open: 0, in_progress: 0, done: 0, closed: 0 };
-  allIssues.forEach(i => { if (counts[i.status] !== undefined) counts[i.status]++; });
-  issueCount = allIssues.length;
+  // Fetch counts via lightweight endpoint
+  const countsRes = await fetch(`/api/projects/${projectId}/issues/counts`, { headers: apiHeaders() });
+  const counts = await countsRes.json();
+  issueCount = counts.total || 0;
   updateTabCounts();
 
   // Filter tabs
@@ -725,7 +725,7 @@ async function loadIssues() {
       { key: 'in_progress', label: 'In Progress', count: counts.in_progress, icon: '<circle cx="8" cy="8" r="7" fill="none" stroke="#d29922" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="#d29922"/>' },
       { key: 'done', label: 'Done', count: counts.done, icon: '<circle cx="8" cy="8" r="7" fill="none" stroke="#8b6fcf" stroke-width="2"/><path d="M5.5 8l2 2 3.5-3.5" fill="none" stroke="#8b6fcf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>' },
       { key: 'closed', label: 'Closed', count: counts.closed, icon: '<circle cx="8" cy="8" r="7" fill="none" stroke="gray" stroke-width="2"/><line x1="5" y1="5" x2="11" y2="11" stroke="gray" stroke-width="1.5"/><line x1="11" y1="5" x2="5" y2="11" stroke="gray" stroke-width="1.5"/>' },
-      { key: '', label: 'All', count: allIssues.length },
+      { key: '', label: 'All', count: counts.total || 0 },
     ];
     tabs.innerHTML = filters.map(f =>
       `<span onclick="setIssueFilter('${f.key}')" style="cursor:pointer;padding:4px 10px;border-radius:6px;${currentIssueFilter===f.key?'background:var(--selected-bg);font-weight:600':'color:var(--text-secondary)'}">
@@ -971,25 +971,24 @@ async function loadDashboard() {
   const el = document.getElementById('project-dashboard');
   if (!el) return;
   try {
-    const [agentsRes, issuesRes, costRes] = await Promise.all([
+    const [agentsRes, issueCountsRes, costRes] = await Promise.all([
       fetch(`/api/projects/${projectId}/agents`, { headers: apiHeaders() }),
-      fetch(`/api/projects/${projectId}/issues?per_page=200`, { headers: apiHeaders() }),
+      fetch(`/api/projects/${projectId}/issues/counts`, { headers: apiHeaders() }),
       fetch(`/api/projects/${projectId}/costs`, { headers: apiHeaders() }),
     ]);
     const agents = agentsRes.ok ? await agentsRes.json() : [];
-    const issueData = issuesRes.ok ? await issuesRes.json() : {};
-    const issues = issueData.issues || issueData || [];
+    const issueCounts = issueCountsRes.ok ? await issueCountsRes.json() : { open: 0, in_progress: 0, done: 0, closed: 0, total: 0 };
     const cost = costRes.ok ? await costRes.json() : null;
 
     const running = agents.filter(a => a.status === 'running').length;
     const errors = agents.filter(a => a.status === 'error').length;
     const paused = agents.filter(a => a.paused).length;
-    const openIssues = issues.filter(i => i.status === 'open' || i.status === 'in_progress').length;
-    const doneIssues = issues.filter(i => i.status === 'done' || i.status === 'closed').length;
+    const openIssues = (issueCounts.open || 0) + (issueCounts.in_progress || 0);
+    const doneIssues = (issueCounts.done || 0) + (issueCounts.closed || 0);
     const fmtCost = v => !v ? '$0' : v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
 
     // Update issue count for tab display (fixes #97: count shows 0 until clicking Issues tab)
-    issueCount = issues.length;
+    issueCount = issueCounts.total || 0;
     updateTabCounts();
 
     const card = (label, value, color, sub) => `
@@ -1021,6 +1020,18 @@ function renderAgentGraph() {
 
   const controller = agentsData.find(a => a.is_controller);
   const workers = agentsData.filter(a => !a.is_controller);
+  const latestRun = getLatestOrchestrationRun();
+  const dispatchResults = Array.isArray(latestRun?.dispatch_results) ? latestRun.dispatch_results : [];
+  const plannedActions = Array.isArray(latestRun?.actions) ? latestRun.actions : [];
+
+  const dispatchedAgents = new Set(
+    dispatchResults.filter(r => r && r.started).map(r => r.agentId)
+  );
+  const actionReasonByAgent = new Map(
+    plannedActions
+      .filter(a => a && a.agentId)
+      .map(a => [a.agentId, a.reason || ''])
+  );
 
   const statusColor = (a) => {
     if (a.paused) return '#d29922';
@@ -1035,7 +1046,7 @@ function renderAgentGraph() {
   const nodeRadius = 30;
   const orbitRadius = Math.min(W / 2 - 60, H / 2 - 50);
 
-  let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;margin:0 auto">`;
+  let svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;margin:0 auto">';
 
   // Draw connections from controller to workers
   if (controller) {
@@ -1043,7 +1054,20 @@ function renderAgentGraph() {
       const angle = (2 * Math.PI * i / workers.length) - Math.PI / 2;
       const wx = cx + orbitRadius * Math.cos(angle);
       const wy = cy + orbitRadius * Math.sin(angle);
-      svg += `<line x1="${cx}" y1="${cy}" x2="${wx}" y2="${wy}" stroke="var(--border)" stroke-width="1" stroke-dasharray="4,4" opacity="0.5"/>`;
+      const dispatched = dispatchedAgents.has(w.id);
+      const lineColor = dispatched ? 'var(--accent)' : 'var(--border)';
+      const lineWidth = dispatched ? 2 : 1;
+      const lineDash = dispatched ? '' : '4,4';
+      const lineOpacity = dispatched ? 0.9 : 0.5;
+
+      svg += '<line x1="' + cx + '" y1="' + cy + '" x2="' + wx + '" y2="' + wy + '" stroke="' + lineColor + '" stroke-width="' + lineWidth + '"' +
+        (lineDash ? (' stroke-dasharray="' + lineDash + '"') : '') + ' opacity="' + lineOpacity + '"/>';
+
+      if (dispatched) {
+        const mx = (cx + wx) / 2;
+        const my = (cy + wy) / 2;
+        svg += '<text x="' + mx + '" y="' + (my - 4) + '" text-anchor="middle" fill="var(--accent)" font-size="8">dispatch</text>';
+      }
     });
   }
 
@@ -1053,35 +1077,141 @@ function renderAgentGraph() {
     const wx = cx + orbitRadius * Math.cos(angle);
     const wy = cy + orbitRadius * Math.sin(angle);
     const color = statusColor(w);
-    const pulse = w.status === 'running' ? `<animate attributeName="r" values="${nodeRadius};${nodeRadius+4};${nodeRadius}" dur="2s" repeatCount="indefinite"/>` : '';
+    const pulse = w.status === 'running' ? '<animate attributeName="r" values="' + nodeRadius + ';' + (nodeRadius + 4) + ';' + nodeRadius + '" dur="2s" repeatCount="indefinite"/>' : '';
 
-    // Count assigned issues
     const assignedCount = (window._dashboardIssues || []).filter(iss => iss.assigned_to === w.id && (iss.status === 'open' || iss.status === 'in_progress')).length;
+    const dispatched = dispatchedAgents.has(w.id);
+    const dispatchHint = dispatched ? ' · dispatched' : '';
+    const reason = actionReasonByAgent.get(w.id);
 
-    svg += `<g style="cursor:pointer" onclick="viewAgent('${w.id}')">
-      <circle cx="${wx}" cy="${wy}" r="${nodeRadius}" fill="${color}22" stroke="${color}" stroke-width="2"${w.paused ? ' stroke-dasharray="4,4"' : ''}>${pulse}</circle>
-      <text x="${wx}" y="${wy - 2}" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">${esc(w.name.length > 10 ? w.name.slice(0, 9) + '…' : w.name)}</text>
-      <text x="${wx}" y="${wy + 12}" text-anchor="middle" fill="${color}" font-size="9">${w.paused ? 'paused' : w.status}${assignedCount > 0 ? ' · ' + assignedCount + ' tasks' : ''}</text>
-    </g>`;
+    svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + w.id + '\")">' +
+      '<circle cx="' + wx + '" cy="' + wy + '" r="' + nodeRadius + '" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (w.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</circle>' +
+      '<text x="' + wx + '" y="' + (wy - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(w.name.length > 10 ? w.name.slice(0, 9) + '…' : w.name) + '</text>' +
+      '<text x="' + wx + '" y="' + (wy + 12) + '" text-anchor="middle" fill="' + (dispatched ? 'var(--accent)' : color) + '" font-size="9">' + (w.paused ? 'paused' : w.status) + (assignedCount > 0 ? (' · ' + assignedCount + ' tasks') : '') + dispatchHint + '</text>' +
+      (reason ? ('<title>' + esc(reason) + '</title>') : '') +
+    '</g>';
   });
 
   // Draw controller node (center)
   if (controller) {
     const color = statusColor(controller);
-    const pulse = controller.status === 'running' ? `<animate attributeName="r" values="34;38;34" dur="2s" repeatCount="indefinite"/>` : '';
-    svg += `<g style="cursor:pointer" onclick="viewAgent('${controller.id}')">
-      <circle cx="${cx}" cy="${cy}" r="34" fill="${color}22" stroke="${color}" stroke-width="2.5">${pulse}</circle>
-      <text x="${cx}" y="${cy - 4}" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="700">${esc(controller.name.length > 12 ? controller.name.slice(0, 11) + '…' : controller.name)}</text>
-      <text x="${cx}" y="${cy + 10}" text-anchor="middle" fill="${color}" font-size="9">${controller.status}</text>
-      <text x="${cx}" y="${cy + 21}" text-anchor="middle" fill="var(--accent)" font-size="8">controller</text>
-    </g>`;
+    const pulse = controller.status === 'running' ? '<animate attributeName="r" values="34;38;34" dur="2s" repeatCount="indefinite"/>' : '';
+    const decision = latestRun?.decision || '';
+    svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + controller.id + '\")">' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="34" fill="' + color + '22" stroke="' + color + '" stroke-width="2.5">' + pulse + '</circle>' +
+      '<text x="' + cx + '" y="' + (cy - 4) + '" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="700">' + esc(controller.name.length > 12 ? controller.name.slice(0, 11) + '…' : controller.name) + '</text>' +
+      '<text x="' + cx + '" y="' + (cy + 10) + '" text-anchor="middle" fill="' + color + '" font-size="9">' + controller.status + '</text>' +
+      '<text x="' + cx + '" y="' + (cy + 21) + '" text-anchor="middle" fill="var(--accent)" font-size="8">controller' + (decision ? (' · ' + decision) : '') + '</text>' +
+    '</g>';
   }
 
   svg += '</svg>';
-  container.innerHTML = `<div class="card" style="padding:12px;text-align:center">
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">Agent Collaboration</div>
-    ${svg}
-  </div>`;
+
+  const runInfo = latestRun
+    ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Latest decision: <span style="color:var(--fg)">' + esc(latestRun.decision || '-') + '</span> · ' + esc(timeAgo(latestRun.created_at)) + '</div>'
+    : '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">No orchestration decision records yet.</div>';
+
+  container.innerHTML = '<div class="card" style="padding:12px;text-align:center">' +
+    '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">Agent Collaboration</div>' +
+    svg +
+    runInfo +
+  '</div>';
+}
+
+function getLatestOrchestrationRun() {
+  if (!Array.isArray(orchestrationRunsData) || orchestrationRunsData.length === 0) return null;
+  return orchestrationRunsData[0];
+}
+
+async function loadOrchestrationRuns() {
+  const container = document.getElementById('orchestration-decision-container');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/projects/' + projectId + '/orchestration-runs?limit=12', { headers: apiHeaders() });
+    if (!res.ok) throw new Error('failed');
+    const data = await res.json();
+    orchestrationRunsData = Array.isArray(data) ? data : [];
+  } catch {
+    orchestrationRunsData = [];
+  }
+  renderOrchestrationDecisionPanel();
+  renderAgentGraph();
+}
+
+function renderOrchestrationDecisionPanel() {
+  const container = document.getElementById('orchestration-decision-container');
+  if (!container) return;
+
+  const latest = getLatestOrchestrationRun();
+  if (!latest) {
+    container.innerHTML = '<div class="card" style="padding:12px">' +
+      '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">Orchestration Decisions</div>' +
+      '<div class="empty-state" style="padding:8px 0">No orchestration runs yet.</div>' +
+    '</div>';
+    return;
+  }
+
+  const decisionColors = {
+    execute_controller: 'var(--warning)',
+    finish: 'var(--success)',
+    error: 'var(--error)'
+  };
+  const decisionColor = decisionColors[latest.decision] || 'var(--text-secondary)';
+
+  const reasons = Array.isArray(latest.reasons) ? latest.reasons : [];
+  const dispatchResults = Array.isArray(latest.dispatch_results) ? latest.dispatch_results : [];
+  const actions = Array.isArray(latest.actions) ? latest.actions : [];
+
+  const reasonsHtml = reasons.length
+    ? reasons.slice(0, 5).map((r) => '<li style="margin:2px 0">' + esc(r) + '</li>').join('')
+    : '<li style="margin:2px 0;color:var(--text-secondary)">none</li>';
+
+  const dispatchHtml = dispatchResults.length
+    ? dispatchResults.slice(0, 10).map((r) => {
+      const agent = agentsData.find(a => a.id === r.agentId);
+      const name = agent ? agent.name : r.agentId;
+      const status = r.started ? 'started' : 'skipped';
+      const color = r.started ? 'var(--success)' : 'var(--warning)';
+      return '<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--border);font-size:12px">' +
+        '<div style="min-width:0"><strong>' + esc(name) + '</strong><div style="color:var(--text-secondary);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px">' + esc(r.message || '') + '</div></div>' +
+        '<span style="color:' + color + ';font-weight:600;flex-shrink:0">' + status + '</span>' +
+      '</div>';
+    }).join('')
+    : '<div style="color:var(--text-secondary);font-size:12px">No worker dispatch this run.</div>';
+
+  const history = orchestrationRunsData.slice(0, 8).map((r) => {
+    const c = decisionColors[r.decision] || 'var(--text-secondary)';
+    return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px dashed var(--border)">' +
+      '<span><span style="color:' + c + ';font-weight:600">' + esc(r.decision || '-') + '</span> · ' + esc(r.engine || '-') + '</span>' +
+      '<span style="color:var(--text-secondary)">' + esc(timeAgo(r.created_at)) + '</span>' +
+    '</div>';
+  }).join('');
+
+  container.innerHTML = '<div class="card" style="padding:12px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">' +
+      '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6">Orchestration Decisions</div>' +
+      '<button class="btn btn-sm" onclick="loadOrchestrationRuns()">Refresh</button>' +
+    '</div>' +
+
+    '<div style="display:grid;grid-template-columns:1.2fr 1.8fr;gap:12px">' +
+      '<div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">' +
+        '<div style="font-size:12px;margin-bottom:4px">Latest: <strong style="color:' + decisionColor + '">' + esc(latest.decision || '-') + '</strong></div>' +
+        '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">engine=' + esc(latest.engine || '-') + ' · ' + esc(timeAgo(latest.created_at)) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">dispatch=' + esc(String(latest.dispatch_count || 0)) + ' · controller=' + (latest.controller_started ? 'started' : 'not started') + '</div>' +
+        '<div style="font-size:11px;font-weight:600;margin-bottom:4px">Reasons</div>' +
+        '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px">' + reasonsHtml + '</ul>' +
+        '<div style="font-size:11px;font-weight:600;margin-bottom:4px">Planned actions</div>' +
+        '<div style="font-size:11px;color:var(--text-secondary)">' + esc(String(actions.length)) + ' action(s)</div>' +
+      '</div>' +
+
+      '<div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">' +
+        '<div style="font-size:11px;font-weight:600;margin-bottom:6px">Dispatch Results</div>' +
+        '<div style="max-height:165px;overflow:auto">' + dispatchHtml + '</div>' +
+        '<div style="font-size:11px;font-weight:600;margin-top:10px;margin-bottom:4px">Recent Runs</div>' +
+        '<div style="max-height:120px;overflow:auto">' + history + '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
 }
 
 // ─── Cost Time-Series Chart ───
