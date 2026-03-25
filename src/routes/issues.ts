@@ -338,26 +338,44 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       // Wake-on-issue: trigger controller when comment is added
       triggerControllerOnDemand(iss.project_id, iss.number);
 
-      // If user commented, auto-start the assigned agent to check the issue
+      // If user commented, auto-reassign issue and start the target agent
       if (author_id === 'user') {
-        if (iss.assigned_to && iss.assigned_to !== 'user' && iss.assigned_to !== 'all') {
-          // Start the assigned agent
-          const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(iss.assigned_to) as Agent | undefined;
-          if (agent && !agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
-            const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(iss.project_id) as Project | undefined;
-            if (project) {
-              const prompt = `User just commented on issue #${iss.number} "${iss.title}" assigned to you. Review the comment and respond.\n\nComment: ${body}`;
-              const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
-              const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-              const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agent, project);
-              startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
-            }
-          }
-        } else if (iss.assigned_to === 'all' || !iss.assigned_to) {
-          // Trigger controller to handle user comment
+        // Auto-reassign: parse @mentions to find target agent, fallback to controller
+        const agents = db.prepare('SELECT * FROM agents WHERE project_id = ?').all(iss.project_id) as Agent[];
+        const mentionPattern = /@([\w-]+)/g;
+        let mentionMatch;
+        let targetAgent: Agent | undefined;
+        while ((mentionMatch = mentionPattern.exec(body)) !== null) {
+          targetAgent = agents.find(a => a.name === mentionMatch![1]);
+          if (targetAgent) break; // Use first matched agent
+        }
+
+        const controllerAgent = agents.find(a => a.is_controller);
+        const controllerId = controllerAgent?.id || 'b9b6362c-2d59-40cd-9ffc-fd871a7e811e';
+        const newAssignee = targetAgent ? targetAgent.id : controllerId;
+
+        // Update assignment
+        db.prepare('UPDATE issues SET assigned_to = ? WHERE id = ?').run(newAssignee, request.params.id);
+
+        // Reopen if done/closed
+        if (iss.status === 'done' || iss.status === 'closed') {
+          db.prepare("UPDATE issues SET status = 'open' WHERE id = ?").run(request.params.id);
+        }
+
+        // Start the assigned agent
+        const agentToStart = targetAgent || (controllerAgent as Agent | undefined);
+        if (agentToStart && !agentToStart.paused && agentToStart.status !== 'running' && !isAgentRunning(agentToStart.id)) {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(iss.project_id) as Project | undefined;
           if (project) {
-            setTimeout(() => { try { triggerControllerAgent(project, false, iss.number); } catch {} }, 1000);
+            if (agentToStart.is_controller) {
+              setTimeout(() => { try { triggerControllerAgent(project, false, iss.number); } catch {} }, 1000);
+            } else {
+              const prompt = `User just commented on issue #${iss.number} "${iss.title}" assigned to you. Review the comment and respond.\n\nComment: ${body}`;
+              const commandTemplate = agentToStart.command_template || project.command_template || config.defaultCommandTemplate;
+              const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
+              const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agentToStart, project);
+              startAgentProcess(agentToStart, prompt, commandTemplate, systemPrompt);
+            }
           }
         }
       }
