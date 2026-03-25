@@ -1,66 +1,127 @@
 import { getDatabase } from '../db/database';
 import { Agent, Project, Issue } from '../types';
-import { startAgentProcess } from './process-manager';
-import { buildSystemPrompt } from './system-prompt';
-import { config } from '../config';
+import { startControllerOrchestration } from './orchestrator';
 import logger from '../logger';
 
-export function buildControllerTaskPrompt(project: Project): string {
+const TRIGGER_DEBOUNCE_MS = 3000;
+
+function buildActivitySnapshot(projectId: string): string {
   const db = getDatabase();
 
-  // All active issues
-  const issues = db.prepare(
-    "SELECT * FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
-  ).all(project.id) as Issue[];
+  const issueStats = db.prepare(
+    `SELECT
+      COUNT(*) AS active_count,
+      SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 'all' THEN 1 ELSE 0 END) AS unassigned_count,
+      SUM(CASE WHEN assigned_to = 'user' THEN 1 ELSE 0 END) AS user_waiting_count,
+      SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open_count,
+      SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress_count,
+      MAX(updated_at) AS issue_updated_max
+    FROM issues
+    WHERE project_id = ? AND status IN ('open', 'in_progress')`
+  ).get(projectId) as any;
 
-  // Agents
-  const agents = db.prepare('SELECT id, name, role, status, paused FROM agents WHERE project_id = ?').all(project.id) as any[];
+  const commentStats = db.prepare(
+    `SELECT
+      COUNT(*) AS comment_count,
+      MAX(ic.created_at) AS comment_created_max
+    FROM issue_comments ic
+    JOIN issues i ON ic.issue_id = i.id
+    WHERE i.project_id = ?`
+  ).get(projectId) as any;
 
-  const priorityLabel = (p: number) => p >= 10 ? '🔴 USER' : p >= 5 ? '🟡 CTRL' : '⚪ AGENT';
+  const workerStats = db.prepare(
+    `SELECT
+      SUM(CASE WHEN status = 'idle' AND paused = 0 THEN 1 ELSE 0 END) AS idle_count,
+      SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running_count,
+      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error_count,
+      SUM(CASE WHEN paused = 1 THEN 1 ELSE 0 END) AS paused_count,
+      MAX(finished_at) AS finished_max
+    FROM agents
+    WHERE project_id = ? AND is_controller = 0`
+  ).get(projectId) as any;
 
-  // Split by assignment
-  const unassigned = issues.filter(i => !i.assigned_to);
-  const assigned = issues.filter(i => i.assigned_to);
+  return [
+    issueStats?.active_count ?? 0,
+    issueStats?.unassigned_count ?? 0,
+    issueStats?.user_waiting_count ?? 0,
+    issueStats?.open_count ?? 0,
+    issueStats?.in_progress_count ?? 0,
+    issueStats?.issue_updated_max || '',
+    commentStats?.comment_count ?? 0,
+    commentStats?.comment_created_max || '',
+    workerStats?.idle_count ?? 0,
+    workerStats?.running_count ?? 0,
+    workerStats?.error_count ?? 0,
+    workerStats?.paused_count ?? 0,
+    workerStats?.finished_max || '',
+  ].join('|');
+}
 
-  const formatIssue = (i: Issue) => {
+export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?: number): string {
+  const db = getDatabase();
+
+  const issues = triggerIssueNumber
+    ? db.prepare(
+        "SELECT * FROM issues WHERE project_id = ? AND number = ?"
+      ).all(project.id, triggerIssueNumber) as Issue[]
+    : db.prepare(
+        "SELECT * FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
+      ).all(project.id) as Issue[];
+
+  const agents = db.prepare(
+    'SELECT id, name, role, status, paused, is_controller FROM agents WHERE project_id = ?'
+  ).all(project.id) as any[];
+
+  const workers = agents.filter((a: any) => !a.is_controller);
+  const priorityLabel = (p: number) => (p >= 10 ? '🔴 USER' : p >= 5 ? '🟡 CTRL' : '⚪ AGENT');
+
+  const unassigned = issues.filter((i) => !i.assigned_to || i.assigned_to === 'all');
+  const assigned = issues.filter((i) => i.assigned_to && i.assigned_to !== 'all');
+
+  const formatIssue = (i: Issue): string => {
     const assignee = i.assigned_to
-      ? (agents.find((a: any) => a.id === i.assigned_to)?.name || (i.assigned_to === 'user' ? 'User' : i.assigned_to))
+      ? (workers.find((a: any) => a.id === i.assigned_to)?.name || (i.assigned_to === 'user' ? 'User' : i.assigned_to))
       : 'unassigned';
     const labels = i.labels ? ` [${i.labels}]` : '';
 
-    // Include recent comments so controller can see replies
     const comments = db.prepare(
-      'SELECT author_id, body, created_at FROM issue_comments WHERE issue_id = ? ORDER BY created_at DESC LIMIT 5'
-    ).all(i.id) as any[];
+      'SELECT author_id, body, created_at FROM issue_comments WHERE issue_id = ? ORDER BY created_at'
+    ).all(i.id) as Array<{ author_id: string; body: string }>;
+
     const commentsText = comments.length > 0
-      ? '\n   Comments:\n' + comments.reverse().map((c: any) => {
-          const author = c.author_id === 'user' ? 'User' : (agents.find((a: any) => a.id === c.author_id)?.name || c.author_id.slice(0, 8));
-          return `   [${author}] ${c.body.slice(0, 200)}`;
+      ? '\n   Comments:\n' + comments.map((c) => {
+          const author = c.author_id === 'user'
+            ? 'User'
+            : (workers.find((a: any) => a.id === c.author_id)?.name || c.author_id.slice(0, 8));
+          return `   [${author}] ${c.body || ''}`;
         }).join('\n')
       : '';
 
-    return `#${i.number} [${priorityLabel(i.priority)}] [${i.status}] ${i.title} → ${assignee}${labels}\n   ${i.body.slice(0, 200)}${commentsText}`;
+    return `#${i.number} [${priorityLabel(i.priority)}] [${i.status}] ${i.title} -> ${assignee}${labels}\n   ${i.body || ''}${commentsText}`;
   };
 
-  // Recently completed issues (for context)
   const doneRecent = db.prepare(
-    "SELECT * FROM issues WHERE project_id = ? AND status IN ('done', 'closed') ORDER BY updated_at DESC LIMIT 5"
+    "SELECT * FROM issues WHERE project_id = ? AND status IN ('done', 'closed') ORDER BY updated_at DESC"
   ).all(project.id) as Issue[];
+
+  const triggerHint = triggerIssueNumber
+    ? `\n## Trigger Context\n本次由 issue #${triggerIssueNumber} 触发，仅展示该 issue 信息。如需查看所有 issue，请通过 API 查询。\n`
+    : '';
 
   return `## Project Task
 ${project.task_description}
-
-## Unassigned Issues (${unassigned.length}) — ACTION REQUIRED
-${unassigned.map(formatIssue).join('\n\n') || 'None — all issues are assigned.'}
+${triggerHint}
+## Unassigned Issues (${unassigned.length}) - ACTION REQUIRED
+${unassigned.map(formatIssue).join('\n\n') || 'None - all issues are assigned.'}
 
 ## Assigned / In-Progress Issues (${assigned.length})
 ${assigned.map(formatIssue).join('\n\n') || 'None.'}
 
 ## Recently Completed (${doneRecent.length})
-${doneRecent.map(i => `#${i.number} [${i.status}] ${i.title}`).join('\n') || 'None.'}
+${doneRecent.map((i) => `#${i.number} [${i.status}] ${i.title}`).join('\n') || 'None.'}
 
 ## Existing Workers
-${agents.filter((a: any) => !a.is_controller).map((a: any) => {
+${workers.map((a: any) => {
     let line = `- ${a.name} (ID: ${a.id}, Status: ${a.status}${a.paused ? ', ⏸ PAUSED' : ''}, Role: ${a.role})`;
     if (a.paused) {
       line = `- ⏸ ${a.name} PAUSED (ID: ${a.id}, Role: ${a.role}) — user paused, do NOT start`;
@@ -68,8 +129,8 @@ ${agents.filter((a: any) => !a.is_controller).map((a: any) => {
       const errLog = db.prepare(
         "SELECT content FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' ORDER BY id DESC LIMIT 1"
       ).get(a.id) as { content: string } | undefined;
-      const errMsg = errLog?.content?.slice(0, 300) || 'Unknown error';
-      line = `- \u26a0\ufe0f ${a.name} ERRORED (ID: ${a.id}, Role: ${a.role}) \u2014 last error: ${errMsg}`;
+      const errMsg = errLog?.content || 'Unknown error';
+      line = `- ⚠️ ${a.name} ERRORED (ID: ${a.id}, Role: ${a.role}) — last error: ${errMsg}`;
     }
     return line;
   }).join('\n') || '(none yet)'}
@@ -100,25 +161,23 @@ ${agents.filter((a: any) => !a.is_controller).map((a: any) => {
 Assignable targets: ${agents.map((a: any) => `"${a.id}" (${a.name})`).join(', ')}, "user" for human tasks, or "all" to broadcast to everyone.`;
 }
 
-// Track last trigger time per project for incremental activity check
 const lastTriggerTime = new Map<string, string>();
+const lastTriggerAtMs = new Map<string, number>();
+const lastTriggerSnapshot = new Map<string, string>();
 
 function hasNewActivity(projectId: string, since: string): boolean {
   const db = getDatabase();
 
-  // Check for new or updated issues since last trigger
   const newIssues = db.prepare(
     "SELECT 1 FROM issues WHERE project_id = ? AND (created_at > ? OR updated_at > ?) LIMIT 1"
   ).get(projectId, since, since);
   if (newIssues) return true;
 
-  // Check for new comments since last trigger
   const newComments = db.prepare(
     "SELECT 1 FROM issue_comments ic JOIN issues i ON ic.issue_id = i.id WHERE i.project_id = ? AND ic.created_at > ? LIMIT 1"
   ).get(projectId, since);
   if (newComments) return true;
 
-  // Check for agent status changes (recently finished agents)
   const agentChanges = db.prepare(
     "SELECT 1 FROM agents WHERE project_id = ? AND is_controller = 0 AND finished_at > ? LIMIT 1"
   ).get(projectId, since);
@@ -127,7 +186,11 @@ function hasNewActivity(projectId: string, since: string): boolean {
   return false;
 }
 
-export function triggerControllerAgent(project: Project, skipActivityCheck = false): void {
+function nowAsDbTimestamp(): string {
+  return new Date().toISOString().replace('T', ' ').replace('Z', '');
+}
+
+export function triggerControllerAgent(project: Project, skipActivityCheck = false, triggerIssueNumber?: number): void {
   const db = getDatabase();
   const controller = db.prepare(
     'SELECT * FROM agents WHERE project_id = ? AND is_controller = 1'
@@ -143,8 +206,17 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
     return;
   }
 
-  // P0: Incremental check — skip if no new activity since last trigger
+  const now = Date.now();
+
   if (!skipActivityCheck) {
+    const lastAt = lastTriggerAtMs.get(project.id);
+    if (lastAt && now - lastAt < TRIGGER_DEBOUNCE_MS) {
+      logger.info(
+        `Skipping controller trigger: debounced (${now - lastAt}ms < ${TRIGGER_DEBOUNCE_MS}ms) for project "${project.name}"`
+      );
+      return;
+    }
+
     const since = lastTriggerTime.get(project.id);
     if (since && !hasNewActivity(project.id, since)) {
       logger.info(`Skipping controller trigger: no new activity since last run for project "${project.name}"`);
@@ -152,17 +224,28 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
     }
   }
 
-  // Record trigger time
-  lastTriggerTime.set(project.id, new Date().toISOString().replace('T', ' ').replace('Z', ''));
+  const snapshot = buildActivitySnapshot(project.id);
+  if (!skipActivityCheck) {
+    const prevSnapshot = lastTriggerSnapshot.get(project.id);
+    if (prevSnapshot && prevSnapshot === snapshot) {
+      logger.info(`Skipping controller trigger: no-op snapshot unchanged for project "${project.name}"`);
+      return;
+    }
+  }
 
-  const taskPrompt = buildControllerTaskPrompt(project);
-  const commandTemplate = controller.command_template || project.command_template || config.defaultCommandTemplate;
+  const triggerTime = nowAsDbTimestamp();
+  const taskPrompt = buildControllerTaskPrompt(project, triggerIssueNumber);
 
-  const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-  const systemPrompt = isRawShell ? undefined : buildSystemPrompt(controller, project);
+  lastTriggerAtMs.set(project.id, now);
 
-  // Controller uses the same session_max_runs logic as other agents.
-  // session_max_runs controls when to create a new session vs resume.
-  logger.info(`Triggering controller agent for project "${project.name}"`);
-  startAgentProcess(controller, taskPrompt, commandTemplate, systemPrompt);
+  try {
+    logger.info(`Triggering controller agent for project "${project.name}"`);
+    startControllerOrchestration({ project, controller, taskPrompt, triggerIssueNumber });
+
+    lastTriggerTime.set(project.id, triggerTime);
+    lastTriggerSnapshot.set(project.id, snapshot);
+  } catch (err) {
+    lastTriggerAtMs.delete(project.id);
+    throw err;
+  }
 }
