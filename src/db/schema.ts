@@ -18,6 +18,7 @@ export function initializeDatabase(db: Database.Database): void {
       task_description TEXT NOT NULL,
       controller_interval_min INTEGER DEFAULT 0,
       command_template TEXT DEFAULT 'cld',
+      orchestrator_engine TEXT DEFAULT 'langgraph' CHECK(orchestrator_engine IN ('native', 'langgraph')),
       schedule_hours TEXT DEFAULT '',
       status TEXT DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed')),
       created_at DATETIME DEFAULT (datetime('now')),
@@ -37,7 +38,7 @@ export function initializeDatabase(db: Database.Database): void {
       session_run_count INTEGER DEFAULT 0,
       session_max_runs INTEGER DEFAULT 10,
       session_token_count INTEGER DEFAULT 0,
-      session_max_tokens INTEGER DEFAULT 200000,
+      session_max_tokens INTEGER DEFAULT 400000,
       session_resume_timeout INTEGER DEFAULT 300,
       command_template TEXT DEFAULT NULL,
       status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'error', 'stopped')),
@@ -104,6 +105,23 @@ export function initializeDatabase(db: Database.Database): void {
       created_at DATETIME DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS orchestration_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      engine TEXT NOT NULL CHECK(engine IN ('native', 'langgraph')),
+      decision TEXT NOT NULL,
+      controller_agent_id TEXT,
+      controller_started BOOLEAN DEFAULT 0,
+      controller_run_id TEXT,
+      controller_pid INTEGER,
+      dispatch_count INTEGER DEFAULT 0,
+      dispatch_summary TEXT DEFAULT '',
+      reasons TEXT DEFAULT '',
+      actions TEXT DEFAULT '',
+      dispatch_results TEXT DEFAULT '',
+      created_at DATETIME DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_agents_project ON agents(project_id);
     CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
     CREATE INDEX IF NOT EXISTS idx_issues_assigned ON issues(assigned_to, status);
@@ -121,6 +139,7 @@ export function initializeDatabase(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_logs_agent ON conversation_logs(agent_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);
+    CREATE INDEX IF NOT EXISTS idx_orch_runs_project_created ON orchestration_runs(project_id, created_at DESC);
   `);
 
   // Migration: add paused column if missing
@@ -136,14 +155,20 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: added session_token_count column to agents table');
   }
   if (!cols.find((c: any) => c.name === 'session_max_tokens')) {
-    db.exec("ALTER TABLE agents ADD COLUMN session_max_tokens INTEGER DEFAULT 200000");
+    db.exec("ALTER TABLE agents ADD COLUMN session_max_tokens INTEGER DEFAULT 400000");
     logger.info('Migration: added session_max_tokens column to agents table');
   }
 
-  // Migration: update session_max_tokens from 0 to 200000 for existing agents
-  const updated = db.prepare("UPDATE agents SET session_max_tokens = 200000 WHERE session_max_tokens = 0").run();
+  // Migration: update session_max_tokens from 0 to 400000 for existing agents
+  const updated = db.prepare("UPDATE agents SET session_max_tokens = 400000 WHERE session_max_tokens = 0").run();
   if (updated.changes > 0) {
-    logger.info(`Migration: updated session_max_tokens from 0 to 200000 for ${updated.changes} agent(s)`);
+    logger.info(`Migration: updated session_max_tokens from 0 to 400000 for ${updated.changes} agent(s)`);
+  }
+
+  // Migration: upgrade session_max_tokens from 200000 to 400000 (cost optimization)
+  const upgraded = db.prepare("UPDATE agents SET session_max_tokens = 400000 WHERE session_max_tokens = 200000").run();
+  if (upgraded.changes > 0) {
+    logger.info(`Migration: upgraded session_max_tokens from 200000 to 400000 for ${upgraded.changes} agent(s)`);
   }
 
   // Migration: add session_resume_timeout column if missing (default 300s = 5 minutes)
@@ -156,6 +181,28 @@ export function initializeDatabase(db: Database.Database): void {
   if (!cols.find((c: any) => c.name === 'command_template')) {
     db.exec("ALTER TABLE agents ADD COLUMN command_template TEXT DEFAULT NULL");
     logger.info('Migration: added command_template column to agents table');
+  }
+
+  // Migration: add orchestrator_engine column to projects if missing
+  const projectCols = db.prepare("PRAGMA table_info(projects)").all() as any[];
+  if (!projectCols.find((c: any) => c.name === 'orchestrator_engine')) {
+    db.exec("ALTER TABLE projects ADD COLUMN orchestrator_engine TEXT DEFAULT 'langgraph'");
+    logger.info('Migration: added orchestrator_engine column to projects table');
+  }
+
+  // Migration: normalize invalid orchestrator_engine values
+  const normalizedEngines = db.prepare(
+    "UPDATE projects SET orchestrator_engine = 'langgraph' WHERE orchestrator_engine IS NULL OR orchestrator_engine NOT IN ('native', 'langgraph')"
+  ).run();
+  if (normalizedEngines.changes > 0) {
+    logger.info(`Migration: normalized orchestrator_engine for ${normalizedEngines.changes} project(s)`);
+  }
+
+  // Migration: add acknowledged_at column to issues if missing
+  const issueCols = db.prepare("PRAGMA table_info(issues)").all() as any[];
+  if (!issueCols.find((c: any) => c.name === 'acknowledged_at')) {
+    db.exec("ALTER TABLE issues ADD COLUMN acknowledged_at TEXT DEFAULT NULL");
+    logger.info('Migration: added acknowledged_at column to issues table');
   }
 
   // Reset any agents stuck in 'running' from a previous crash

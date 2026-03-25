@@ -498,9 +498,11 @@ function setupMentionAutocomplete(textarea, agents) {
     const text = textarea.value.substring(0, pos);
     const match = text.match(/(?:^|[\s])@([\w-]*)$/);
     if (match) {
-      mentionStart = text.length - match[0].length + (match[0].startsWith('@') ? 0 : 1);
+      // Calculate mentionStart AFTER showDropdown, because showDropdown calls
+      // removeDropdown() which resets mentionStart to -1
       selectedIdx = 0;
       showDropdown(getFilteredAgents(match[1]));
+      mentionStart = text.length - match[0].length + (match[0].startsWith('@') ? 0 : 1);
     } else {
       removeDropdown();
     }

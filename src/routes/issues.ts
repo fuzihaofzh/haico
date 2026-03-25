@@ -228,6 +228,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         eventStmt.run(uuidv4(), request.params.id, actorId, `changed labels`, 'label_change', JSON.stringify({ from: existing.labels, to: labels }));
       }
 
+      // Reset acknowledged_at when status or assignment changes
+      const resetAck = (status && status !== existing.status) || (assigned_to !== undefined && assigned_to !== existing.assigned_to);
+
       db.prepare(`
         UPDATE issues SET
           title = COALESCE(?, title),
@@ -236,9 +239,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
           status = COALESCE(?, status),
           labels = COALESCE(?, labels),
           milestone_id = COALESCE(?, milestone_id),
+          acknowledged_at = CASE WHEN ? THEN NULL ELSE acknowledged_at END,
           updated_at = datetime('now')
         WHERE id = ?
-      `).run(title ?? null, body ?? null, assigned_to ?? null, status ?? null, labels ?? null, milestone_id ?? null, request.params.id);
+      `).run(title ?? null, body ?? null, assigned_to ?? null, status ?? null, labels ?? null, milestone_id ?? null, resetAck ? 1 : 0, request.params.id);
 
       const updated = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id) as any;
 
@@ -293,7 +297,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   fastify.get('/api/notifications', async () => {
     const db = getDatabase();
     const userIssues = db.prepare(
-      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.assigned_to = 'user' AND i.status IN ('open', 'in_progress') ORDER BY i.priority DESC, i.updated_at DESC"
+      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.assigned_to = 'user' AND i.status IN ('open', 'in_progress') AND i.acknowledged_at IS NULL ORDER BY i.priority DESC, i.updated_at DESC"
     ).all() as any[];
 
     // Recent comments on any issue (last 20)
@@ -302,6 +306,24 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     ).all() as any[];
 
     return { user_issues: userIssues, recent_comments: recentComments };
+  });
+
+  // Acknowledge issue (mark as read — hides from notifications)
+  fastify.post<{ Params: { id: string } }>('/api/issues/:id/acknowledge', async (request, reply) => {
+    const db = getDatabase();
+    const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id);
+    if (!issue) return reply.code(404).send({ error: 'Issue not found' });
+    db.prepare("UPDATE issues SET acknowledged_at = datetime('now') WHERE id = ?").run(request.params.id);
+    return db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id);
+  });
+
+  // Unacknowledge issue (show again in notifications)
+  fastify.post<{ Params: { id: string } }>('/api/issues/:id/unacknowledge', async (request, reply) => {
+    const db = getDatabase();
+    const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id);
+    if (!issue) return reply.code(404).send({ error: 'Issue not found' });
+    db.prepare("UPDATE issues SET acknowledged_at = NULL WHERE id = ?").run(request.params.id);
+    return db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id);
   });
 
   // Add comment
@@ -321,8 +343,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body) VALUES (?, ?, ?, ?)')
         .run(id, request.params.id, author_id, body);
 
-      // Update issue timestamp
-      db.prepare("UPDATE issues SET updated_at = datetime('now') WHERE id = ?").run(request.params.id);
+      // Update issue timestamp and reset acknowledged_at (new comment = new activity)
+      db.prepare("UPDATE issues SET updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?").run(request.params.id);
 
       const comment = db.prepare('SELECT * FROM issue_comments WHERE id = ?').get(id);
       const iss = issue as any;

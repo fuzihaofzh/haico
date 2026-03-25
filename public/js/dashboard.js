@@ -88,13 +88,14 @@ async function loadNotifications() {
     for (const item of items) {
       if (item.type === 'issue') {
         const issue = item.data;
-        html += `<div class="notif-item notif-action-required">
+        html += `<div class="notif-item notif-action-required" id="notif-issue-${issue.id}">
           <span class="notif-icon" style="color:var(--error)">&#9679;</span>
           <span class="notif-text">
             <span style="color:var(--text-secondary);font-size:11px">[${esc(issue.project_name || '')}]</span>
             <a href="/projects/${issue.project_id}/issues/${issue.number}" onclick="event.stopPropagation()">#${issue.number}</a>
             ${esc(issue.title)}
           </span>
+          <button class="notif-ack-btn" onclick="event.stopPropagation();acknowledgeIssue('${issue.id}')" title="标记已阅">✓</button>
           <span class="notif-time">${timeAgo(issue.updated_at) || ''}</span>
         </div>`;
       } else {
@@ -147,6 +148,25 @@ function toggleNotifFilter(filter) {
       item.style.display = item.classList.contains('notif-action-required') ? '' : 'none';
     }
   });
+}
+
+async function acknowledgeIssue(issueId) {
+  try {
+    const res = await fetch(`/api/issues/${issueId}/acknowledge`, { method: 'POST', headers: apiHeaders() });
+    if (res.ok) {
+      const el = document.getElementById('notif-issue-' + issueId);
+      if (el) el.remove();
+      // Update badge count
+      const remaining = document.querySelectorAll('.notif-action-required').length;
+      const badge = document.getElementById('notif-count');
+      if (badge) {
+        badge.textContent = remaining;
+        if (remaining === 0) badge.style.display = 'none';
+      }
+    }
+  } catch (e) {
+    console.error('Failed to acknowledge issue', e);
+  }
 }
 
 async function loadProjects() {
