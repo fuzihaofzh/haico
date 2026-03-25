@@ -2,6 +2,8 @@
 let _lastActivityMap = {};
 let _notificationsCollapsed = false;
 let _notifFilter = 'all'; // 'all' or 'action'
+let _inboxSearchQuery = '';
+let _inboxAllItems = []; // cached items for search filtering
 
 // Track known action-required issue IDs to detect new ones
 let _knownActionIssueIds = null; // null = first load (don't ring on first load)
@@ -44,10 +46,8 @@ async function loadNotifications() {
     // Detect new action-required issues and play notification sound
     const currentIds = new Set(issues.map(i => i.id || i.number));
     if (_knownActionIssueIds === null) {
-      // First load — just record, don't ring
       _knownActionIssueIds = currentIds;
     } else {
-      // Check for any new IDs not in previous set
       let hasNew = false;
       for (const id of currentIds) {
         if (!_knownActionIssueIds.has(id)) { hasNew = true; break; }
@@ -58,11 +58,7 @@ async function loadNotifications() {
       }
     }
 
-    if (totalCount === 0 && comments.length === 0) {
-      document.getElementById('notifications-panel').style.display = 'none';
-      return;
-    }
-
+    // Always show the Inbox panel
     document.getElementById('notifications-panel').style.display = '';
     const badge = document.getElementById('notif-count');
     if (totalCount > 0) {
@@ -72,55 +68,116 @@ async function loadNotifications() {
       badge.style.display = 'none';
     }
 
-    const body = document.getElementById('notifications-body');
-
-    // Merge issues and comments into a single list, sorted newest first
+    // Build items: action-required issues first, then comments
     const items = [];
     for (const issue of issues) {
-      items.push({ type: 'issue', time: issue.updated_at, data: issue });
+      items.push({ type: 'issue', time: issue.updated_at, data: issue, actionRequired: true });
     }
     for (const c of comments) {
-      items.push({ type: 'comment', time: c.created_at, data: c });
+      items.push({ type: 'comment', time: c.created_at, data: c, actionRequired: false });
     }
-    items.sort((a, b) => (b.time || '') > (a.time || '') ? 1 : -1);
+    // Sort: action-required first, then by time desc
+    items.sort((a, b) => {
+      if (a.actionRequired !== b.actionRequired) return a.actionRequired ? -1 : 1;
+      return (b.time || '') > (a.time || '') ? 1 : -1;
+    });
 
-    let html = '';
-    for (const item of items) {
-      if (item.type === 'issue') {
-        const issue = item.data;
-        html += `<div class="notif-item notif-action-required" id="notif-issue-${issue.id}">
-          <span class="notif-icon" style="color:var(--error)">&#9679;</span>
-          <span class="notif-text">
-            <span style="color:var(--text-secondary);font-size:11px">[${esc(issue.project_name || '')}]</span>
-            <a href="/projects/${issue.project_id}/issues/${issue.number}" onclick="event.stopPropagation()">#${issue.number}</a>
-            ${esc(issue.title)}
-          </span>
-          <button class="notif-ack-btn" onclick="event.stopPropagation();acknowledgeIssue('${issue.id}')" title="标记已阅">✓</button>
-          <span class="notif-time">${timeAgo(issue.updated_at) || ''}</span>
-        </div>`;
-      } else {
-        const c = item.data;
-        const preview = (c.body || '').slice(0, 80) + ((c.body || '').length > 80 ? '...' : '');
-        html += `<div class="notif-item notif-comment" style="${_notifFilter === 'action' ? 'display:none' : ''}">
-          <span class="notif-icon" style="color:var(--text-secondary)">&#9998;</span>
-          <span class="notif-text">
-            <span style="color:var(--text-secondary);font-size:11px">[${esc(c.project_name || '')}]</span>
-            <a href="/projects/${c.project_id}/issues/${c.issue_number}" onclick="event.stopPropagation()">#${c.issue_number}</a>
-            <span style="color:var(--text-secondary)">${esc(preview)}</span>
-          </span>
-          <span class="notif-time">${timeAgo(c.created_at) || ''}</span>
-        </div>`;
-      }
-    }
-
-    body.innerHTML = html;
-    // Restore collapsed state
-    if (_notificationsCollapsed) {
-      body.classList.add('collapsed');
-      document.getElementById('notif-toggle-icon').classList.add('collapsed');
-    }
+    _inboxAllItems = items;
+    renderInboxItems(items);
   } catch (e) {
     console.error('Failed to load notifications', e);
+  }
+}
+
+function renderInboxItems(items) {
+  const body = document.getElementById('notifications-body');
+  const query = _inboxSearchQuery.toLowerCase().trim();
+
+  let html = '';
+  for (const item of items) {
+    // Apply filter
+    if (_notifFilter === 'action' && !item.actionRequired) continue;
+
+    if (item.type === 'issue') {
+      const issue = item.data;
+      // Apply search
+      if (query && !matchesSearch(query, '#' + issue.number, issue.title, issue.body || '')) continue;
+      html += `<div class="notif-item notif-action-required" id="notif-issue-${issue.id}">
+        <span class="notif-icon" style="color:var(--error)">&#9679;</span>
+        <span class="notif-text">
+          <span style="color:var(--text-secondary);font-size:10px">[${esc(issue.project_name || '')}]</span>
+          <a href="/projects/${issue.project_id}/issues/${issue.number}" onclick="event.stopPropagation()">#${issue.number}</a>
+          ${esc(issue.title)}
+        </span>
+        <button class="notif-ack-btn" onclick="event.stopPropagation();acknowledgeIssue('${issue.id}')" title="标记已阅">✓</button>
+        <span class="notif-time">${timeAgo(issue.updated_at) || ''}</span>
+      </div>`;
+    } else {
+      const c = item.data;
+      if (query && !matchesSearch(query, '#' + c.issue_number, c.issue_title || '', c.body || '')) continue;
+      const preview = (c.body || '').slice(0, 60) + ((c.body || '').length > 60 ? '...' : '');
+      html += `<div class="notif-item notif-comment">
+        <span class="notif-icon" style="color:var(--text-secondary)">&#9998;</span>
+        <span class="notif-text">
+          <span style="color:var(--text-secondary);font-size:10px">[${esc(c.project_name || '')}]</span>
+          <a href="/projects/${c.project_id}/issues/${c.issue_number}" onclick="event.stopPropagation()">#${c.issue_number}</a>
+          <span style="color:var(--text-secondary)">${esc(preview)}</span>
+        </span>
+        <span class="notif-time">${timeAgo(c.created_at) || ''}</span>
+      </div>`;
+    }
+  }
+
+  if (!html && query) {
+    html = '<div style="padding:12px 16px;color:var(--text-secondary);font-size:12px;text-align:center">无匹配结果</div>';
+  } else if (!html) {
+    html = '<div style="padding:12px 16px;color:var(--text-secondary);font-size:12px;text-align:center">暂无通知</div>';
+  }
+
+  body.innerHTML = html;
+  if (_notificationsCollapsed) {
+    body.classList.add('collapsed');
+    document.getElementById('notif-toggle-icon').classList.add('collapsed');
+  }
+}
+
+function matchesSearch(query, ...fields) {
+  for (const f of fields) {
+    if (f.toLowerCase().includes(query)) return true;
+  }
+  return false;
+}
+
+function filterInbox(query) {
+  _inboxSearchQuery = query;
+  if (query.trim()) {
+    // When searching, fetch all issues across projects
+    searchInboxIssues(query.trim());
+  } else {
+    // No search query — show normal inbox items
+    renderInboxItems(_inboxAllItems);
+  }
+}
+
+async function searchInboxIssues(query) {
+  try {
+    const res = await fetch('/api/inbox/search?q=' + encodeURIComponent(query), { headers: apiHeaders() });
+    if (!res.ok) return;
+    const results = await res.json();
+    const items = results.map(issue => ({
+      type: 'issue',
+      time: issue.updated_at,
+      data: issue,
+      actionRequired: issue.assigned_to === 'user' && !issue.acknowledged_at && ['open', 'in_progress'].includes(issue.status)
+    }));
+    // Sort: action-required first, then by time desc
+    items.sort((a, b) => {
+      if (a.actionRequired !== b.actionRequired) return a.actionRequired ? -1 : 1;
+      return (b.time || '') > (a.time || '') ? 1 : -1;
+    });
+    renderInboxItems(items);
+  } catch (e) {
+    console.error('Failed to search inbox', e);
   }
 }
 
@@ -134,25 +191,20 @@ function toggleNotifications() {
 
 function toggleNotifFilter(filter) {
   _notifFilter = filter;
-  // Update active button
   document.querySelectorAll('.notif-filter-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.filter === filter);
   });
-  // Show/hide items based on filter
-  const body = document.getElementById('notifications-body');
-  body.querySelectorAll('.notif-item').forEach(item => {
-    if (filter === 'all') {
-      item.style.display = '';
-    } else {
-      // 'action' filter: only show action-required items
-      item.style.display = item.classList.contains('notif-action-required') ? '' : 'none';
-    }
-  });
+  // Re-render with current filter + search
+  if (_inboxSearchQuery.trim()) {
+    searchInboxIssues(_inboxSearchQuery.trim());
+  } else {
+    renderInboxItems(_inboxAllItems);
+  }
 }
 
 async function acknowledgeIssue(issueId) {
   try {
-    const res = await fetch(`/api/issues/${issueId}/acknowledge`, { method: 'POST', headers: apiHeaders() });
+    const res = await fetch(`/api/issues/${issueId}/acknowledge`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
     if (res.ok) {
       const el = document.getElementById('notif-issue-' + issueId);
       if (el) el.remove();

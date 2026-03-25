@@ -330,6 +330,17 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     return { user_issues: userIssues, recent_comments: recentComments };
   });
 
+  // Inbox search — search all issues by title, body, or number
+  fastify.get<{ Querystring: { q?: string } }>('/api/inbox/search', async (request) => {
+    const db = getDatabase();
+    const q = (request.query.q || '').trim();
+    if (!q) return [];
+    const like = `%${q}%`;
+    return db.prepare(
+      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.title LIKE ? OR i.body LIKE ? OR CAST(i.number AS TEXT) LIKE ? ORDER BY i.updated_at DESC LIMIT 50"
+    ).all(like, like, like);
+  });
+
   // Acknowledge issue (mark as read — hides from notifications)
   fastify.post<{ Params: { id: string } }>('/api/issues/:id/acknowledge', async (request, reply) => {
     const db = getDatabase();
