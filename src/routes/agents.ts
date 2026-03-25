@@ -27,10 +27,17 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     if (!project) return reply.code(404).send({ error: 'Project not found' });
 
     const id = uuidv4();
+    // For controller agents, default to Sonnet model if no --model flag specified
+    let finalCommandTemplate = command_template || null;
+    if (is_controller && finalCommandTemplate && !finalCommandTemplate.includes('--model')) {
+      finalCommandTemplate = finalCommandTemplate + ' --model claude-sonnet-4-6';
+    } else if (is_controller && !finalCommandTemplate) {
+      finalCommandTemplate = 'cld --model claude-sonnet-4-6';
+    }
     db.prepare(`
       INSERT INTO agents (id, project_id, name, role, is_controller, session_id, working_directory, command_template, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle')
-    `).run(id, request.params.pid, name, role || '', is_controller ? 1 : 0, session_id || null, working_directory || null, command_template || null);
+    `).run(id, request.params.pid, name, role || '', is_controller ? 1 : 0, session_id || null, working_directory || null, finalCommandTemplate);
 
     return reply.code(201).send(db.prepare('SELECT * FROM agents WHERE id = ?').get(id));
   });
