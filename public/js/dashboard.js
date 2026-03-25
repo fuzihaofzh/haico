@@ -216,6 +216,10 @@ async function loadProjects() {
           </div>
         </div>
         ${activityLine}
+        <div class="quick-cmd-bar" onclick="event.stopPropagation()">
+          <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." onkeydown="if(event.key==='Enter')sendQuickCmd('${p.id}')">
+          <button class="quick-cmd-btn" onclick="sendQuickCmd('${p.id}')" title="Send">&#9654;</button>
+        </div>
       </div>
     `}).join('');
   } catch (e) {
@@ -278,6 +282,33 @@ async function createProject() {
       showToast(err.error || '创建失败', 'error');
     }
   });
+}
+
+async function sendQuickCmd(projectId) {
+  const input = document.getElementById('quick-cmd-' + projectId);
+  const msg = input.value.trim();
+  if (!msg) return;
+  const btn = input.nextElementSibling;
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    const res = await fetch(`/api/projects/${projectId}/quick-commands`, {
+      method: 'POST', headers: apiHeaders(),
+      body: JSON.stringify({ message: msg })
+    });
+    if (res.ok) {
+      input.value = '';
+      showToast('Command queued', 'success');
+    } else {
+      const err = await res.json();
+      showToast(err.error || 'Failed', 'error');
+    }
+  } catch (e) {
+    showToast('Network error', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '&#9654;';
+  }
 }
 
 // Initial load: summary + notifications + projects in parallel

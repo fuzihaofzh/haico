@@ -506,6 +506,49 @@ header h1 span { color: var(--accent); }
   margin-top: 8px;
 }
 
+/* Quick Command Bar */
+.quick-cmd-bar {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.quick-cmd-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--fg);
+  outline: none;
+}
+.quick-cmd-input:focus {
+  border-color: var(--accent);
+}
+.quick-cmd-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+.quick-cmd-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1;
+}
+.quick-cmd-btn:hover {
+  opacity: 0.85;
+}
+.quick-cmd-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
