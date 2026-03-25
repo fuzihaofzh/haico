@@ -1,6 +1,7 @@
 // Cache for last activity data from summary endpoint
 let _lastActivityMap = {};
 let _notificationsCollapsed = false;
+let _notifFilter = 'all'; // 'all' or 'action'
 
 async function loadDashboardSummary() {
   try {
@@ -67,9 +68,8 @@ async function loadNotifications() {
     for (const item of items) {
       if (item.type === 'issue') {
         const issue = item.data;
-        const projLink = `/projects/${issue.project_id}`;
-        html += `<div class="notif-item">
-          <span class="notif-icon" style="color:var(--warning)">&#9679;</span>
+        html += `<div class="notif-item notif-action-required">
+          <span class="notif-icon" style="color:var(--error)">&#9679;</span>
           <span class="notif-text">
             <span style="color:var(--text-secondary);font-size:11px">[${esc(issue.project_name || '')}]</span>
             <a href="/projects/${issue.project_id}/issues/${issue.number}" onclick="event.stopPropagation()">#${issue.number}</a>
@@ -79,9 +79,8 @@ async function loadNotifications() {
         </div>`;
       } else {
         const c = item.data;
-        const projLink = `/projects/${c.project_id}#issues`;
         const preview = (c.body || '').slice(0, 80) + ((c.body || '').length > 80 ? '...' : '');
-        html += `<div class="notif-item">
+        html += `<div class="notif-item notif-comment" style="${_notifFilter === 'action' ? 'display:none' : ''}">
           <span class="notif-icon" style="color:var(--text-secondary)">&#9998;</span>
           <span class="notif-text">
             <span style="color:var(--text-secondary);font-size:11px">[${esc(c.project_name || '')}]</span>
@@ -110,6 +109,24 @@ function toggleNotifications() {
   _notificationsCollapsed = !_notificationsCollapsed;
   body.classList.toggle('collapsed');
   icon.classList.toggle('collapsed');
+}
+
+function toggleNotifFilter(filter) {
+  _notifFilter = filter;
+  // Update active button
+  document.querySelectorAll('.notif-filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === filter);
+  });
+  // Show/hide items based on filter
+  const body = document.getElementById('notifications-body');
+  body.querySelectorAll('.notif-item').forEach(item => {
+    if (filter === 'all') {
+      item.style.display = '';
+    } else {
+      // 'action' filter: only show action-required items
+      item.style.display = item.classList.contains('notif-action-required') ? '' : 'none';
+    }
+  });
 }
 
 async function loadProjects() {
