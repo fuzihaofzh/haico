@@ -261,7 +261,10 @@ async function loadProjects() {
       <div class="card" style="cursor:pointer" onclick="window.location='${link}'">
         <div class="flex-between">
           <strong style="font-size:15px">${esc(p.name)}${notifBadge}</strong>
-          <span class="status-badge status-${p.status}">${p.status}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="status-badge status-${p.status}">${p.status}</span>
+            <button onclick="event.stopPropagation();toggleProjectStatus('${p.id}','${p.status}')" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>
+          </div>
         </div>
         <p style="color:var(--text-secondary);font-size:13px;margin-top:6px;margin-bottom:12px">${esc(p.description || '')}</p>
         <div style="display:flex;gap:16px;font-size:12px">
@@ -354,6 +357,17 @@ async function createProject() {
       showToast(err.error || '创建失败', 'error');
     }
   });
+}
+
+async function toggleProjectStatus(projectId, currentStatus) {
+  const newStatus = currentStatus === 'active' ? 'paused' : 'active';
+  try {
+    const res = await fetch(`/api/projects/${projectId}`, {
+      method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: newStatus })
+    });
+    if (res.ok) { showToast('状态已更新', 'success'); loadProjects(); }
+    else showToast('状态更新失败', 'error');
+  } catch { showToast('网络错误', 'error'); }
 }
 
 async function sendQuickCmd(projectId) {
