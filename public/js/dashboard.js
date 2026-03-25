@@ -3,6 +3,9 @@ let _lastActivityMap = {};
 let _notificationsCollapsed = false;
 let _notifFilter = 'all'; // 'all' or 'action'
 
+// Track known action-required issue IDs to detect new ones
+let _knownActionIssueIds = null; // null = first load (don't ring on first load)
+
 async function loadDashboardSummary() {
   try {
     const res = await fetch('/api/dashboard/summary', { headers: apiHeaders() });
@@ -37,6 +40,23 @@ async function loadNotifications() {
     const issues = data.user_issues || [];
     const comments = (data.recent_comments || []).slice(0, 5);
     const totalCount = issues.length;
+
+    // Detect new action-required issues and play notification sound
+    const currentIds = new Set(issues.map(i => i.id || i.number));
+    if (_knownActionIssueIds === null) {
+      // First load — just record, don't ring
+      _knownActionIssueIds = currentIds;
+    } else {
+      // Check for any new IDs not in previous set
+      let hasNew = false;
+      for (const id of currentIds) {
+        if (!_knownActionIssueIds.has(id)) { hasNew = true; break; }
+      }
+      _knownActionIssueIds = currentIds;
+      if (hasNew && typeof playNotificationSound === 'function') {
+        playNotificationSound();
+      }
+    }
 
     if (totalCount === 0 && comments.length === 0) {
       document.getElementById('notifications-panel').style.display = 'none';

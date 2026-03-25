@@ -252,6 +252,83 @@ if ('Notification' in window && Notification.permission === 'default') {
   Notification.requestPermission();
 }
 
+// ─── Notification Sound ───
+
+// Web Audio API notification sound (short "ding")
+let _notifAudioCtx = null;
+let _notifLastPlayTime = 0;
+
+// Unlock AudioContext on first user interaction (browser autoplay policy)
+document.addEventListener('click', function _unlockAudio() {
+  if (!_notifAudioCtx) {
+    _notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (_notifAudioCtx.state === 'suspended') {
+    _notifAudioCtx.resume();
+  }
+}, { once: false });
+
+function playNotificationSound() {
+  // Check setting
+  if (localStorage.getItem('argus-notification-sound') === 'off') return;
+
+  // Throttle: no more than once per 5 seconds
+  const now = Date.now();
+  if (now - _notifLastPlayTime < 5000) return;
+  _notifLastPlayTime = now;
+
+  // Create or resume AudioContext
+  if (!_notifAudioCtx) {
+    _notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (_notifAudioCtx.state === 'suspended') {
+    _notifAudioCtx.resume();
+  }
+
+  const ctx = _notifAudioCtx;
+  const t = ctx.currentTime;
+
+  // Two-tone "ding" sound
+  const osc1 = ctx.createOscillator();
+  const osc2 = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc1.type = 'sine';
+  osc1.frequency.setValueAtTime(880, t);       // A5
+  osc2.type = 'sine';
+  osc2.frequency.setValueAtTime(1175, t + 0.1); // D6
+
+  gain.gain.setValueAtTime(0.3, t);
+  gain.gain.exponentialRampToValueAtTime(0.01, t + 0.4);
+
+  osc1.connect(gain);
+  osc2.connect(gain);
+  gain.connect(ctx.destination);
+
+  osc1.start(t);
+  osc1.stop(t + 0.15);
+  osc2.start(t + 0.1);
+  osc2.stop(t + 0.4);
+}
+
+function toggleNotificationSound() {
+  const current = localStorage.getItem('argus-notification-sound') !== 'off';
+  const newVal = current ? 'off' : 'on';
+  localStorage.setItem('argus-notification-sound', newVal);
+  // Update all toggles on the page
+  document.querySelectorAll('.notif-sound-toggle').forEach(function(el) {
+    el.classList.toggle('on', newVal === 'on');
+  });
+}
+
+// Init notification sound toggles on page load
+document.addEventListener('DOMContentLoaded', function() {
+  const isOn = localStorage.getItem('argus-notification-sound') !== 'off';
+  document.querySelectorAll('.notif-sound-toggle').forEach(function(el) {
+    el.classList.toggle('on', isOn);
+  });
+});
+
 // Init theme
 (function() {
   const saved = localStorage.getItem('argus-theme') || 'solarized-light';
