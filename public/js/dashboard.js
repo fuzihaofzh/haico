@@ -204,7 +204,7 @@ function toggleNotifFilter(filter) {
 
 async function acknowledgeIssue(issueId) {
   try {
-    const res = await fetch(`/api/issues/${issueId}/acknowledge`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
+    const res = await fetch(`/api/issues/${issueId}/acknowledge`, { method: 'POST' });
     if (res.ok) {
       const el = document.getElementById('notif-issue-' + issueId);
       if (el) el.remove();
