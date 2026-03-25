@@ -12,7 +12,22 @@ const EMOJIS = ['👍','👎','❤️','🎉','😕','🚀'];
 
 function renderMd(text) {
   if (!text) return '';
-  let processed = text
+  // Protect LaTeX blocks from markdown processing
+  const latexBlocks = [];
+  let processed = text;
+  // Block math: $$...$$
+  processed = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
+    const idx = latexBlocks.length;
+    latexBlocks.push({ tex: tex.trim(), display: true });
+    return `%%LATEX_BLOCK_${idx}%%`;
+  });
+  // Inline math: $...$  (not preceded/followed by $, not empty)
+  processed = processed.replace(/(?<!\$)\$(?!\$)([^\n$]+?)\$(?!\$)/g, (_, tex) => {
+    const idx = latexBlocks.length;
+    latexBlocks.push({ tex: tex.trim(), display: false });
+    return `%%LATEX_BLOCK_${idx}%%`;
+  });
+  processed = processed
     .replace(/#(\d+)/g, (m, n) => issueData?.project_id ? `[#${n}](/projects/${issueData.project_id}/issues/${n})` : m);
   let html = marked.parse(processed);
   // Highlight @mentions — match @agent-name patterns and style them
@@ -20,6 +35,15 @@ function renderMd(text) {
   html = html.replace(/@([\w-]+)/g, (m, name) => {
     const isAgent = agentNames.includes(name);
     return `<span style="color:${isAgent ? '#61afef' : '#e5c07b'};font-weight:500;background:${isAgent ? '#61afef18' : '#e5c07b18'};padding:0 4px;border-radius:3px">${m}</span>`;
+  });
+  // Restore LaTeX blocks with KaTeX rendering
+  html = html.replace(/%%LATEX_BLOCK_(\d+)%%/g, (_, idx) => {
+    const block = latexBlocks[parseInt(idx)];
+    try {
+      return katex.renderToString(block.tex, { displayMode: block.display, throwOnError: false });
+    } catch (e) {
+      return `<code style="color:var(--error)">${block.tex}</code>`;
+    }
   });
   return html;
 }
