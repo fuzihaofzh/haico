@@ -402,11 +402,16 @@ function setupMentionAutocomplete(textarea, agents) {
   let dropdown = null;
   let mentionStart = -1;
   let selectedIdx = 0;
+  let blurTimeout = null;
 
   function removeDropdown() {
     if (dropdown) { dropdown.remove(); dropdown = null; }
-    mentionStart = -1;
     selectedIdx = 0;
+  }
+
+  function cancelMention() {
+    removeDropdown();
+    mentionStart = -1;
   }
 
   function getCaretPixelPos() {
@@ -478,12 +483,14 @@ function setupMentionAutocomplete(textarea, agents) {
   }
 
   function selectItem(name) {
+    if (mentionStart < 0) { removeDropdown(); return; }
     const before = textarea.value.substring(0, mentionStart);
     const after = textarea.value.substring(textarea.selectionStart);
     textarea.value = before + '@' + name + ' ' + after;
     const newPos = mentionStart + name.length + 2;
     textarea.setSelectionRange(newPos, newPos);
     textarea.focus();
+    mentionStart = -1;
     removeDropdown();
   }
 
@@ -494,17 +501,16 @@ function setupMentionAutocomplete(textarea, agents) {
   }
 
   textarea.addEventListener('input', () => {
+    if (blurTimeout) { clearTimeout(blurTimeout); blurTimeout = null; }
     const pos = textarea.selectionStart;
     const text = textarea.value.substring(0, pos);
     const match = text.match(/(?:^|[\s])@([\w-]*)$/);
     if (match) {
-      // Calculate mentionStart AFTER showDropdown, because showDropdown calls
-      // removeDropdown() which resets mentionStart to -1
       selectedIdx = 0;
       showDropdown(getFilteredAgents(match[1]));
       mentionStart = text.length - match[0].length + (match[0].startsWith('@') ? 0 : 1);
     } else {
-      removeDropdown();
+      cancelMention();
     }
   });
 
@@ -527,12 +533,12 @@ function setupMentionAutocomplete(textarea, agents) {
       if (filtered[selectedIdx]) selectItem(filtered[selectedIdx].name);
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      removeDropdown();
+      cancelMention();
     }
   });
 
   textarea.addEventListener('blur', () => {
-    setTimeout(removeDropdown, 200);
+    blurTimeout = setTimeout(cancelMention, 200);
   });
 }
 
