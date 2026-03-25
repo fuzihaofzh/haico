@@ -263,50 +263,36 @@ async function viewAgent(agentId) {
           <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
               <div style="${L}">Working Directory</div>
-              <div style="display:flex;gap:4px">
-                <input type="text" id="ad-workdir-${agentId}" value="${esc(agent.working_directory || '')}" placeholder="(default)" style="${B};flex:1;font-size:12px;font-family:monospace;color:var(--fg)">
-                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','working_directory',document.getElementById('ad-workdir-${agentId}').value)">Save</button>
-              </div>
+              <input type="text" id="ad-workdir-${agentId}" value="${esc(agent.working_directory || '')}" placeholder="(default)" style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
             </div>
             <div style="flex:1;min-width:200px">
               <div style="${L}">Tool Path</div>
-              <div style="display:flex;gap:4px">
-                <input type="text" id="ad-cmdtpl-${agentId}" value="${esc(agent.command_template || '')}" placeholder="(使用项目默认)" style="${B};flex:1;font-size:12px;font-family:monospace;color:var(--fg)">
-                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','command_template',document.getElementById('ad-cmdtpl-${agentId}').value)">Save</button>
-              </div>
+              <input type="text" id="ad-cmdtpl-${agentId}" value="${esc(agent.command_template || '')}" placeholder="(使用项目默认)" style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
               <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">留空=使用项目默认</div>
             </div>
             <div style="width:140px">
               <div style="${L}">Max Cache Tokens</div>
-              <div style="display:flex;gap:4px">
-                <input type="number" id="ad-maxtokens-${agentId}" value="${agent.session_max_tokens || 200000}" min="0" style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
-                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_max_tokens',Math.max(0,parseInt(document.getElementById('ad-maxtokens-${agentId}').value))||200000)">Save</button>
-              </div>
+              <input type="number" id="ad-maxtokens-${agentId}" value="${agent.session_max_tokens || 200000}" min="0" style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
               <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0=用次数控制</div>
             </div>
             <div style="width:120px">
               <div style="${L}">Max Runs/Session</div>
-              <div style="display:flex;gap:4px">
-                <input type="number" id="ad-maxruns-${agentId}" value="${agent.session_max_runs || 10}" min="1" style="${B};width:60px;font-size:12px;color:var(--fg);text-align:center">
-                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_max_runs',Math.max(1,parseInt(document.getElementById('ad-maxruns-${agentId}').value))||10)">Save</button>
-              </div>
+              <input type="number" id="ad-maxruns-${agentId}" value="${agent.session_max_runs || 10}" min="1" style="${B};width:60px;font-size:12px;color:var(--fg);text-align:center">
             </div>
             <div style="width:140px">
               <div style="${L}">Resume Timeout(s)</div>
-              <div style="display:flex;gap:4px">
-                <input type="number" id="ad-resumetimeout-${agentId}" value="${agent.session_resume_timeout ?? 300}" min="0" style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
-                <button class="btn btn-sm" onclick="saveAgentField('${agentId}','session_resume_timeout',Math.max(0,parseInt(document.getElementById('ad-resumetimeout-${agentId}').value))||0)">Save</button>
-              </div>
+              <input type="number" id="ad-resumetimeout-${agentId}" value="${agent.session_resume_timeout ?? 300}" min="0" style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
               <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0=不限时间</div>
             </div>
           </div>
 
           <div style="margin-bottom:16px">
             <div style="${L}">Custom Instructions</div>
-            <div style="display:flex;gap:4px;align-items:flex-start">
-              <textarea id="ad-instructions-${agentId}" rows="3" style="${B};flex:1;font-size:12px;font-family:inherit;color:var(--fg);resize:vertical" placeholder="Extra instructions appended to system prompt...">${esc(agent.custom_instructions || '')}</textarea>
-              <button class="btn btn-sm" onclick="saveAgentField('${agentId}','custom_instructions',document.getElementById('ad-instructions-${agentId}').value)">Save</button>
-            </div>
+            <textarea id="ad-instructions-${agentId}" rows="3" style="${B};width:100%;font-size:12px;font-family:inherit;color:var(--fg);resize:vertical" placeholder="Extra instructions appended to system prompt...">${esc(agent.custom_instructions || '')}</textarea>
+          </div>
+
+          <div style="margin-bottom:16px;text-align:right">
+            <button class="btn btn-primary" onclick="saveAllAgentFields('${agentId}')">Save Settings</button>
           </div>
 
           <div style="margin-bottom:16px">
@@ -447,9 +433,15 @@ async function loadAgentOutput(agentId) {
   }
 }
 
-async function saveAgentField(agentId, field, value) {
-  const body = {};
-  body[field] = value || null;
+async function saveAllAgentFields(agentId) {
+  const body = {
+    working_directory: document.getElementById('ad-workdir-' + agentId).value || null,
+    command_template: document.getElementById('ad-cmdtpl-' + agentId).value || null,
+    session_max_tokens: Math.max(0, parseInt(document.getElementById('ad-maxtokens-' + agentId).value)) || 200000,
+    session_max_runs: Math.max(1, parseInt(document.getElementById('ad-maxruns-' + agentId).value)) || 10,
+    session_resume_timeout: Math.max(0, parseInt(document.getElementById('ad-resumetimeout-' + agentId).value)) || 0,
+    custom_instructions: document.getElementById('ad-instructions-' + agentId).value || null
+  };
   const res = await fetch(`/api/agents/${agentId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
   if (res.ok) showToast('已保存', 'success');
   else showToast('保存失败', 'error');
