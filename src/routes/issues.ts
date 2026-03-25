@@ -5,6 +5,7 @@ import { Agent, Project } from '../types';
 import { startAgentProcess, isAgentRunning } from '../services/process-manager';
 import { buildSystemPrompt } from '../services/system-prompt';
 import { triggerControllerAgent } from '../services/controller';
+import { tryHandleWithoutLLM } from '../services/pre-controller';
 import { broadcastToProject } from '../services/websocket';
 import { config } from '../config';
 
@@ -66,6 +67,9 @@ function triggerControllerOnDemand(projectId: string, triggerIssueNumber?: numbe
   const db = getDatabase();
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
   if (!project || project.controller_interval_min > 0) return;
+
+  // Pre-controller: 规则引擎拦截简单场景，避免不必要的 LLM 调用
+  if (tryHandleWithoutLLM(projectId, triggerIssueNumber)) return;
 
   const controller = db.prepare(
     'SELECT * FROM agents WHERE project_id = ? AND is_controller = 1'

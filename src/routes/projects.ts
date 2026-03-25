@@ -5,10 +5,17 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { getDatabase } from '../db/database';
-import { Project, CreateProjectInput, Agent } from '../types';
+import { Project, CreateProjectInput, Agent, OrchestratorEngine } from '../types';
 import { scheduleProject, unscheduleProject } from '../services/scheduler';
 import { stopAgentProcess, isAgentRunning } from '../services/process-manager';
 import { config } from '../config';
+
+function normalizeOrchestratorEngine(value: unknown): OrchestratorEngine | null {
+  if (value === undefined) return null;
+  const engine = String(value).toLowerCase();
+  if (engine === 'native' || engine === 'langgraph') return engine as OrchestratorEngine;
+  return null;
+}
 
 export function registerProjectRoutes(fastify: FastifyInstance): void {
 
@@ -296,6 +303,33 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     return all;
   });
 
+  // Recent orchestration decision runs (for graph visualization)
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
+    '/api/projects/:id/orchestration-runs',
+    async (request) => {
+      const db = getDatabase();
+      const pid = request.params.id;
+      const limit = Math.min(Math.max(parseInt(request.query.limit || '20', 10), 1), 100);
+
+      const rows = db.prepare(
+        "SELECT id, project_id, engine, decision, controller_agent_id, controller_started, controller_run_id, controller_pid, dispatch_count, dispatch_summary, reasons, actions, dispatch_results, created_at FROM orchestration_runs WHERE project_id = ? ORDER BY id DESC LIMIT ?"
+      ).all(pid, limit) as any[];
+
+      const parseJson = <T>(raw: unknown, fallback: T): T => {
+        if (typeof raw !== 'string' || raw.trim() === '') return fallback;
+        try { return JSON.parse(raw) as T; } catch { return fallback; }
+      };
+
+      return rows.map((row) => ({
+        ...row,
+        controller_started: !!row.controller_started,
+        reasons: parseJson<string[]>(row.reasons, []),
+        actions: parseJson<any[]>(row.actions, []),
+        dispatch_results: parseJson<any[]>(row.dispatch_results, []),
+      }));
+    }
+  );
+
   // List projects (with optional embedded stats for dashboard performance)
   fastify.get<{ Querystring: { with_stats?: string } }>('/api/projects', async (request) => {
     const db = getDatabase();
@@ -333,7 +367,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
   // Create project
   fastify.post<{ Body: CreateProjectInput }>('/api/projects', async (request, reply) => {
-    const { name, description, task_description, controller_interval_min, command_template, working_directory, controller_role } = request.body as any;
+    const { name, description, task_description, controller_interval_min, command_template, orchestrator_engine, working_directory, controller_role } = request.body as any;
 
     if (!task_description) {
       return reply.code(400).send({ error: 'task_description is required' });
@@ -343,19 +377,25 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const id = uuidv4();
     const interval = controller_interval_min || 5;
     const tmpl = command_template || config.defaultCommandTemplate;
+    const orchestratorEngine = normalizeOrchestratorEngine(orchestrator_engine);
+
+    if (orchestrator_engine !== undefined && orchestratorEngine === null) {
+      return reply.code(400).send({ error: 'Invalid orchestrator_engine. Use native or langgraph.' });
+    }
 
     db.prepare(`
-      INSERT INTO projects (id, name, description, task_description, controller_interval_min, command_template, status)
-      VALUES (?, ?, ?, ?, ?, ?, 'active')
-    `).run(id, name, description || '', task_description, interval, tmpl);
+      INSERT INTO projects (id, name, description, task_description, controller_interval_min, command_template, orchestrator_engine, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
+    `).run(id, name, description || '', task_description, interval, tmpl, orchestratorEngine || config.defaultOrchestratorEngine);
 
-    // Create default controller agent
+    // Create default controller agent (with Sonnet model for cost efficiency)
     const controllerId = uuidv4();
     const ctrlRole = controller_role || 'Main controller agent that manages and coordinates other agents';
+    const ctrlCommandTemplate = `${tmpl} --model claude-sonnet-4-6`;
     db.prepare(`
-      INSERT INTO agents (id, project_id, name, role, is_controller, working_directory, status)
-      VALUES (?, ?, ?, ?, 1, ?, 'idle')
-    `).run(controllerId, id, `${name || 'project'}-controller`, ctrlRole, working_directory || null);
+      INSERT INTO agents (id, project_id, name, role, is_controller, working_directory, command_template, status)
+      VALUES (?, ?, ?, ?, 1, ?, ?, 'idle')
+    `).run(controllerId, id, `${name || 'project'}-controller`, ctrlRole, working_directory || null, ctrlCommandTemplate);
 
     // Create default assistant agent
     const assistantId = uuidv4();
@@ -386,7 +426,12 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project | undefined;
     if (!existing) return reply.code(404).send({ error: 'Project not found' });
 
-    const { name, description, task_description, controller_interval_min, command_template, status, schedule_hours } = request.body as any;
+    const { name, description, task_description, controller_interval_min, command_template, orchestrator_engine, status, schedule_hours } = request.body as any;
+
+    const orchestratorEngine = normalizeOrchestratorEngine(orchestrator_engine);
+    if (orchestrator_engine !== undefined && orchestratorEngine === null) {
+      return reply.code(400).send({ error: 'Invalid orchestrator_engine. Use native or langgraph.' });
+    }
 
     db.prepare(`
       UPDATE projects SET
@@ -395,13 +440,14 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
         task_description = COALESCE(?, task_description),
         controller_interval_min = COALESCE(?, controller_interval_min),
         command_template = COALESCE(?, command_template),
+        orchestrator_engine = COALESCE(?, orchestrator_engine),
         schedule_hours = COALESCE(?, schedule_hours),
         status = COALESCE(?, status),
         updated_at = datetime('now')
       WHERE id = ?
     `).run(
       name ?? null, description ?? null, task_description ?? null,
-      controller_interval_min ?? null, command_template ?? null, schedule_hours ?? null,
+      controller_interval_min ?? null, command_template ?? null, orchestratorEngine ?? null, schedule_hours ?? null,
       status ?? null,
       request.params.id
     );

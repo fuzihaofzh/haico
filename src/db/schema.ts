@@ -205,6 +205,14 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: added acknowledged_at column to issues table');
   }
 
+  // Migration: set default Sonnet model for controller agents without a --model flag
+  const ctrlModelUpdated = db.prepare(
+    "UPDATE agents SET command_template = COALESCE(command_template, 'cld') || ' --model claude-sonnet-4-6' WHERE is_controller = 1 AND (command_template IS NULL OR (command_template NOT LIKE '%--model%'))"
+  ).run();
+  if (ctrlModelUpdated.changes > 0) {
+    logger.info(`Migration: set default Sonnet model for ${ctrlModelUpdated.changes} controller agent(s)`);
+  }
+
   // Reset any agents stuck in 'running' from a previous crash
   const reset = db.prepare("UPDATE agents SET status = 'idle', pid = NULL WHERE status = 'running'");
   const changes = reset.run();
