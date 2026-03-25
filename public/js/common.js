@@ -483,11 +483,27 @@ function setupMentionAutocomplete(textarea, agents) {
   }
 
   function selectItem(name) {
-    if (mentionStart < 0) { removeDropdown(); return; }
-    const before = textarea.value.substring(0, mentionStart);
-    const after = textarea.value.substring(textarea.selectionStart);
+    // Cancel any pending blur timeout to prevent race condition
+    if (blurTimeout) { clearTimeout(blurTimeout); blurTimeout = null; }
+
+    // Recalculate mention position from current textarea state for robustness.
+    // mentionStart may be stale if a blur/cancelMention fired between input and selection.
+    const cursorPos = textarea.selectionStart;
+    const textBefore = textarea.value.substring(0, cursorPos);
+    const reMatch = textBefore.match(/(?:^|[\s])@([\w-]*)$/);
+    const atPos = reMatch
+      ? textBefore.length - reMatch[0].length + (reMatch[0].startsWith('@') ? 0 : 1)
+      : mentionStart;
+
+    if (atPos < 0 || atPos > textarea.value.length) {
+      removeDropdown();
+      return;
+    }
+
+    const before = textarea.value.substring(0, atPos);
+    const after = textarea.value.substring(cursorPos);
     textarea.value = before + '@' + name + ' ' + after;
-    const newPos = mentionStart + name.length + 2;
+    const newPos = atPos + name.length + 2;
     textarea.setSelectionRange(newPos, newPos);
     textarea.focus();
     mentionStart = -1;
@@ -528,7 +544,11 @@ function setupMentionAutocomplete(textarea, agents) {
       updateSelection();
     } else if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault();
-      const query = textarea.value.substring(mentionStart + 1, textarea.selectionStart);
+      // Recalculate query from current textarea state (don't rely on mentionStart alone)
+      const curPos = textarea.selectionStart;
+      const txtBefore = textarea.value.substring(0, curPos);
+      const km = txtBefore.match(/(?:^|[\s])@([\w-]*)$/);
+      const query = km ? km[1] : textarea.value.substring(mentionStart + 1, curPos);
       const filtered = getFilteredAgents(query);
       if (filtered[selectedIdx]) selectItem(filtered[selectedIdx].name);
     } else if (e.key === 'Escape') {
