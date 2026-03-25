@@ -175,7 +175,7 @@ function renderIssue() {
             <div style="display:flex;gap:8px;align-items:center">
               ${issue.status !== 'closed' && issue.status !== 'done'
                 ? `<button class="btn btn-sm" id="close-issue-btn" onclick="closeWithComment()" style="color:var(--error);border-color:var(--error)">Close issue</button>`
-                : `<button class="btn btn-sm" onclick="reopenWithComment()" style="color:var(--success);border-color:var(--success)">Reopen issue</button>`}
+                : `<button class="btn btn-sm" id="reopen-issue-btn" onclick="reopenWithComment()" style="color:var(--success);border-color:var(--success)">Reopen issue</button>`}
               <button class="btn btn-sm btn-primary" onclick="addComment()">Comment</button>
             </div>
           </div>
@@ -322,6 +322,10 @@ renderIssue = function() {
       const btn = document.getElementById('close-issue-btn');
       if (btn) {
         btn.textContent = this.value.trim() ? 'Close with comment' : 'Close issue';
+      }
+      const reopenBtn = document.getElementById('reopen-issue-btn');
+      if (reopenBtn) {
+        reopenBtn.textContent = this.value.trim() ? 'Reopen with comment' : 'Reopen issue';
       }
     });
   }
