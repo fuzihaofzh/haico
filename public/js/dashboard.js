@@ -261,7 +261,12 @@ async function loadProjects() {
     container.querySelectorAll('.quick-cmd-input').forEach(input => {
       if (input.value) savedInputs[input.id] = input.value;
     });
-    const focusedId = document.activeElement?.classList.contains('quick-cmd-input') ? document.activeElement.id : null;
+    const savedBodies = {};
+    container.querySelectorAll('.quick-cmd-body').forEach(ta => {
+      if (ta.value) savedBodies[ta.id] = ta.value;
+    });
+    const focusedEl = document.activeElement;
+    const focusedId = (focusedEl?.classList.contains('quick-cmd-input') || focusedEl?.classList.contains('quick-cmd-body')) ? focusedEl.id : null;
 
     container.innerHTML = projects.map(p => {
       const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
@@ -300,8 +305,11 @@ async function loadProjects() {
         </div>
         ${activityLine}
         <div class="quick-cmd-bar" onclick="event.stopPropagation()">
-          <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." onkeydown="if(event.key==='Enter')sendQuickCmd('${p.id}')">
-          <button class="quick-cmd-btn" onclick="sendQuickCmd('${p.id}')" title="Send">&#9654;</button>
+          <div class="quick-cmd-row">
+            <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." oninput="toggleQuickCmdBody('${p.id}')" onkeydown="if(event.key==='Enter'&&!event.shiftKey)sendQuickCmd('${p.id}')">
+            <button class="quick-cmd-btn" onclick="sendQuickCmd('${p.id}')" title="Send">&#9654;</button>
+          </div>
+          <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="详细内容（可选）..." rows="3" data-collapsed></textarea>
         </div>
       </div>
     `}).join('');
@@ -309,7 +317,17 @@ async function loadProjects() {
     // Restore quick-cmd input values after re-render
     for (const [id, value] of Object.entries(savedInputs)) {
       const input = document.getElementById(id);
-      if (input) input.value = value;
+      if (input) {
+        input.value = value;
+        // Also restore body textarea visibility
+        const pId = id.replace('quick-cmd-', '');
+        const body = document.getElementById('quick-cmd-body-' + pId);
+        if (body) body.removeAttribute('data-collapsed');
+      }
+    }
+    for (const [id, value] of Object.entries(savedBodies)) {
+      const ta = document.getElementById(id);
+      if (ta) ta.value = value;
     }
     if (focusedId) {
       const el = document.getElementById(focusedId);
@@ -388,11 +406,24 @@ async function toggleProjectStatus(projectId, currentStatus) {
   } catch { showToast('网络错误', 'error'); }
 }
 
+function toggleQuickCmdBody(projectId) {
+  const input = document.getElementById('quick-cmd-' + projectId);
+  const body = document.getElementById('quick-cmd-body-' + projectId);
+  if (!body) return;
+  if (input.value.trim()) {
+    body.removeAttribute('data-collapsed');
+  } else {
+    body.setAttribute('data-collapsed', '');
+  }
+}
+
 async function sendQuickCmd(projectId) {
   const input = document.getElementById('quick-cmd-' + projectId);
+  const bodyEl = document.getElementById('quick-cmd-body-' + projectId);
   const msg = input.value.trim();
   if (!msg) return;
-  const btn = input.nextElementSibling;
+  const bodyText = bodyEl ? bodyEl.value.trim() : '';
+  const btn = input.parentElement.querySelector('.quick-cmd-btn');
   btn.disabled = true;
   btn.textContent = '...';
   try {
@@ -406,10 +437,11 @@ async function sendQuickCmd(projectId) {
     // Create issue assigned to controller
     const res = await fetch(`/api/projects/${projectId}/issues`, {
       method: 'POST', headers: apiHeaders(),
-      body: JSON.stringify({ title: msg, body: msg, created_by: 'user', assigned_to: controller.id })
+      body: JSON.stringify({ title: msg, body: bodyText || msg, created_by: 'user', assigned_to: controller.id })
     });
     if (res.ok) {
       input.value = '';
+      if (bodyEl) { bodyEl.value = ''; bodyEl.setAttribute('data-collapsed', ''); }
       showToast('Issue created', 'success');
     } else {
       const err = await res.json();

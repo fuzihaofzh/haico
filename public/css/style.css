@@ -526,10 +526,45 @@ header h1 span { color: var(--accent); }
 /* Quick Command Bar */
 .quick-cmd-bar {
   display: flex;
+  flex-direction: column;
   gap: 4px;
   margin-top: 10px;
   border-top: 1px solid var(--border);
   padding-top: 10px;
+}
+.quick-cmd-row {
+  display: flex;
+  gap: 4px;
+}
+.quick-cmd-body {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--fg);
+  outline: none;
+  resize: vertical;
+  font-family: inherit;
+  min-height: 48px;
+  max-height: 200px;
+  overflow: hidden;
+  transition: max-height 0.2s ease, opacity 0.2s ease, padding 0.15s ease;
+}
+.quick-cmd-body[data-collapsed] {
+  max-height: 0;
+  opacity: 0;
+  padding: 0 10px;
+  margin: 0;
+  border-color: transparent;
+  pointer-events: none;
+}
+.quick-cmd-body:focus {
+  border-color: var(--accent);
+}
+.quick-cmd-body::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.6;
 }
 .quick-cmd-input {
   flex: 1;
