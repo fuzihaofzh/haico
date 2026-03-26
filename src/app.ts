@@ -52,13 +52,23 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
       if (!project || project.status !== 'active') return;
 
       if (!agent.is_controller) {
-        // Worker finished → trigger controller to check results
-        setTimeout(() => {
-          try { triggerControllerAgent(project); } catch (e) { fastify.log.error(e, 'Failed to trigger controller agent'); }
-        }, 2000);
+        // Worker finished — only trigger controller if there are issues that
+        // genuinely need controller attention (unassigned, errored workers, etc.)
+        // System-level auto-assign and issue scan handle most cases now.
+        const needsController = db.prepare(`
+          SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress')
+          AND (assigned_to IS NULL OR assigned_to = 'all'
+               OR assigned_to IN (SELECT id FROM agents WHERE project_id = ? AND is_controller = 1))
+          LIMIT 1
+        `).get(project.id, project.id);
+
+        if (needsController) {
+          setTimeout(() => {
+            try { triggerControllerAgent(project); } catch (e) { fastify.log.error(e, 'Failed to trigger controller agent'); }
+          }, 2000);
+        }
       }
     } catch (e) {
-      // DB may be closed during shutdown
       fastify.log.warn(e, 'Failed to handle agent finish (DB may be closed)');
     }
   });

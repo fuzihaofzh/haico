@@ -27,6 +27,12 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
     return true;
   }
 
+  // 规则2b: issue is pending (waiting for child issues) → 无需操作
+  if (issue.status === 'pending') {
+    logger.info(`Pre-controller: issue #${triggerIssueNumber} is pending (waiting for children), skipping LLM`);
+    return true;
+  }
+
   // 规则3: issue 已完成 (done/closed) → 检查是否还有其他需要 controller 处理的 issue
   if (issue.status === 'done' || issue.status === 'closed') {
     const pendingForController = db.prepare(

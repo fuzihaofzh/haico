@@ -288,6 +288,7 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     const db = getDatabase();
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(state.project.id) as Project | undefined;
     const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY created_at').all(state.project.id) as Agent[];
+    // Exclude pending issues — they are waiting for child issues and don't need dispatch
     const issues = state.triggerIssueNumber
       ? db.prepare(
           "SELECT * FROM issues WHERE project_id = ? AND number = ?"
@@ -311,6 +312,7 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     const hints = collectWorkerOutcomeHints(state);
     const reconciled = reconcileNeedsUserOutcomes(state.project, hints, state.agents);
     const db = getDatabase();
+    // Re-fetch active issues (exclude pending — handled by system-level parent-child logic)
     const refreshedIssues = db.prepare(
       "SELECT * FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
     ).all(state.project.id) as Issue[];
