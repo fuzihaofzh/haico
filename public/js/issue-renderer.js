@@ -115,18 +115,19 @@ var IssueRenderer = (function() {
     // Build timeline: events + comments
     var allEntries = issue.comments || [];
     var timeline = allEntries.map(function(c) {
+      var entryDate = c.created_at ? new Date(c.created_at + (c.created_at.includes('Z') ? '' : 'Z')).toLocaleString() : '';
       if (c.event_type !== 'comment') {
         var icon = c.event_type === 'status_change' ? '🔄' : c.event_type === 'assignment' ? '👤' : '🏷️';
         return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0 8px 40px;font-size:12px;color:var(--text-secondary)">' +
           '<span>' + icon + '</span>' +
-          '<span><strong>' + esc(nameOf(c.author_id)) + '</strong> ' + esc(c.body) + ' ' + timeAgo(c.created_at) + '</span>' +
+          '<span><strong>' + esc(nameOf(c.author_id)) + '</strong> ' + esc(c.body) + ' <span title="' + esc(entryDate) + '" style="cursor:default">' + timeAgo(c.created_at) + '</span></span>' +
         '</div>';
       }
       return '<div class="timeline-item">' +
         '<div class="timeline-avatar" style="background:none;border:none">' + avatarSvg(nameOf(c.author_id), 24) + '</div>' +
         '<div class="timeline-comment">' +
           '<div class="timeline-comment-header" style="display:flex;justify-content:space-between;align-items:center">' +
-            '<span><strong>' + esc(nameOf(c.author_id)) + '</strong> commented ' + timeAgo(c.created_at) + '</span>' +
+            '<span><strong>' + esc(nameOf(c.author_id)) + '</strong> commented <span title="' + esc(entryDate) + '" style="cursor:default">' + timeAgo(c.created_at) + '</span></span>' +
             '<span style="display:flex;gap:4px">' +
               (c.author_id === 'user' ? '<button onclick="IssueRenderer.editComment(\'' + c.id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px">edit</button><button onclick="IssueRenderer.deleteComment(\'' + c.id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px">delete</button>' : '') +
             '</span>' +
