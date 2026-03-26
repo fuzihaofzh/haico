@@ -393,7 +393,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   fastify.get('/api/notifications', async () => {
     const db = getDatabase();
     const userIssues = db.prepare(
-      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.assigned_to = 'user' AND i.status IN ('open', 'in_progress') AND i.acknowledged_at IS NULL ORDER BY i.priority DESC, i.updated_at DESC"
+      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.assigned_to = 'user' AND i.status IN ('open', 'in_progress', 'done') AND i.acknowledged_at IS NULL ORDER BY i.priority DESC, i.updated_at DESC"
     ).all() as any[];
 
     // Recent comments on any issue (last 20)
