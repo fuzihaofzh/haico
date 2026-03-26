@@ -468,8 +468,12 @@ async function sendQuickCmd(projectId) {
       body: JSON.stringify({ title: msg, body: bodyText || msg, created_by: 'user', assigned_to: controller.id })
     });
     if (res.ok) {
-      input.value = '';
-      if (bodyEl) { bodyEl.value = ''; bodyEl.setAttribute('data-collapsed', ''); }
+      // Re-query DOM elements: loadProjects() may have re-rendered during await,
+      // replacing the original elements with new ones
+      const curInput = document.getElementById('quick-cmd-' + projectId);
+      const curBody = document.getElementById('quick-cmd-body-' + projectId);
+      if (curInput) curInput.value = '';
+      if (curBody) { curBody.value = ''; curBody.setAttribute('data-collapsed', ''); }
       showToast('Issue created', 'success');
     } else {
       const err = await res.json();
@@ -478,8 +482,9 @@ async function sendQuickCmd(projectId) {
   } catch (e) {
     showToast('Network error', 'error');
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = '&#9654;';
+    // Re-query button in case DOM was re-rendered
+    const curBtn = document.getElementById('quick-cmd-' + projectId)?.parentElement?.querySelector('.quick-cmd-btn');
+    if (curBtn) { curBtn.disabled = false; curBtn.innerHTML = '&#9654;'; }
   }
 }
 
