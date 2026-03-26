@@ -40,7 +40,7 @@ async function loadNotifications() {
     const data = await res.json();
 
     const issues = data.user_issues || [];
-    const comments = (data.recent_comments || []).slice(0, 5);
+    const comments = (data.recent_comments || []).slice(0, 50);
     const totalCount = issues.length;
 
     // Detect new action-required issues and play notification sound
