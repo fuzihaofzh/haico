@@ -41,10 +41,11 @@ async function loadNotifications() {
 
     const issues = data.user_issues || [];
     const comments = (data.recent_comments || []).slice(0, 50);
-    const totalCount = issues.length;
+    const unacknowledgedIssues = issues.filter(i => !i.acknowledged_at);
+    const totalCount = unacknowledgedIssues.length;
 
     // Detect new action-required issues and play notification sound
-    const currentIds = new Set(issues.map(i => i.id || i.number));
+    const currentIds = new Set(unacknowledgedIssues.map(i => i.id || i.number));
     if (_knownActionIssueIds === null) {
       _knownActionIssueIds = currentIds;
     } else {
@@ -68,10 +69,10 @@ async function loadNotifications() {
       badge.style.display = 'none';
     }
 
-    // Build items: action-required issues first, then comments
+    // Build items: action-required (unacknowledged) issues first, then acknowledged, then comments
     const items = [];
     for (const issue of issues) {
-      items.push({ type: 'issue', time: issue.updated_at, data: issue, actionRequired: true });
+      items.push({ type: 'issue', time: issue.updated_at, data: issue, actionRequired: !issue.acknowledged_at });
     }
     for (const c of comments) {
       items.push({ type: 'comment', time: c.created_at, data: c, actionRequired: false });
