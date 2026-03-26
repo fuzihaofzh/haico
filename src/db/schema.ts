@@ -228,8 +228,10 @@ export function initializeDatabase(db: Database.Database): void {
 
   // Migration: fix issues CHECK constraint to include 'pending' status
   // SQLite doesn't support ALTER CHECK, so we rebuild the table if the constraint is missing.
+  // IMPORTANT: must disable foreign_keys during table rebuild to avoid breaking FK references.
   const issuesTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='issues'").get() as any;
   if (issuesTableSql && !issuesTableSql.sql.includes("'pending'")) {
+    db.pragma('foreign_keys = OFF');
     db.exec(`
       ALTER TABLE issues RENAME TO issues_old;
       CREATE TABLE issues (
@@ -255,7 +257,32 @@ export function initializeDatabase(db: Database.Database): void {
       CREATE INDEX IF NOT EXISTS idx_issues_assigned ON issues(assigned_to, status);
       CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id);
     `);
+    db.pragma('foreign_keys = ON');
     logger.info('Migration: rebuilt issues table with pending status in CHECK constraint');
+  }
+
+  // Migration: fix broken FK references after prior table rebuild
+  // If issue_comments FK still references issues_old (which no longer exists), rebuild issue_comments too.
+  const commentsTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='issue_comments'").get() as any;
+  if (commentsTableSql && commentsTableSql.sql.includes('issues_old')) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE issue_comments RENAME TO issue_comments_old;
+      CREATE TABLE issue_comments (
+        id TEXT PRIMARY KEY,
+        issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+        author_id TEXT NOT NULL,
+        body TEXT NOT NULL,
+        event_type TEXT DEFAULT 'comment' CHECK(event_type IN ('comment', 'status_change', 'assignment', 'label_change')),
+        meta TEXT DEFAULT '',
+        created_at DATETIME DEFAULT (datetime('now'))
+      );
+      INSERT INTO issue_comments SELECT * FROM issue_comments_old;
+      DROP TABLE issue_comments_old;
+      CREATE INDEX IF NOT EXISTS idx_issue_comments ON issue_comments(issue_id);
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: rebuilt issue_comments table to fix FK references');
   }
 
   // Migration: set default Sonnet model for controller agents without a --model flag
