@@ -431,7 +431,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
     // Recent comments on any issue (last 20)
     const recentComments = db.prepare(
-      "SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name FROM issue_comments c JOIN issues i ON c.issue_id = i.id JOIN projects p ON i.project_id = p.id WHERE c.author_id != 'user' ORDER BY c.created_at DESC LIMIT 20"
+      "SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name FROM issue_comments c JOIN issues i ON c.issue_id = i.id JOIN projects p ON i.project_id = p.id WHERE c.author_id != 'user' ORDER BY c.created_at DESC LIMIT 50"
     ).all() as any[];
 
     return { user_issues: userIssues, recent_comments: recentComments };
@@ -458,7 +458,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     if (!q) return [];
     const like = `%${q}%`;
     return db.prepare(
-      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.title LIKE ? OR i.body LIKE ? OR CAST(i.number AS TEXT) LIKE ? ORDER BY i.updated_at DESC LIMIT 50"
+      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.title LIKE ? OR i.body LIKE ? OR CAST(i.number AS TEXT) LIKE ? ORDER BY i.updated_at DESC LIMIT 200"
     ).all(like, like, like);
   });
 
