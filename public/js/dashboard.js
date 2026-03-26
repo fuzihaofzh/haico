@@ -8,6 +8,9 @@ let _inboxAllItems = []; // cached items for search filtering
 // Track known action-required issue IDs to detect new ones
 let _knownActionIssueIds = null; // null = first load (don't ring on first load)
 
+// Track locally acknowledged issue IDs so they survive inbox refresh
+let _acknowledgedIds = new Set();
+
 async function loadDashboardSummary() {
   try {
     const res = await fetch('/api/dashboard/summary', { headers: apiHeaders() });
@@ -70,9 +73,20 @@ async function loadNotifications() {
     }
 
     // Build items: action-required (unacknowledged) issues first, then acknowledged, then comments
+    // Sync local acknowledged set with server state:
+    // - If server says acknowledged_at is set, keep in local set
+    // - If server says acknowledged_at is NULL (e.g. new comment reset it), remove from local set
+    for (const issue of issues) {
+      if (issue.acknowledged_at) {
+        _acknowledgedIds.add(issue.id);
+      } else {
+        _acknowledgedIds.delete(issue.id);
+      }
+    }
     const items = [];
     for (const issue of issues) {
-      items.push({ type: 'issue', time: issue.updated_at, data: issue, actionRequired: !issue.acknowledged_at });
+      const isAcknowledged = !!issue.acknowledged_at || _acknowledgedIds.has(issue.id);
+      items.push({ type: 'issue', time: issue.updated_at, data: issue, actionRequired: !isAcknowledged });
     }
     for (const c of comments) {
       items.push({ type: 'comment', time: c.created_at, data: c, actionRequired: false });
@@ -96,14 +110,17 @@ function renderInboxItems(items) {
 
   let html = '';
   for (const item of items) {
-    // Apply filter
-    if (_notifFilter === 'action' && !item.actionRequired) continue;
+    // Apply filter — but keep recently-acknowledged issues visible (not red)
+    const isLocallyAcked = item.type === 'issue' && item.data && _acknowledgedIds.has(item.data.id);
+    if (_notifFilter === 'action' && !item.actionRequired && !isLocallyAcked) continue;
 
     if (item.type === 'issue') {
       const issue = item.data;
       // Apply search
       if (query && !matchesSearch(query, '#' + issue.number, issue.title, issue.body || '')) continue;
       const isAction = item.actionRequired;
+      const isAcked = _acknowledgedIds.has(issue.id) || !!issue.acknowledged_at;
+      const ackBtnHtml = isAcked ? '' : `<button class="notif-ack-btn" onclick="event.stopPropagation();acknowledgeIssue('${issue.id}')" title="标记已阅">✓</button>`;
       html += `<div class="notif-item${isAction ? ' notif-action-required' : ''}" id="notif-issue-${issue.id}" onclick="openIssuePanel('${issue.id}')" style="cursor:pointer">
         <span class="notif-icon" style="color:${isAction ? 'var(--error)' : 'var(--text-secondary)'}">&#9679;</span>
         <span class="notif-text">
@@ -111,7 +128,7 @@ function renderInboxItems(items) {
           <a href="/projects/${issue.project_id}/issues/${issue.number}" onclick="event.stopPropagation()">#${issue.number}</a>
           ${esc(issue.title)}
         </span>
-        <button class="notif-ack-btn" onclick="event.stopPropagation();acknowledgeIssue('${issue.id}')" title="标记已阅">✓</button>
+        ${ackBtnHtml}
         <span class="notif-time">${timeAgo(issue.updated_at) || ''}</span>
       </div>`;
     } else {
@@ -228,6 +245,8 @@ async function acknowledgeIssue(issueId) {
   try {
     const res = await fetch(`/api/issues/${issueId}/acknowledge`, { method: 'POST' });
     if (res.ok) {
+      // Track locally so the item survives inbox refresh
+      _acknowledgedIds.add(issueId);
       const el = document.getElementById('notif-issue-' + issueId);
       if (el) {
         el.classList.remove('notif-action-required');
