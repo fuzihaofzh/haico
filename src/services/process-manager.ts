@@ -9,9 +9,11 @@ import { broadcastToAgent, broadcastToProject } from './websocket';
 import logger from '../logger';
 
 const runningProcesses = new Map<string, ChildProcess>();
-const processTimers = new Map<string, NodeJS.Timeout>();
 const PROMPT_DIR = path.join(os.tmpdir(), 'argus-prompts');
-const DEFAULT_MAX_RUNTIME_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+// Track last activity (output) time per agent — used by watchdog to detect stuck agents
+const lastActivityTime = new Map<string, number>();
+const DEFAULT_IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 60 minutes with no output = stuck
 
 // Track consecutive error count per agent for session invalidation
 const agentErrorCount = new Map<string, number>();
@@ -187,22 +189,7 @@ export function startAgentProcess(
 
   const pid = child.pid || 0;
   runningProcesses.set(agent.id, child);
-
-  // Set max runtime timeout to prevent stuck agents
-  const maxRuntime = (agent as any).max_runtime_ms || DEFAULT_MAX_RUNTIME_MS;
-  const timer = setTimeout(() => {
-    if (runningProcesses.has(agent.id)) {
-      logger.warn(`Agent ${agent.id} (${agent.name}) exceeded max runtime of ${Math.round(maxRuntime / 60000)} minutes, killing process`);
-      logStmt.run(agent.id, runId, `[Argus] Process killed: exceeded max runtime of ${Math.round(maxRuntime / 60000)} minutes`, 'stderr');
-      child.kill('SIGTERM');
-      setTimeout(() => {
-        if (runningProcesses.has(agent.id)) {
-          child.kill('SIGKILL');
-        }
-      }, 5000);
-    }
-  }, maxRuntime);
-  processTimers.set(agent.id, timer);
+  lastActivityTime.set(agent.id, Date.now());
 
   db.prepare('UPDATE agents SET pid = ? WHERE id = ?').run(pid, agent.id);
 
@@ -221,6 +208,7 @@ export function startAgentProcess(
 
   function logAndBroadcast(content: string, stream: string) {
     if (!content.trim()) return;
+    lastActivityTime.set(agent.id, Date.now());
     logStmt.run(agent.id, runId, content, stream);
     broadcastToAgent(agent.id, { type: 'output', stream, content, runId });
   }
@@ -346,8 +334,7 @@ export function startAgentProcess(
 
   child.on('close', (code) => {
     runningProcesses.delete(agent.id);
-    const runtimeTimer = processTimers.get(agent.id);
-    if (runtimeTimer) { clearTimeout(runtimeTimer); processTimers.delete(agent.id); }
+    lastActivityTime.delete(agent.id);
     cleanupPromptFile(promptFile);
     // If agent was explicitly stopped, preserve 'stopped' status
     const currentAgent = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as { status: string } | undefined;
@@ -396,8 +383,7 @@ export function startAgentProcess(
   child.on('error', (err: any) => {
     logger.error(`Spawn error: ${err.message} code=${err.code} path=${err.path} syscall=${err.syscall} cwd=${cwd}`);
     runningProcesses.delete(agent.id);
-    const runtimeTimer = processTimers.get(agent.id);
-    if (runtimeTimer) { clearTimeout(runtimeTimer); processTimers.delete(agent.id); }
+    lastActivityTime.delete(agent.id);
     cleanupPromptFile(promptFile);
 
     // If resume failed, retry with a fresh session
@@ -423,9 +409,6 @@ export function stopAgentProcess(agentId: string): boolean {
   const child = runningProcesses.get(agentId);
   if (!child) return false;
 
-  const timer = processTimers.get(agentId);
-  if (timer) { clearTimeout(timer); processTimers.delete(agentId); }
-
   child.kill('SIGTERM');
   // Force kill after 5 seconds
   setTimeout(() => {
@@ -441,13 +424,19 @@ export function isAgentRunning(agentId: string): boolean {
   return runningProcesses.has(agentId);
 }
 
+/** Returns how many ms since the agent last produced output, or -1 if not tracked. */
+export function getAgentIdleMs(agentId: string): number {
+  const t = lastActivityTime.get(agentId);
+  return t ? Date.now() - t : -1;
+}
+
+export { DEFAULT_IDLE_TIMEOUT_MS };
+
 export function getRunningAgentIds(): string[] {
   return Array.from(runningProcesses.keys());
 }
 
 export function stopAllProcesses(): void {
-  for (const [, timer] of processTimers) { clearTimeout(timer); }
-  processTimers.clear();
   for (const [agentId, child] of runningProcesses) {
     logger.info(`Killing agent ${agentId} (pid: ${child.pid})`);
     child.kill('SIGTERM');

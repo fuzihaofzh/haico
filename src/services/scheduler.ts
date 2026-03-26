@@ -1,13 +1,15 @@
 import cron from 'node-cron';
 import { getDatabase } from '../db/database';
-import { Project } from '../types';
+import { Agent, Project } from '../types';
 import { triggerControllerAgent } from './controller';
+import { stopAgentProcess, isAgentRunning, getAgentIdleMs, DEFAULT_IDLE_TIMEOUT_MS } from './process-manager';
 import { config } from '../config';
 import logger from '../logger';
 
 const scheduledTasks = new Map<string, cron.ScheduledTask>();
 let logCleanupTask: cron.ScheduledTask | null = null;
 let issueScanTask: cron.ScheduledTask | null = null;
+let watchdogTask: cron.ScheduledTask | null = null;
 
 export function scheduleProject(project: Project): void {
   // Remove existing schedule if any
@@ -177,6 +179,48 @@ function startIssueScan(): void {
   logger.info('Issue scan scheduled: every 1 minute');
 }
 
+// Watchdog: detect agents stuck in 'running' state.
+// Two checks:
+// 1. Process tracked in-memory: kill if idle (no output) for > IDLE_TIMEOUT
+// 2. DB says 'running' but no in-memory process: orphaned state, reset to idle
+function startWatchdog(): void {
+  watchdogTask = cron.schedule('*/5 * * * *', () => {
+    try {
+      const db = getDatabase();
+      const runningAgents = db.prepare(
+        "SELECT * FROM agents WHERE status = 'running'"
+      ).all() as Agent[];
+
+      for (const agent of runningAgents) {
+        if (isAgentRunning(agent.id)) {
+          // Process exists in-memory — check if it's been silent too long
+          const idleMs = getAgentIdleMs(agent.id);
+          if (idleMs >= DEFAULT_IDLE_TIMEOUT_MS) {
+            const idleMin = Math.round(idleMs / 60000);
+            logger.warn(`Watchdog: agent "${agent.name}" has no output for ${idleMin} min, killing (pid=${agent.pid})`);
+            db.prepare(
+              "INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'stderr')"
+            ).run(agent.id, '', `[Argus] Watchdog: process killed after ${idleMin} minutes with no output`);
+            stopAgentProcess(agent.id);
+          }
+        } else {
+          // DB says running but process is gone — orphaned state (e.g., Argus restarted)
+          const startedAt = agent.started_at
+            ? new Date(agent.started_at + (agent.started_at.includes('Z') ? '' : 'Z')).getTime()
+            : 0;
+          const runtimeMin = startedAt ? Math.round((Date.now() - startedAt) / 60000) : '?';
+          logger.warn(`Watchdog: agent "${agent.name}" marked running for ${runtimeMin} min but process is gone, resetting to idle`);
+          db.prepare("UPDATE agents SET status = 'idle', pid = NULL, finished_at = datetime('now') WHERE id = ?")
+            .run(agent.id);
+        }
+      }
+    } catch (e) {
+      logger.error(e, 'Watchdog scan failed');
+    }
+  });
+  logger.info(`Watchdog scheduled: every 5 minutes, idle timeout ${DEFAULT_IDLE_TIMEOUT_MS / 60000} minutes`);
+}
+
 export function initializeScheduler(): void {
   const db = getDatabase();
   const projects = db.prepare("SELECT * FROM projects WHERE status = 'active'").all() as Project[];
@@ -187,6 +231,7 @@ export function initializeScheduler(): void {
 
   startLogCleanup();
   startIssueScan();
+  startWatchdog();
 
   logger.info(`Initialized scheduler with ${projects.length} active project(s)`);
 }
@@ -203,6 +248,10 @@ export function stopAllSchedulers(): void {
   if (issueScanTask) {
     issueScanTask.stop();
     issueScanTask = null;
+  }
+  if (watchdogTask) {
+    watchdogTask.stop();
+    watchdogTask = null;
   }
   logger.info('All schedulers stopped');
 }
