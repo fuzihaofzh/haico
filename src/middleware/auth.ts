@@ -97,6 +97,8 @@ const LOCALHOST_SAFE_PREFIXES = [
   '/api/reactions/',
   '/api/inbox',
   '/api/knowledge/',
+  '/api/dashboard/',
+  '/api/my-issues',
 ];
 
 // Admin-only operations that localhost should NOT bypass
@@ -424,9 +426,9 @@ export function setupAuth(app: FastifyInstance): void {
       return;
     }
 
-    // Allow UI page routes (HTML pages) — they load data via API which handles auth
+    // Unauthenticated page routes → redirect to login
     if (!url.startsWith('/api/') && !url.startsWith('/ws')) {
-      return;
+      return reply.redirect('/login');
     }
 
     // Unauthenticated API/WS

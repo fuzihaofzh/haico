@@ -234,11 +234,19 @@ function closeDrawer() {
   document.getElementById('overlay').classList.remove('open');
 }
 
-// Override fetch — on 401, don't auto-redirect (let each page handle it gracefully)
-// Only redirect if user explicitly navigates (not background API polls)
+// Override fetch — on 401 API response, redirect to /login
 const _originalFetch = window.fetch;
 window.fetch = function(input, init) {
-  return _originalFetch.call(this, input, init);
+  return _originalFetch.call(this, input, init).then(function(resp) {
+    if (resp.status === 401) {
+      var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+      // Don't redirect for auth endpoints (login/setup/logout)
+      if (url.indexOf('/api/auth') === -1) {
+        window.location.href = '/login';
+      }
+    }
+    return resp;
+  });
 };
 
 // Logout
