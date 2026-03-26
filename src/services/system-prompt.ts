@@ -144,9 +144,33 @@ ${C} -X PUT ${base}/api/projects/${project.id} \\
   const knowledgeEntries = db.prepare(
     "SELECT title, content FROM knowledge_entries WHERE project_id = ? AND importance = 'high' ORDER BY updated_at DESC"
   ).all(project.id) as any[];
-  const knowledgeSection = knowledgeEntries.length > 0
-    ? `\n## Project Knowledge Base (Auto-injected)\n${knowledgeEntries.map(k => `### ${k.title}\n${k.content}`).join('\n\n')}\n\n_Query more knowledge: \`${C} "${base}/api/projects/${project.id}/knowledge?tag=TAG&importance=LEVEL"\`_`
-    : '';
+  const knowledgeSection = `
+## Project Knowledge Base
+${knowledgeEntries.length > 0
+    ? knowledgeEntries.map(k => `### ${k.title}\n${k.content}`).join('\n\n')
+    : '(empty)'}
+
+**Query knowledge:**
+\`\`\`bash
+${C} "${base}/api/projects/${project.id}/knowledge?tag=TAG&importance=LEVEL"
+\`\`\`
+
+**Add knowledge** (when you discover important patterns, pitfalls, or conventions):
+\`\`\`bash
+${C} -X POST ${base}/api/projects/${project.id}/knowledge \\
+  -H "Content-Type: application/json" \\
+  -d '{"title":"Title","content":"What you learned","tags":"tag1,tag2","importance":"high","created_by":"${agent.id}"}'
+\`\`\`
+importance: \`high\` (auto-injected to all agents), \`medium\` (queryable), \`low\`
+
+**Update existing knowledge:**
+\`\`\`bash
+${C} -X PUT ${base}/api/knowledge/{id} \\
+  -H "Content-Type: application/json" \\
+  -d '{"content":"Updated content","importance":"high"}'
+\`\`\`
+
+Record knowledge when you encounter: project conventions, recurring bugs, environment quirks, build/deploy notes, or anything future agents should know.`;
 
   const customSection = agent.custom_instructions
     ? `\n## Custom Instructions\n${agent.custom_instructions}`
