@@ -367,6 +367,58 @@ header h1 span { color: var(--accent); }
   50% { opacity: 0.4; }
 }
 
+/* Activity Summary Panel */
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.4;
+}
+.activity-item.active {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  color: var(--accent);
+  font-weight: 500;
+}
+.activity-icon {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  font-size: 13px;
+}
+.activity-item.active .activity-icon {
+  animation: sparkle 1.5s ease-in-out infinite;
+}
+.activity-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-text code {
+  font-size: 11px;
+  background: color-mix(in srgb, var(--border) 30%, var(--bg));
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.activity-time {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
 /* Dashboard Stats */
 .dashboard-stats {
   display: grid;

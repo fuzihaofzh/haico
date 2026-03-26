@@ -3,6 +3,115 @@ let term = null;
 let fitAddon = null;
 let lastLogId = 0;
 
+// ─── Activity Summary ───
+const MAX_ACTIVITIES = 20;
+const activities = [];
+let lastActivityIsActive = false;
+
+function parseToolActivity(content) {
+  // Match [Tool: ToolName] {json_input}
+  const m = content.match(/^\[Tool: (\w+)\]\s*(.*)$/);
+  if (!m) return null;
+  const tool = m[1];
+  let detail = '';
+  try {
+    const input = JSON.parse(m[2]);
+    switch (tool) {
+      case 'Read':
+        detail = '读取文件 <code>' + escHtml(basename(input.file_path || '')) + '</code>';
+        break;
+      case 'Edit':
+        detail = '编辑文件 <code>' + escHtml(basename(input.file_path || '')) + '</code>';
+        break;
+      case 'Write':
+        detail = '写入文件 <code>' + escHtml(basename(input.file_path || '')) + '</code>';
+        break;
+      case 'Bash':
+        detail = '运行命令 <code>' + escHtml((input.command || '').slice(0, 60)) + '</code>';
+        break;
+      case 'Grep':
+        detail = '搜索 <code>' + escHtml((input.pattern || '').slice(0, 40)) + '</code>';
+        break;
+      case 'Glob':
+        detail = '查找文件 <code>' + escHtml((input.pattern || '').slice(0, 40)) + '</code>';
+        break;
+      case 'Agent':
+        detail = '委派子任务 ' + escHtml((input.description || '').slice(0, 50));
+        break;
+      case 'WebFetch':
+        detail = '获取网页 <code>' + escHtml((input.url || '').slice(0, 50)) + '</code>';
+        break;
+      case 'WebSearch':
+        detail = '搜索网页 <code>' + escHtml((input.query || '').slice(0, 40)) + '</code>';
+        break;
+      case 'NotebookEdit':
+        detail = '编辑Notebook <code>' + escHtml(basename(input.notebook_path || '')) + '</code>';
+        break;
+      default:
+        detail = '调用工具 ' + escHtml(tool);
+    }
+  } catch {
+    detail = '调用工具 ' + escHtml(tool);
+  }
+  return { tool, detail };
+}
+
+const TOOL_ICONS = {
+  Read: '📖', Edit: '✏️', Write: '📝', Bash: '⚡', Grep: '🔍',
+  Glob: '📁', Agent: '🤖', WebFetch: '🌐', WebSearch: '🔎', NotebookEdit: '📓',
+};
+
+function addActivity(tool, detail) {
+  // Mark previous active item as done
+  if (lastActivityIsActive && activities.length > 0) {
+    activities[activities.length - 1].active = false;
+  }
+  activities.push({ tool, detail, time: new Date(), active: true });
+  if (activities.length > MAX_ACTIVITIES) activities.shift();
+  lastActivityIsActive = true;
+  renderActivities();
+}
+
+function completeLastActivity() {
+  if (lastActivityIsActive && activities.length > 0) {
+    activities[activities.length - 1].active = false;
+    lastActivityIsActive = false;
+    renderActivities();
+  }
+}
+
+function renderActivities() {
+  const panel = document.getElementById('activity-panel');
+  const list = document.getElementById('activity-list');
+  const count = document.getElementById('activity-count');
+  if (!panel || !list) return;
+
+  if (activities.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  count.textContent = activities.length + ' 条记录';
+
+  // Render newest first
+  list.innerHTML = activities.slice().reverse().map(a => {
+    const icon = TOOL_ICONS[a.tool] || '🔧';
+    const cls = a.active ? 'activity-item active' : 'activity-item';
+    const timeStr = a.time.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return `<div class="${cls}"><span class="activity-icon">${icon}</span><span class="activity-text">${a.detail}</span><span class="activity-time">${timeStr}</span></div>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function basename(p) {
+  return p ? p.split('/').pop() : '';
+}
+
 function initTerminal() {
   const cs = getComputedStyle(document.documentElement);
   term = new Terminal({
@@ -25,7 +134,7 @@ function initTerminal() {
   window.addEventListener('resize', () => fitAddon.fit());
 }
 
-function writeLog(log) {
+function writeLog(log, skipActivity) {
   if (log.stream === 'stdin') {
     const preview = log.content.replace(/\n/g, ' ').slice(0, 100);
     term.writeln('\x1b[36m--- Input Prompt (' + log.content.length + ' chars) ---\x1b[0m');
@@ -40,6 +149,18 @@ function writeLog(log) {
   } else {
     // Skip proxychains noise in stdout too
     if (log.content.includes('Executing through proxy:') || log.content.includes('Port 7897')) return;
+
+    // Parse activity from tool calls (only for real-time, not history)
+    if (!skipActivity) {
+      const trimmed = log.content.trim();
+      if (trimmed.startsWith('[Tool: ')) {
+        const parsed = parseToolActivity(trimmed);
+        if (parsed) addActivity(parsed.tool, parsed.detail);
+      } else if (trimmed.startsWith('[Result]')) {
+        completeLastActivity();
+      }
+    }
+
     // Use writeln per line for reliable display
     const lines = log.content.split('\n');
     lines.forEach((line, i) => {
@@ -82,9 +203,11 @@ async function loadHistory() {
     lastLogId = Math.max(...logs.map(l => l.id));
 
     // Group by run_id, display with separators
+    // Parse activities from last run only (most recent context)
     logs.reverse();
     let currentRun = null;
     let runIndex = 0;
+    const lastRunId = logs.length > 0 ? logs[logs.length - 1].run_id : null;
     logs.forEach(log => {
       if (log.run_id !== currentRun) {
         currentRun = log.run_id;
@@ -92,8 +215,21 @@ async function loadHistory() {
         if (runIndex > 1) term.writeln('');
         term.writeln('\x1b[33m━━━ Run #' + runIndex + ' ━━━\x1b[0m');
       }
-      writeLog(log);
+      // Parse activities from last run for initial context
+      const isLastRun = log.run_id === lastRunId;
+      if (isLastRun && log.stream === 'stdout') {
+        const trimmed = log.content.trim();
+        if (trimmed.startsWith('[Tool: ')) {
+          const parsed = parseToolActivity(trimmed);
+          if (parsed) {
+            activities.push({ tool: parsed.tool, detail: parsed.detail, time: new Date(log.created_at || Date.now()), active: false });
+            if (activities.length > MAX_ACTIVITIES) activities.shift();
+          }
+        }
+      }
+      writeLog(log, true);
     });
+    renderActivities();
     term.writeln('\r\n\x1b[36m--- End of history ---\x1b[0m\r\n');
   } catch (e) { console.error('Failed to load history', e); }
 }
@@ -253,7 +389,7 @@ async function stopAgent() {
 function clearTerminal() { if (term) { term.clear(); } }
 
 function openTerminal() {
-  window.location.href = `/terminal?agentId=${agentId}`;
+  window.location.href = `/terminal?agentId=${agentId}&newSession=true`;
 }
 
 async function saveInstructions() {
