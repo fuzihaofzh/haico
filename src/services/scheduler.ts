@@ -2,7 +2,8 @@ import cron from 'node-cron';
 import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { triggerControllerAgent } from './controller';
-import { stopAgentProcess, isAgentRunning, getAgentIdleMs, DEFAULT_IDLE_TIMEOUT_MS } from './process-manager';
+import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, DEFAULT_IDLE_TIMEOUT_MS } from './process-manager';
+import { buildSystemPrompt } from './system-prompt';
 import { config } from '../config';
 import logger from '../logger';
 
@@ -131,26 +132,54 @@ function startIssueScan(): void {
 
         if (!hasOpenIssues) continue;
 
-        // Check if any idle (non-paused) worker agents have assigned open issues
+        // Directly start idle workers that have assigned open/in_progress issues
         const idleWorkersWithIssues = db.prepare(`
-          SELECT a.id FROM agents a
+          SELECT a.* FROM agents a
           WHERE a.project_id = ? AND a.is_controller = 0 AND a.status = 'idle' AND a.paused = 0
           AND EXISTS (
             SELECT 1 FROM issues i
             WHERE i.project_id = ? AND i.assigned_to = a.id AND i.status IN ('open', 'in_progress')
           )
-          LIMIT 1
-        `).get(project.id, project.id);
+        `).all(project.id, project.id) as Agent[];
 
-        // Check for unassigned open issues
-        const hasUnassigned = db.prepare(
-          "SELECT 1 FROM issues WHERE project_id = ? AND assigned_to IS NULL AND status IN ('open', 'in_progress') LIMIT 1"
+        for (const worker of idleWorkersWithIssues) {
+          if (isAgentRunning(worker.id)) continue;
+          try {
+            // Build prompt same as /api/agents/:id/start
+            const parts: string[] = [];
+            if (worker.role) parts.push(`Role: ${worker.role}`);
+            if (project.task_description) parts.push(`Task: ${project.task_description}`);
+            const issues = db.prepare(
+              "SELECT * FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
+            ).all(project.id, worker.id) as any[];
+            if (issues.length > 0) {
+              parts.push('Assigned issues:\n' + issues.map((i: any) => `#${i.number} [${i.status}] ${i.title}: ${(i.body || '').slice(0, 200)}`).join('\n'));
+              db.prepare("UPDATE issues SET status = 'in_progress', updated_at = datetime('now') WHERE project_id = ? AND assigned_to = ? AND status = 'open'")
+                .run(project.id, worker.id);
+            }
+            const prompt = parts.join('\n\n');
+            if (!prompt) continue;
+            const commandTemplate = worker.command_template || project.command_template || config.defaultCommandTemplate;
+            const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
+            const systemPrompt = isRawShell ? undefined : buildSystemPrompt(worker, project);
+            logger.info(`Issue scan: auto-starting idle worker "${worker.name}" with ${issues.length} assigned issue(s) in project "${project.name}"`);
+            startAgentProcess(worker, prompt, commandTemplate, systemPrompt);
+          } catch (e) {
+            logger.error(e, `Issue scan: failed to auto-start worker "${worker.name}"`);
+          }
+        }
+
+        // Trigger controller for unassigned issues that need controller to assign
+        const needsController = db.prepare(
+          `SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress')
+           AND (assigned_to IS NULL OR assigned_to = 'all')
+           LIMIT 1`
         ).get(project.id);
 
-        if (idleWorkersWithIssues || hasUnassigned) {
-          logger.info(`Issue scan: found open issues needing attention in project "${project.name}", triggering controller`);
+        if (needsController) {
+          logger.info(`Issue scan: issues needing controller attention in project "${project.name}", triggering controller`);
           triggerControllerAgent(project);
-          continue; // Already triggering controller for this project
+          continue;
         }
 
         // Check for stale in_progress issues: assigned agent is idle (not paused),

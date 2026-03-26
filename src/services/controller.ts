@@ -68,6 +68,13 @@ export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?:
         "SELECT * FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
       ).all(project.id) as Issue[];
 
+  // Pending issues: already decomposed into sub-issues, show summary only
+  const pendingIssues = triggerIssueNumber
+    ? []
+    : db.prepare(
+        "SELECT * FROM issues WHERE project_id = ? AND status = 'pending' ORDER BY priority DESC, created_at"
+      ).all(project.id) as Issue[];
+
   const agents = db.prepare(
     'SELECT id, name, role, status, paused, is_controller FROM agents WHERE project_id = ?'
   ).all(project.id) as any[];
@@ -117,6 +124,14 @@ ${unassigned.map(formatIssue).join('\n\n') || 'None - all issues are assigned.'}
 ## Assigned / In-Progress Issues (${assigned.length})
 ${assigned.map(formatIssue).join('\n\n') || 'None.'}
 
+## Pending Issues (${pendingIssues.length}) — waiting for sub-issues to complete
+${pendingIssues.map((i) => {
+    const assignee = i.assigned_to
+      ? (workers.find((a: any) => a.id === i.assigned_to)?.name || (i.assigned_to === 'user' ? 'User' : i.assigned_to))
+      : 'unassigned';
+    return `#${i.number} [pending] ${i.title} -> ${assignee}`;
+  }).join('\n') || 'None.'}
+
 ## Recently Completed (${doneRecent.length})
 ${doneRecent.map((i) => `#${i.number} [${i.status}] ${i.title}`).join('\n') || 'None.'}
 
@@ -149,6 +164,7 @@ ${workers.map((a: any) => {
    - All work is complete (create a summary issue for the user)
    - An error occurs that you cannot resolve
 8. **NEVER do long-running waits yourself.** Do NOT use sleep/wait/poll loops. If you need to wait for a worker, just exit. You will be triggered again automatically when the worker finishes. Each turn should complete quickly (under 60 seconds).
+14. **Pending状态。** 当你将一个issue拆分成多个子issue分配给worker后，将原issue状态设为\`pending\`。Pending表示"已拆分，等待子issue完成"。当所有相关子issue完成后，再将pending issue标记为done或关闭。
 9. **NEVER write code or edit files yourself.** Controller的职责是协调和决策，不是写代码。所有涉及代码修改的任务（无论大小，包括"简单"的UI修复、一行bug fix等）都必须分配给开发agent执行。Controller只负责：分配任务、启动agent、检查结果、管理流程。
 10. **需求需用户确认。** 产品agent提出的新功能需求必须先分配给"user"等待确认。只有用户确认后（通过评论或状态变更），才能将需求issue分配给开发agent。Bug修复类issue可以直接分配开发。
 11. **开发→测试流程。** 开发agent完成任务后，应创建测试验证issue分配给测试agent。测试agent验证通过后标记done，发现bug则创建bug issue分配给开发agent。Controller负责监督此流程。bug修复后必须经过测试验证，不能跳过测试直接完成。

@@ -67,7 +67,7 @@ ${C} -X PUT ${base}/api/issues/{issue_id} \\
   -H "Content-Type: application/json" \\
   -d '{"status":"done","actor":"${agent.id}"}'
 \`\`\`
-Status values: \`open\`, \`in_progress\`, \`done\`, \`closed\`
+Status values: \`open\`, \`in_progress\`, \`pending\` (waiting for sub-issues), \`done\`, \`closed\`
 
 **Add a comment to an issue:**
 \`\`\`bash

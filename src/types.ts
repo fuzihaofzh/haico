@@ -1,3 +1,5 @@
+export type OrchestratorEngine = 'native' | 'langgraph';
+
 export interface Project {
   id: string;
   name: string;
@@ -5,6 +7,7 @@ export interface Project {
   task_description: string;
   controller_interval_min: number;
   command_template: string;
+  orchestrator_engine: OrchestratorEngine;
   schedule_hours: string;
   status: 'active' | 'paused' | 'completed';
   created_at: string;
@@ -44,7 +47,7 @@ export interface Issue {
   created_by: string;
   assigned_to: string | null;
   priority: number;
-  status: 'open' | 'in_progress' | 'done' | 'closed';
+  status: 'open' | 'in_progress' | 'pending' | 'done' | 'closed';
   labels: string;
   milestone_id: string | null;
   created_at: string;
@@ -74,6 +77,7 @@ export interface CreateProjectInput {
   task_description: string;
   controller_interval_min?: number;
   command_template?: string;
+  orchestrator_engine?: OrchestratorEngine;
 }
 
 export interface CreateAgentInput {

@@ -7,6 +7,7 @@ function statusBadge(s) {
   const map = {
     'open':        '<span class="status-badge status-active">open</span>',
     'in_progress': '<span class="status-badge status-running">in progress</span>',
+    'pending':     '<span class="status-badge status-warning">pending</span>',
     'done':        '<span class="status-badge status-completed">done</span>',
     'closed':      '<span class="status-badge status-idle">closed</span>',
   };
@@ -715,6 +716,7 @@ async function loadIssues() {
     const filters = [
       { key: 'open', label: 'Open', count: counts.open, icon: '<circle cx="8" cy="8" r="7" fill="none" stroke="#3fb950" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="#3fb950"/>' },
       { key: 'in_progress', label: 'In Progress', count: counts.in_progress, icon: '<circle cx="8" cy="8" r="7" fill="none" stroke="#d29922" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="#d29922"/>' },
+      { key: 'pending', label: 'Pending', count: counts.pending, icon: '<circle cx="8" cy="8" r="7" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="4 2"/><circle cx="8" cy="8" r="2" fill="#d29922"/>' },
       { key: 'done', label: 'Done', count: counts.done, icon: '<circle cx="8" cy="8" r="7" fill="none" stroke="#8b6fcf" stroke-width="2"/><path d="M5.5 8l2 2 3.5-3.5" fill="none" stroke="#8b6fcf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>' },
       { key: 'closed', label: 'Closed', count: counts.closed, icon: '<circle cx="8" cy="8" r="7" fill="none" stroke="gray" stroke-width="2"/><line x1="5" y1="5" x2="11" y2="11" stroke="gray" stroke-width="1.5"/><line x1="11" y1="5" x2="5" y2="11" stroke="gray" stroke-width="1.5"/>' },
       { key: '', label: 'All', count: counts.total || 0 },
@@ -740,9 +742,11 @@ async function loadIssues() {
 
   container.innerHTML = `<div class="card" style="padding:0">${issues.map(i => {
     const labels = i.labels ? i.labels.split(',').filter(l=>l.trim()).map(l => issueLabelHtml(l)).join(' ') : '';
-    const icon = (i.status === 'open' || i.status === 'in_progress')
-      ? `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="${i.status==='in_progress'?'#d29922':'#3fb950'}" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="${i.status==='in_progress'?'#d29922':'#3fb950'}"/></svg>`
-      : '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#8b6fcf" stroke-width="2"/><path d="M5.5 8l2 2 3.5-3.5" fill="none" stroke="#8b6fcf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const icon = i.status === 'pending'
+      ? '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="4 2"/><circle cx="8" cy="8" r="2" fill="#d29922"/></svg>'
+      : (i.status === 'open' || i.status === 'in_progress')
+        ? `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="${i.status==='in_progress'?'#d29922':'#3fb950'}" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="${i.status==='in_progress'?'#d29922':'#3fb950'}"/></svg>`
+        : '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#8b6fcf" stroke-width="2"/><path d="M5.5 8l2 2 3.5-3.5" fill="none" stroke="#8b6fcf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     return `<a href="/projects/${projectId}/issues/${i.number}" class="issue-list-item" style="text-decoration:none;color:inherit">
       <div style="flex-shrink:0;margin-top:2px">${icon}</div>
       <div class="issue-main">

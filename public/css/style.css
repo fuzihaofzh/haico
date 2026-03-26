@@ -219,7 +219,7 @@ header h1 span { color: var(--accent); }
 }
 .status-active, .status-running { background: rgba(63, 185, 80, 0.2); color: var(--success); }
 .status-idle { background: rgba(139, 148, 158, 0.2); color: var(--text-secondary); }
-.status-paused, .status-stopped { background: rgba(210, 153, 34, 0.2); color: var(--warning); }
+.status-paused, .status-stopped, .status-warning { background: rgba(210, 153, 34, 0.2); color: var(--warning); }
 .status-error { background: rgba(248, 81, 73, 0.2); color: var(--error); }
 .status-completed { background: rgba(88, 166, 255, 0.2); color: var(--accent); }
 

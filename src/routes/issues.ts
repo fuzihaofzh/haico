@@ -142,7 +142,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       const rows = db.prepare(
         `SELECT status, COUNT(*) as count FROM issues WHERE project_id = ? GROUP BY status`
       ).all(request.params.pid) as { status: string; count: number }[];
-      const counts: Record<string, number> = { open: 0, in_progress: 0, done: 0, closed: 0 };
+      const counts: Record<string, number> = { open: 0, in_progress: 0, pending: 0, done: 0, closed: 0 };
       let total = 0;
       for (const row of rows) {
         counts[row.status] = row.count;
@@ -238,7 +238,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       const { status, assigned_to, title, body, labels, milestone_id, actor } = request.body as any;
       const actorId = actor || 'user';
 
-      if (status && !['open', 'in_progress', 'done', 'closed'].includes(status)) {
+      if (status && !['open', 'in_progress', 'pending', 'done', 'closed'].includes(status)) {
         return reply.code(400).send({ error: 'Invalid status' });
       }
 
