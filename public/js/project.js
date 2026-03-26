@@ -1281,21 +1281,28 @@ async function loadCostChart() {
       b.style.color = b.dataset.period === _currentCostPeriod ? '#fff' : '';
     });
 
+    // Build a stable agent→color map so both charts use the same colors
+    const allAgentNames = new Set();
+    if (data.time_series_by_agent) Object.keys(data.time_series_by_agent).forEach(n => allAgentNames.add(n));
+    if (data.by_agent) Object.keys(data.by_agent).forEach(n => allAgentNames.add(n));
+    const _agentColorMap = {};
+    [...allAgentNames].sort().forEach((name, i) => { _agentColorMap[name] = _agentColors[i % _agentColors.length]; });
+
     // Render per-agent stacked bar chart
     const agentsEl = document.getElementById('cost-chart-agents');
     if (data.time_series_by_agent && Object.keys(data.time_series_by_agent).length > 0) {
       const agents = Object.entries(data.time_series_by_agent);
-      agentsEl.innerHTML = renderStackedBarChart(agents, data.time_series, 600, 200);
+      agentsEl.innerHTML = renderStackedBarChart(agents, data.time_series, 600, 200, _agentColorMap);
     } else {
       agentsEl.innerHTML = '';
     }
 
     // Render agent comparison chart
-    renderAgentCostComparison(data.by_agent || {});
+    renderAgentCostComparison(data.by_agent || {}, _agentColorMap);
   } catch {}
 }
 
-function renderAgentCostComparison(byAgent) {
+function renderAgentCostComparison(byAgent, colorMap) {
   const el = document.getElementById('cost-agent-comparison');
   if (!el) return;
   const entries = Object.entries(byAgent).filter(([, v]) => v.cost > 0).sort((a, b) => b[1].cost - a[1].cost);
@@ -1308,7 +1315,7 @@ function renderAgentCostComparison(byAgent) {
   el.innerHTML = entries.map(([name, v], idx) => {
     const pct = totalCost > 0 ? (v.cost / totalCost * 100).toFixed(1) : '0';
     const barWidth = maxCost > 0 ? (v.cost / maxCost * 100).toFixed(1) : '0';
-    const color = _agentColors[idx % _agentColors.length];
+    const color = (colorMap && colorMap[name]) || _agentColors[idx % _agentColors.length];
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <div style="width:120px;font-size:11px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(name)}">${esc(name)}</div>
       <div style="flex:1;height:18px;background:var(--bg);border:1px solid var(--border);border-radius:3px;overflow:hidden">
@@ -1321,7 +1328,7 @@ function renderAgentCostComparison(byAgent) {
   `<div style="margin-top:8px;font-size:12px;color:var(--fg);font-weight:600">总计: $${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}</div>`;
 }
 
-function renderStackedBarChart(agents, totalSeries, width, height) {
+function renderStackedBarChart(agents, totalSeries, width, height, colorMap) {
   const PAD_L = 50, PAD_R = 16, PAD_T = 12, PAD_B = 32;
   const W = width, H = height;
   const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B;
@@ -1365,7 +1372,7 @@ function renderStackedBarChart(agents, totalSeries, width, height) {
       if (cost <= 0) return;
       const barH = (cost / maxCost) * ch;
       const y = PAD_T + ch - yOffset - barH;
-      const color = _agentColors[idx % _agentColors.length];
+      const color = (colorMap && colorMap[agentName]) || _agentColors[idx % _agentColors.length];
       const runs = agentDateMaps[idx][date]?.runs || 0;
       bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color}" opacity="0.85" rx="1">
         <title>${agentName} ${date}: $${cost.toFixed(4)} (${runs} runs)</title>
@@ -1376,7 +1383,7 @@ function renderStackedBarChart(agents, totalSeries, width, height) {
 
   // Legend
   const legend = agents.map(([name], idx) => {
-    const color = _agentColors[idx % _agentColors.length];
+    const color = (colorMap && colorMap[name]) || _agentColors[idx % _agentColors.length];
     return `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11px;color:var(--text-secondary)">
       <span style="width:10px;height:10px;background:${color};border-radius:2px;display:inline-block"></span>${name.length > 15 ? name.slice(0, 14) + '…' : name}
     </span>`;
