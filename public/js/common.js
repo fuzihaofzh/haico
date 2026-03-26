@@ -140,8 +140,8 @@ document.addEventListener('keydown', function(e) {
       if (submitBtn) { submitBtn.click(); e.preventDefault(); return; }
     }
     // Comment input on issue page
-    if (el.id === 'comment-input') {
-      const submitBtn = document.querySelector('button[onclick="addComment()"]');
+    if (el.id === 'ir-comment-input') {
+      const submitBtn = document.querySelector('button[onclick="IssueRenderer.addComment()"]');
       if (submitBtn) { submitBtn.click(); e.preventDefault(); }
     }
   }
