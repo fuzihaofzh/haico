@@ -335,7 +335,7 @@ async function loadProjects() {
         ${activityLine}
         <div class="quick-cmd-bar" onclick="event.stopPropagation()">
           <div class="quick-cmd-row">
-            <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." oninput="toggleQuickCmdBody('${p.id}')" onkeydown="if(event.key==='Enter'&&!event.shiftKey)sendQuickCmd('${p.id}')">
+            <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." oninput="toggleQuickCmdBody('${p.id}')" onkeydown="if(event.key==='Enter'&&event.shiftKey){event.preventDefault();sendQuickCmd('${p.id}')}">
             <button class="quick-cmd-btn" onclick="sendQuickCmd('${p.id}')" title="Send">&#9654;</button>
           </div>
           <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="详细内容（可选）..." rows="3" data-collapsed></textarea>
