@@ -39,20 +39,6 @@ function startIssueScan(): void {
       const projects = db.prepare("SELECT * FROM projects WHERE status = 'active'").all() as Project[];
 
       for (const project of projects) {
-        // Check schedule_hours
-        if (project.schedule_hours) {
-          const now = new Date();
-          const hour = now.getHours();
-          const match = project.schedule_hours.match(/(\d+)\s*-\s*(\d+)/);
-          if (match) {
-            const start = parseInt(match[1]);
-            const end = parseInt(match[2]);
-            if (start <= end ? (hour < start || hour >= end) : (hour >= end && hour < start)) {
-              continue; // Outside schedule
-            }
-          }
-        }
-
         // Check if there are any open/in_progress issues in this project
         const hasOpenIssues = db.prepare(
           "SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress') LIMIT 1"

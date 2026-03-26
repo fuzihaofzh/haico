@@ -5,10 +5,8 @@ export interface Project {
   name: string;
   description: string;
   task_description: string;
-  controller_interval_min: number;
   command_template: string;
   orchestrator_engine: OrchestratorEngine;
-  schedule_hours: string;
   status: 'active' | 'paused' | 'completed';
   created_at: string;
   updated_at: string;
@@ -78,7 +76,6 @@ export interface CreateProjectInput {
   name: string;
   description?: string;
   task_description: string;
-  controller_interval_min?: number;
   command_template?: string;
   orchestrator_engine?: OrchestratorEngine;
 }
