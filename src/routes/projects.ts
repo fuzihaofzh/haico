@@ -421,7 +421,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project | undefined;
     if (!existing) return reply.code(404).send({ error: 'Project not found' });
 
-    const { name, description, task_description, command_template, orchestrator_engine, status, schedule_hours } = request.body as any;
+    const { name, description, task_description, command_template, orchestrator_engine, status } = request.body as any;
 
     const orchestratorEngine = normalizeOrchestratorEngine(orchestrator_engine);
     if (orchestrator_engine !== undefined && orchestratorEngine === null) {
@@ -435,13 +435,12 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
         task_description = COALESCE(?, task_description),
         command_template = COALESCE(?, command_template),
         orchestrator_engine = COALESCE(?, orchestrator_engine),
-        schedule_hours = COALESCE(?, schedule_hours),
         status = COALESCE(?, status),
         updated_at = datetime('now')
       WHERE id = ?
     `).run(
       name ?? null, description ?? null, task_description ?? null,
-      command_template ?? null, orchestratorEngine ?? null, schedule_hours ?? null,
+      command_template ?? null, orchestratorEngine ?? null,
       status ?? null,
       request.params.id
     );

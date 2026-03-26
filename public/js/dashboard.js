@@ -377,7 +377,6 @@ async function createProject() {
       name,
       description,
       task_description: taskDesc,
-      controller_interval_min: 0,
       command_template: toolPath,
       working_directory: workDir,
       controller_role: ctrlRole,

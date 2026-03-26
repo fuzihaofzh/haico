@@ -32,8 +32,7 @@ cat > /tmp/argus-proj.json << 'EOF'
 {
   "name": "argus-self-review",
   "description": "Agents review the Argus codebase",
-  "task_description": "You are managing a code review of the Argus project at /misc/projdata11/info_fil/zhfu/lin/argus. Create 2 workers: one to count files and lines of code, one to find TODO/FIXME and code quality issues. Assign each worker an issue describing their task. Start them, wait for results in issue comments, then compile a summary issue for the user.",
-  "controller_interval_min": 60
+  "task_description": "You are managing a code review of the Argus project at /misc/projdata11/info_fil/zhfu/lin/argus. Create 2 workers: one to count files and lines of code, one to find TODO/FIXME and code quality issues. Assign each worker an issue describing their task. Start them, wait for results in issue comments, then compile a summary issue for the user."
 }
 EOF
 

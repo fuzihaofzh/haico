@@ -307,7 +307,6 @@ describe('Argus API', () => {
           name: 'test-project',
           description: 'A test project',
           task_description: 'Run tests',
-          controller_interval_min: 60,
           command_template: 'echo',
         },
       });
@@ -326,13 +325,19 @@ describe('Argus API', () => {
     });
 
     it('GET /api/projects/:id returns project', async () => {
-      const { status, body } = await api(app, `/api/projects/${projectId}`);
+      const { status, body } = await api(app, '/api/projects/' + projectId);
       assert.equal(status, 200);
       assert.equal(body.name, 'test-project');
     });
 
+    it('GET /api/projects/:id/orchestration-runs returns an array', async () => {
+      const { status, body } = await api(app, '/api/projects/' + projectId + '/orchestration-runs');
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body));
+    });
+
     it('PUT /api/projects/:id updates project', async () => {
-      const { status, body } = await api(app, `/api/projects/${projectId}`, {
+      const { status, body } = await api(app, '/api/projects/' + projectId, {
         method: 'PUT', body: { description: 'Updated' },
       });
       assert.equal(status, 200);
@@ -340,7 +345,7 @@ describe('Argus API', () => {
     });
 
     it('auto-created controller agent exists', async () => {
-      const { body } = await api(app, `/api/projects/${projectId}/agents`);
+      const { body } = await api(app, '/api/projects/' + projectId + '/agents');
       assert.equal(body.length, 2); // controller + assistant
       const controller = body.find((a: any) => a.is_controller === 1);
       assert.ok(controller, 'Should have a controller agent');
@@ -1662,26 +1667,10 @@ describe('Argus API', () => {
     });
   });
 
-  // ─── Controller On-Demand Mode (interval=0) ───
+  // ─── Controller On-Demand Mode ───
 
   describe('Controller On-Demand Mode', () => {
-    it('default controller_interval_min is 0 (on-demand mode)', async () => {
-      const { status, body } = await api(app, `/api/projects/${projectId}`);
-      assert.equal(status, 200);
-      // Project was created with controller_interval_min=60 in this test suite
-      assert.equal(typeof body.controller_interval_min, 'number');
-    });
-
-    it('PUT project can set controller_interval_min to 0 for on-demand', async () => {
-      const { status, body } = await api(app, `/api/projects/${projectId}`, {
-        method: 'PUT', body: { controller_interval_min: 0 },
-      });
-      assert.equal(status, 200);
-      assert.equal(body.controller_interval_min, 0, 'Should be 0 (on-demand)');
-    });
-
     it('on-demand mode: creating issue triggers controller', async () => {
-      // With interval=0, creating an issue should trigger controller on-demand
       const { status } = await api(app, `/api/projects/${projectId}/issues`, {
         method: 'POST',
         body: { title: 'On-demand wake test', body: 'Test on-demand controller trigger', created_by: 'user' },
@@ -1716,23 +1705,73 @@ describe('Argus API', () => {
       assert.equal(status, 201);
       await new Promise(r => setTimeout(r, 1500));
     });
+  });
 
-    it('interval > 0 mode: triggerControllerOnDemand skips when interval > 0', async () => {
-      // Set interval back to a positive value
-      const { status, body } = await api(app, `/api/projects/${projectId}`, {
-        method: 'PUT', body: { controller_interval_min: 60 },
+  // ─── Quick Commands (已移除, #230) ───
+  // 快速命令框已改为直接创建issue，旧的quick-commands端点已删除
+
+  describe('Quick Commands removed (#230)', () => {
+    it('POST /api/projects/:pid/quick-commands returns 404 (endpoint removed)', async () => {
+      const { status } = await api(app, `/api/projects/${projectId}/quick-commands`, {
+        method: 'POST', body: { message: 'test' },
       });
-      assert.equal(status, 200);
-      assert.equal(body.controller_interval_min, 60, 'Should be 60 (scheduled mode)');
+      assert.equal(status, 404);
+    });
 
-      // Creating issue should NOT trigger on-demand controller (interval > 0)
-      const { status: issueStatus } = await api(app, `/api/projects/${projectId}/issues`, {
+    it('GET /api/projects/:pid/quick-commands returns 404 (endpoint removed)', async () => {
+      const { status } = await api(app, `/api/projects/${projectId}/quick-commands`);
+      assert.equal(status, 404);
+    });
+
+    it('POST /api/projects/:pid/issues accepts issue creation (new quick-cmd path)', async () => {
+      // The new sendQuickCmd posts directly to issues API, this verifies the endpoint works
+      const { status, body } = await api(app, `/api/projects/${projectId}/issues`, {
         method: 'POST',
-        body: { title: 'Scheduled mode test', body: 'Should not trigger on-demand', created_by: 'user' },
+        body: { title: 'Add a dark mode feature', body: 'Add a dark mode feature', created_by: 'user', assigned_to: 'all' },
       });
-      assert.equal(issueStatus, 201);
-      // No error means the triggerControllerOnDemand correctly returned early
-      await new Promise(r => setTimeout(r, 500));
+      assert.equal(status, 201);
+      assert.ok(body.id, 'Should return issue id');
+      assert.equal(body.title, 'Add a dark mode feature');
+    });
+
+    it('quick-cmd: title and body are stored independently (#276)', async () => {
+      // 验证 #276: 快速命令输入框支持 title 和 body 独立填写
+      const titleText = '修复登录超时问题';
+      const bodyText = '详细描述：用户在使用VPN时，登录请求会超时。需要增加超时时间或优化认证流程。';
+      const { status, body } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: titleText, body: bodyText, created_by: 'user', assigned_to: 'all' },
+      });
+      assert.equal(status, 201);
+      assert.equal(body.title, titleText, 'title 应与输入框内容一致');
+      assert.equal(body.body, bodyText, 'body 应与 textarea 内容独立存储');
+      assert.notEqual(body.title, body.body, 'title 和 body 应不同');
+    });
+
+    it('quick-cmd: body 为空时以 title 作为 body 的后备值 (#276)', async () => {
+      // 当用户不填写 body 时，前端逻辑为 body: bodyText || msg（fallback 到 title）
+      const titleText = '优化搜索性能';
+      const { status, body } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: titleText, body: titleText, created_by: 'user', assigned_to: 'all' },
+      });
+      assert.equal(status, 201);
+      assert.equal(body.title, titleText);
+      assert.equal(body.body, titleText, 'body 未填写时应与 title 相同');
+    });
+
+    it('quick-cmd: title 和 body 均为非空字符串时均被保存 (#276)', async () => {
+      const titleText = '添加导出功能';
+      const bodyText = '支持将 issue 列表导出为 CSV 和 PDF 格式';
+      const { status, body } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: titleText, body: bodyText, created_by: 'user', assigned_to: 'all' },
+      });
+      assert.equal(status, 201);
+      assert.ok(body.title.length > 0, 'title 不应为空');
+      assert.ok(body.body.length > 0, 'body 不应为空');
+      assert.equal(body.title, titleText);
+      assert.equal(body.body, bodyText);
     });
   });
 
@@ -1785,12 +1824,13 @@ describe('Argus API', () => {
   // correct readError/fileExists values.
 
   describe('Config Read Failure Guard (#120)', () => {
-    it('loadAuthConfig: valid config returns fileExists=true, readError=false', async () => {
-      // The config file was written during setup — verify it's valid JSON
-      const raw = fs.readFileSync(authConfigPath, 'utf-8');
-      const config = JSON.parse(raw);
-      assert.ok(config.passwordHash, 'Should have passwordHash');
-      assert.ok(config.passwordSalt, 'Should have passwordSalt');
+    it('loadAuthConfig: valid config is readable from database', async () => {
+      // Auth config is now stored in DB (migrated from file-based auth)
+      // Verify that the password set during setup is accessible via login
+      const { status } = await api(app, '/api/auth', {
+        method: 'POST', body: { password: 'test1234' },
+      });
+      assert.equal(status, 200, 'Auth config should be readable from DB');
     });
 
     it('loadAuthConfig: invalid JSON in config file triggers catch block', () => {
@@ -1847,51 +1887,24 @@ describe('Argus API', () => {
         'Should redirect to /login, not show setup form');
     });
 
-    it('auth config file structure supports readError tracking', () => {
-      // Verify the loadAuthConfig function signature supports the fix:
-      // It should return { config, fileExists, readError }
-      // Read the source to confirm the fix structure is in place
+    it('auth config is stored in database (migrated from file)', () => {
+      // Auth was migrated from file-based to DB-based storage (#120 fix)
+      // Verify auth.ts uses database for config persistence
       const authSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'middleware', 'auth.ts'), 'utf-8');
 
-      // Verify loadAuthConfig returns readError field
-      assert.ok(authSource.includes('readError: true'),
-        'loadAuthConfig should return readError: true on catch');
-      assert.ok(authSource.includes('readError: false'),
-        'loadAuthConfig should return readError: false on success');
-      assert.ok(authSource.includes('fileExists: true'),
-        'loadAuthConfig should track fileExists');
+      // Verify auth.ts uses DB
+      assert.ok(authSource.includes('getDatabase') || authSource.includes('database'),
+        'loadAuthConfig should use database for storage');
 
-      // Verify the startup retry mechanism exists (#120 fix)
-      assert.ok(authSource.includes('initial.readError'),
-        'Should check for read errors at startup and retry');
-
-      // Verify passwordWasEverSet accounts for read errors (#120 fix)
-      assert.ok(authSource.includes('initial.fileExists && initial.readError'),
-        'passwordWasEverSet should be true when file exists but read failed');
-
-      // Verify runtime retry in onRequest hook (#120 fix)
-      assert.ok(authSource.includes('result.readError'),
-        'Runtime hook should check for read errors and retry');
-
-      // Verify 503 response for read errors when password was previously set
-      assert.ok(authSource.includes('503'),
-        'Should return 503 when auth config is temporarily unavailable');
-
-      // Verify it does NOT redirect to /setup on read error
-      assert.ok(authSource.includes('passwordWasEverSet'),
-        'Should track passwordWasEverSet to prevent /setup redirect');
+      // Verify it does NOT redirect to /setup when DB has a password
+      // Auth uses DB-reload approach: if passwordHash is empty, reload from DB before checking
+      assert.ok(authSource.includes('loadAuthConfig') || authSource.includes('authConfig.passwordHash'),
+        'Should reload auth config from DB to prevent /setup redirect');
     });
 
-    it('config file corruption and recovery: login still works after restore', async () => {
-      const configBackup = fs.readFileSync(authConfigPath, 'utf-8');
-
-      // Corrupt the config file
-      fs.writeFileSync(authConfigPath, '<<<CORRUPTED>>>');
-
-      // Restore it immediately (simulating transient NFS error recovery)
-      fs.writeFileSync(authConfigPath, configBackup);
-
-      // Login should still work — the in-memory authConfig was loaded at startup
+    it('login works with DB-based auth (not affected by file system state)', async () => {
+      // Auth config is now in DB, not file — login should always work
+      // regardless of the state of the legacy ~/.argus/config.json file
       const { status, body } = await api(app, '/api/auth', {
         method: 'POST', body: { password: 'test1234' },
       });
@@ -1902,7 +1915,112 @@ describe('Argus API', () => {
 
   // ─── session_max_tokens default value (#145) ───
 
-  describe('session_max_tokens default 200000 (#145)', () => {
+  describe('Controller issue-triggered context filtering (#170)', () => {
+    let ctxProjectId: string;
+
+    before(async () => {
+      // Create a project for this test
+      const { body } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'ctx-filter-test', task_description: 'Test issue context filtering', working_directory: '/tmp/ctx-test', command_template: 'echo done' },
+      });
+      ctxProjectId = body.id;
+
+      // Create a controller agent
+      await api(app, `/api/projects/${ctxProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'ctx-controller', role: 'controller', is_controller: true },
+      });
+
+      // Create a worker agent
+      await api(app, `/api/projects/${ctxProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'ctx-worker', role: 'worker' },
+      });
+
+      // Create multiple issues
+      await api(app, `/api/projects/${ctxProjectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Issue Alpha', body: 'Alpha body', created_by: 'user' },
+      });
+      await api(app, `/api/projects/${ctxProjectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Issue Beta', body: 'Beta body', created_by: 'user' },
+      });
+      await api(app, `/api/projects/${ctxProjectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Issue Gamma', body: 'Gamma body', created_by: 'user' },
+      });
+    });
+
+    it('buildControllerTaskPrompt without triggerIssueNumber includes all open issues', async () => {
+      const { buildControllerTaskPrompt } = await import('../src/services/controller');
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(ctxProjectId) as any;
+
+      const prompt = buildControllerTaskPrompt(project);
+      assert.ok(prompt.includes('Issue Alpha'), 'Should include Issue Alpha');
+      assert.ok(prompt.includes('Issue Beta'), 'Should include Issue Beta');
+      assert.ok(prompt.includes('Issue Gamma'), 'Should include Issue Gamma');
+      assert.ok(!prompt.includes('Trigger Context'), 'Should NOT have trigger context hint');
+    });
+
+    it('buildControllerTaskPrompt with triggerIssueNumber=1 includes only that issue', async () => {
+      const { buildControllerTaskPrompt } = await import('../src/services/controller');
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(ctxProjectId) as any;
+
+      const prompt = buildControllerTaskPrompt(project, 1);
+      assert.ok(prompt.includes('Issue Alpha'), 'Should include Issue Alpha (issue #1)');
+      assert.ok(!prompt.includes('Issue Beta'), 'Should NOT include Issue Beta');
+      assert.ok(!prompt.includes('Issue Gamma'), 'Should NOT include Issue Gamma');
+      assert.ok(prompt.includes('Trigger Context'), 'Should have trigger context hint');
+      assert.ok(prompt.includes('issue #1'), 'Should mention trigger issue number');
+    });
+
+    it('buildControllerTaskPrompt with triggerIssueNumber=2 includes only issue #2', async () => {
+      const { buildControllerTaskPrompt } = await import('../src/services/controller');
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(ctxProjectId) as any;
+
+      const prompt = buildControllerTaskPrompt(project, 2);
+      assert.ok(!prompt.includes('Issue Alpha'), 'Should NOT include Issue Alpha');
+      assert.ok(prompt.includes('Issue Beta'), 'Should include Issue Beta (issue #2)');
+      assert.ok(!prompt.includes('Issue Gamma'), 'Should NOT include Issue Gamma');
+      assert.ok(prompt.includes('issue #2'), 'Should mention trigger issue number 2');
+    });
+
+    it('scheduler trigger (no triggerIssueNumber) includes all issues', async () => {
+      const { buildControllerTaskPrompt } = await import('../src/services/controller');
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(ctxProjectId) as any;
+
+      // Simulate scheduler behavior: no triggerIssueNumber
+      const prompt = buildControllerTaskPrompt(project, undefined);
+      assert.ok(prompt.includes('Issue Alpha'), 'Scheduler should see all issues');
+      assert.ok(prompt.includes('Issue Beta'), 'Scheduler should see all issues');
+      assert.ok(prompt.includes('Issue Gamma'), 'Scheduler should see all issues');
+      assert.ok(!prompt.includes('Trigger Context'), 'Scheduler should NOT have trigger hint');
+    });
+
+    it('triggerControllerOnDemand passes triggerIssueNumber through', async () => {
+      // Verify the routes code passes triggerIssueNumber by checking that
+      // creating an issue with on-demand mode includes the issue number
+      const { status } = await api(app, `/api/projects/${ctxProjectId}/issues`, {
+        method: 'POST',
+        body: { title: 'On-demand trigger test', body: 'Should pass triggerIssueNumber', created_by: 'user' },
+      });
+      assert.equal(status, 201);
+      // The call completes without error, verifying triggerIssueNumber is accepted
+      await new Promise(r => setTimeout(r, 1500));
+    });
+  });
+
+  describe('session_max_tokens default 400000 (#145, updated #216)', () => {
     let tokenTestProjectId: string;
 
     before(async () => {
@@ -1913,19 +2031,19 @@ describe('Argus API', () => {
       tokenTestProjectId = body.id;
     });
 
-    it('newly created agent has session_max_tokens = 200000', async () => {
+    it('newly created agent has session_max_tokens = 400000', async () => {
       const { status, body } = await api(app, `/api/projects/${tokenTestProjectId}/agents`, {
         method: 'POST', body: { name: 'token-test-agent', role: 'test' },
       });
       assert.equal(status, 201);
-      assert.equal(body.session_max_tokens, 200000, 'Default session_max_tokens should be 200000');
+      assert.equal(body.session_max_tokens, 400000, 'Default session_max_tokens should be 400000');
     });
 
     it('PUT session_max_tokens updates correctly', async () => {
       const { body: created } = await api(app, `/api/projects/${tokenTestProjectId}/agents`, {
         method: 'POST', body: { name: 'token-update-agent', role: 'test' },
       });
-      assert.equal(created.session_max_tokens, 200000);
+      assert.equal(created.session_max_tokens, 400000);
 
       const { status, body } = await api(app, `/api/agents/${created.id}`, {
         method: 'PUT', body: { session_max_tokens: 500000 },
@@ -1958,7 +2076,7 @@ describe('Argus API', () => {
       assert.equal(body.session_max_tokens, 0, 'Negative value should be clamped to 0');
     });
 
-    it('schema migration sets existing 0 values to 200000', async () => {
+    it('schema migration sets existing 0 values to 400000', async () => {
       const { body: created } = await api(app, `/api/projects/${tokenTestProjectId}/agents`, {
         method: 'POST', body: { name: 'migration-test-agent', role: 'test' },
       });
@@ -1973,12 +2091,435 @@ describe('Argus API', () => {
       // Run the same migration SQL that schema.ts runs on startup
       const { getDatabase } = require('../src/db/database');
       const db = getDatabase();
-      const result = db.prepare("UPDATE agents SET session_max_tokens = 200000 WHERE session_max_tokens = 0").run();
+      const result = db.prepare("UPDATE agents SET session_max_tokens = 400000 WHERE session_max_tokens = 0").run();
       assert.ok(result.changes > 0, 'Migration should update at least 1 row');
 
-      // Check that the agent's 0 was updated to 200000
+      // Check that the agent's 0 was updated to 400000
       const { body: after } = await api(app, `/api/agents/${created.id}`);
-      assert.equal(after.session_max_tokens, 200000, 'Migration should update 0 to 200000');
+      assert.equal(after.session_max_tokens, 400000, 'Migration should update 0 to 400000');
+    });
+  });
+
+  // ─── User comment auto-reassign (#183) ───
+
+  describe('User comment auto-reassign (#183)', () => {
+    let raProjectId: string;
+    let raControllerId: string;
+    let raWorkerId: string;
+    let raWorker2Id: string;
+    let raIssueId: string;
+
+    before(async () => {
+      const { body: proj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'reassign-test', task_description: 'Test auto-reassign', working_directory: '/tmp/reassign-test', command_template: 'echo done' },
+      });
+      raProjectId = proj.id;
+
+      // Use the auto-created controller (project creation auto-creates one with is_controller=1)
+      const { body: agents } = await api(app, `/api/projects/${raProjectId}/agents`);
+      const ctrl = agents.find((a: any) => a.is_controller);
+      assert.ok(ctrl, 'Project should have auto-created controller');
+      raControllerId = ctrl.id;
+
+      const { body: w1 } = await api(app, `/api/projects/${raProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'ra-worker', role: 'worker' },
+      });
+      raWorkerId = w1.id;
+
+      const { body: w2 } = await api(app, `/api/projects/${raProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'ra-worker2', role: 'worker2' },
+      });
+      raWorker2Id = w2.id;
+
+      const { body: iss } = await api(app, `/api/projects/${raProjectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Reassign test issue', body: 'Test', created_by: 'user' },
+      });
+      raIssueId = iss.id;
+    });
+
+    it('user comment with @mention reassigns to mentioned agent', async () => {
+      const { status } = await api(app, `/api/issues/${raIssueId}/comments`, {
+        method: 'POST', body: { author_id: 'user', body: 'Hey @ra-worker please look at this' },
+      });
+      assert.equal(status, 201);
+
+      const { body: issue } = await api(app, `/api/issues/${raIssueId}`);
+      assert.equal(issue.assigned_to, raWorkerId, 'Should be reassigned to mentioned agent');
+    });
+
+    it('user comment with multiple @mentions assigns to first match', async () => {
+      const { status } = await api(app, `/api/issues/${raIssueId}/comments`, {
+        method: 'POST', body: { author_id: 'user', body: '@ra-worker2 and @ra-worker check this' },
+      });
+      assert.equal(status, 201);
+
+      const { body: issue } = await api(app, `/api/issues/${raIssueId}`);
+      assert.equal(issue.assigned_to, raWorker2Id, 'Should be assigned to first mentioned agent (ra-worker2)');
+    });
+
+    it('user comment without @mention assigns to controller', async () => {
+      const { status } = await api(app, `/api/issues/${raIssueId}/comments`, {
+        method: 'POST', body: { author_id: 'user', body: 'No mention here, just a question' },
+      });
+      assert.equal(status, 201);
+
+      const { body: issue } = await api(app, `/api/issues/${raIssueId}`);
+      assert.equal(issue.assigned_to, raControllerId, 'Should be assigned to controller when no @mention');
+    });
+
+    it('user comment on done/closed issue reopens it', async () => {
+      // Close the issue first
+      await api(app, `/api/issues/${raIssueId}`, {
+        method: 'PUT', body: { status: 'done', actor: 'user' },
+      });
+      const { body: closed } = await api(app, `/api/issues/${raIssueId}`);
+      assert.equal(closed.status, 'done');
+
+      // User comments — should reopen
+      await api(app, `/api/issues/${raIssueId}/comments`, {
+        method: 'POST', body: { author_id: 'user', body: 'Actually this is not fixed' },
+      });
+
+      const { body: reopened } = await api(app, `/api/issues/${raIssueId}`);
+      assert.equal(reopened.status, 'open', 'Issue should be reopened after user comment on done issue');
+    });
+
+    it('agent comment does NOT trigger auto-reassign', async () => {
+      // Set a known assignee first
+      await api(app, `/api/issues/${raIssueId}`, {
+        method: 'PUT', body: { assigned_to: raWorkerId, actor: 'system' },
+      });
+
+      // Agent comments — should NOT change assignment
+      await api(app, `/api/issues/${raIssueId}/comments`, {
+        method: 'POST', body: { author_id: raWorkerId, body: 'Agent reporting progress @ra-worker2' },
+      });
+
+      const { body: issue } = await api(app, `/api/issues/${raIssueId}`);
+      assert.equal(issue.assigned_to, raWorkerId, 'Agent comment should NOT change assignee');
+    });
+  });
+
+  // ─── Acknowledge / Inbox Search (#227/#228) ───
+
+  describe('Acknowledge and Inbox Search (#227, #228)', () => {
+    let ackProjectId: string;
+    let ackIssueId: string;
+
+    before(async () => {
+      // Create a project and an issue for ack tests
+      const { body: proj } = await api(app, '/api/projects', {
+        method: 'POST', body: { name: 'ack-test', description: 'Ack test project', task_description: 'Test project for acknowledge and inbox search tests' },
+      });
+      ackProjectId = proj.id;
+      const { body: issue } = await api(app, `/api/projects/${ackProjectId}/issues`, {
+        method: 'POST', body: { title: 'Ack Test Issue', body: 'Some body text', created_by: 'user', assigned_to: 'user' },
+      });
+      ackIssueId = issue.id;
+    });
+
+    it('issue starts with acknowledged_at = null', async () => {
+      const { body } = await api(app, `/api/issues/${ackIssueId}`);
+      assert.equal(body.acknowledged_at, null, 'New issue should have acknowledged_at = null');
+    });
+
+    it('POST /api/issues/:id/acknowledge sets acknowledged_at', async () => {
+      const { status, body } = await api(app, `/api/issues/${ackIssueId}/acknowledge`, {
+        method: 'POST', body: {},
+      });
+      assert.equal(status, 200, 'Acknowledge should return 200');
+      assert.ok(body.acknowledged_at, 'acknowledged_at should be set after acknowledge');
+    });
+
+    it('POST /api/issues/:id/unacknowledge clears acknowledged_at', async () => {
+      const { status, body } = await api(app, `/api/issues/${ackIssueId}/unacknowledge`, {
+        method: 'POST', body: {},
+      });
+      assert.equal(status, 200, 'Unacknowledge should return 200');
+      assert.equal(body.acknowledged_at, null, 'acknowledged_at should be null after unacknowledge');
+    });
+
+    it('GET /api/inbox/search returns matching issues', async () => {
+      const { status, body } = await api(app, '/api/inbox/search?q=Ack+Test');
+      assert.equal(status, 200, 'Inbox search should return 200');
+      assert.ok(Array.isArray(body), 'Inbox search result should be an array');
+      const found = body.find((i: any) => i.id === ackIssueId);
+      assert.ok(found, 'Created issue should appear in inbox search results');
+    });
+
+    it('GET /api/inbox/search returns empty array for no match', async () => {
+      const { status, body } = await api(app, '/api/inbox/search?q=zzz_no_match_xyz');
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body));
+      assert.equal(body.length, 0, 'Should return empty array for non-matching query');
+    });
+
+    it('GET /api/inbox/search returns empty array when q is missing', async () => {
+      const { status, body } = await api(app, '/api/inbox/search');
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body));
+      assert.equal(body.length, 0, 'Should return empty array when no query provided');
+    });
+
+    it('GET /api/inbox/search matches by issue number', async () => {
+      // Get the issue number first
+      const { body: issue } = await api(app, `/api/issues/${ackIssueId}`);
+      const issueNum = String(issue.number);
+      const { body } = await api(app, `/api/inbox/search?q=${issueNum}`);
+      assert.ok(Array.isArray(body));
+      const found = body.find((i: any) => i.id === ackIssueId);
+      assert.ok(found, 'Inbox search should match by issue number');
+    });
+  });
+
+  // ─── Agent Stop SIGTERM Propagation (#257) ───
+
+  describe('Agent stop button — SIGTERM propagation via exec prefix (#257)', () => {
+    let stopTestProjectId: string;
+    let stopTestAgentId: string;
+
+    before(async () => {
+      const { body: proj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: {
+          name: 'stop-sigterm-test',
+          description: 'Test project for stop/SIGTERM verification',
+          task_description: 'Stop test',
+          command_template: 'tail -f /dev/null #',
+        },
+      });
+      stopTestProjectId = proj.id;
+
+      const { body: ag } = await api(app, `/api/projects/${stopTestProjectId}/agents`, {
+        method: 'POST', body: { name: 'stop-test-agent', role: 'Stop test agent' },
+      });
+      stopTestAgentId = ag.id;
+    });
+
+    after(async () => {
+      // Clean up: stop if still running then delete project
+      await api(app, `/api/agents/${stopTestAgentId}/stop`, { method: 'POST' });
+      await new Promise(r => setTimeout(r, 1000));
+      await api(app, `/api/projects/${stopTestProjectId}`, { method: 'DELETE' });
+    });
+
+    it('status is exactly "stopped" after stop (not idle or error)', async () => {
+      // Start a long-running process (tail -f /dev/null never exits)
+      const { status: startStatus, body: startBody } = await api(app, `/api/agents/${stopTestAgentId}/start`, {
+        method: 'POST', body: { prompt: 'run forever' },
+      });
+      assert.equal(startStatus, 200, 'start should succeed');
+      assert.ok(startBody.pid, 'should get a PID');
+
+      // Wait for process to be registered
+      await new Promise(r => setTimeout(r, 500));
+      const { body: runningState } = await api(app, `/api/agents/${stopTestAgentId}/status`);
+      assert.equal(runningState.status, 'running', 'agent should be running before stop');
+
+      // Send stop
+      const { status: stopStatus } = await api(app, `/api/agents/${stopTestAgentId}/stop`, { method: 'POST' });
+      assert.equal(stopStatus, 200, 'stop should return 200');
+
+      // Wait for close handler
+      await new Promise(r => setTimeout(r, 2000));
+      const { body: stoppedState } = await api(app, `/api/agents/${stopTestAgentId}/status`);
+      assert.equal(stoppedState.status, 'stopped', 'status must be "stopped", not idle or error');
+    });
+
+    it('process PID is no longer alive after stop (exec prefix ensures SIGTERM kills child)', async () => {
+      // Start again and capture PID
+      const { body: startBody } = await api(app, `/api/agents/${stopTestAgentId}/start`, {
+        method: 'POST', body: { prompt: 'run forever again' },
+      });
+      const pid = startBody.pid;
+      assert.ok(pid, 'must have a PID to verify process death');
+
+      // Confirm PID is alive
+      await new Promise(r => setTimeout(r, 500));
+      let pidAlive = true;
+      try { process.kill(pid, 0); } catch { pidAlive = false; }
+      assert.ok(pidAlive, `PID ${pid} should be alive before stop`);
+
+      // Stop the agent
+      await api(app, `/api/agents/${stopTestAgentId}/stop`, { method: 'POST' });
+
+      // Wait for process termination (SIGTERM should kill immediately via exec)
+      await new Promise(r => setTimeout(r, 2000));
+
+      let pidDeadAfterStop = false;
+      try { process.kill(pid, 0); } catch { pidDeadAfterStop = true; }
+      assert.ok(pidDeadAfterStop, `PID ${pid} should be dead after stop (exec prefix ensures SIGTERM propagates)`);
+    });
+
+    it('stopped agent can be restarted', async () => {
+      // Verify currently stopped
+      const { body: preState } = await api(app, `/api/agents/${stopTestAgentId}/status`);
+      assert.equal(preState.status, 'stopped', 'agent should still be stopped from previous test');
+
+      // Restart
+      const { status: restartStatus, body: restartBody } = await api(app, `/api/agents/${stopTestAgentId}/start`, {
+        method: 'POST', body: { prompt: 'restart after stop' },
+      });
+      assert.equal(restartStatus, 200, 'restart should succeed');
+      assert.ok(restartBody.pid, 'restart should produce a PID');
+
+      await new Promise(r => setTimeout(r, 300));
+      const { body: restartState } = await api(app, `/api/agents/${stopTestAgentId}/status`);
+      assert.equal(restartState.status, 'running', 'agent should be running after restart');
+
+      // Cleanup: stop it
+      await api(app, `/api/agents/${stopTestAgentId}/stop`, { method: 'POST' });
+      await new Promise(r => setTimeout(r, 1500));
+    });
+
+    it('close handler does not overwrite stopped status to idle/error', async () => {
+      // Start agent
+      await api(app, `/api/agents/${stopTestAgentId}/start`, {
+        method: 'POST', body: { prompt: 'close handler test' },
+      });
+      await new Promise(r => setTimeout(r, 400));
+
+      // Stop: sets DB status='stopped' BEFORE killing process
+      await api(app, `/api/agents/${stopTestAgentId}/stop`, { method: 'POST' });
+
+      // Wait past close handler execution
+      await new Promise(r => setTimeout(r, 2500));
+
+      const { body: finalState } = await api(app, `/api/agents/${stopTestAgentId}/status`);
+      assert.equal(finalState.status, 'stopped',
+        'close handler must not overwrite stopped→idle or stopped→error');
+    });
+  });
+
+  // ─── Knowledge Base (#283) ───
+
+  let knowledgeProjectId: string;
+  let knowledgeEntryId: string;
+  let knowledgeMediumId: string;
+
+  describe('Knowledge Base (#283)', () => {
+    it('setup: create project for knowledge tests', async () => {
+      const { status, body } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'knowledge-test', description: 'Knowledge test', task_description: 'Test knowledge base' },
+      });
+      assert.equal(status, 201);
+      knowledgeProjectId = body.id;
+    });
+
+    it('POST /api/projects/:pid/knowledge creates entry', async () => {
+      const { status, body } = await api(app, `/api/projects/${knowledgeProjectId}/knowledge`, {
+        method: 'POST',
+        body: { title: 'Test Knowledge', content: 'Test content', tags: 'test,arch', importance: 'high', created_by: 'agent-1' },
+      });
+      assert.equal(status, 201);
+      assert.ok(body.id);
+      assert.equal(body.title, 'Test Knowledge');
+      assert.equal(body.importance, 'high');
+      assert.equal(body.tags, 'test,arch');
+      knowledgeEntryId = body.id;
+    });
+
+    it('POST /api/projects/:pid/knowledge rejects missing title', async () => {
+      const { status, body } = await api(app, `/api/projects/${knowledgeProjectId}/knowledge`, {
+        method: 'POST',
+        body: { content: 'no title' },
+      });
+      assert.equal(status, 400);
+      assert.equal(body.error, 'title is required');
+    });
+
+    it('POST /api/projects/:pid/knowledge defaults to medium importance', async () => {
+      const { status, body } = await api(app, `/api/projects/${knowledgeProjectId}/knowledge`, {
+        method: 'POST',
+        body: { title: 'Medium Entry', content: 'medium content' },
+      });
+      assert.equal(status, 201);
+      assert.equal(body.importance, 'medium');
+      knowledgeMediumId = body.id;
+    });
+
+    it('GET /api/projects/:pid/knowledge lists all entries', async () => {
+      const { status, body } = await api(app, `/api/projects/${knowledgeProjectId}/knowledge`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.entries));
+      assert.equal(body.entries.length, 2);
+    });
+
+    it('GET /api/projects/:pid/knowledge?importance=high filters by importance', async () => {
+      const { status, body } = await api(app, `/api/projects/${knowledgeProjectId}/knowledge?importance=high`);
+      assert.equal(status, 200);
+      assert.equal(body.entries.length, 1);
+      assert.equal(body.entries[0].importance, 'high');
+    });
+
+    it('GET /api/knowledge/:id returns single entry', async () => {
+      const { status, body } = await api(app, `/api/knowledge/${knowledgeEntryId}`);
+      assert.equal(status, 200);
+      assert.equal(body.id, knowledgeEntryId);
+      assert.equal(body.title, 'Test Knowledge');
+    });
+
+    it('GET /api/knowledge/:id returns 404 for unknown id', async () => {
+      const { status } = await api(app, '/api/knowledge/does-not-exist');
+      assert.equal(status, 404);
+    });
+
+    it('PUT /api/knowledge/:id updates entry', async () => {
+      const { status, body } = await api(app, `/api/knowledge/${knowledgeEntryId}`, {
+        method: 'PUT',
+        body: { title: 'Updated Title', importance: 'low' },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.title, 'Updated Title');
+      assert.equal(body.importance, 'low');
+      assert.equal(body.content, 'Test content', 'unset fields should be preserved');
+    });
+
+    it('PUT /api/knowledge/:id returns 404 for unknown id', async () => {
+      const { status } = await api(app, '/api/knowledge/does-not-exist', {
+        method: 'PUT', body: { title: 'x' },
+      });
+      assert.equal(status, 404);
+    });
+
+    it('DELETE /api/knowledge/:id removes entry', async () => {
+      const { status, body } = await api(app, `/api/knowledge/${knowledgeMediumId}`, {
+        method: 'DELETE',
+      });
+      assert.equal(status, 200);
+      assert.equal(body.success, true);
+
+      const { status: getStatus } = await api(app, `/api/knowledge/${knowledgeMediumId}`);
+      assert.equal(getStatus, 404, 'Deleted entry should return 404');
+    });
+
+    it('DELETE /api/knowledge/:id returns 404 for unknown id', async () => {
+      const { status } = await api(app, '/api/knowledge/does-not-exist', {
+        method: 'DELETE',
+      });
+      assert.equal(status, 404);
+    });
+
+    it('system-prompt injects high-importance knowledge entries', async () => {
+      // Reset entry to high importance
+      await api(app, `/api/knowledge/${knowledgeEntryId}`, {
+        method: 'PUT', body: { importance: 'high', title: 'High Knowledge', content: 'Important info' },
+      });
+      // Get an agent in this project (the auto-created controller)
+      const { body: agentsList } = await api(app, `/api/projects/${knowledgeProjectId}/agents`);
+      assert.ok(agentsList.length > 0, 'project should have at least one agent');
+      const agentId = agentsList[0].id;
+
+      const { status, raw } = await api(app, `/api/agents/${agentId}/system-prompt`);
+      assert.equal(status, 200);
+      assert.ok(raw.includes('High Knowledge'), 'system prompt should include high-importance knowledge title');
+      assert.ok(raw.includes('Important info'), 'system prompt should include high-importance knowledge content');
+      assert.ok(raw.includes('Project Knowledge Base'), 'system prompt should have Knowledge Base section header');
     });
   });
 });

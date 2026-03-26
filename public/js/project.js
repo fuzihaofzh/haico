@@ -34,12 +34,6 @@ async function loadProject() {
     document.getElementById('project-desc-edit').value = projectData.description || '';
     document.getElementById('project-task').value = projectData.task_description || '';
     document.getElementById('project-cmd').value = projectData.command_template;
-    const isScheduled = projectData.controller_interval_min > 0;
-    document.getElementById('project-scheduled-mode').checked = isScheduled;
-    document.getElementById('project-interval-edit').value = isScheduled ? projectData.controller_interval_min : 5;
-    document.getElementById('interval-group').style.display = isScheduled ? '' : 'none';
-    document.getElementById('project-schedule').value = projectData.schedule_hours || '';
-    document.getElementById('schedule-group').style.display = isScheduled ? '' : 'none';
   }
   document.getElementById('project-created').textContent = projectData.created_at;
 
@@ -83,8 +77,6 @@ async function saveOverview() {
     description: document.getElementById('project-desc-edit').value.trim(),
     task_description: document.getElementById('project-task').value.trim(),
     command_template: document.getElementById('project-cmd').value.trim() || 'cld',
-    controller_interval_min: document.getElementById('project-scheduled-mode').checked ? (parseInt(document.getElementById('project-interval-edit').value) || 5) : 0,
-    schedule_hours: document.getElementById('project-schedule').value.trim(),
   };
   if (!body.name) { alert('Name cannot be empty'); return; }
   if (!body.task_description) { alert('Task description cannot be empty'); return; }

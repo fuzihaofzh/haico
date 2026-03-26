@@ -60,7 +60,6 @@ PROJECT=$(curl -sf -X POST "$BASE/api/projects" \
     "name": "test-project",
     "description": "Smoke test project",
     "task_description": "This is a test task for verifying the system works.",
-    "controller_interval_min": 60,
     "command_template": "echo \"Agent running: {prompt}\" && sleep 2 && echo \"Agent done.\""
   }')
 PROJECT_ID=$(echo "$PROJECT" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)

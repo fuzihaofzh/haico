@@ -62,12 +62,12 @@ function nameOfAgent(agentId: string, agents: Agent[]): string {
   return a ? a.name : agentId;
 }
 
-// Trigger controller on-demand when interval=0 (wake-on-issue mode)
+// Trigger controller on-demand (wake-on-issue mode)
 // actorId: skip triggering if the actor is the controller itself (avoid self-trigger loops)
 function triggerControllerOnDemand(projectId: string, triggerIssueNumber?: number, actorId?: string): void {
   const db = getDatabase();
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
-  if (!project || project.controller_interval_min > 0) return;
+  if (!project) return;
 
   // Pre-controller: 规则引擎拦截简单场景，避免不必要的 LLM 调用
   if (tryHandleWithoutLLM(projectId, triggerIssueNumber)) return;
