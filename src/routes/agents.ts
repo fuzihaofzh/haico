@@ -58,21 +58,20 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
 
     const { name, role, session_id, working_directory, custom_instructions, session_max_runs, session_max_tokens, session_resume_timeout, command_template } = request.body as any;
 
-    // Build update fields dynamically — command_template needs special handling
-    // because COALESCE(NULL, col) preserves the old value, but we want to allow
-    // explicitly setting command_template to NULL (empty string → use project default)
+    // Build update fields dynamically — command_template and custom_instructions
+    // need special handling: COALESCE(NULL, col) preserves the old value, but we
+    // want to allow explicitly setting them to NULL when the field is in the request
     const fields: string[] = [
       'name = COALESCE(?, name)',
       'role = COALESCE(?, role)',
       'session_id = COALESCE(?, session_id)',
       'working_directory = COALESCE(?, working_directory)',
-      'custom_instructions = COALESCE(?, custom_instructions)',
       'session_max_runs = COALESCE(?, session_max_runs)',
       'session_max_tokens = COALESCE(?, session_max_tokens)',
       'session_resume_timeout = COALESCE(?, session_resume_timeout)',
     ];
     const params: any[] = [
-      name ?? null, role ?? null, session_id ?? null, working_directory ?? null, custom_instructions ?? null,
+      name ?? null, role ?? null, session_id ?? null, working_directory ?? null,
       session_max_runs !== undefined ? Math.max(1, Number.isNaN(parseInt(session_max_runs)) ? 10 : parseInt(session_max_runs)) : null,
       session_max_tokens !== undefined ? Math.max(0, Number.isNaN(parseInt(session_max_tokens)) ? 0 : parseInt(session_max_tokens)) : null,
       session_resume_timeout !== undefined ? Math.max(0, Number.isNaN(parseInt(session_resume_timeout)) ? 300 : parseInt(session_resume_timeout)) : null,
@@ -81,6 +80,11 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     if (command_template !== undefined) {
       fields.push('command_template = ?');
       params.push(command_template || null);
+    }
+
+    if (custom_instructions !== undefined) {
+      fields.push('custom_instructions = ?');
+      params.push(custom_instructions || null);
     }
 
     params.push(request.params.id);

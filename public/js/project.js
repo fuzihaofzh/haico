@@ -452,17 +452,27 @@ async function loadAgentOutput(agentId) {
 }
 
 async function saveAllAgentFields(agentId) {
-  const body = {
-    working_directory: document.getElementById('ad-workdir-' + agentId).value || null,
-    command_template: document.getElementById('ad-cmdtpl-' + agentId).value || null,
-    session_max_tokens: Math.max(0, parseInt(document.getElementById('ad-maxtokens-' + agentId).value)) || 200000,
-    session_max_runs: Math.max(1, parseInt(document.getElementById('ad-maxruns-' + agentId).value)) || 10,
-    session_resume_timeout: Math.max(0, parseInt(document.getElementById('ad-resumetimeout-' + agentId).value)) || 0,
-    custom_instructions: document.getElementById('ad-instructions-' + agentId).value || null
-  };
-  const res = await fetch(`/api/agents/${agentId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
-  if (res.ok) showToast('已保存', 'success');
-  else showToast('保存失败', 'error');
+  const btn = document.querySelector(`button[onclick="saveAllAgentFields('${agentId}')"]`);
+  if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
+  try {
+    const instructionsVal = document.getElementById('ad-instructions-' + agentId).value;
+    const body = {
+      working_directory: document.getElementById('ad-workdir-' + agentId).value || null,
+      command_template: document.getElementById('ad-cmdtpl-' + agentId).value || null,
+      session_max_tokens: Math.max(0, parseInt(document.getElementById('ad-maxtokens-' + agentId).value)) || 200000,
+      session_max_runs: Math.max(1, parseInt(document.getElementById('ad-maxruns-' + agentId).value)) || 10,
+      session_resume_timeout: Math.max(0, parseInt(document.getElementById('ad-resumetimeout-' + agentId).value)) || 0,
+      custom_instructions: instructionsVal.trim() === '' ? null : instructionsVal
+    };
+    const res = await fetch(`/api/agents/${agentId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
+    if (res.ok) showToast('已保存', 'success');
+    else showToast('保存失败', 'error');
+  } catch (e) {
+    console.error('Failed to save agent fields', e);
+    showToast('保存失败: 网络错误', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Settings'; }
+  }
 }
 
 async function toggleAgentSystemPrompt(agentId) {
