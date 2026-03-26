@@ -95,6 +95,8 @@ const LOCALHOST_SAFE_PREFIXES = [
   '/api/milestones', // milestone CRUD
   '/api/notifications',
   '/api/reactions/',
+  '/api/inbox',
+  '/api/knowledge/',
 ];
 
 // Admin-only operations that localhost should NOT bypass

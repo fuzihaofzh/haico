@@ -19,7 +19,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
         params.push(importance);
       }
       if (tag) {
-        sql += ' AND ("," || tags || "," LIKE ?)';
+        sql += " AND (',' || tags || ',' LIKE ?)";
         params.push(`%,${tag},%`);
       }
 
@@ -38,6 +38,10 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
       const { title, content, tags, importance, created_by } = request.body as any;
 
       if (!title) return reply.status(400).send({ error: 'title is required' });
+      const validImportance = ['high', 'medium', 'low'];
+      if (importance && !validImportance.includes(importance)) {
+        return reply.status(400).send({ error: `Invalid importance. Must be one of: ${validImportance.join(', ')}` });
+      }
 
       const id = uuidv4();
       db.prepare(
@@ -70,6 +74,11 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
 
       const existing = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(id) as any;
       if (!existing) return reply.status(404).send({ error: 'Knowledge entry not found' });
+
+      const validImportance = ['high', 'medium', 'low'];
+      if (body.importance && !validImportance.includes(body.importance)) {
+        return reply.status(400).send({ error: `Invalid importance. Must be one of: ${validImportance.join(', ')}` });
+      }
 
       const title = body.title ?? existing.title;
       const content = body.content ?? existing.content;
