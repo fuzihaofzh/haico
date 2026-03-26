@@ -229,6 +229,11 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
     return;
   }
 
+  if (controller.paused) {
+    logger.info(`Controller agent for project ${project.id} is paused, skipping.`);
+    return;
+  }
+
   const now = Date.now();
 
   if (!skipActivityCheck) {

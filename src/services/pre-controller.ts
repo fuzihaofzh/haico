@@ -70,18 +70,31 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
       return true;
     }
 
-    // agent idle → 直接启动
+    // agent idle → 直接启动，包含该 agent 所有 assigned issue（不只是触发的那个）
     if (agent.status === 'idle') {
       const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
       if (!project) return false;
 
-      const issueBody = (issue.body || '').slice(0, 500);
-      const prompt = `Issue #${issue.number} "${issue.title}" has been assigned to you. Review and take action.\n\nDescription: ${issueBody}`;
+      const allAssigned = db.prepare(
+        "SELECT * FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
+      ).all(projectId, agent.id) as Issue[];
+
+      const parts: string[] = [];
+      if (agent.role) parts.push(`Role: ${agent.role}`);
+      if (project.task_description) parts.push(`Task: ${project.task_description}`);
+      if (allAssigned.length > 0) {
+        parts.push('Assigned issues:\n' + allAssigned.map(i => `#${i.number} [${i.status}] ${i.title}: ${(i.body || '').slice(0, 200)}`).join('\n'));
+        db.prepare("UPDATE issues SET status = 'in_progress', updated_at = datetime('now') WHERE project_id = ? AND assigned_to = ? AND status = 'open'")
+          .run(projectId, agent.id);
+      }
+      const prompt = parts.join('\n\n');
+      if (!prompt) return false;
+
       const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
       const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
       const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agent, project);
 
-      logger.info(`Pre-controller: directly starting ${agent.name} for issue #${triggerIssueNumber}, bypassing LLM controller`);
+      logger.info(`Pre-controller: directly starting ${agent.name} for ${allAssigned.length} issue(s) (triggered by #${triggerIssueNumber}), bypassing LLM controller`);
       startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
       return true;
     }
