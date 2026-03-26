@@ -103,7 +103,7 @@ function renderInboxItems(items) {
       // Apply search
       if (query && !matchesSearch(query, '#' + issue.number, issue.title, issue.body || '')) continue;
       const isAction = item.actionRequired;
-      html += `<div class="notif-item${isAction ? ' notif-action-required' : ''}" id="notif-issue-${issue.id}">
+      html += `<div class="notif-item${isAction ? ' notif-action-required' : ''}" id="notif-issue-${issue.id}" onclick="openIssuePanel('${issue.id}')" style="cursor:pointer">
         <span class="notif-icon" style="color:${isAction ? 'var(--error)' : 'var(--text-secondary)'}">&#9679;</span>
         <span class="notif-text">
           <span style="color:var(--text-secondary);font-size:10px">[${esc(issue.project_name || '')}]</span>
@@ -117,7 +117,7 @@ function renderInboxItems(items) {
       const c = item.data;
       if (query && !matchesSearch(query, '#' + c.issue_number, c.issue_title || '', c.body || '')) continue;
       const preview = (c.body || '').slice(0, 60) + ((c.body || '').length > 60 ? '...' : '');
-      html += `<div class="notif-item notif-comment">
+      html += `<div class="notif-item notif-comment" onclick="openIssuePanelByProject('${c.project_id}', ${c.issue_number})" style="cursor:pointer">
         <span class="notif-icon" style="color:var(--text-secondary)">&#9998;</span>
         <span class="notif-text">
           <span style="color:var(--text-secondary);font-size:10px">[${esc(c.project_name || '')}]</span>
@@ -414,6 +414,184 @@ loadDashboard();
 // Polling: 10s for lightweight data, 30s for full project list
 setInterval(() => { loadDashboardSummary(); loadNotifications(); }, 10000);
 setInterval(loadProjects, 30000);
+
+// ─── Floating Issue Panel ───
+
+let _panelIssueId = null;
+let _panelAgents = [];
+
+function openIssuePanel(issueId) {
+  _panelIssueId = issueId;
+  document.getElementById('issueDetailModal').classList.add('active');
+  loadIssuePanel(issueId);
+}
+
+async function openIssuePanelByProject(projectId, issueNumber) {
+  document.getElementById('issueDetailModal').classList.add('active');
+  document.getElementById('issueDetailContent').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-secondary)">Loading...</div>';
+  try {
+    const res = await fetch(`/api/projects/${projectId}/issues/number/${issueNumber}`, { headers: apiHeaders() });
+    if (!res.ok) { document.getElementById('issueDetailContent').innerHTML = '<div style="padding:20px;color:var(--error)">Issue not found</div>'; return; }
+    const data = await res.json();
+    _panelIssueId = data.id;
+    loadIssuePanel(data.id);
+  } catch (e) {
+    document.getElementById('issueDetailContent').innerHTML = '<div style="padding:20px;color:var(--error)">加载失败</div>';
+  }
+}
+
+function closeIssuePanel() {
+  document.getElementById('issueDetailModal').classList.remove('active');
+  _panelIssueId = null;
+}
+
+async function loadIssuePanel(issueId) {
+  try {
+    const res = await fetch(`/api/issues/${issueId}`, { headers: apiHeaders() });
+    if (!res.ok) { document.getElementById('issueDetailContent').innerHTML = '<div style="padding:20px;color:var(--error)">Issue not found</div>'; return; }
+    const issue = await res.json();
+
+    // Load agents for this project
+    try {
+      const agentsRes = await fetch(`/api/projects/${issue.project_id}/agents`, { headers: apiHeaders() });
+      if (agentsRes.ok) _panelAgents = await agentsRes.json();
+    } catch {}
+
+    renderIssuePanel(issue);
+  } catch (e) {
+    document.getElementById('issueDetailContent').innerHTML = '<div style="padding:20px;color:var(--error)">加载失败</div>';
+  }
+}
+
+function panelNameOf(id) {
+  if (id === 'user') return 'User';
+  if (id === 'all') return 'All';
+  const a = _panelAgents.find(x => x.id === id);
+  if (a) return a.name;
+  return (id || '').slice(0, 8);
+}
+
+function panelRenderMd(text) {
+  if (!text) return '';
+  if (typeof marked !== 'undefined') {
+    try { return marked.parse(text); } catch {}
+  }
+  return '<pre style="white-space:pre-wrap">' + esc(text) + '</pre>';
+}
+
+function panelStatusIcon(s) {
+  if (s === 'open') return '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#3fb950" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="#3fb950"/></svg>';
+  if (s === 'in_progress') return '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#d29922" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="#d29922"/></svg>';
+  return '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#8b6fcf" stroke-width="2"/><path d="M5.5 8l2 2 3.5-3.5" fill="none" stroke="#8b6fcf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+function renderIssuePanel(issue) {
+  const comments = (issue.comments || []).filter(c => c.event_type === 'comment');
+  const assignOpts = `<option value="">Unassigned</option><option value="all" ${'all'===issue.assigned_to?'selected':''}>All</option><option value="user" ${'user'===issue.assigned_to?'selected':''}>User</option>` +
+    _panelAgents.map(a => `<option value="${a.id}" ${a.id===issue.assigned_to?'selected':''}>${esc(a.name)}</option>`).join('');
+
+  const commentsHtml = comments.map(c => `
+    <div style="border-top:1px solid var(--border);padding:10px 0">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        ${avatarSvg(panelNameOf(c.author_id), 18)}
+        <strong style="font-size:12px">${esc(panelNameOf(c.author_id))}</strong>
+        <span style="color:var(--text-secondary);font-size:11px">${timeAgo(c.created_at)}</span>
+      </div>
+      <div class="markdown-body" style="font-size:13px">${panelRenderMd(c.body)}</div>
+    </div>
+  `).join('');
+
+  document.getElementById('issueDetailContent').innerHTML = `
+    <div style="margin-bottom:12px">
+      <h3 style="font-size:18px;font-weight:600;margin-bottom:8px">${esc(issue.title)} <span style="color:var(--text-secondary);font-weight:400">#${issue.number}</span></h3>
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap">
+        ${panelStatusIcon(issue.status)}
+        <span style="font-weight:500">${issue.status.replace('_',' ')}</span>
+        ${priorityBadge(issue.priority)}
+        <span style="color:var(--text-secondary)">${esc(panelNameOf(issue.created_by))} · ${timeAgo(issue.created_at)}</span>
+        <a href="/projects/${issue.project_id}/issues/${issue.number}" style="font-size:11px;margin-left:auto" title="在新页面打开">↗ 打开</a>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-bottom:12px">
+      <div style="flex:1">
+        <label style="font-size:11px;color:var(--text-secondary)">Status</label>
+        <select onchange="panelUpdateField('status',this.value)" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px">
+          <option value="open" ${issue.status==='open'?'selected':''}>Open</option>
+          <option value="in_progress" ${issue.status==='in_progress'?'selected':''}>In Progress</option>
+          <option value="done" ${issue.status==='done'?'selected':''}>Done</option>
+          <option value="closed" ${issue.status==='closed'?'selected':''}>Closed</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <label style="font-size:11px;color:var(--text-secondary)">Assignee</label>
+        <select onchange="panelUpdateField('assigned_to',this.value||null)" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px">
+          ${assignOpts}
+        </select>
+      </div>
+    </div>
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px">
+      <div class="markdown-body" style="font-size:13px">${panelRenderMd(issue.body)}</div>
+    </div>
+
+    ${comments.length > 0 ? `<div style="margin-bottom:12px">${commentsHtml}</div>` : ''}
+
+    <div style="border-top:1px solid var(--border);padding-top:12px">
+      <textarea id="panel-comment-input" placeholder="添加评论..." rows="3" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:13px;font-family:inherit;resize:vertical;margin-bottom:8px"></textarea>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        ${issue.status !== 'closed' && issue.status !== 'done'
+          ? `<button class="btn btn-sm" onclick="panelCloseIssue()" style="color:var(--error);border-color:var(--error)">Close issue</button>`
+          : `<button class="btn btn-sm" onclick="panelReopenIssue()" style="color:var(--success);border-color:var(--success)">Reopen</button>`}
+        <button class="btn btn-sm btn-primary" onclick="panelAddComment()">Comment</button>
+      </div>
+    </div>
+  `;
+}
+
+async function panelUpdateField(field, value) {
+  if (!_panelIssueId) return;
+  const body = {}; body[field] = value; body.actor = 'user';
+  await fetch(`/api/issues/${_panelIssueId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
+  loadIssuePanel(_panelIssueId);
+  loadNotifications();
+}
+
+async function panelAddComment() {
+  if (!_panelIssueId) return;
+  const input = document.getElementById('panel-comment-input');
+  const body = input.value.trim();
+  if (!body) return;
+  await fetch(`/api/issues/${_panelIssueId}/comments`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body }) });
+  showToast('评论已添加', 'success');
+  loadIssuePanel(_panelIssueId);
+}
+
+async function panelCloseIssue() {
+  if (!_panelIssueId) return;
+  const input = document.getElementById('panel-comment-input');
+  const body = input.value.trim();
+  if (body) {
+    await fetch(`/api/issues/${_panelIssueId}/comments`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body }) });
+  }
+  await fetch(`/api/issues/${_panelIssueId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: 'closed', actor: 'user' }) });
+  showToast('Issue已关闭', 'success');
+  loadIssuePanel(_panelIssueId);
+  loadNotifications();
+}
+
+async function panelReopenIssue() {
+  if (!_panelIssueId) return;
+  const input = document.getElementById('panel-comment-input');
+  const body = input.value.trim();
+  if (body) {
+    await fetch(`/api/issues/${_panelIssueId}/comments`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body }) });
+  }
+  await fetch(`/api/issues/${_panelIssueId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: 'open', actor: 'user' }) });
+  showToast('Issue已重新打开', 'success');
+  loadIssuePanel(_panelIssueId);
+  loadNotifications();
+}
 
 // Listen for events from all projects and refresh dashboard on changes
 (async function setupDashboardWS() {
