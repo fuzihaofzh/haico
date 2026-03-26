@@ -6,7 +6,6 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { getDatabase } from '../db/database';
 import { Project, CreateProjectInput, Agent, OrchestratorEngine } from '../types';
-import { scheduleProject, unscheduleProject } from '../services/scheduler';
 import { stopAgentProcess, isAgentRunning } from '../services/process-manager';
 import { config } from '../config';
 
@@ -367,7 +366,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
   // Create project
   fastify.post<{ Body: CreateProjectInput }>('/api/projects', async (request, reply) => {
-    const { name, description, task_description, controller_interval_min, command_template, orchestrator_engine, working_directory, controller_role } = request.body as any;
+    const { name, description, task_description, command_template, orchestrator_engine, working_directory, controller_role } = request.body as any;
 
     if (!task_description) {
       return reply.code(400).send({ error: 'task_description is required' });
@@ -375,7 +374,6 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
     const db = getDatabase();
     const id = uuidv4();
-    const interval = controller_interval_min || 5;
     const tmpl = command_template || config.defaultCommandTemplate;
     const orchestratorEngine = normalizeOrchestratorEngine(orchestrator_engine);
 
@@ -384,9 +382,9 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     }
 
     db.prepare(`
-      INSERT INTO projects (id, name, description, task_description, controller_interval_min, command_template, orchestrator_engine, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
-    `).run(id, name, description || '', task_description, interval, tmpl, orchestratorEngine || config.defaultOrchestratorEngine);
+      INSERT INTO projects (id, name, description, task_description, command_template, orchestrator_engine, status)
+      VALUES (?, ?, ?, ?, ?, ?, 'active')
+    `).run(id, name, description || '', task_description, tmpl, orchestratorEngine || config.defaultOrchestratorEngine);
 
     // Create default controller agent (with Sonnet model for cost efficiency)
     const controllerId = uuidv4();
@@ -406,9 +404,6 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project;
 
-    // Schedule the project
-    scheduleProject(project);
-
     return reply.code(201).send(project);
   });
 
@@ -426,7 +421,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project | undefined;
     if (!existing) return reply.code(404).send({ error: 'Project not found' });
 
-    const { name, description, task_description, controller_interval_min, command_template, orchestrator_engine, status, schedule_hours } = request.body as any;
+    const { name, description, task_description, command_template, orchestrator_engine, status, schedule_hours } = request.body as any;
 
     const orchestratorEngine = normalizeOrchestratorEngine(orchestrator_engine);
     if (orchestrator_engine !== undefined && orchestratorEngine === null) {
@@ -438,7 +433,6 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
         name = COALESCE(?, name),
         description = COALESCE(?, description),
         task_description = COALESCE(?, task_description),
-        controller_interval_min = COALESCE(?, controller_interval_min),
         command_template = COALESCE(?, command_template),
         orchestrator_engine = COALESCE(?, orchestrator_engine),
         schedule_hours = COALESCE(?, schedule_hours),
@@ -447,19 +441,12 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       WHERE id = ?
     `).run(
       name ?? null, description ?? null, task_description ?? null,
-      controller_interval_min ?? null, command_template ?? null, orchestratorEngine ?? null, schedule_hours ?? null,
+      command_template ?? null, orchestratorEngine ?? null, schedule_hours ?? null,
       status ?? null,
       request.params.id
     );
 
     const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project;
-
-    // Re-schedule if interval or status changed
-    if (updated.status === 'active') {
-      scheduleProject(updated);
-    } else {
-      unscheduleProject(updated.id);
-    }
 
     return updated;
   });
@@ -539,7 +526,6 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       if (isAgentRunning(agent.id)) stopAgentProcess(agent.id);
     }
 
-    unscheduleProject(request.params.id);
     db.prepare('DELETE FROM projects WHERE id = ?').run(request.params.id);
     return { success: true };
   });

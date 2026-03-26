@@ -16,7 +16,6 @@ export function initializeDatabase(db: Database.Database): void {
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
       task_description TEXT NOT NULL,
-      controller_interval_min INTEGER DEFAULT 0,
       command_template TEXT DEFAULT 'cld',
       orchestrator_engine TEXT DEFAULT 'langgraph' CHECK(orchestrator_engine IN ('native', 'langgraph')),
       schedule_hours TEXT DEFAULT '',
