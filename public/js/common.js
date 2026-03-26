@@ -1,31 +1,3 @@
-// DEBUG: track any redirect to /setup or /login
-(function() {
-  var _fetch = window.fetch;
-  window._authLog = [];
-  window.fetch = function(input, init) {
-    return _fetch.call(this, input, init).then(function(resp) {
-      if (resp.status === 401 || resp.status === 403 || resp.redirected) {
-        var url = typeof input === 'string' ? input : (input && input.url ? input.url : '?');
-        var entry = resp.status + ' ' + url + ' redirect=' + resp.redirected + ' finalURL=' + resp.url;
-        console.error('[AUTH] ' + entry);
-        window._authLog.push(entry);
-      }
-      return resp;
-    });
-  };
-  // Check every second if we landed on /setup or /login unexpectedly
-  setInterval(function() {
-    if (location.pathname === '/setup' || location.pathname === '/login') {
-      console.error('[AUTH REDIRECT DETECTED] path=' + location.pathname + ' referrer=' + document.referrer + ' log=' + JSON.stringify(window._authLog.slice(-10)));
-      // Only alert once
-      if (!window._authAlerted) {
-        window._authAlerted = true;
-        alert('DEBUG: Redirected to ' + location.pathname + '\\n\\nAuth log:\\n' + window._authLog.slice(-10).join('\\n'));
-      }
-    }
-  }, 1000);
-})();
-
 // ─── Shared utility functions ───
 
 function esc(s) {
