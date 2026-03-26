@@ -247,7 +247,7 @@ describe('Argus API', () => {
       assert.equal(changeRes.statusCode, 200);
 
       // Old token should be invalid (passwordHash changed)
-      // Use page route (not API) since /api/dashboard/ has localhost bypass
+      // Use page route to test cookie-based auth redirect
       const oldRes = await inject(app, { url: '/change-password', headers: { cookie: `argus-auth=${oldToken}` } });
       assert.equal(oldRes.statusCode, 302, 'Old token should be invalidated after password change (redirects to /login)');
 
@@ -274,7 +274,7 @@ describe('Argus API', () => {
     });
 
     it('invalid cookie token is rejected', async () => {
-      // Use page route (not API) since /api/dashboard/ has localhost bypass
+      // Use page route to test cookie-based auth redirect
       const res = await inject(app, { url: '/change-password', headers: { cookie: 'argus-auth=invalid-token-value' } });
       assert.equal(res.statusCode, 302, 'Invalid token should be rejected (redirects to /login)');
     });
@@ -1351,9 +1351,9 @@ describe('Argus API', () => {
       assert.ok(typeof body.last_activity === 'object');
     });
 
-    it('GET /api/dashboard/summary is localhost-safe (no auth needed from localhost)', async () => {
-      const { status } = await api(app, '/api/dashboard/summary');
-      assert.equal(status, 200);
+    it('GET /api/dashboard/summary requires auth (not localhost-safe)', async () => {
+      const res = await inject(app, { url: '/api/dashboard/summary' });
+      assert.equal(res.statusCode, 401, 'Dashboard API should require authentication');
     });
   });
 
@@ -1934,7 +1934,7 @@ describe('Argus API', () => {
 
     it('unauthenticated request redirects to /login, not /setup (password was set)', async () => {
       // When password is set, unauthenticated page requests should redirect to /login, not /setup
-      // Use page route since /api/dashboard/ has localhost bypass
+      // Use page route to test cookie-based auth redirect
       const res = await inject(app, { url: '/change-password', headers: { cookie: 'argus-auth=invalid' } });
       assert.equal(res.statusCode, 302, 'Should redirect unauthenticated request');
       assert.equal(res.headers.location, '/login', 'Should redirect to /login, not /setup');
