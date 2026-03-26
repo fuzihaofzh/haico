@@ -144,10 +144,21 @@ function startWatchdog(): void {
             db.prepare(
               "INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'stderr')"
             ).run(agent.id, '', `[Argus] Watchdog: process killed after ${idleMin} minutes with no output`);
+            // Set to 'idle' before killing. The close handler will see status != 'running'
+            // (since we set idle here) and will keep it as idle (code 0 → idle, code != 0
+            // but status already idle → close handler reads current status and respects
+            // 'stopped'; for 'idle' it would set error). So we use 'stopped' to prevent
+            // error, then reset to idle after stop completes.
+            db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
             stopAgentProcess(agent.id);
-            // Immediately update DB status to idle so next watchdog scan doesn't re-trigger
-            db.prepare("UPDATE agents SET status = 'idle', pid = NULL, finished_at = datetime('now') WHERE id = ?")
-              .run(agent.id);
+            // After close handler fires (preserving 'stopped'), reset to idle so agent
+            // can be re-dispatched by issue scan
+            setTimeout(() => {
+              const current = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as any;
+              if (current?.status === 'stopped') {
+                db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
+              }
+            }, 10000);
           }
         } else {
           // DB says running but process is gone — orphaned state (e.g., Argus restarted)

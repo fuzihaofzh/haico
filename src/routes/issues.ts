@@ -346,6 +346,12 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
             // Trigger controller to review and close parent
             triggerControllerOnDemand(updated.project_id, parentIssue.number, actorId);
           }
+          // Broadcast parent update to frontend
+          const refreshedParent = db.prepare('SELECT * FROM issues WHERE id = ?').get(updated.parent_id);
+          broadcastToProject(updated.project_id, {
+            type: 'issue_updated', projectId: updated.project_id,
+            data: { issue: refreshedParent },
+          });
         } else if (parentIssue) {
           // Partial progress — update parent timestamp so it's visible
           eventStmt2.run(uuidv4(), updated.parent_id, 'system',
@@ -386,17 +392,23 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         }
       }
 
-      return updated;
+      // Re-fetch to include any auto-assign changes
+      const finalIssue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id);
+      return finalIssue;
     }
   );
 
-  // Delete issue (only open)
+  // Delete issue (only open, no children)
   fastify.delete<{ Params: { id: string } }>('/api/issues/:id', async (request, reply) => {
     const db = getDatabase();
     const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
     if (issue.status !== 'open') {
       return reply.code(409).send({ error: 'Only open issues can be deleted' });
+    }
+    const childCount = (db.prepare('SELECT COUNT(*) as c FROM issues WHERE parent_id = ?').get(request.params.id) as any).c;
+    if (childCount > 0) {
+      return reply.code(409).send({ error: `Cannot delete: issue has ${childCount} child issue(s)` });
     }
     db.prepare('DELETE FROM issues WHERE id = ?').run(request.params.id);
     return { success: true };
