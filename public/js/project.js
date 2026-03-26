@@ -118,12 +118,13 @@ async function loadAgents() {
     else if (controllerId) assignSel.value = controllerId;
   }
 
-  // Fetch in-progress issues per agent
+  // Fetch active issues (open/in_progress/pending) per agent
   const agentIssues = {};
   try {
-    const issRes = await fetch(`/api/projects/${projectId}/issues?status=in_progress&per_page=200`, { headers: apiHeaders() });
-    if (issRes.ok) {
-      const issData = await issRes.json();
+    const activeStatuses = ['open', 'in_progress', 'pending'];
+    const issPromises = activeStatuses.map(s => fetch(`/api/projects/${projectId}/issues?status=${s}&per_page=200`, { headers: apiHeaders() }).then(r => r.ok ? r.json() : { issues: [] }));
+    const issResults = await Promise.all(issPromises);
+    for (const issData of issResults) {
       for (const iss of (issData.issues || [])) {
         if (iss.assigned_to) {
           if (!agentIssues[iss.assigned_to]) agentIssues[iss.assigned_to] = [];
@@ -205,10 +206,15 @@ async function loadAgents() {
         <div class="agent-name">${spinner}${esc(a.name)}${tag}</div>
         <div class="agent-role">${esc(a.role)}</div>
         ${(agentIssues[a.id] || []).length > 0
-          ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${(agentIssues[a.id] || []).map(iss =>
-              `<a href="/issues/${iss.id}" onclick="event.stopPropagation()" style="display:inline-block;padding:2px 6px;background:rgba(88,166,255,0.1);border:1px solid rgba(88,166,255,0.3);border-radius:3px;font-size:10px;color:var(--accent);text-decoration:none;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="#${iss.number} ${esc(iss.title)}">#${iss.number} ${esc(iss.title)}</a>`
-            ).join('')}</div>`
-          : (a.status !== 'error' ? '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);opacity:0.5">空闲 — 无进行中任务</div>' : '')}
+          ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${(agentIssues[a.id] || []).map(iss => {
+              const isActive = iss.status === 'in_progress';
+              const bg = isActive ? 'rgba(63,185,80,0.15)' : 'rgba(88,166,255,0.1)';
+              const border = isActive ? 'rgba(63,185,80,0.4)' : 'rgba(88,166,255,0.3)';
+              const color = isActive ? 'var(--success, #3fb950)' : 'var(--accent)';
+              const dot = isActive ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--success, #3fb950);margin-right:3px;animation:pulse 1.5s infinite"></span>' : '';
+              return `<a href="/issues/${iss.id}" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;padding:2px 6px;background:${bg};border:1px solid ${border};border-radius:3px;font-size:10px;color:${color};text-decoration:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="#${iss.number} ${esc(iss.title)} [${iss.status}]">${dot}#${iss.number} ${esc(iss.title)}</a>`;
+            }).join('')}</div>`
+          : (a.status !== 'error' ? '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);opacity:0.5">空闲 — 无待处理任务</div>' : '')}
         ${errBox}
       </div>
       <div class="flex" style="gap:8px">
@@ -219,10 +225,9 @@ async function loadAgents() {
   }).join('');
 
   // Render agent collaboration graph
-  // Cache issues for graph node task counts
-  fetch(`/api/projects/${projectId}/issues?status=open&per_page=200`, { headers: apiHeaders() })
-    .then(r => r.ok ? r.json() : {})
-    .then(d => { window._dashboardIssues = d.issues || []; renderAgentGraph(); })
+  // Cache active issues for graph node task counts
+  Promise.all(['open','in_progress','pending'].map(s => fetch(`/api/projects/${projectId}/issues?status=${s}&per_page=200`, { headers: apiHeaders() }).then(r => r.ok ? r.json() : { issues: [] })))
+    .then(results => { window._dashboardIssues = results.flatMap(d => d.issues || []); renderAgentGraph(); })
     .catch(() => renderAgentGraph());
 
   loadOrchestrationRuns();
@@ -1108,7 +1113,7 @@ function renderAgentGraph() {
     const color = statusColor(w);
     const pulse = w.status === 'running' ? '<animate attributeName="r" values="' + nodeRadius + ';' + (nodeRadius + 4) + ';' + nodeRadius + '" dur="2s" repeatCount="indefinite"/>' : '';
 
-    const assignedCount = (window._dashboardIssues || []).filter(iss => iss.assigned_to === w.id && (iss.status === 'open' || iss.status === 'in_progress')).length;
+    const assignedCount = (window._dashboardIssues || []).filter(iss => iss.assigned_to === w.id && ['open','in_progress','pending'].includes(iss.status)).length;
     const dispatched = dispatchedAgents.has(w.id);
     const dispatchHint = dispatched ? ' · dispatched' : '';
     const reason = actionReasonByAgent.get(w.id);
