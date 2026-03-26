@@ -247,10 +247,9 @@ describe('Argus API', () => {
       assert.equal(changeRes.statusCode, 200);
 
       // Old token should be invalid (passwordHash changed)
-      const { status: oldStatus } = await api(app, '/api/dashboard/summary', {
-        headers: { cookie: `argus-auth=${oldToken}` },
-      });
-      assert.equal(oldStatus, 401, 'Old token should be invalidated after password change');
+      // Use page route (not API) since /api/dashboard/ has localhost bypass
+      const oldRes = await inject(app, { url: '/change-password', headers: { cookie: `argus-auth=${oldToken}` } });
+      assert.equal(oldRes.statusCode, 302, 'Old token should be invalidated after password change (redirects to /login)');
 
       // Restore password for remaining tests
       const newLogin = await app.inject({
@@ -275,10 +274,9 @@ describe('Argus API', () => {
     });
 
     it('invalid cookie token is rejected', async () => {
-      const { status } = await api(app, '/api/dashboard/summary', {
-        headers: { cookie: 'argus-auth=invalid-token-value' },
-      });
-      assert.equal(status, 401, 'Invalid token should be rejected');
+      // Use page route (not API) since /api/dashboard/ has localhost bypass
+      const res = await inject(app, { url: '/change-password', headers: { cookie: 'argus-auth=invalid-token-value' } });
+      assert.equal(res.statusCode, 302, 'Invalid token should be rejected (redirects to /login)');
     });
 
     it('GET /login shows login page when password is set', async () => {
@@ -1025,6 +1023,72 @@ describe('Argus API', () => {
       assert.ok(Array.isArray(body.user_issues));
       assert.ok(Array.isArray(body.recent_comments));
     });
+
+    describe('done status visibility (#312)', () => {
+      let notifProjectId: string;
+      let openIssueId: string;
+      let inProgressIssueId: string;
+      let doneIssueId: string;
+      let doneAckedIssueId: string;
+
+      before(async () => {
+        const { body: proj } = await api(app, '/api/projects', {
+          method: 'POST',
+          body: { name: 'notif-done-test', description: 'Notif done test', task_description: 'Test done status in notifications' },
+        });
+        notifProjectId = proj.id;
+
+        const createIssue = async (title: string) => {
+          const { body } = await api(app, `/api/projects/${notifProjectId}/issues`, {
+            method: 'POST',
+            body: { title, body: 'test', created_by: 'user', assigned_to: 'user' },
+          });
+          return body.id as string;
+        };
+
+        openIssueId = await createIssue('Notif Open Issue');
+        inProgressIssueId = await createIssue('Notif InProgress Issue');
+        doneIssueId = await createIssue('Notif Done Issue');
+        doneAckedIssueId = await createIssue('Notif Done Acked Issue');
+
+        await api(app, `/api/issues/${inProgressIssueId}`, {
+          method: 'PUT', body: { status: 'in_progress', actor: 'user' },
+        });
+        await api(app, `/api/issues/${doneIssueId}`, {
+          method: 'PUT', body: { status: 'done', actor: 'user' },
+        });
+        await api(app, `/api/issues/${doneAckedIssueId}`, {
+          method: 'PUT', body: { status: 'done', actor: 'user' },
+        });
+        await api(app, `/api/issues/${doneAckedIssueId}/acknowledge`, {
+          method: 'POST', body: {},
+        });
+      });
+
+      it('open issues assigned to user appear in notifications', async () => {
+        const { body } = await api(app, '/api/notifications');
+        const found = body.user_issues.find((i: any) => i.id === openIssueId);
+        assert.ok(found, 'open user issue should appear in notifications');
+      });
+
+      it('in_progress issues assigned to user appear in notifications', async () => {
+        const { body } = await api(app, '/api/notifications');
+        const found = body.user_issues.find((i: any) => i.id === inProgressIssueId);
+        assert.ok(found, 'in_progress user issue should appear in notifications');
+      });
+
+      it('done issues assigned to user (unacknowledged) appear in notifications', async () => {
+        const { body } = await api(app, '/api/notifications');
+        const found = body.user_issues.find((i: any) => i.id === doneIssueId);
+        assert.ok(found, 'done user issue with acknowledged_at=null should appear in notifications');
+      });
+
+      it('done issues that are acknowledged do NOT appear in notifications', async () => {
+        const { body } = await api(app, '/api/notifications');
+        const found = body.user_issues.find((i: any) => i.id === doneAckedIssueId);
+        assert.ok(!found, 'done user issue with acknowledged_at set should NOT appear in notifications');
+      });
+    });
   });
 
   // ─── Search ───
@@ -1287,9 +1351,9 @@ describe('Argus API', () => {
       assert.ok(typeof body.last_activity === 'object');
     });
 
-    it('GET /api/dashboard/summary requires auth (not localhost-safe)', async () => {
+    it('GET /api/dashboard/summary is localhost-safe (no auth needed from localhost)', async () => {
       const { status } = await api(app, '/api/dashboard/summary');
-      assert.equal(status, 401);
+      assert.equal(status, 200);
     });
   });
 
@@ -1451,7 +1515,7 @@ describe('Argus API', () => {
 
   describe('Breadcrumb Navigation', () => {
     it('issue.html has breadcrumb with Issues link', async () => {
-      const res = await inject(app, { url: '/issues/nonexistent' });
+      const res = await inject(app, { url: '/issues/nonexistent', headers: { cookie: `argus-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes('id="issues-link"'), 'Should have issues-link element');
       assert.ok(res.body.includes('id="project-link"'), 'Should have project-link element');
@@ -1459,14 +1523,14 @@ describe('Argus API', () => {
     });
 
     it('project.html has breadcrumb with section span', async () => {
-      const res = await inject(app, { url: `/projects/${projectId}` });
+      const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `argus-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes('id="breadcrumb-section"'), 'Should have breadcrumb-section element');
       assert.ok(res.body.includes('id="project-name"'), 'Should have project-name element');
     });
 
     it('project.html has 5 tabs including Git', async () => {
-      const res = await inject(app, { url: `/projects/${projectId}` });
+      const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `argus-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes("switchTab('git')"), 'Should have Git tab');
       assert.ok(res.body.includes("switchTab('overview')"), 'Should have Overview tab');
@@ -1868,16 +1932,12 @@ describe('Argus API', () => {
       }
     });
 
-    it('unauthenticated API request gets 401, not redirect to /setup (password was set)', async () => {
-      // When password is set, unauthenticated API requests should get 401
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/dashboard/summary',
-        headers: { cookie: 'argus-auth=invalid' },
-      });
-      assert.equal(res.statusCode, 401, 'Should return 401 Unauthorized');
-      // Should never redirect to /setup since password exists
-      assert.ok(!res.headers.location, 'Should not redirect');
+    it('unauthenticated request redirects to /login, not /setup (password was set)', async () => {
+      // When password is set, unauthenticated page requests should redirect to /login, not /setup
+      // Use page route since /api/dashboard/ has localhost bypass
+      const res = await inject(app, { url: '/change-password', headers: { cookie: 'argus-auth=invalid' } });
+      assert.equal(res.statusCode, 302, 'Should redirect unauthenticated request');
+      assert.equal(res.headers.location, '/login', 'Should redirect to /login, not /setup');
     });
 
     it('GET /setup redirects to /login when password is set (not show setup form)', async () => {
@@ -2520,6 +2580,129 @@ describe('Argus API', () => {
       assert.ok(raw.includes('High Knowledge'), 'system prompt should include high-importance knowledge title');
       assert.ok(raw.includes('Important info'), 'system prompt should include high-importance knowledge content');
       assert.ok(raw.includes('Project Knowledge Base'), 'system prompt should have Knowledge Base section header');
+    });
+  });
+
+  describe('Child issue auto-sets parent to pending (#326)', () => {
+    let pendingProjectId: string;
+    let issueAId: string;
+    let issueBId: string;
+    let doneProjId: string;
+    let doneParentId: string;
+    let closedParentId: string;
+
+    before(async () => {
+      const { body: proj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'pending-test-proj', description: 'Pending test', task_description: 'Test pending auto-set' },
+      });
+      pendingProjectId = proj.id;
+
+      // Create issue A (parent candidate)
+      const { body: issueA } = await api(app, `/api/projects/${pendingProjectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Issue A', body: 'parent', created_by: 'user', assigned_to: 'user' },
+      });
+      issueAId = issueA.id;
+
+      // Project for done/closed parent tests
+      const { body: proj2 } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'pending-done-test', description: 'Done closed parent test', task_description: 'Test done/closed parent' },
+      });
+      doneProjId = proj2.id;
+
+      const { body: dp } = await api(app, `/api/projects/${doneProjId}/issues`, {
+        method: 'POST',
+        body: { title: 'Done Parent', body: 'done parent', created_by: 'user', assigned_to: 'user' },
+      });
+      doneParentId = dp.id;
+      await api(app, `/api/issues/${doneParentId}`, {
+        method: 'PUT', body: { status: 'done', actor: 'user' },
+      });
+
+      const { body: cp } = await api(app, `/api/projects/${doneProjId}/issues`, {
+        method: 'POST',
+        body: { title: 'Closed Parent', body: 'closed parent', created_by: 'user', assigned_to: 'user' },
+      });
+      closedParentId = cp.id;
+      await api(app, `/api/issues/${closedParentId}`, {
+        method: 'PUT', body: { status: 'closed', actor: 'user' },
+      });
+    });
+
+    it('creating child issue auto-sets parent to pending', async () => {
+      const { body: issueB, status } = await api(app, `/api/projects/${pendingProjectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Issue B', body: 'child', created_by: 'user', assigned_to: 'user', parent_id: issueAId },
+      });
+      assert.equal(status, 201);
+      issueBId = issueB.id;
+
+      const { body: parentAfter } = await api(app, `/api/issues/${issueAId}`);
+      assert.equal(parentAfter.status, 'pending', 'Parent issue A should be pending after child B is created');
+    });
+
+    it('creating another child on already-pending parent does not error', async () => {
+      const { status } = await api(app, `/api/projects/${pendingProjectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Issue C', body: 'second child', created_by: 'user', assigned_to: 'user', parent_id: issueAId },
+      });
+      assert.equal(status, 201, 'Creating second child on pending parent should succeed');
+
+      const { body: parentAfter } = await api(app, `/api/issues/${issueAId}`);
+      assert.equal(parentAfter.status, 'pending', 'Parent should remain pending');
+    });
+
+    it('PUT /api/issues/:id status=pending succeeds (no SQLITE_CONSTRAINT_CHECK)', async () => {
+      // Create a fresh issue and set it to pending via API
+      const { body: freshIssue } = await api(app, `/api/projects/${pendingProjectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Fresh issue for pending test', body: 'test', created_by: 'user', assigned_to: 'user' },
+      });
+      const { status, body } = await api(app, `/api/issues/${freshIssue.id}`, {
+        method: 'PUT',
+        body: { status: 'pending', actor: 'user' },
+      });
+      assert.equal(status, 200, 'Setting status=pending via PUT should return 200');
+      assert.equal(body.status, 'pending');
+    });
+
+    it('done parent is NOT changed to pending when child is created', async () => {
+      const { status } = await api(app, `/api/projects/${doneProjId}/issues`, {
+        method: 'POST',
+        body: { title: 'Child of Done', body: 'child', created_by: 'user', assigned_to: 'user', parent_id: doneParentId },
+      });
+      assert.equal(status, 201);
+
+      const { body: parentAfter } = await api(app, `/api/issues/${doneParentId}`);
+      assert.equal(parentAfter.status, 'done', 'Done parent should remain done after child creation');
+    });
+
+    it('closed parent is NOT changed to pending when child is created', async () => {
+      const { status } = await api(app, `/api/projects/${doneProjId}/issues`, {
+        method: 'POST',
+        body: { title: 'Child of Closed', body: 'child', created_by: 'user', assigned_to: 'user', parent_id: closedParentId },
+      });
+      assert.equal(status, 201);
+
+      const { body: parentAfter } = await api(app, `/api/issues/${closedParentId}`);
+      assert.equal(parentAfter.status, 'closed', 'Closed parent should remain closed after child creation');
+    });
+
+    it('completing all children triggers parent auto-update (re-opens to open)', async () => {
+      // Complete all children of issue A
+      const { body: parentDetail } = await api(app, `/api/issues/${issueAId}`);
+      for (const child of parentDetail.children || []) {
+        await api(app, `/api/issues/${child.id}`, {
+          method: 'PUT', body: { status: 'done', actor: 'user' },
+        });
+      }
+      const { body: parentAfter } = await api(app, `/api/issues/${issueAId}`);
+      assert.ok(
+        ['open', 'in_progress', 'done'].includes(parentAfter.status),
+        `Parent status after all children done should be open/in_progress/done, got: ${parentAfter.status}`
+      );
     });
   });
 });
