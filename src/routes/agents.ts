@@ -194,14 +194,23 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
+    // Set status to 'stopped' before killing so close handler preserves it
+    db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
+
     const stopped = stopAgentProcess(agent.id);
     if (!stopped) {
       // Process not in memory map — try killing PID directly if it exists
       if (agent.pid) {
         try { process.kill(agent.pid, 'SIGTERM'); } catch {}
       }
-      db.prepare("UPDATE agents SET status = 'stopped', pid = NULL WHERE id = ?").run(agent.id);
+      db.prepare("UPDATE agents SET pid = NULL WHERE id = ?").run(agent.id);
     }
+
+    // Broadcast stopped status immediately for UI feedback
+    broadcastToProject(agent.project_id, {
+      type: 'agent_status', projectId: agent.project_id,
+      data: { agentId: agent.id, status: 'stopped' },
+    });
 
     return { success: true };
   });

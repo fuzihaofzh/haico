@@ -9,7 +9,9 @@ import { broadcastToAgent, broadcastToProject } from './websocket';
 import logger from '../logger';
 
 const runningProcesses = new Map<string, ChildProcess>();
+const processTimers = new Map<string, NodeJS.Timeout>();
 const PROMPT_DIR = path.join(os.tmpdir(), 'argus-prompts');
+const DEFAULT_MAX_RUNTIME_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // Track consecutive error count per agent for session invalidation
 const agentErrorCount = new Map<string, number>();
@@ -52,7 +54,7 @@ export function startAgentProcess(
   const toolPath = commandTemplate.trim() || 'claude';
   // Session strategy: time-based timeout → cache token (preferred) → run count (fallback)
   const resumeTimeout = (agent as any).session_resume_timeout ?? 300; // default 5 minutes
-  const maxTokens = (agent as any).session_max_tokens || 200000;
+  const maxTokens = (agent as any).session_max_tokens || 400000;
   const maxRuns = (agent as any).session_max_runs || 10;
   const runCount = ((agent as any).session_run_count || 0) + 1;
   let shouldReset = false;
@@ -105,7 +107,7 @@ export function startAgentProcess(
 
   if (lowerTool.startsWith('cld') || lowerTool.startsWith('claude')) {
     const sessionFlag = existingSessionId ? `--resume ${sessionId}` : `--session-id ${sessionId}`;
-    command = `${toolPath} -p --output-format stream-json --verbose ${sessionFlag} --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"`;
+    command = `${toolPath} -p --output-format stream-json --verbose ${sessionFlag} --dangerously-skip-permissions --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"`;
     useStreamJson = true;
   } else if (lowerTool === 'codex') {
     // Codex CLI: non-interactive exec mode with JSONL output.
@@ -162,7 +164,7 @@ export function startAgentProcess(
   let cwd = agent.working_directory || process.cwd();
   if (cwd.startsWith('~/')) cwd = path.join(os.homedir(), cwd.slice(2));
 
-  const child = spawn('/bin/sh', ['-c', command], {
+  const child = spawn('/bin/sh', ['-c', 'exec ' + command], {
     cwd,
     env: {
       ...process.env,
@@ -185,6 +187,22 @@ export function startAgentProcess(
 
   const pid = child.pid || 0;
   runningProcesses.set(agent.id, child);
+
+  // Set max runtime timeout to prevent stuck agents
+  const maxRuntime = (agent as any).max_runtime_ms || DEFAULT_MAX_RUNTIME_MS;
+  const timer = setTimeout(() => {
+    if (runningProcesses.has(agent.id)) {
+      logger.warn(`Agent ${agent.id} (${agent.name}) exceeded max runtime of ${Math.round(maxRuntime / 60000)} minutes, killing process`);
+      logStmt.run(agent.id, runId, `[Argus] Process killed: exceeded max runtime of ${Math.round(maxRuntime / 60000)} minutes`, 'stderr');
+      child.kill('SIGTERM');
+      setTimeout(() => {
+        if (runningProcesses.has(agent.id)) {
+          child.kill('SIGKILL');
+        }
+      }, 5000);
+    }
+  }, maxRuntime);
+  processTimers.set(agent.id, timer);
 
   db.prepare('UPDATE agents SET pid = ? WHERE id = ?').run(pid, agent.id);
 
@@ -238,7 +256,8 @@ export function startAgentProcess(
           const cacheRead = obj.usage.cached_input_tokens || 0;
           // Codex doesn't report cache_creation separately; estimate as input - cached
           const cacheCreation = Math.max(0, input - cacheRead);
-          logAndBroadcast(`\n--- Tokens: ${input} in, ${output} out, ${cacheRead} cache ---\n`, 'stdout');
+          const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+          logAndBroadcast(`\n--- [${now}] Tokens: ${input} in, ${output} out, ${cacheRead} cache ---\n`, 'stdout');
           try {
             db.prepare("INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'cost')")
               .run(agent.id, runId, JSON.stringify({ cost_usd: 0, input_tokens: input, output_tokens: output, cache_read: cacheRead, cache_creation: cacheCreation }));
@@ -275,7 +294,8 @@ export function startAgentProcess(
           const output = obj.usage?.output_tokens || 0;
           const cacheRead = obj.usage?.cache_read_input_tokens || 0;
           const cacheCreation = obj.usage?.cache_creation_input_tokens || 0;
-          logAndBroadcast(`\n--- Cost: $${costUsd.toFixed(4)} | Tokens: ${input} in, ${output} out, ${cacheRead} cache ---\n`, 'stdout');
+          const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+          logAndBroadcast(`\n--- [${now}] Cost: $${costUsd.toFixed(4)} | Tokens: ${input} in, ${output} out, ${cacheRead} cache ---\n`, 'stdout');
           try {
             db.prepare("INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'cost')")
               .run(agent.id, runId, JSON.stringify({ cost_usd: costUsd, input_tokens: input, output_tokens: output, cache_read: cacheRead, cache_creation: cacheCreation, duration_ms: obj.duration_ms }));
@@ -326,8 +346,12 @@ export function startAgentProcess(
 
   child.on('close', (code) => {
     runningProcesses.delete(agent.id);
+    const runtimeTimer = processTimers.get(agent.id);
+    if (runtimeTimer) { clearTimeout(runtimeTimer); processTimers.delete(agent.id); }
     cleanupPromptFile(promptFile);
-    const status = code === 0 ? 'idle' : 'error';
+    // If agent was explicitly stopped, preserve 'stopped' status
+    const currentAgent = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as { status: string } | undefined;
+    const status = currentAgent?.status === 'stopped' ? 'stopped' : (code === 0 ? 'idle' : 'error');
 
     if (status === 'error') {
       // P1: Track consecutive errors — only clear session after MAX_CONSECUTIVE_ERRORS
@@ -372,6 +396,8 @@ export function startAgentProcess(
   child.on('error', (err: any) => {
     logger.error(`Spawn error: ${err.message} code=${err.code} path=${err.path} syscall=${err.syscall} cwd=${cwd}`);
     runningProcesses.delete(agent.id);
+    const runtimeTimer = processTimers.get(agent.id);
+    if (runtimeTimer) { clearTimeout(runtimeTimer); processTimers.delete(agent.id); }
     cleanupPromptFile(promptFile);
 
     // If resume failed, retry with a fresh session
@@ -397,6 +423,9 @@ export function stopAgentProcess(agentId: string): boolean {
   const child = runningProcesses.get(agentId);
   if (!child) return false;
 
+  const timer = processTimers.get(agentId);
+  if (timer) { clearTimeout(timer); processTimers.delete(agentId); }
+
   child.kill('SIGTERM');
   // Force kill after 5 seconds
   setTimeout(() => {
@@ -417,6 +446,8 @@ export function getRunningAgentIds(): string[] {
 }
 
 export function stopAllProcesses(): void {
+  for (const [, timer] of processTimers) { clearTimeout(timer); }
+  processTimers.clear();
   for (const [agentId, child] of runningProcesses) {
     logger.info(`Killing agent ${agentId} (pid: ${child.pid})`);
     child.kill('SIGTERM');
