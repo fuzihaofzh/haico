@@ -135,7 +135,8 @@ ${C} -X PUT ${base}/api/projects/${project.id} \\
 - Focus on your assigned issues
 - Update issue status when you start (\`in_progress\`) and finish (\`done\`)
 - Add comments to issues to report progress or ask questions
-- Create new issues if you discover problems
+- Create new issues if you discover problems. If the new issue is a sub-task of your current issue, set \`parent_id\` to link them: \`{"title":"sub-task","parent_id":"<current-issue-id>",...}\`
+- When all child issues of a parent complete, the system automatically notifies the parent
 - You cannot create or manage other agents — only the controller can`;
   }
 

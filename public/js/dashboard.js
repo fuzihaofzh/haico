@@ -197,11 +197,29 @@ function toggleNotifFilter(filter) {
   document.querySelectorAll('.notif-filter-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.filter === filter);
   });
-  // Re-render with current filter + search
-  if (_inboxSearchQuery.trim()) {
+  if (filter === 'my') {
+    loadMyIssues();
+  } else if (_inboxSearchQuery.trim()) {
     searchInboxIssues(_inboxSearchQuery.trim());
   } else {
     renderInboxItems(_inboxAllItems);
+  }
+}
+
+async function loadMyIssues() {
+  try {
+    const res = await fetch('/api/my-issues', { headers: apiHeaders() });
+    if (!res.ok) return;
+    const issues = await res.json();
+    const items = issues.map(issue => ({
+      type: 'issue',
+      time: issue.updated_at,
+      data: issue,
+      actionRequired: issue.assigned_to === 'user' && ['open', 'in_progress'].includes(issue.status)
+    }));
+    renderInboxItems(items);
+  } catch (e) {
+    console.error('Failed to load my issues', e);
   }
 }
 

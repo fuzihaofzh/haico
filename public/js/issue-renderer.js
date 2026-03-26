@@ -82,7 +82,9 @@ var IssueRenderer = (function() {
   function statusIcon(s) {
     if (s === 'open') return '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#3fb950" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="#3fb950"/></svg>';
     if (s === 'in_progress') return '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#d29922" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="#d29922"/></svg>';
-    return '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#8b6fcf" stroke-width="2"/><path d="M5.5 8l2 2 3.5-3.5" fill="none" stroke="#8b6fcf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    if (s === 'pending') return '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="4 2"/><circle cx="8" cy="8" r="2" fill="#d29922"/></svg>';
+    if (s === 'done') return '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#8b6fcf" stroke-width="2"/><path d="M5.5 8l2 2 3.5-3.5" fill="none" stroke="#8b6fcf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    return '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="gray" stroke-width="2"/><line x1="5" y1="5" x2="11" y2="11" stroke="gray" stroke-width="1.5"/><line x1="11" y1="5" x2="5" y2="11" stroke="gray" stroke-width="1.5"/></svg>';
   }
 
   function reactionBar(targetType, targetId, reactions) {
@@ -220,6 +222,28 @@ var IssueRenderer = (function() {
             '<div class="sidebar-section-title">Priority</div>' +
             priorityBadge(issue.priority) +
           '</div>' +
+          (issue.parent_id && issue.parent_number ?
+            '<div class="sidebar-section">' +
+              '<div class="sidebar-section-title">Parent Issue</div>' +
+              '<a href="/projects/' + issue.project_id + '/issues/' + issue.parent_number + '" style="font-size:12px;text-decoration:none;display:flex;align-items:center;gap:4px">' +
+                statusIcon(issue.parent_status || 'open') + ' #' + issue.parent_number + ' ' + esc(issue.parent_title || '') +
+              '</a>' +
+            '</div>' : '') +
+          (issue.children && issue.children.length > 0 ? (function() {
+            var done = issue.children.filter(function(c) { return c.status === 'done' || c.status === 'closed'; }).length;
+            var total = issue.children.length;
+            var pct = Math.round(done / total * 100);
+            return '<div class="sidebar-section">' +
+              '<div class="sidebar-section-title">Child Issues (' + done + '/' + total + ' done)</div>' +
+              '<div style="background:var(--border);border-radius:4px;height:6px;margin-bottom:8px;overflow:hidden">' +
+                '<div style="background:var(--success);height:100%;width:' + pct + '%;transition:width 0.3s"></div>' +
+              '</div>' +
+              issue.children.map(function(c) {
+                return '<a href="/projects/' + issue.project_id + '/issues/' + c.number + '" style="display:flex;align-items:center;gap:6px;padding:3px 0;text-decoration:none;color:inherit;font-size:12px">' +
+                  statusIcon(c.status) + ' <span>#' + c.number + ' ' + esc(c.title) + '</span></a>';
+              }).join('') +
+            '</div>';
+          })() : '') +
           (issue.status === 'open' ? '<div style="margin-top:12px"><button class="btn btn-sm btn-danger" onclick="IssueRenderer.deleteIssue()">Delete</button></div>' : '') +
         '</div>' +
       '</div>';

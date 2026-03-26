@@ -82,6 +82,15 @@ export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?:
   const workers = agents.filter((a: any) => !a.is_controller);
   const priorityLabel = (p: number) => (p >= 10 ? '🔴 USER' : p >= 5 ? '🟡 CTRL' : '⚪ AGENT');
 
+  // Build child issue count map for parent-child display
+  const childCounts = db.prepare(
+    `SELECT parent_id, COUNT(*) as total,
+     SUM(CASE WHEN status IN ('done','closed') THEN 1 ELSE 0 END) as completed
+     FROM issues WHERE project_id = ? AND parent_id IS NOT NULL
+     GROUP BY parent_id`
+  ).all(project.id) as any[];
+  const childCountMap = new Map(childCounts.map((r: any) => [r.parent_id, r]));
+
   const unassigned = issues.filter((i) => !i.assigned_to || i.assigned_to === 'all');
   const assigned = issues.filter((i) => i.assigned_to && i.assigned_to !== 'all');
 
@@ -90,6 +99,13 @@ export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?:
       ? (workers.find((a: any) => a.id === i.assigned_to)?.name || (i.assigned_to === 'user' ? 'User' : i.assigned_to))
       : 'unassigned';
     const labels = i.labels ? ` [${i.labels}]` : '';
+
+    // Parent-child info
+    const parentInfo = i.parent_id
+      ? ` [child of #${(db.prepare('SELECT number FROM issues WHERE id = ?').get(i.parent_id) as any)?.number || '?'}]`
+      : '';
+    const cc = childCountMap.get(i.id);
+    const childInfo = cc ? ` [children: ${cc.completed}/${cc.total} done]` : '';
 
     const comments = db.prepare(
       'SELECT author_id, body, created_at FROM issue_comments WHERE issue_id = ? ORDER BY created_at'
@@ -104,7 +120,7 @@ export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?:
         }).join('\n')
       : '';
 
-    return `#${i.number} [${priorityLabel(i.priority)}] [${i.status}] ${i.title} -> ${assignee}${labels}\n   ${i.body || ''}${commentsText}`;
+    return `#${i.number} [${priorityLabel(i.priority)}] [${i.status}] ${i.title} -> ${assignee}${labels}${parentInfo}${childInfo}\n   ${i.body || ''}${commentsText}`;
   };
 
   const doneRecent = db.prepare(
@@ -129,7 +145,9 @@ ${pendingIssues.map((i) => {
     const assignee = i.assigned_to
       ? (workers.find((a: any) => a.id === i.assigned_to)?.name || (i.assigned_to === 'user' ? 'User' : i.assigned_to))
       : 'unassigned';
-    return `#${i.number} [pending] ${i.title} -> ${assignee}`;
+    const cc = childCountMap.get(i.id);
+    const progress = cc ? ` [${cc.completed}/${cc.total} done]` : '';
+    return `#${i.number} [pending] ${i.title} -> ${assignee}${progress}`;
   }).join('\n') || 'None.'}
 
 ## Recently Completed (${doneRecent.length})
@@ -164,7 +182,7 @@ ${workers.map((a: any) => {
    - All work is complete (create a summary issue for the user)
    - An error occurs that you cannot resolve
 8. **NEVER do long-running waits yourself.** Do NOT use sleep/wait/poll loops. If you need to wait for a worker, just exit. You will be triggered again automatically when the worker finishes. Each turn should complete quickly (under 60 seconds).
-14. **Pending状态。** 当你将一个issue拆分成多个子issue分配给worker后，将原issue状态设为\`pending\`。Pending表示"已拆分，等待子issue完成"。当所有相关子issue完成后，再将pending issue标记为done或关闭。
+14. **Pending状态与父子Issue。** 当你将一个issue拆分成多个子issue时，在创建子issue时设置\`parent_id\`指向父issue的ID，然后将父issue状态设为\`pending\`。当所有子issue完成后，系统会自动在父issue上添加通知评论并触发你来审查关闭。创建子issue示例：\`{"title":"子任务","parent_id":"父issue的ID",...}\`
 9. **NEVER write code or edit files yourself.** Controller的职责是协调和决策，不是写代码。所有涉及代码修改的任务（无论大小，包括"简单"的UI修复、一行bug fix等）都必须分配给开发agent执行。Controller只负责：分配任务、启动agent、检查结果、管理流程。
 10. **需求需用户确认。** 产品agent提出的新功能需求必须先分配给"user"等待确认。只有用户确认后（通过评论或状态变更），才能将需求issue分配给开发agent。Bug修复类issue可以直接分配开发。
 11. **开发→测试流程。** 开发agent完成任务后，应创建测试验证issue分配给测试agent。测试agent验证通过后标记done，发现bug则创建bug issue分配给开发agent。Controller负责监督此流程。bug修复后必须经过测试验证，不能跳过测试直接完成。

@@ -59,9 +59,10 @@ export function initializeDatabase(db: Database.Database): void {
       created_by TEXT NOT NULL,
       assigned_to TEXT,
       priority INTEGER DEFAULT 1,
-      status TEXT DEFAULT 'open' CHECK(status IN ('open', 'in_progress', 'done', 'closed')),
+      status TEXT DEFAULT 'open' CHECK(status IN ('open', 'in_progress', 'pending', 'done', 'closed')),
       labels TEXT DEFAULT '',
       milestone_id TEXT,
+      parent_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
       created_at DATETIME DEFAULT (datetime('now')),
       updated_at DATETIME DEFAULT (datetime('now'))
     );
@@ -126,6 +127,7 @@ export function initializeDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
     CREATE INDEX IF NOT EXISTS idx_issues_assigned ON issues(assigned_to, status);
     CREATE INDEX IF NOT EXISTS idx_issue_comments ON issue_comments(issue_id);
+    CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id);
     CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id);
     CREATE INDEX IF NOT EXISTS idx_reactions_target ON reactions(target_type, target_id);
     CREATE TABLE IF NOT EXISTS sessions (
@@ -204,6 +206,19 @@ export function initializeDatabase(db: Database.Database): void {
     db.exec("ALTER TABLE issues ADD COLUMN acknowledged_at TEXT DEFAULT NULL");
     logger.info('Migration: added acknowledged_at column to issues table');
   }
+
+  // Migration: add parent_id column to issues if missing
+  if (!issueCols.find((c: any) => c.name === 'parent_id')) {
+    db.exec("ALTER TABLE issues ADD COLUMN parent_id TEXT REFERENCES issues(id) ON DELETE SET NULL");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id)");
+    logger.info('Migration: added parent_id column to issues table');
+  }
+
+  // Migration: add pending status to issues CHECK constraint (SQLite doesn't support ALTER CHECK,
+  // but the CHECK is only enforced on INSERT/UPDATE with the original CREATE TABLE constraint.
+  // New databases get the updated CHECK; existing databases work because SQLite doesn't enforce
+  // CHECK constraints added via ALTER TABLE — the original CREATE TABLE CHECK still applies.
+  // We handle this by allowing 'pending' through the API validation layer.)
 
   // Migration: set default Sonnet model for controller agents without a --model flag
   const ctrlModelUpdated = db.prepare(

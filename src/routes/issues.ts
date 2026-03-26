@@ -153,10 +153,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   );
 
   // Create issue
-  fastify.post<{ Params: { pid: string }; Body: { title: string; body?: string; created_by: string; assigned_to?: string; labels?: string } }>(
+  fastify.post<{ Params: { pid: string }; Body: { title: string; body?: string; created_by: string; assigned_to?: string; labels?: string; parent_id?: string } }>(
     '/api/projects/:pid/issues',
     async (request, reply) => {
-      const { title, body, created_by, assigned_to, labels } = request.body;
+      const { title, body, created_by, assigned_to, labels, parent_id } = request.body;
       if (!title || !created_by) {
         return reply.code(400).send({ error: 'title and created_by are required' });
       }
@@ -169,10 +169,17 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       const last = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(request.params.pid) as { n: number | null };
       const number = (last?.n || 0) + 1;
 
+      // Validate parent_id if provided
+      if (parent_id) {
+        const parent = db.prepare('SELECT id, project_id FROM issues WHERE id = ?').get(parent_id) as any;
+        if (!parent) return reply.code(400).send({ error: 'Parent issue not found' });
+        if (parent.project_id !== request.params.pid) return reply.code(400).send({ error: 'Parent issue must be in the same project' });
+      }
+
       db.prepare(`
-        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, labels, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
-      `).run(id, request.params.pid, number, title, body || '', created_by, assigned_to || null, priority, labels || '');
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, labels, parent_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+      `).run(id, request.params.pid, number, title, body || '', created_by, assigned_to || null, priority, labels || '', parent_id || null);
 
       const created = db.prepare('SELECT * FROM issues WHERE id = ?').get(id) as any;
 
@@ -212,10 +219,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     }
   );
 
-  // Get issue detail (with comments + reactions)
+  // Get issue detail (with comments + reactions + parent/children)
   fastify.get<{ Params: { id: string } }>('/api/issues/:id', async (request, reply) => {
     const db = getDatabase();
-    const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id);
+    const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
 
     const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(request.params.id);
@@ -224,7 +231,21 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       ...c,
       reactions: db.prepare("SELECT * FROM reactions WHERE target_type = 'comment' AND target_id = ?").all(c.id),
     }));
-    return { ...issue as any, comments: commentsWithReactions, reactions };
+
+    // Parent info
+    let parent_number: number | null = null;
+    let parent_title: string | null = null;
+    if (issue.parent_id) {
+      const parent = db.prepare('SELECT number, title FROM issues WHERE id = ?').get(issue.parent_id) as any;
+      if (parent) { parent_number = parent.number; parent_title = parent.title; }
+    }
+
+    // Children
+    const children = db.prepare(
+      'SELECT id, number, title, status, assigned_to FROM issues WHERE parent_id = ? ORDER BY number'
+    ).all(request.params.id);
+
+    return { ...issue, comments: commentsWithReactions, reactions, parent_number, parent_title, children };
   });
 
   // Update issue with timeline events
@@ -276,6 +297,55 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         type: 'issue_updated', projectId: updated.project_id,
         data: { issue: updated },
       });
+
+      // When child issue completed, check siblings and update parent
+      if ((status === 'done' || status === 'closed') && updated.parent_id) {
+        const siblings = db.prepare(
+          "SELECT COUNT(*) as total, SUM(CASE WHEN status IN ('done','closed') THEN 1 ELSE 0 END) as completed FROM issues WHERE parent_id = ?"
+        ).get(updated.parent_id) as any;
+        const parentIssue = db.prepare('SELECT * FROM issues WHERE id = ?').get(updated.parent_id) as any;
+        const eventStmt2 = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
+
+        if (siblings.total > 0 && siblings.total === siblings.completed && parentIssue) {
+          // All children done
+          eventStmt2.run(uuidv4(), updated.parent_id, 'system',
+            `All ${siblings.total} child issues are now complete.`, 'status_change',
+            JSON.stringify({ all_children_complete: true, child_count: siblings.total }));
+
+          // If parent was created by user, assign back to user for review
+          if (parentIssue.created_by === 'user') {
+            db.prepare("UPDATE issues SET status = 'done', assigned_to = 'user', acknowledged_at = NULL, updated_at = datetime('now') WHERE id = ?")
+              .run(updated.parent_id);
+            eventStmt2.run(uuidv4(), updated.parent_id, 'system',
+              'assigned to user for review (all child issues complete)', 'assignment',
+              JSON.stringify({ from: parentIssue.assigned_to, to: 'user' }));
+          } else {
+            db.prepare("UPDATE issues SET updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?")
+              .run(updated.parent_id);
+            // Trigger controller to review and close parent
+            triggerControllerOnDemand(updated.project_id, parentIssue.number, actorId);
+          }
+        } else if (parentIssue) {
+          // Partial progress — update parent timestamp so it's visible
+          eventStmt2.run(uuidv4(), updated.parent_id, 'system',
+            `Child #${updated.number} completed (${siblings.completed}/${siblings.total} done).`, 'status_change',
+            JSON.stringify({ child_number: updated.number, completed: siblings.completed, total: siblings.total }));
+          db.prepare("UPDATE issues SET updated_at = datetime('now') WHERE id = ?").run(updated.parent_id);
+        }
+      }
+
+      // System-level auto-assign back to user: when a user-created issue (without parent)
+      // is marked done by an agent, assign it back to user for review — no controller needed
+      if ((status === 'done' || status === 'closed') && !updated.parent_id
+          && existing.created_by === 'user' && actorId !== 'user'
+          && existing.assigned_to !== 'user') {
+        db.prepare("UPDATE issues SET assigned_to = 'user', acknowledged_at = NULL, updated_at = datetime('now') WHERE id = ?")
+          .run(request.params.id);
+        const returnEvt = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
+        returnEvt.run(uuidv4(), request.params.id, 'system',
+          'assigned to user for review (task completed)', 'assignment',
+          JSON.stringify({ from: existing.assigned_to, to: 'user' }));
+      }
 
       // Wake-on-issue: trigger controller when issue status/assignment changes
       triggerControllerOnDemand(updated.project_id, updated.number, actorId);
@@ -332,6 +402,20 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     ).all() as any[];
 
     return { user_issues: userIssues, recent_comments: recentComments };
+  });
+
+  // My Issues — all issues the user is involved in (assigned, created, or commented)
+  fastify.get('/api/my-issues', async () => {
+    const db = getDatabase();
+    return db.prepare(`
+      SELECT DISTINCT i.*, p.name as project_name FROM issues i
+      JOIN projects p ON i.project_id = p.id
+      WHERE i.assigned_to = 'user'
+         OR i.created_by = 'user'
+         OR i.id IN (SELECT DISTINCT issue_id FROM issue_comments WHERE author_id = 'user')
+      ORDER BY i.updated_at DESC
+      LIMIT 100
+    `).all();
   });
 
   // Inbox search — search all issues by title, body, or number
@@ -461,19 +545,29 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     return { success: true };
   });
 
-  // Get issue by project ID + number (with reactions)
+  // Get issue by project ID + number (with reactions + parent/children)
   fastify.get<{ Params: { pid: string; num: string } }>('/api/projects/:pid/issues/number/:num', async (request, reply) => {
     const db = getDatabase();
-    const issue = db.prepare('SELECT * FROM issues WHERE project_id = ? AND number = ?').get(request.params.pid, parseInt(request.params.num));
+    const issue = db.prepare('SELECT * FROM issues WHERE project_id = ? AND number = ?').get(request.params.pid, parseInt(request.params.num)) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
-    const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all((issue as any).id);
-    const reactions = db.prepare("SELECT * FROM reactions WHERE target_type = 'issue' AND target_id = ?").all((issue as any).id);
-    // Add reactions per comment
+    const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(issue.id);
+    const reactions = db.prepare("SELECT * FROM reactions WHERE target_type = 'issue' AND target_id = ?").all(issue.id);
     const commentsWithReactions = (comments as any[]).map(c => ({
       ...c,
       reactions: db.prepare("SELECT * FROM reactions WHERE target_type = 'comment' AND target_id = ?").all(c.id),
     }));
-    return { ...issue as any, comments: commentsWithReactions, reactions };
+
+    let parent_number: number | null = null;
+    let parent_title: string | null = null;
+    if (issue.parent_id) {
+      const parent = db.prepare('SELECT number, title FROM issues WHERE id = ?').get(issue.parent_id) as any;
+      if (parent) { parent_number = parent.number; parent_title = parent.title; }
+    }
+    const children = db.prepare(
+      'SELECT id, number, title, status, assigned_to FROM issues WHERE parent_id = ? ORDER BY number'
+    ).all(issue.id);
+
+    return { ...issue, comments: commentsWithReactions, reactions, parent_number, parent_title, children };
   });
 
   // Also update GET /api/issues/:id to include reactions

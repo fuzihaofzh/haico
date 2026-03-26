@@ -50,6 +50,7 @@ export interface Issue {
   status: 'open' | 'in_progress' | 'pending' | 'done' | 'closed';
   labels: string;
   milestone_id: string | null;
+  parent_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -59,6 +60,8 @@ export interface IssueComment {
   issue_id: string;
   author_id: string;
   body: string;
+  event_type: 'comment' | 'status_change' | 'assignment' | 'label_change';
+  meta: string;
   created_at: string;
 }
 
