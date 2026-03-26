@@ -414,6 +414,15 @@ export function stopAgentProcess(agentId: string): boolean {
   setTimeout(() => {
     if (runningProcesses.has(agentId)) {
       child.kill('SIGKILL');
+      // Force cleanup after 3 more seconds — grandchild processes may hold
+      // stdio pipes open, preventing the 'close' event from ever firing.
+      setTimeout(() => {
+        if (runningProcesses.has(agentId)) {
+          logger.info(`Force cleanup: agent ${agentId} close event not fired after SIGKILL, cleaning up`);
+          runningProcesses.delete(agentId);
+          lastActivityTime.delete(agentId);
+        }
+      }, 3000);
     }
   }, 5000);
 

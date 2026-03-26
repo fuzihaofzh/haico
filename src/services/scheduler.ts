@@ -145,6 +145,9 @@ function startWatchdog(): void {
               "INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'stderr')"
             ).run(agent.id, '', `[Argus] Watchdog: process killed after ${idleMin} minutes with no output`);
             stopAgentProcess(agent.id);
+            // Immediately update DB status to idle so next watchdog scan doesn't re-trigger
+            db.prepare("UPDATE agents SET status = 'idle', pid = NULL, finished_at = datetime('now') WHERE id = ?")
+              .run(agent.id);
           }
         } else {
           // DB says running but process is gone — orphaned state (e.g., Argus restarted)

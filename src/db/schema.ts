@@ -226,11 +226,37 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: added parent_id column to issues table');
   }
 
-  // Migration: add pending status to issues CHECK constraint (SQLite doesn't support ALTER CHECK,
-  // but the CHECK is only enforced on INSERT/UPDATE with the original CREATE TABLE constraint.
-  // New databases get the updated CHECK; existing databases work because SQLite doesn't enforce
-  // CHECK constraints added via ALTER TABLE — the original CREATE TABLE CHECK still applies.
-  // We handle this by allowing 'pending' through the API validation layer.)
+  // Migration: fix issues CHECK constraint to include 'pending' status
+  // SQLite doesn't support ALTER CHECK, so we rebuild the table if the constraint is missing.
+  const issuesTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='issues'").get() as any;
+  if (issuesTableSql && !issuesTableSql.sql.includes("'pending'")) {
+    db.exec(`
+      ALTER TABLE issues RENAME TO issues_old;
+      CREATE TABLE issues (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT DEFAULT '',
+        created_by TEXT NOT NULL,
+        assigned_to TEXT,
+        priority INTEGER DEFAULT 1,
+        status TEXT DEFAULT 'open' CHECK(status IN ('open', 'in_progress', 'pending', 'done', 'closed')),
+        labels TEXT DEFAULT '',
+        milestone_id TEXT,
+        acknowledged_at DATETIME,
+        parent_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
+        created_at DATETIME DEFAULT (datetime('now')),
+        updated_at DATETIME DEFAULT (datetime('now'))
+      );
+      INSERT INTO issues SELECT * FROM issues_old;
+      DROP TABLE issues_old;
+      CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
+      CREATE INDEX IF NOT EXISTS idx_issues_assigned ON issues(assigned_to, status);
+      CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id);
+    `);
+    logger.info('Migration: rebuilt issues table with pending status in CHECK constraint');
+  }
 
   // Migration: set default Sonnet model for controller agents without a --model flag
   const ctrlModelUpdated = db.prepare(

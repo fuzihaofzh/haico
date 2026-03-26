@@ -183,6 +183,27 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
       const created = db.prepare('SELECT * FROM issues WHERE id = ?').get(id) as any;
 
+      // Auto-set parent issue to 'pending' when a child issue is created
+      if (parent_id) {
+        const parent = db.prepare('SELECT id, status FROM issues WHERE id = ?').get(parent_id) as any;
+        if (parent && !['done', 'closed', 'pending'].includes(parent.status)) {
+          db.prepare("UPDATE issues SET status = 'pending', updated_at = datetime('now') WHERE id = ?").run(parent_id);
+          const eventStmt = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
+          eventStmt.run(uuidv4(), parent_id, 'system',
+            `changed status from ${parent.status} to pending (child issue #${number} created)`, 'status_change',
+            JSON.stringify({ from: parent.status, to: 'pending', child_number: number }));
+          broadcastToProject(request.params.pid, {
+            type: 'issue_updated', projectId: request.params.pid,
+            data: { issue: db.prepare('SELECT * FROM issues WHERE id = ?').get(parent_id) },
+          });
+        } else if (parent && parent.status === 'pending') {
+          const eventStmt = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
+          eventStmt.run(uuidv4(), parent_id, 'system',
+            `New child issue #${number} added`, 'status_change',
+            JSON.stringify({ child_number: number }));
+        }
+      }
+
       broadcastToProject(request.params.pid, {
         type: 'issue_created', projectId: request.params.pid,
         data: { issue: created },
