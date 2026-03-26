@@ -429,7 +429,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.assigned_to = 'user' AND i.status IN ('open', 'in_progress', 'done') AND i.acknowledged_at IS NULL ORDER BY i.priority DESC, i.updated_at DESC"
     ).all() as any[];
 
-    // Recent comments on any issue (last 20)
+    // Recent comments on any issue (last 50)
     const recentComments = db.prepare(
       "SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name FROM issue_comments c JOIN issues i ON c.issue_id = i.id JOIN projects p ON i.project_id = p.id WHERE c.author_id != 'user' ORDER BY c.created_at DESC LIMIT 50"
     ).all() as any[];
