@@ -140,6 +140,14 @@ ${C} -X PUT ${base}/api/projects/${project.id} \\
 - You cannot create or manage other agents — only the controller can`;
   }
 
+  // Knowledge base: auto-inject high importance entries
+  const knowledgeEntries = db.prepare(
+    "SELECT title, content FROM knowledge_entries WHERE project_id = ? AND importance = 'high' ORDER BY updated_at DESC"
+  ).all(project.id) as any[];
+  const knowledgeSection = knowledgeEntries.length > 0
+    ? `\n## Project Knowledge Base (Auto-injected)\n${knowledgeEntries.map(k => `### ${k.title}\n${k.content}`).join('\n\n')}\n\n_Query more knowledge: \`${C} "${base}/api/projects/${project.id}/knowledge?tag=TAG&importance=LEVEL"\`_`
+    : '';
+
   const customSection = agent.custom_instructions
     ? `\n## Custom Instructions\n${agent.custom_instructions}`
     : '';
@@ -153,6 +161,7 @@ ${agentSection}
 ${issueSection}
 ${managementSection}
 ${customSection}
+${knowledgeSection}
 ${languageSection}
 
 ---

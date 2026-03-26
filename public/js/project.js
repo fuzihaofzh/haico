@@ -126,6 +126,21 @@ async function loadAgents() {
     else if (controllerId) assignSel.value = controllerId;
   }
 
+  // Fetch in-progress issues per agent
+  const agentIssues = {};
+  try {
+    const issRes = await fetch(`/api/projects/${projectId}/issues?status=in_progress&per_page=200`, { headers: apiHeaders() });
+    if (issRes.ok) {
+      const issData = await issRes.json();
+      for (const iss of (issData.issues || [])) {
+        if (iss.assigned_to) {
+          if (!agentIssues[iss.assigned_to]) agentIssues[iss.assigned_to] = [];
+          agentIssues[iss.assigned_to].push(iss);
+        }
+      }
+    }
+  } catch (e) { console.error('Failed to fetch agent issues', e); }
+
   // Fetch errors
   const errorLogs = {};
   await Promise.all(agentsData.filter(a => a.status === 'error').map(async (a) => {
@@ -197,6 +212,11 @@ async function loadAgents() {
       <div class="agent-info">
         <div class="agent-name">${spinner}${esc(a.name)}${tag}</div>
         <div class="agent-role">${esc(a.role)}</div>
+        ${(agentIssues[a.id] || []).length > 0
+          ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${(agentIssues[a.id] || []).map(iss =>
+              `<a href="/issues/${iss.id}" onclick="event.stopPropagation()" style="display:inline-block;padding:2px 6px;background:rgba(88,166,255,0.1);border:1px solid rgba(88,166,255,0.3);border-radius:3px;font-size:10px;color:var(--accent);text-decoration:none;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="#${iss.number} ${esc(iss.title)}">#${iss.number} ${esc(iss.title)}</a>`
+            ).join('')}</div>`
+          : (a.status !== 'error' ? '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);opacity:0.5">空闲 — 无进行中任务</div>' : '')}
         ${errBox}
       </div>
       <div class="flex" style="gap:8px">
@@ -777,10 +797,29 @@ function searchIssues() { currentIssuePage = 1; loadIssues(); }
 
 
 
+const ISSUE_TEMPLATES = {
+  bug: { labels: 'bug', body: `## 问题描述\n\n## 复现步骤\n1. \n2. \n\n## 期望行为\n\n## 实际行为\n` },
+  feature: { labels: 'feature', body: `## 背景与动机\n\n## 期望功能\n\n## 验收标准\n` },
+};
+
+function applyIssueTemplate(tpl) {
+  const t = ISSUE_TEMPLATES[tpl];
+  const bodyEl = document.getElementById('issue-body');
+  const labelsEl = document.getElementById('issue-labels');
+  if (t) {
+    bodyEl.value = t.body;
+    if (labelsEl && !labelsEl.value) labelsEl.value = t.labels;
+  } else {
+    bodyEl.value = '';
+  }
+}
+
 function showCreateIssueModal() {
   document.getElementById('issue-title').value = '';
   document.getElementById('issue-body').value = '';
   document.getElementById('issue-labels').value = '';
+  const tplSel = document.getElementById('issue-template');
+  if (tplSel) tplSel.value = '';
   const sel = document.getElementById('issue-assign');
   if (sel) {
     const controllerId = agentsData.find(a => a.is_controller)?.id || '';
@@ -829,8 +868,9 @@ function switchTab(tab) {
   document.getElementById('tab-issues').style.display = tab === 'issues' ? '' : 'none';
   document.getElementById('tab-activity').style.display = tab === 'activity' ? '' : 'none';
   document.getElementById('tab-git').style.display = tab === 'git' ? '' : 'none';
+  document.getElementById('tab-knowledge').style.display = tab === 'knowledge' ? '' : 'none';
   // Update breadcrumb section
-  const sectionNames = { overview: '', agents: 'Agents', issues: 'Issues', activity: 'Activity', git: 'Git' };
+  const sectionNames = { overview: '', agents: 'Agents', issues: 'Issues', activity: 'Activity', git: 'Git', knowledge: 'Knowledge' };
   const sectionEl = document.getElementById('breadcrumb-section');
   if (sectionEl) {
     sectionEl.textContent = sectionNames[tab] ? ' / ' + sectionNames[tab] : '';
@@ -840,6 +880,7 @@ function switchTab(tab) {
   if (tab === 'issues') loadIssues();
   if (tab === 'activity') loadActivity();
   if (tab === 'git') loadGitTab();
+  if (tab === 'knowledge') loadKnowledge();
 }
 
 async function loadActivity() {
@@ -1213,10 +1254,20 @@ function renderOrchestrationDecisionPanel() {
 // ─── Cost Time-Series Chart ───
 
 const _agentColors = ['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#39d2c0','#ff7b72','#79c0ff','#7ee787','#e3b341'];
+let _currentCostPeriod = 'hour';
+
+function switchCostPeriod(period) {
+  _currentCostPeriod = period;
+  document.querySelectorAll('.cost-period-btn').forEach(b => {
+    b.style.background = b.dataset.period === period ? 'var(--accent)' : '';
+    b.style.color = b.dataset.period === period ? '#fff' : '';
+  });
+  loadCostChart();
+}
 
 async function loadCostChart() {
   try {
-    const res = await fetch(`/api/projects/${projectId}/costs?period=hour`, { headers: apiHeaders() });
+    const res = await fetch(`/api/projects/${projectId}/costs?period=${_currentCostPeriod}`, { headers: apiHeaders() });
     if (!res.ok) return;
     const data = await res.json();
 
@@ -1227,16 +1278,50 @@ async function loadCostChart() {
     }
     panel.style.display = '';
 
+    // Highlight active period tab
+    document.querySelectorAll('.cost-period-btn').forEach(b => {
+      b.style.background = b.dataset.period === _currentCostPeriod ? 'var(--accent)' : '';
+      b.style.color = b.dataset.period === _currentCostPeriod ? '#fff' : '';
+    });
+
     // Render per-agent stacked bar chart
     const agentsEl = document.getElementById('cost-chart-agents');
     if (data.time_series_by_agent && Object.keys(data.time_series_by_agent).length > 0) {
       const agents = Object.entries(data.time_series_by_agent);
-      agentsEl.innerHTML = '<div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--fg)">Cost by Agent</div>' +
-        renderStackedBarChart(agents, data.time_series, 600, 200);
+      agentsEl.innerHTML = renderStackedBarChart(agents, data.time_series, 600, 200);
     } else {
       agentsEl.innerHTML = '';
     }
+
+    // Render agent comparison chart
+    renderAgentCostComparison(data.by_agent || {});
   } catch {}
+}
+
+function renderAgentCostComparison(byAgent) {
+  const el = document.getElementById('cost-agent-comparison');
+  if (!el) return;
+  const entries = Object.entries(byAgent).filter(([, v]) => v.cost > 0).sort((a, b) => b[1].cost - a[1].cost);
+  if (entries.length === 0) { el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary)">暂无数据</div>'; return; }
+
+  const totalCost = entries.reduce((s, [, v]) => s + v.cost, 0);
+  const maxCost = entries[0][1].cost;
+
+  // Horizontal bar chart + percentage
+  el.innerHTML = entries.map(([name, v], idx) => {
+    const pct = totalCost > 0 ? (v.cost / totalCost * 100).toFixed(1) : '0';
+    const barWidth = maxCost > 0 ? (v.cost / maxCost * 100).toFixed(1) : '0';
+    const color = _agentColors[idx % _agentColors.length];
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="width:120px;font-size:11px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(name)}">${esc(name)}</div>
+      <div style="flex:1;height:18px;background:var(--bg);border:1px solid var(--border);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${barWidth}%;background:${color};opacity:0.8;border-radius:3px;transition:width 0.3s"></div>
+      </div>
+      <div style="width:80px;font-size:11px;color:var(--text-secondary);text-align:right">$${v.cost < 0.01 ? v.cost.toFixed(4) : v.cost.toFixed(2)}</div>
+      <div style="width:40px;font-size:10px;color:var(--text-secondary);text-align:right">${pct}%</div>
+    </div>`;
+  }).join('') +
+  `<div style="margin-top:8px;font-size:12px;color:var(--fg);font-weight:600">总计: $${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}</div>`;
 }
 
 function renderStackedBarChart(agents, totalSeries, width, height) {
@@ -1304,6 +1389,106 @@ function renderStackedBarChart(agents, totalSeries, width, height) {
     ${yLabels}${xLabels}${bars}
   </svg>
   <div style="margin-top:6px;line-height:1.8">${legend}</div>`;
+}
+
+// ─── Knowledge Base ───
+
+async function loadKnowledge() {
+  const el = document.getElementById('knowledge-list');
+  if (!el) return;
+  const importance = document.getElementById('knowledge-filter-importance')?.value || '';
+  const qs = importance ? `?importance=${importance}` : '';
+  try {
+    const res = await fetch(`/api/projects/${projectId}/knowledge${qs}`, { headers: apiHeaders() });
+    if (!res.ok) { el.innerHTML = '<div class="empty-state">加载失败</div>'; return; }
+    const data = await res.json();
+    const entries = data.entries || [];
+    if (entries.length === 0) {
+      el.innerHTML = '<div class="empty-state">暂无知识条目。点击「添加知识」开始构建项目知识库。</div>';
+      return;
+    }
+    const impBadge = (imp) => {
+      const colors = { high: 'var(--error)', medium: 'var(--warning)', low: 'var(--text-secondary)' };
+      const labels = { high: '高', medium: '中', low: '低' };
+      return `<span style="padding:1px 6px;border-radius:3px;font-size:10px;background:${colors[imp] || 'var(--text-secondary)'};color:#fff">${labels[imp] || imp}</span>`;
+    };
+    el.innerHTML = '<div style="padding:8px 0">' + entries.map(e => `
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            ${impBadge(e.importance)}
+            <span style="font-weight:600;font-size:13px">${esc(e.title)}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;max-height:60px;overflow:hidden;white-space:pre-wrap">${esc((e.content || '').slice(0, 200))}${e.content && e.content.length > 200 ? '...' : ''}</div>
+          ${e.tags ? `<div style="display:flex;gap:4px;flex-wrap:wrap">${e.tags.split(',').filter(t => t.trim()).map(t => `<span style="padding:1px 6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;font-size:10px">${esc(t.trim())}</span>`).join('')}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0;margin-left:12px">
+          <button class="btn btn-sm" onclick="editKnowledge('${e.id}')" style="padding:3px 8px">编辑</button>
+          <button class="btn btn-sm" onclick="deleteKnowledge('${e.id}')" style="padding:3px 8px;color:var(--error)">删除</button>
+        </div>
+      </div>
+    `).join('') + '</div>';
+  } catch { el.innerHTML = '<div class="empty-state">加载失败</div>'; }
+}
+
+let _knowledgeCache = [];
+
+function showCreateKnowledgeModal() {
+  document.getElementById('knowledge-modal-title').textContent = '添加知识条目';
+  document.getElementById('knowledge-edit-id').value = '';
+  document.getElementById('knowledge-title').value = '';
+  document.getElementById('knowledge-content').value = '';
+  document.getElementById('knowledge-tags').value = '';
+  document.getElementById('knowledge-importance').value = 'medium';
+  document.getElementById('knowledgeModal').classList.add('active');
+}
+
+async function editKnowledge(id) {
+  try {
+    const res = await fetch(`/api/knowledge/${id}`, { headers: apiHeaders() });
+    if (!res.ok) return;
+    const e = await res.json();
+    document.getElementById('knowledge-modal-title').textContent = '编辑知识条目';
+    document.getElementById('knowledge-edit-id').value = id;
+    document.getElementById('knowledge-title').value = e.title || '';
+    document.getElementById('knowledge-content').value = e.content || '';
+    document.getElementById('knowledge-tags').value = e.tags || '';
+    document.getElementById('knowledge-importance').value = e.importance || 'medium';
+    document.getElementById('knowledgeModal').classList.add('active');
+  } catch { showToast('加载失败', 'error'); }
+}
+
+async function saveKnowledge() {
+  const id = document.getElementById('knowledge-edit-id').value;
+  const body = {
+    title: document.getElementById('knowledge-title').value,
+    content: document.getElementById('knowledge-content').value,
+    tags: document.getElementById('knowledge-tags').value,
+    importance: document.getElementById('knowledge-importance').value,
+  };
+  if (!body.title) { alert('标题不能为空'); return; }
+  try {
+    const url = id ? `/api/knowledge/${id}` : `/api/projects/${projectId}/knowledge`;
+    const method = id ? 'PUT' : 'POST';
+    const res = await fetch(url, { method, headers: { ...apiHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (res.ok) {
+      hideModal('knowledgeModal');
+      showToast(id ? '已更新' : '已创建', 'success');
+      loadKnowledge();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || '保存失败', 'error');
+    }
+  } catch { showToast('保存失败', 'error'); }
+}
+
+async function deleteKnowledge(id) {
+  if (!confirm('确定删除此知识条目？')) return;
+  try {
+    const res = await fetch(`/api/knowledge/${id}`, { method: 'DELETE', headers: apiHeaders() });
+    if (res.ok) { showToast('已删除', 'success'); loadKnowledge(); }
+    else showToast('删除失败', 'error');
+  } catch { showToast('删除失败', 'error'); }
 }
 
 // ─── Init ───

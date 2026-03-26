@@ -9,6 +9,7 @@ import { registerProjectRoutes } from './routes/projects';
 import { registerAgentRoutes } from './routes/agents';
 import { registerIssueRoutes } from './routes/issues';
 import { registerUIRoutes } from './routes/ui';
+import { registerKnowledgeRoutes } from './routes/knowledge';
 import { setupWebSocket } from './services/websocket';
 import { initializeScheduler } from './services/scheduler';
 import { setOnAgentFinish, stopAllProcesses } from './services/process-manager';
@@ -40,6 +41,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   registerProjectRoutes(fastify);
   registerAgentRoutes(fastify);
   registerIssueRoutes(fastify);
+  registerKnowledgeRoutes(fastify);
   registerUIRoutes(fastify);
   setupWebSocket(fastify);
 

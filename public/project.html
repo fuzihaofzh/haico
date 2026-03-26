@@ -82,6 +82,7 @@
       <div class="tab" onclick="switchTab('issues')">Issues</div>
       <div class="tab" onclick="switchTab('activity')">Activity</div>
       <div class="tab" onclick="switchTab('git')">Git</div>
+      <div class="tab" onclick="switchTab('knowledge')">Knowledge</div>
     </div>
 
     <!-- Overview Tab -->
@@ -130,8 +131,19 @@
       <!-- Cost Time-Series Chart (bottom of overview) -->
       <div id="cost-chart-panel" style="display:none;margin-top:16px">
         <div class="card" style="padding:16px">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:12px">Cost Trend (Hourly)</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6">Cost Trend</div>
+            <div style="display:flex;gap:4px" id="cost-period-tabs">
+              <button class="btn btn-sm cost-period-btn" data-period="hour" onclick="switchCostPeriod('hour')" style="padding:2px 8px;font-size:10px">时</button>
+              <button class="btn btn-sm cost-period-btn" data-period="day" onclick="switchCostPeriod('day')" style="padding:2px 8px;font-size:10px">日</button>
+              <button class="btn btn-sm cost-period-btn" data-period="week" onclick="switchCostPeriod('week')" style="padding:2px 8px;font-size:10px">周</button>
+            </div>
+          </div>
           <div id="cost-chart-agents"></div>
+        </div>
+        <div class="card" style="padding:16px;margin-top:12px">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:12px">Cost by Agent</div>
+          <div id="cost-agent-comparison"></div>
         </div>
       </div>
     </div>
@@ -189,6 +201,56 @@
       </div>
       <div id="git-uncommitted" style="margin-top:16px"></div>
     </div>
+
+    <!-- Knowledge Tab -->
+    <div id="tab-knowledge" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="knowledge-filter-importance" onchange="loadKnowledge()" style="font-size:12px;padding:4px 8px">
+            <option value="">全部重要性</option>
+            <option value="high">高 (自动注入)</option>
+            <option value="medium">中</option>
+            <option value="low">低</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="showCreateKnowledgeModal()">+ 添加知识</button>
+      </div>
+      <div id="knowledge-list" class="card">
+        <div class="empty-state">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create/Edit Knowledge Modal -->
+  <div class="modal-overlay" id="knowledgeModal">
+    <div class="modal" style="max-width:600px">
+      <h3 id="knowledge-modal-title">添加知识条目</h3>
+      <input type="hidden" id="knowledge-edit-id">
+      <div class="form-group">
+        <label>标题</label>
+        <input type="text" id="knowledge-title" placeholder="知识条目标题">
+      </div>
+      <div class="form-group">
+        <label>内容</label>
+        <textarea id="knowledge-content" rows="8" placeholder="知识内容（支持Markdown）..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>标签 (逗号分隔)</label>
+        <input type="text" id="knowledge-tags" placeholder="architecture, convention, api">
+      </div>
+      <div class="form-group">
+        <label>重要性</label>
+        <select id="knowledge-importance">
+          <option value="high">高 — Agent启动时自动注入</option>
+          <option value="medium" selected>中 — 按需查询</option>
+          <option value="low">低 — 参考</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="hideModal('knowledgeModal')">取消</button>
+        <button class="btn btn-primary" onclick="saveKnowledge()">保存</button>
+      </div>
+    </div>
   </div>
 
   <!-- Create Agent Modal -->
@@ -240,12 +302,20 @@
     <div class="modal">
       <h3>New Issue</h3>
       <div class="form-group">
+        <label>Template</label>
+        <select id="issue-template" onchange="applyIssueTemplate(this.value)">
+          <option value="">空白</option>
+          <option value="bug">Bug报告</option>
+          <option value="feature">功能需求</option>
+        </select>
+      </div>
+      <div class="form-group">
         <label>Title</label>
         <input type="text" id="issue-title" placeholder="Issue title">
       </div>
       <div class="form-group">
         <label>Description</label>
-        <textarea id="issue-body" rows="4" placeholder="Describe the issue..."></textarea>
+        <textarea id="issue-body" rows="6" placeholder="Describe the issue..."></textarea>
       </div>
       <div class="form-group">
         <label>Assign to</label>
