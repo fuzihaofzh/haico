@@ -228,7 +228,16 @@ async function acknowledgeIssue(issueId) {
     const res = await fetch(`/api/issues/${issueId}/acknowledge`, { method: 'POST' });
     if (res.ok) {
       const el = document.getElementById('notif-issue-' + issueId);
-      if (el) el.remove();
+      if (el) {
+        el.classList.remove('notif-action-required');
+        const dot = el.querySelector('.notif-icon');
+        if (dot) dot.style.color = 'var(--text-secondary)';
+        const ackBtn = el.querySelector('.notif-ack-btn');
+        if (ackBtn) ackBtn.style.display = 'none';
+      }
+      // Update cached items
+      const cached = _inboxAllItems.find(i => i.data && i.data.id === issueId);
+      if (cached) cached.actionRequired = false;
       // Update badge count
       const remaining = document.querySelectorAll('.notif-action-required').length;
       const badge = document.getElementById('notif-count');
