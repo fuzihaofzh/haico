@@ -97,7 +97,6 @@ const LOCALHOST_SAFE_PREFIXES = [
   '/api/reactions/',
   '/api/inbox',
   '/api/knowledge/',
-  '/api/dashboard/',
   '/api/my-issues',
 ];
 
