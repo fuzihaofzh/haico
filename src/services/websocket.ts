@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
-import { getOrCreatePtySession, hasPtySession, killPtySession } from './terminal';
+import { getOrCreatePtySession, hasPtySession, killPtySession, getPtyOutputBuffer } from './terminal';
 import logger from '../logger';
 
 // Map of agentId -> Set of connected WebSocket clients
@@ -111,6 +111,16 @@ export function setupWebSocket(fastify: FastifyInstance): void {
     // Create or resume PTY session
     const session = getOrCreatePtySession(agentId, newSession, cols, rows);
 
+    // Replay buffered terminal content so the client immediately sees the
+    // current screen even if it connected after PTY startup output.
+    const bufferedOutput = getPtyOutputBuffer(agentId);
+    if (bufferedOutput && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'output',
+        data: Buffer.from(bufferedOutput).toString('base64'),
+      }));
+    }
+
     // Forward PTY output -> WebSocket (base64 encoded)
     const onData = session.pty.onData((data: string) => {
       if (socket.readyState === WebSocket.OPEN) {
@@ -214,7 +224,7 @@ export function clearAllPtyCleanupTimers(): void {
 }
 
 export interface ProjectEvent {
-  type: 'agent_status' | 'issue_created' | 'issue_updated' | 'comment_added';
+  type: 'agent_status' | 'issue_created' | 'issue_updated' | 'comment_added' | 'agent_message';
   projectId: string;
   data: Record<string, any>;
 }

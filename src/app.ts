@@ -11,6 +11,7 @@ import { registerIssueRoutes } from './routes/issues';
 import { registerUIRoutes } from './routes/ui';
 import { registerKnowledgeRoutes } from './routes/knowledge';
 import { registerMemoryRoutes } from './routes/memories';
+import { registerMessageRoutes } from './routes/messages';
 import { setupWebSocket } from './services/websocket';
 import { initializeScheduler } from './services/scheduler';
 import { setOnAgentFinish, stopAllProcesses } from './services/process-manager';
@@ -44,6 +45,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   registerIssueRoutes(fastify);
   registerKnowledgeRoutes(fastify);
   registerMemoryRoutes(fastify);
+  registerMessageRoutes(fastify);
   registerUIRoutes(fastify);
   setupWebSocket(fastify);
 

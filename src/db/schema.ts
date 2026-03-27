@@ -129,14 +129,30 @@ export function initializeDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id);
     CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id);
     CREATE INDEX IF NOT EXISTS idx_reactions_target ON reactions(target_type, target_id);
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      email TEXT DEFAULT '',
+      password_hash TEXT NOT NULL,
+      password_salt TEXT NOT NULL,
+      display_name TEXT DEFAULT '',
+      role TEXT DEFAULT 'member' CHECK(role IN ('admin', 'member')),
+      created_at DATETIME DEFAULT (datetime('now')),
+      last_login_at DATETIME
+    );
+    CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
       csrf_token TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
     CREATE TABLE IF NOT EXISTS knowledge_entries (
       id TEXT PRIMARY KEY,
@@ -176,6 +192,21 @@ export function initializeDatabase(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_relations_from ON issue_relations(from_issue_id);
     CREATE INDEX IF NOT EXISTS idx_relations_to ON issue_relations(to_issue_id);
+
+    CREATE TABLE IF NOT EXISTS agent_messages (
+      id TEXT PRIMARY KEY,
+      from_agent_id TEXT NOT NULL,
+      to_agent_id TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      subject TEXT DEFAULT '',
+      body TEXT NOT NULL,
+      status TEXT DEFAULT 'unread' CHECK(status IN ('unread', 'read')),
+      reply_to_id TEXT REFERENCES agent_messages(id) ON DELETE SET NULL,
+      created_at DATETIME DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_to ON agent_messages(to_agent_id, status);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_from ON agent_messages(from_agent_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_project ON agent_messages(project_id);
 
     CREATE INDEX IF NOT EXISTS idx_logs_agent ON conversation_logs(agent_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);

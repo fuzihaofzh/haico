@@ -211,6 +211,40 @@ scope: \`private\` (only this agent), \`project\` (shared with all agents)
 ${C} "${base}/api/agents/${agent.id}/memories?q=search+terms"
 \`\`\``;
 
+  // Direct messages: inject unread messages
+  const unreadMessages = db.prepare(`
+    SELECT m.id, m.subject, m.body, m.from_agent_id, m.created_at, a.name as from_name
+    FROM agent_messages m
+    LEFT JOIN agents a ON a.id = m.from_agent_id
+    WHERE m.to_agent_id = ? AND m.status = 'unread'
+    ORDER BY m.created_at DESC LIMIT 5
+  `).all(agent.id) as any[];
+
+  const messagesSection = `
+## Direct Messages
+${unreadMessages.length > 0
+    ? `**Unread messages (${unreadMessages.length}):**\n` + unreadMessages.map(m =>
+        `- From **${m.from_name || m.from_agent_id}**: ${m.subject ? `[${m.subject}] ` : ''}${m.body.slice(0, 200)}${m.body.length > 200 ? '...' : ''}`
+      ).join('\n')
+    : '(no unread messages)'}
+
+**Send a message to another agent:**
+\`\`\`bash
+${C} -X POST ${base}/api/agents/${agent.id}/messages/send \\
+  -H "Content-Type: application/json" \\
+  -d '{"to":"TARGET_AGENT_ID","subject":"Subject","body":"Message content"}'
+\`\`\`
+
+**Check inbox:**
+\`\`\`bash
+${C} "${base}/api/agents/${agent.id}/messages?status=unread"
+\`\`\`
+
+**Mark message as read:**
+\`\`\`bash
+${C} -X PUT ${base}/api/agents/${agent.id}/messages/{message_id}
+\`\`\``;
+
   const customSection = agent.custom_instructions
     ? `\n## Custom Instructions\n${agent.custom_instructions}`
     : '';
@@ -226,6 +260,7 @@ ${managementSection}
 ${customSection}
 ${knowledgeSection}
 ${memoriesSection}
+${messagesSection}
 ${languageSection}
 
 ---
