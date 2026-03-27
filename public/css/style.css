@@ -671,3 +671,20 @@ header h1 span { color: var(--accent); }
 .toast-info { background: var(--accent); }
 @keyframes toast-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes toast-out { from { opacity: 1; } to { opacity: 0; transform: translateY(-10px); } }
+
+/* Loading spinner */
+.loading-spinner { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px; color: var(--text-secondary); font-size: 13px; }
+.loading-spinner .spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; flex-shrink: 0; }
+.loading-spinner.small { padding: 8px; font-size: 12px; }
+.loading-spinner.small .spinner { width: 14px; height: 14px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Error with retry */
+.error-retry { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px; color: var(--text-secondary); font-size: 13px; text-align: center; }
+.error-retry .error-msg { color: var(--error); }
+.error-retry .retry-btn { padding: 4px 12px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--header-bg); color: var(--fg); cursor: pointer; font-family: inherit; }
+.error-retry .retry-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Notification badge pulse */
+@keyframes badge-pulse { 0% { transform: scale(1); } 50% { transform: scale(1.25); } 100% { transform: scale(1); } }
+.notif-badge.pulse { animation: badge-pulse 0.4s ease-in-out; }

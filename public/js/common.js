@@ -55,6 +55,26 @@ function nameOf(id) {
   return (id || '').slice(0, 8);
 }
 
+// ─── Loading & Error helpers ───
+
+function renderLoading(text, small) {
+  var cls = 'loading-spinner' + (small ? ' small' : '');
+  return '<div class="' + cls + '"><div class="spinner"></div>' + esc(text || '加载中...') + '</div>';
+}
+
+function renderError(err, onRetryId) {
+  var msg = '加载失败';
+  if (err) {
+    if (typeof err === 'string') msg = err;
+    else if (err.status === 0 || err.message === 'Failed to fetch') msg = '网络连接失败，请检查网络后重试';
+    else if (err.status >= 500) msg = '服务器错误，请稍后重试';
+    else if (err.status >= 400) msg = '请求失败（资源不存在或无权限）';
+    else if (err.message) msg = err.message;
+  }
+  var retryHtml = onRetryId ? '<button class="retry-btn" onclick="' + onRetryId + '">重试</button>' : '';
+  return '<div class="error-retry"><div class="error-msg">' + esc(msg) + '</div>' + retryHtml + '</div>';
+}
+
 // Toast notifications
 function showToast(message, type) {
   type = type || 'info';

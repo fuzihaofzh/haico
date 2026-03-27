@@ -66,8 +66,14 @@ async function loadNotifications() {
     document.getElementById('notifications-panel').style.display = '';
     const badge = document.getElementById('notif-count');
     if (totalCount > 0) {
+      const prevCount = parseInt(badge.textContent, 10) || 0;
       badge.textContent = totalCount;
       badge.style.display = '';
+      if (totalCount > prevCount) {
+        badge.classList.remove('pulse');
+        void badge.offsetWidth;
+        badge.classList.add('pulse');
+      }
     } else {
       badge.style.display = 'none';
     }
@@ -276,7 +282,7 @@ async function loadProjects() {
   try {
     const res = await fetch('/api/projects?with_stats=1', { headers: apiHeaders() });
     if (!res.ok) {
-      container.innerHTML = '<div class="empty-state">Failed to load projects.</div>';
+      container.innerHTML = renderError(null, 'loadProjects()');
       return;
     }
     const projects = await res.json();
@@ -511,15 +517,15 @@ function openIssuePanel(issueId) {
 
 async function openIssuePanelByProject(projectId, issueNumber) {
   document.getElementById('issueDetailModal').classList.add('active');
-  document.getElementById('issueDetailContent').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-secondary)">Loading...</div>';
+  document.getElementById('issueDetailContent').innerHTML = renderLoading('加载Issue...');
   try {
     const res = await fetch(`/api/projects/${projectId}/issues/number/${issueNumber}`, { headers: apiHeaders() });
-    if (!res.ok) { document.getElementById('issueDetailContent').innerHTML = '<div style="padding:20px;color:var(--error)">Issue not found</div>'; return; }
+    if (!res.ok) { document.getElementById('issueDetailContent').innerHTML = renderError({ status: res.status }); return; }
     const data = await res.json();
     _panelIssueId = data.id;
     loadIssuePanel(data.id);
   } catch (e) {
-    document.getElementById('issueDetailContent').innerHTML = '<div style="padding:20px;color:var(--error)">加载失败</div>';
+    document.getElementById('issueDetailContent').innerHTML = renderError(e, 'openIssuePanelByProject(\'' + projectId + '\',' + issueNumber + ')');
   }
 }
 
@@ -531,7 +537,7 @@ function closeIssuePanel() {
 async function loadIssuePanel(issueId) {
   try {
     const res = await fetch(`/api/issues/${issueId}`, { headers: apiHeaders() });
-    if (!res.ok) { document.getElementById('issueDetailContent').innerHTML = '<div style="padding:20px;color:var(--error)">Issue not found</div>'; return; }
+    if (!res.ok) { document.getElementById('issueDetailContent').innerHTML = renderError({ status: res.status }); return; }
     const issue = await res.json();
 
     // Load agents for this project
@@ -545,7 +551,7 @@ async function loadIssuePanel(issueId) {
       onAfterAction: function() { loadNotifications(); },
     });
   } catch (e) {
-    document.getElementById('issueDetailContent').innerHTML = '<div style="padding:20px;color:var(--error)">加载失败</div>';
+    document.getElementById('issueDetailContent').innerHTML = renderError(e, 'loadIssuePanel(\'' + issueId + '\')');
   }
 }
 

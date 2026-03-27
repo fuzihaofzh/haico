@@ -18,7 +18,7 @@ function statusBadge(s) {
 
 async function loadProject() {
   const res = await fetch(`/api/projects/${projectId}`, { headers: apiHeaders() });
-  if (!res.ok) { alert('Failed to load project'); return; }
+  if (!res.ok) { showToast('项目加载失败', 'error'); return; }
   projectData = await res.json();
 
   document.getElementById('project-name').textContent = projectData.name;
@@ -243,7 +243,7 @@ async function viewAgent(agentId) {
 
   const el = document.getElementById('agent-detail');
   el.style.display = '';
-  el.innerHTML = '<div class="card"><div style="color:var(--text-secondary);padding:16px">Loading...</div></div>';
+  el.innerHTML = '<div class="card">' + renderLoading('加载Agent详情...') + '</div>';
 
   try {
     const agentRes = await fetch(`/api/agents/${agentId}`, { headers: apiHeaders() });
@@ -341,7 +341,7 @@ async function viewAgent(agentId) {
     loadAgentOutput(agentId);
 
   } catch (e) {
-    el.innerHTML = '<div class="card"><div style="color:var(--error);padding:16px">Failed to load agent details.</div></div>';
+    el.innerHTML = '<div class="card">' + renderError(e, 'viewAgent(\'' + agentId + '\')') + '</div>';
   }
 }
 
@@ -447,7 +447,7 @@ async function loadAgentOutput(agentId) {
     const pre = container.querySelector('pre');
     if (pre) pre.scrollTop = pre.scrollHeight;
   } catch {
-    container.innerHTML = '<span style="color:var(--error)">Failed to load output.</span>';
+    container.innerHTML = renderError(null, 'loadAgentOutput(\'' + agentId + '\')');
   }
 }
 
@@ -487,12 +487,12 @@ async function toggleAgentSystemPrompt(agentId) {
   el.style.display = '';
   if (arrow) arrow.textContent = '▼';
   if (el.textContent) return;
-  el.textContent = 'Loading...';
+  el.innerHTML = renderLoading('', true);
   try {
     const res = await fetch(`/api/agents/${agentId}/system-prompt`, { headers: apiHeaders() });
     if (res.ok) { const data = await res.json(); el.textContent = data.prompt; }
-    else { el.textContent = 'Failed to load'; }
-  } catch { el.textContent = 'Failed to load'; }
+    else { el.innerHTML = renderError({ status: res.status }); }
+  } catch (e) { el.innerHTML = renderError(e); }
 }
 
 async function toggleRunHistory(agentId) {
@@ -507,7 +507,7 @@ async function toggleRunHistory(agentId) {
   el.style.display = '';
   if (arrow) arrow.textContent = '▼';
   if (el.innerHTML) return;
-  el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">Loading...</div>';
+  el.innerHTML = renderLoading('加载运行记录...', true);
   await loadRunHistory(agentId);
 }
 
@@ -516,7 +516,7 @@ async function loadRunHistory(agentId) {
   if (!container) return;
   try {
     const res = await fetch(`/api/agents/${agentId}/runs?limit=10`, { headers: apiHeaders() });
-    if (!res.ok) { container.innerHTML = '<span style="color:var(--error);font-size:12px">Failed to load runs.</span>'; return; }
+    if (!res.ok) { container.innerHTML = renderError({ status: res.status }, 'loadRunHistory(\'' + agentId + '\')'); return; }
     const data = await res.json();
     const runs = data.runs || [];
     if (!runs.length) { container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">No runs yet.</span>'; return; }
@@ -547,17 +547,17 @@ async function loadRunHistory(agentId) {
       </div>`;
     }).join('')}</div>`;
   } catch {
-    container.innerHTML = '<span style="color:var(--error);font-size:12px">Failed to load runs.</span>';
+    container.innerHTML = renderError(null, 'loadRunHistory(\'' + agentId + '\')');
   }
 }
 
 async function viewRunReport(agentId, runId) {
   const container = document.getElementById('agent-runs-' + agentId);
   if (!container) return;
-  container.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">Loading report...</div>';
+  container.innerHTML = renderLoading('加载报告...', true);
   try {
     const res = await fetch(`/api/agents/${agentId}/runs/${runId}/report`, { headers: apiHeaders() });
-    if (!res.ok) { container.innerHTML = '<span style="color:var(--error)">Failed to load report.</span>'; return; }
+    if (!res.ok) { container.innerHTML = renderError({ status: res.status }, 'viewRunReport(\'' + agentId + '\',\'' + runId + '\')'); return; }
     const r = await res.json();
 
     const fmtCost = v => v < 0.01 ? '<$0.01' : '$' + v.toFixed(4);
@@ -628,8 +628,8 @@ async function viewRunReport(agentId, runId) {
 
         ${toolsHtml ? `<div><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Tool Call Timeline (${r.tool_calls.length})</div><div style="max-height:300px;overflow-y:auto">${toolsHtml}</div></div>` : ''}
       </div>`;
-  } catch {
-    container.innerHTML = '<span style="color:var(--error)">Failed to load report.</span>';
+  } catch (e) {
+    container.innerHTML = renderError(e, 'viewRunReport(\'' + agentId + '\',\'' + runId + '\')');
   }
 }
 
@@ -923,7 +923,7 @@ async function loadActivity() {
       }
       return '';
     }).join('');
-  } catch { container.innerHTML = '<div class="empty-state">Failed to load activity.</div>'; }
+  } catch (e) { container.innerHTML = renderError(e, 'loadActivity()'); }
 }
 
 // ─── Git Tab ───
@@ -969,7 +969,7 @@ async function loadGitTab() {
     }
 
     // Render commit list
-    if (!logRes.ok) { commitContainer.innerHTML = '<div class="empty-state">Failed to load git log.</div>'; return; }
+    if (!logRes.ok) { commitContainer.innerHTML = renderError({ status: logRes.status }, 'loadGitTab()'); return; }
     const commits = await logRes.json();
 
     if (!commits.length) {
@@ -1003,7 +1003,7 @@ async function loadGitTab() {
       uncommittedContainer.innerHTML = '';
     }
   } catch (e) {
-    commitContainer.innerHTML = '<div class="empty-state">Failed to load git information.</div>';
+    commitContainer.innerHTML = renderError(e, 'loadGitTab()');
     statusContainer.innerHTML = '';
     uncommittedContainer.innerHTML = '';
   }
@@ -1414,7 +1414,7 @@ async function loadKnowledge() {
   const qs = importance ? `?importance=${importance}` : '';
   try {
     const res = await fetch(`/api/projects/${projectId}/knowledge${qs}`, { headers: apiHeaders() });
-    if (!res.ok) { el.innerHTML = '<div class="empty-state">加载失败</div>'; return; }
+    if (!res.ok) { el.innerHTML = renderError({ status: res.status }, 'loadKnowledge()'); return; }
     const data = await res.json();
     const entries = data.entries || [];
     if (entries.length === 0) {
@@ -1442,7 +1442,7 @@ async function loadKnowledge() {
         </div>
       </div>
     `).join('') + '</div>';
-  } catch { el.innerHTML = '<div class="empty-state">加载失败</div>'; }
+  } catch (e) { el.innerHTML = renderError(e, 'loadKnowledge()'); }
 }
 
 let _knowledgeCache = [];
