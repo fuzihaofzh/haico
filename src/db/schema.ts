@@ -208,6 +208,16 @@ export function initializeDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_messages_from ON agent_messages(from_agent_id);
     CREATE INDEX IF NOT EXISTS idx_agent_messages_project ON agent_messages(project_id);
 
+    CREATE TABLE IF NOT EXISTS project_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      template_data TEXT NOT NULL DEFAULT '{}',
+      created_by TEXT DEFAULT 'system',
+      is_builtin BOOLEAN DEFAULT 0,
+      created_at DATETIME DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_logs_agent ON conversation_logs(agent_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);
     CREATE INDEX IF NOT EXISTS idx_orch_runs_project_created ON orchestration_runs(project_id, created_at DESC);
@@ -400,6 +410,80 @@ export function initializeDatabase(db: Database.Database): void {
       END;
     `);
     logger.info('Migration: created FTS5 virtual table for agent memories full-text search');
+  }
+
+  // Migration: add user_id column to sessions if missing
+  const sessionCols = db.prepare("PRAGMA table_info(sessions)").all() as any[];
+  if (!sessionCols.find((c: any) => c.name === 'user_id')) {
+    db.exec("ALTER TABLE sessions ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)");
+    logger.info('Migration: added user_id column to sessions table');
+  }
+
+  // Migration: seed builtin project templates
+  const templateCount = (db.prepare('SELECT COUNT(*) as c FROM project_templates WHERE is_builtin = 1').get() as any).c;
+  if (templateCount === 0) {
+    const builtinTemplates = [
+      {
+        id: 'tpl-bugfix',
+        name: 'Bug修复流程',
+        description: '标准bug修复流程：复现 → 定位 → 修复 → 回归测试',
+        template_data: JSON.stringify({
+          agents: [
+            { name: 'dev', role: '开发Agent。负责定位和修复bug。' },
+            { name: 'test', role: '测试Agent。负责复现bug和回归测试。' },
+          ],
+          issues: [
+            { title: '复现bug', assigned_to_role: 'test', body: '复现bug，记录复现步骤和环境信息。' },
+            { title: '定位根因', assigned_to_role: 'dev', body: '分析代码定位bug根因。' },
+            { title: '修复实现', assigned_to_role: 'dev', body: '编写修复代码并通过编译。' },
+            { title: '回归测试', assigned_to_role: 'test', body: '验证修复是否生效，确认无回归问题。' },
+          ],
+        }),
+      },
+      {
+        id: 'tpl-feature',
+        name: '功能开发流程',
+        description: '完整功能开发流程：需求分析 → 技术设计 → 实现 → 测试',
+        template_data: JSON.stringify({
+          agents: [
+            { name: 'product', role: '产品Agent。负责需求分析和产品规划。' },
+            { name: 'dev', role: '开发Agent。负责技术设计和代码实现。' },
+            { name: 'test', role: '测试Agent。负责编写测试用例和质量保障。' },
+          ],
+          issues: [
+            { title: '需求分析', assigned_to_role: 'product', body: '分析功能需求，输出需求文档。' },
+            { title: '技术设计', assigned_to_role: 'dev', body: '基于需求文档进行技术方案设计。' },
+            { title: '代码实现', assigned_to_role: 'dev', body: '按技术方案编写代码实现功能。' },
+            { title: '测试验证', assigned_to_role: 'test', body: '编写和运行测试用例，验证功能正确性。' },
+          ],
+        }),
+      },
+      {
+        id: 'tpl-review',
+        name: '代码审查流程',
+        description: '代码审查流程：阅读代码 → 发现问题 → 出审查报告',
+        template_data: JSON.stringify({
+          agents: [
+            { name: 'reviewer', role: '代码审查Agent。阅读和审查代码，发现潜在问题。' },
+            { name: 'dev', role: '开发Agent。根据审查意见修复代码问题。' },
+          ],
+          issues: [
+            { title: '阅读代码', assigned_to_role: 'reviewer', body: '阅读指定代码范围，理解逻辑和结构。' },
+            { title: '发现问题', assigned_to_role: 'reviewer', body: '记录发现的代码问题、风格问题和潜在bug。' },
+            { title: '输出审查报告', assigned_to_role: 'reviewer', body: '汇总所有问题，输出结构化审查报告。' },
+          ],
+        }),
+      },
+    ];
+
+    const insertStmt = db.prepare(
+      'INSERT INTO project_templates (id, name, description, template_data, created_by, is_builtin) VALUES (?, ?, ?, ?, ?, 1)'
+    );
+    for (const t of builtinTemplates) {
+      insertStmt.run(t.id, t.name, t.description, t.template_data, 'system');
+    }
+    logger.info(`Migration: seeded ${builtinTemplates.length} builtin project templates`);
   }
 
   // Reset any agents stuck in 'running' from a previous crash
