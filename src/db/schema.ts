@@ -151,6 +151,20 @@ export function initializeDatabase(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_knowledge_project ON knowledge_entries(project_id);
 
+    CREATE TABLE IF NOT EXISTS agent_memories (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      session_id TEXT,
+      content TEXT NOT NULL,
+      tags TEXT DEFAULT '',
+      scope TEXT DEFAULT 'private' CHECK(scope IN ('private', 'project')),
+      created_at DATETIME DEFAULT (datetime('now')),
+      expires_at DATETIME
+    );
+    CREATE INDEX IF NOT EXISTS idx_memories_agent ON agent_memories(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_memories_project_scope ON agent_memories(project_id, scope);
+
     CREATE INDEX IF NOT EXISTS idx_logs_agent ON conversation_logs(agent_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);
     CREATE INDEX IF NOT EXISTS idx_orch_runs_project_created ON orchestration_runs(project_id, created_at DESC);
@@ -291,6 +305,58 @@ export function initializeDatabase(db: Database.Database): void {
   ).run();
   if (ctrlModelUpdated.changes > 0) {
     logger.info(`Migration: set default Sonnet model for ${ctrlModelUpdated.changes} controller agent(s)`);
+  }
+
+  // Migration: create FTS5 virtual table for knowledge full-text search
+  const ftsExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_fts'").get();
+  if (!ftsExists) {
+    db.exec(`
+      CREATE VIRTUAL TABLE knowledge_fts USING fts5(title, content, content=knowledge_entries, content_rowid=rowid);
+    `);
+    // Populate FTS index from existing data
+    db.exec(`
+      INSERT INTO knowledge_fts(rowid, title, content)
+      SELECT rowid, title, content FROM knowledge_entries;
+    `);
+    // Create triggers to keep FTS in sync
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON knowledge_entries BEGIN
+        INSERT INTO knowledge_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
+      END;
+      CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON knowledge_entries BEGIN
+        INSERT INTO knowledge_fts(knowledge_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
+      END;
+      CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE ON knowledge_entries BEGIN
+        INSERT INTO knowledge_fts(knowledge_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
+        INSERT INTO knowledge_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
+      END;
+    `);
+    logger.info('Migration: created FTS5 virtual table for knowledge full-text search');
+  }
+
+  // Migration: create FTS5 virtual table for agent memories full-text search
+  const memFtsExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories_fts'").get();
+  if (!memFtsExists) {
+    db.exec(`
+      CREATE VIRTUAL TABLE memories_fts USING fts5(content, tags, content=agent_memories, content_rowid=rowid);
+    `);
+    db.exec(`
+      INSERT INTO memories_fts(rowid, content, tags)
+      SELECT rowid, content, tags FROM agent_memories;
+    `);
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON agent_memories BEGIN
+        INSERT INTO memories_fts(rowid, content, tags) VALUES (new.rowid, new.content, new.tags);
+      END;
+      CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON agent_memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, content, tags) VALUES('delete', old.rowid, old.content, old.tags);
+      END;
+      CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON agent_memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, content, tags) VALUES('delete', old.rowid, old.content, old.tags);
+        INSERT INTO memories_fts(rowid, content, tags) VALUES (new.rowid, new.content, new.tags);
+      END;
+    `);
+    logger.info('Migration: created FTS5 virtual table for agent memories full-text search');
   }
 
   // Reset any agents stuck in 'running' from a previous crash

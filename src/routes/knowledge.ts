@@ -3,14 +3,36 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../db/database';
 
 export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
-  // List knowledge entries for a project
-  fastify.get<{ Params: { pid: string }; Querystring: { tag?: string; importance?: string } }>(
+  // List knowledge entries for a project (supports FTS5 full-text search via ?q=)
+  fastify.get<{ Params: { pid: string }; Querystring: { tag?: string; importance?: string; q?: string } }>(
     '/api/projects/:pid/knowledge',
     async (request) => {
       const db = getDatabase();
       const { pid } = request.params;
-      const { tag, importance } = request.query;
+      const { tag, importance, q } = request.query;
 
+      if (q && q.trim()) {
+        // FTS5 full-text search
+        let sql = `SELECT ke.*, rank
+          FROM knowledge_fts fts
+          JOIN knowledge_entries ke ON ke.rowid = fts.rowid
+          WHERE knowledge_fts MATCH ? AND ke.project_id = ?`;
+        const params: any[] = [q.trim(), pid];
+
+        if (importance) {
+          sql += ' AND ke.importance = ?';
+          params.push(importance);
+        }
+        if (tag) {
+          sql += " AND (',' || ke.tags || ',' LIKE ?)";
+          params.push(`%,${tag},%`);
+        }
+        sql += ' ORDER BY rank';
+        const entries = db.prepare(sql).all(...params);
+        return { entries };
+      }
+
+      // Standard LIKE-based listing
       let sql = 'SELECT * FROM knowledge_entries WHERE project_id = ?';
       const params: any[] = [pid];
 

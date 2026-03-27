@@ -170,7 +170,39 @@ ${C} -X PUT ${base}/api/knowledge/{id} \\
   -d '{"content":"Updated content","importance":"high"}'
 \`\`\`
 
-Record knowledge when you encounter: project conventions, recurring bugs, environment quirks, build/deploy notes, or anything future agents should know.`;
+Record knowledge when you encounter: project conventions, recurring bugs, environment quirks, build/deploy notes, or anything future agents should know.
+
+**Full-text search knowledge:**
+\`\`\`bash
+${C} "${base}/api/projects/${project.id}/knowledge?q=search+terms"
+\`\`\``;
+
+  // Agent memories: inject recent relevant memories
+  const agentMemories = db.prepare(`
+    SELECT content, tags, scope, created_at FROM agent_memories
+    WHERE project_id = ? AND (agent_id = ? OR scope = 'project')
+      AND (expires_at IS NULL OR expires_at > datetime('now'))
+    ORDER BY created_at DESC LIMIT 10
+  `).all(project.id, agent.id) as any[];
+
+  const memoriesSection = `
+## Agent Memories
+${agentMemories.length > 0
+    ? agentMemories.map(m => `- [${m.scope}] ${m.content}${m.tags ? ` (tags: ${m.tags})` : ''}`).join('\n')
+    : '(none)'}
+
+**Save a memory** (persists across sessions):
+\`\`\`bash
+${C} -X POST ${base}/api/agents/${agent.id}/memories \\
+  -H "Content-Type: application/json" \\
+  -d '{"content":"What to remember","tags":"tag1,tag2","scope":"private"}'
+\`\`\`
+scope: \`private\` (only this agent), \`project\` (shared with all agents)
+
+**Search memories:**
+\`\`\`bash
+${C} "${base}/api/agents/${agent.id}/memories?q=search+terms"
+\`\`\``;
 
   const customSection = agent.custom_instructions
     ? `\n## Custom Instructions\n${agent.custom_instructions}`
@@ -186,6 +218,7 @@ ${issueSection}
 ${managementSection}
 ${customSection}
 ${knowledgeSection}
+${memoriesSection}
 ${languageSection}
 
 ---
