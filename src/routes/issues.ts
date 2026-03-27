@@ -296,8 +296,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         eventStmt.run(uuidv4(), request.params.id, actorId, `changed labels`, 'label_change', JSON.stringify({ from: existing.labels, to: labels }));
       }
 
-      // Reset acknowledged_at when status or assignment changes
-      const resetAck = (status && status !== existing.status) || (assigned_to !== undefined && assigned_to !== existing.assigned_to);
+      // Reset acknowledged_at when status changes or issue is reassigned TO user
+      // Don't reset when controller takes over (assigned away from user) — preserve user's ack state
+      const resetAck = (status && status !== existing.status) || (assigned_to !== undefined && assigned_to !== existing.assigned_to && assigned_to === 'user');
 
       db.prepare(`
         UPDATE issues SET
@@ -426,7 +427,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   fastify.get('/api/notifications', async () => {
     const db = getDatabase();
     const userIssues = db.prepare(
-      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.assigned_to = 'user' AND i.status IN ('open', 'in_progress', 'pending', 'done') ORDER BY i.acknowledged_at IS NOT NULL, i.priority DESC, i.updated_at DESC"
+      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE (i.assigned_to = 'user' OR i.acknowledged_at IS NOT NULL) AND i.status IN ('open', 'in_progress', 'pending', 'done') ORDER BY i.acknowledged_at IS NOT NULL, i.priority DESC, i.updated_at DESC"
     ).all() as any[];
 
     // Recent comments on any issue (last 50)
