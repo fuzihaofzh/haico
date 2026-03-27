@@ -172,6 +172,10 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
+    if (agent.paused) {
+      return reply.code(409).send({ error: 'Agent is paused. Unpause it first.' });
+    }
+
     if (agent.status === 'running' || isAgentRunning(agent.id)) {
       return reply.code(409).send({ error: 'Agent is already running' });
     }

@@ -157,7 +157,7 @@ ${doneRecent.map((i) => `#${i.number} [${i.status}] ${i.title}`).join('\n') || '
 ${workers.map((a: any) => {
     let line = `- ${a.name} (ID: ${a.id}, Status: ${a.status}${a.paused ? ', ⏸ PAUSED' : ''}, Role: ${a.role})`;
     if (a.paused) {
-      line = `- ⏸ ${a.name} PAUSED (ID: ${a.id}, Role: ${a.role}) — user paused, do NOT start`;
+      line = `- ⏸ ${a.name} PAUSED (ID: ${a.id}, Role: ${a.role}) — user paused, do NOT start, do NOT assign issues, do NOT call unpause`;
     } else if (a.status === 'error') {
       const errLog = db.prepare(
         "SELECT content FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' ORDER BY id DESC LIMIT 1"
@@ -171,7 +171,7 @@ ${workers.map((a: any) => {
 ## Rules
 1. **复用agent。** NEVER create a new agent if one with a similar role already exists. Reuse existing agents.
 2. **分配unassigned issues。** 将未分配的issue分配给合适的idle agent，或"user"用于需要人工处理的任务。
-3. **不要手动启动agent。** 系统会自动启动有assigned issue的idle agent，你只需要分配issue即可。**NEVER start paused agents。**
+3. **不要手动启动agent。** 系统会自动启动有assigned issue的idle agent，你只需要分配issue即可。**NEVER start paused agents。NEVER assign issues to paused agents。NEVER call unpause on paused agents — only the user can unpause。**
 4. **拆分issue用parent_id。** 将大issue拆成子issue时，创建子issue时设置\`parent_id\`指向父issue的ID，然后将父issue状态设为\`pending\`。系统会自动追踪子issue进度，全部完成后自动通知。创建子issue示例：\`{"title":"子任务","parent_id":"父issue的ID",...}\`
 5. **用户issue自动回流。** 用户创建的issue完成后，系统会自动assign回user，你不需要手动处理。但如果你发现用户issue的结果需要补充说明，可以添加评论。
 6. **NEVER自己写代码。** Controller只负责协调和决策。所有代码修改（无论大小）都必须分配给开发agent。
