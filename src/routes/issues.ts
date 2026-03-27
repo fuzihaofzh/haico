@@ -266,7 +266,39 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       'SELECT id, number, title, status, assigned_to FROM issues WHERE parent_id = ? ORDER BY number'
     ).all(request.params.id);
 
-    return { ...issue, comments: commentsWithReactions, reactions, parent_number, parent_title, children };
+    // Relations (blocks / blocked_by / related_to)
+    const blocksRaw = db.prepare(`
+      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
+             i.id, i.number, i.title, i.status
+      FROM issue_relations r JOIN issues i ON i.id = r.to_issue_id
+      WHERE r.from_issue_id = ?
+    `).all(request.params.id) as any[];
+    const blockedByRaw = db.prepare(`
+      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
+             i.id, i.number, i.title, i.status
+      FROM issue_relations r JOIN issues i ON i.id = r.from_issue_id
+      WHERE r.to_issue_id = ? AND r.relation_type = 'blocks'
+    `).all(request.params.id) as any[];
+    const relatedRaw = db.prepare(`
+      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
+             i.id, i.number, i.title, i.status
+      FROM issue_relations r JOIN issues i ON i.id = r.to_issue_id
+      WHERE r.from_issue_id = ? AND r.relation_type = 'related_to'
+      UNION
+      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
+             i.id, i.number, i.title, i.status
+      FROM issue_relations r JOIN issues i ON i.id = r.from_issue_id
+      WHERE r.to_issue_id = ? AND r.relation_type = 'related_to'
+    `).all(request.params.id, request.params.id) as any[];
+
+    const blocks = blocksRaw.filter(r => r.relation_type === 'blocks');
+    const blocked_by = blockedByRaw;
+    const related_to = relatedRaw;
+
+    // is_blocked: true if any blocker is not done/closed
+    const is_blocked = blocked_by.some((r: any) => !['done', 'closed'].includes(r.status));
+
+    return { ...issue, comments: commentsWithReactions, reactions, parent_number, parent_title, children, blocks, blocked_by, related_to, is_blocked };
   });
 
   // Update issue with timeline events
@@ -296,9 +328,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         eventStmt.run(uuidv4(), request.params.id, actorId, `changed labels`, 'label_change', JSON.stringify({ from: existing.labels, to: labels }));
       }
 
-      // Reset acknowledged_at when status changes or issue is reassigned TO user
-      // Don't reset when controller takes over (assigned away from user) — preserve user's ack state
-      const resetAck = (status && status !== existing.status) || (assigned_to !== undefined && assigned_to !== existing.assigned_to && assigned_to === 'user');
+      // Reset acknowledged_at only when issue is reassigned TO user (needs attention)
+      // Status changes alone don't reset — user gets notified via comments instead
+      const resetAck = assigned_to !== undefined && assigned_to !== existing.assigned_to && assigned_to === 'user';
 
       db.prepare(`
         UPDATE issues SET
@@ -427,7 +459,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   fastify.get('/api/notifications', async () => {
     const db = getDatabase();
     const userIssues = db.prepare(
-      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE (i.assigned_to = 'user' OR i.acknowledged_at IS NOT NULL) AND i.status IN ('open', 'in_progress', 'pending', 'done') ORDER BY i.acknowledged_at IS NOT NULL, i.priority DESC, i.updated_at DESC"
+      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.assigned_to = 'user' AND i.status IN ('open', 'in_progress', 'pending', 'done') ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC"
     ).all() as any[];
 
     // Recent comments on any issue (last 50)
@@ -601,7 +633,33 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       'SELECT id, number, title, status, assigned_to FROM issues WHERE parent_id = ? ORDER BY number'
     ).all(issue.id);
 
-    return { ...issue, comments: commentsWithReactions, reactions, parent_number, parent_title, children };
+    // Relations for by-number endpoint
+    const blocks2 = db.prepare(`
+      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
+             i.id, i.number, i.title, i.status
+      FROM issue_relations r JOIN issues i ON i.id = r.to_issue_id
+      WHERE r.from_issue_id = ? AND r.relation_type = 'blocks'
+    `).all(issue.id) as any[];
+    const blocked_by2 = db.prepare(`
+      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
+             i.id, i.number, i.title, i.status
+      FROM issue_relations r JOIN issues i ON i.id = r.from_issue_id
+      WHERE r.to_issue_id = ? AND r.relation_type = 'blocks'
+    `).all(issue.id) as any[];
+    const related_to2 = db.prepare(`
+      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
+             i.id, i.number, i.title, i.status
+      FROM issue_relations r JOIN issues i ON i.id = r.to_issue_id
+      WHERE r.from_issue_id = ? AND r.relation_type = 'related_to'
+      UNION
+      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
+             i.id, i.number, i.title, i.status
+      FROM issue_relations r JOIN issues i ON i.id = r.from_issue_id
+      WHERE r.to_issue_id = ? AND r.relation_type = 'related_to'
+    `).all(issue.id, issue.id) as any[];
+    const is_blocked2 = blocked_by2.some((r: any) => !['done', 'closed'].includes(r.status));
+
+    return { ...issue, comments: commentsWithReactions, reactions, parent_number, parent_title, children, blocks: blocks2, blocked_by: blocked_by2, related_to: related_to2, is_blocked: is_blocked2 };
   });
 
   // Also update GET /api/issues/:id to include reactions
@@ -690,5 +748,119 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       .all(request.params.pid, q);
     return { issues, comments };
   });
+
+  // ─── Issue Relations ───
+
+  // Add relation
+  fastify.post<{ Params: { id: string }; Body: { type: string; target_issue_id: string; actor?: string } }>(
+    '/api/issues/:id/relations',
+    async (request, reply) => {
+      const db = getDatabase();
+      const { id: fromId } = request.params;
+      const { type: relationType, target_issue_id: toId, actor } = request.body as any;
+
+      if (!relationType || !toId) {
+        return reply.code(400).send({ error: 'type and target_issue_id are required' });
+      }
+      if (!['blocks', 'related_to'].includes(relationType)) {
+        return reply.code(400).send({ error: 'type must be blocks or related_to' });
+      }
+      if (fromId === toId) {
+        return reply.code(400).send({ error: 'Cannot create relation to self' });
+      }
+
+      const fromIssue = db.prepare('SELECT * FROM issues WHERE id = ?').get(fromId) as any;
+      const toIssue = db.prepare('SELECT * FROM issues WHERE id = ?').get(toId) as any;
+      if (!fromIssue) return reply.code(404).send({ error: 'Source issue not found' });
+      if (!toIssue) return reply.code(404).send({ error: 'Target issue not found' });
+
+      const relId = uuidv4();
+      try {
+        db.prepare(
+          'INSERT INTO issue_relations (id, from_issue_id, to_issue_id, relation_type, created_by) VALUES (?, ?, ?, ?, ?)'
+        ).run(relId, fromId, toId, relationType, actor || 'user');
+      } catch {
+        return reply.code(409).send({ error: 'Relation already exists' });
+      }
+
+      // Record event on both issues
+      const eventStmt = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
+      const actorId = actor || 'user';
+      if (relationType === 'blocks') {
+        eventStmt.run(uuidv4(), fromId, actorId, `added blocks dependency on #${toIssue.number}`, 'status_change',
+          JSON.stringify({ relation: 'blocks', target: toId, target_number: toIssue.number }));
+        eventStmt.run(uuidv4(), toId, actorId, `marked as blocked by #${fromIssue.number}`, 'status_change',
+          JSON.stringify({ relation: 'blocked_by', source: fromId, source_number: fromIssue.number }));
+      } else {
+        eventStmt.run(uuidv4(), fromId, actorId, `linked as related to #${toIssue.number}`, 'status_change',
+          JSON.stringify({ relation: 'related_to', target: toId, target_number: toIssue.number }));
+      }
+
+      broadcastToProject(fromIssue.project_id, {
+        type: 'issue_updated', projectId: fromIssue.project_id,
+        data: { issue: db.prepare('SELECT * FROM issues WHERE id = ?').get(fromId) },
+      });
+
+      const relation = db.prepare('SELECT * FROM issue_relations WHERE id = ?').get(relId);
+      return reply.code(201).send(relation);
+    }
+  );
+
+  // Delete relation
+  fastify.delete<{ Params: { id: string; relationId: string } }>(
+    '/api/issues/:id/relations/:relationId',
+    async (request, reply) => {
+      const db = getDatabase();
+      const relation = db.prepare('SELECT * FROM issue_relations WHERE id = ?').get(request.params.relationId) as any;
+      if (!relation) return reply.code(404).send({ error: 'Relation not found' });
+
+      db.prepare('DELETE FROM issue_relations WHERE id = ?').run(request.params.relationId);
+
+      const fromIssue = db.prepare('SELECT * FROM issues WHERE id = ?').get(relation.from_issue_id) as any;
+      if (fromIssue) {
+        broadcastToProject(fromIssue.project_id, {
+          type: 'issue_updated', projectId: fromIssue.project_id,
+          data: { issue: fromIssue },
+        });
+      }
+
+      return { success: true };
+    }
+  );
+
+  // List relations for an issue
+  fastify.get<{ Params: { id: string } }>(
+    '/api/issues/:id/relations',
+    async (request) => {
+      const db = getDatabase();
+      const issueId = request.params.id;
+
+      const blocks = db.prepare(`
+        SELECT r.*, i.number as target_number, i.title as target_title, i.status as target_status
+        FROM issue_relations r JOIN issues i ON i.id = r.to_issue_id
+        WHERE r.from_issue_id = ? AND r.relation_type = 'blocks'
+      `).all(issueId);
+
+      const blocked_by = db.prepare(`
+        SELECT r.*, i.number as source_number, i.title as source_title, i.status as source_status
+        FROM issue_relations r JOIN issues i ON i.id = r.from_issue_id
+        WHERE r.to_issue_id = ? AND r.relation_type = 'blocks'
+      `).all(issueId);
+
+      const related_to = db.prepare(`
+        SELECT r.*, i.number as other_number, i.title as other_title, i.status as other_status
+        FROM issue_relations r JOIN issues i ON i.id = r.to_issue_id
+        WHERE r.from_issue_id = ? AND r.relation_type = 'related_to'
+        UNION
+        SELECT r.*, i.number as other_number, i.title as other_title, i.status as other_status
+        FROM issue_relations r JOIN issues i ON i.id = r.from_issue_id
+        WHERE r.to_issue_id = ? AND r.relation_type = 'related_to'
+      `).all(issueId, issueId);
+
+      const is_blocked = (blocked_by as any[]).some(r => !['done', 'closed'].includes(r.source_status));
+
+      return { blocks, blocked_by, related_to, is_blocked };
+    }
+  );
 
 }

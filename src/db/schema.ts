@@ -165,6 +165,18 @@ export function initializeDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_memories_agent ON agent_memories(agent_id);
     CREATE INDEX IF NOT EXISTS idx_memories_project_scope ON agent_memories(project_id, scope);
 
+    CREATE TABLE IF NOT EXISTS issue_relations (
+      id TEXT PRIMARY KEY,
+      from_issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      to_issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      relation_type TEXT NOT NULL CHECK(relation_type IN ('blocks', 'related_to')),
+      created_by TEXT DEFAULT 'user',
+      created_at DATETIME DEFAULT (datetime('now')),
+      UNIQUE(from_issue_id, to_issue_id, relation_type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_relations_from ON issue_relations(from_issue_id);
+    CREATE INDEX IF NOT EXISTS idx_relations_to ON issue_relations(to_issue_id);
+
     CREATE INDEX IF NOT EXISTS idx_logs_agent ON conversation_logs(agent_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);
     CREATE INDEX IF NOT EXISTS idx_orch_runs_project_created ON orchestration_runs(project_id, created_at DESC);

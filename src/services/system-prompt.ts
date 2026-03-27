@@ -76,6 +76,13 @@ ${C} -X POST ${base}/api/issues/{issue_id}/comments \\
   -d '{"author_id":"${agent.id}","body":"Comment text"}'
 \`\`\`
 
+**Add issue dependency (blocks/related_to):**
+\`\`\`bash
+${C} -X POST ${base}/api/issues/{issue_id}/relations \\
+  -H "Content-Type: application/json" \\
+  -d '{"type":"blocks","target_issue_id":"TARGET_ISSUE_ID","actor":"${agent.id}"}'
+\`\`\`
+
 **Check agent status / logs:**
 \`\`\`bash
 ${C} ${base}/api/agents/{agent_id}/status
