@@ -31,6 +31,10 @@ const CPU_STALE_THRESHOLD = 3; // 3 consecutive unchanged scans (= 15 min at 5-m
 const agentApiConnectErrorCount = new Map<string, number>();
 const agentLastErrorWasApiConnect = new Map<string, boolean>();
 
+// Track when agent received its final result — used by watchdog to kill stuck post-completion processes
+const agentFinalResultTime = new Map<string, number>();
+const FINAL_RESULT_KILL_DELAY_MS = 2 * 60 * 1000; // 2 minutes after Final Result → force kill
+
 function writePromptFile(runId: string, prompt: string): string {
   if (!fs.existsSync(PROMPT_DIR)) fs.mkdirSync(PROMPT_DIR, { recursive: true });
   const fp = path.join(PROMPT_DIR, runId + '.txt');
@@ -284,6 +288,9 @@ export function startAgentProcess(
         logAndBroadcast(`[Result] ${result}\n`, 'stdout');
       } else if (!handled && obj.type === 'result') {
         handled = true;
+        // Mark that this agent has produced its final result — watchdog will force-kill
+        // if the process doesn't exit within FINAL_RESULT_KILL_DELAY_MS (child curl stuck etc.)
+        agentFinalResultTime.set(agent.id, Date.now());
         if (obj.result) {
           logAndBroadcast('\n--- Final Result ---\n' + obj.result + '\n', 'stdout');
         }
@@ -354,6 +361,7 @@ export function startAgentProcess(
     runningProcesses.delete(agent.id);
     lastActivityTime.delete(agent.id);
     childCpuSnapshots.delete(agent.id);
+    agentFinalResultTime.delete(agent.id);
     cleanupPromptFile(promptFile);
 
     // Check if this run had an API connection error
@@ -443,6 +451,7 @@ export function startAgentProcess(
     runningProcesses.delete(agent.id);
     lastActivityTime.delete(agent.id);
     childCpuSnapshots.delete(agent.id);
+    agentFinalResultTime.delete(agent.id);
     cleanupPromptFile(promptFile);
 
     // If resume failed, retry with a fresh session
@@ -591,7 +600,16 @@ export function resetAgentActivity(agentId: string): void {
   lastActivityTime.set(agentId, Date.now());
 }
 
-export { DEFAULT_IDLE_TIMEOUT_MS };
+export { DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS };
+
+/**
+ * Returns how many ms since the agent received its final result, or -1 if no final result yet.
+ * Used by watchdog to force-kill agents whose child processes are stuck after completion.
+ */
+export function getAgentFinalResultAge(agentId: string): number {
+  const t = agentFinalResultTime.get(agentId);
+  return t ? Date.now() - t : -1;
+}
 
 export function getRunningAgentIds(): string[] {
   return Array.from(runningProcesses.keys());

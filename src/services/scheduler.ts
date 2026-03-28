@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { triggerControllerAgent } from './controller';
-import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, DEFAULT_IDLE_TIMEOUT_MS } from './process-manager';
+import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
 import { buildSystemPrompt } from './system-prompt';
 import { config } from '../config';
 import logger from '../logger';
@@ -138,6 +138,27 @@ function startWatchdog(): void {
 
       for (const agent of runningAgents) {
         if (isAgentRunning(agent.id)) {
+          // Check if agent already produced Final Result but process hasn't exited
+          // (e.g., child curl stuck on a network request after completion)
+          const finalResultAge = getAgentFinalResultAge(agent.id);
+          if (finalResultAge >= FINAL_RESULT_KILL_DELAY_MS) {
+            const ageMin = Math.round(finalResultAge / 60000);
+            logger.warn(`Watchdog: agent "${agent.name}" produced Final Result ${ageMin} min ago but process still running, force-killing`);
+            db.prepare(
+              "INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'stderr')"
+            ).run(agent.id, '', `[Argus] Watchdog: process force-killed — Final Result received ${ageMin} min ago but child process stuck`);
+            clearCpuSnapshot(agent.id);
+            db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
+            stopAgentProcess(agent.id);
+            setTimeout(() => {
+              const current = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as any;
+              if (current?.status === 'stopped') {
+                db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
+              }
+            }, 10000);
+            continue;
+          }
+
           // Process exists in-memory — check if it's been silent too long
           const idleMs = getAgentIdleMs(agent.id);
           if (idleMs >= DEFAULT_IDLE_TIMEOUT_MS) {
