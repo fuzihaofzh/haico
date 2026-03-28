@@ -28,6 +28,7 @@ export interface AppOptions {
   port?: number;
   host?: string;
   logger?: boolean;
+  skipScheduler?: boolean;
 }
 
 export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance> {
@@ -86,7 +87,9 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
     }
   });
 
-  initializeScheduler();
+  if (!opts.skipScheduler) {
+    initializeScheduler();
+  }
 
   await fastify.listen({ port, host });
 

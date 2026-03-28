@@ -43,7 +43,7 @@ describe('Argus API', () => {
       try { fs.unlinkSync(f); } catch {}
     }
     const { createApp } = await import('../src/app');
-    app = await createApp({ port: 0, host: '127.0.0.1', logger: false });
+    app = await createApp({ port: 0, host: '127.0.0.1', logger: false, skipScheduler: true });
   });
 
   after(async () => {
