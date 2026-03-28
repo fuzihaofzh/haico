@@ -710,10 +710,15 @@ header h1 span { color: var(--accent); }
   .notifications-body { max-height: 40vh; }
   header { gap: 8px; padding: 0 10px; }
   header .btn { font-size: 11px; padding: 3px 8px; }
+  .breadcrumb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 @media (max-width: 480px) {
   .grid { grid-template-columns: 1fr; }
   .dashboard-stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  header { height: auto; min-height: 42px; flex-wrap: wrap; padding: 6px 10px; }
+  header { height: auto; min-height: 42px; flex-wrap: nowrap; padding: 6px 10px; }
+  .header-right { gap: 4px; flex-shrink: 0; }
+  .header-right .btn { display: none; }
+  .user-menu { flex-shrink: 0; }
+  .user-menu-btn { width: 28px; height: 28px; font-size: 12px; }
   .notifications-body { max-height: 50vh; }
 }
