@@ -44,6 +44,19 @@ header h1 span { color: var(--accent); }
 
 .header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
+/* User Menu */
+.user-menu { position: relative; margin-left: auto; flex-shrink: 0; }
+.user-menu-btn { background: none; border: 1px solid var(--border); border-radius: 50%; width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: var(--fg); font-family: inherit; }
+.user-menu-btn:hover { border-color: var(--accent); }
+.user-menu-dropdown { display: none; position: absolute; right: 0; top: 36px; background: var(--header-bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); min-width: 200px; z-index: 500; padding: 4px 0; }
+.user-menu-dropdown.open { display: block; }
+.user-menu-info { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.user-menu-info .name { font-weight: 600; font-size: 13px; }
+.user-menu-info .role { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; }
+.user-menu-dropdown a, .user-menu-dropdown button.menu-item { display: block; width: 100%; text-align: left; padding: 8px 14px; font-size: 13px; color: var(--fg); text-decoration: none; background: none; border: none; cursor: pointer; font-family: inherit; }
+.user-menu-dropdown a:hover, .user-menu-dropdown button.menu-item:hover { background: var(--selected-bg); }
+.user-menu-dropdown .divider { height: 1px; background: var(--border); margin: 4px 0; }
+
 .breadcrumb { display: flex; gap: 8px; align-items: center; color: var(--text-secondary); font-size: 13px; }
 .breadcrumb a { color: var(--text-secondary); }
 
@@ -507,7 +520,7 @@ header h1 span { color: var(--accent); }
 .notif-toggle.collapsed { transform: rotate(-90deg); }
 .notifications-body {
   border-top: 1px solid var(--border);
-  max-height: 280px;
+  max-height: min(280px, 40vh);
   overflow-y: auto;
 }
 .notifications-body.collapsed { display: none; }
@@ -688,3 +701,18 @@ header h1 span { color: var(--accent); }
 /* Notification badge pulse */
 @keyframes badge-pulse { 0% { transform: scale(1); } 50% { transform: scale(1.25); } 100% { transform: scale(1); } }
 .notif-badge.pulse { animation: badge-pulse 0.4s ease-in-out; }
+
+/* ─── Responsive breakpoints ─── */
+@media (max-width: 768px) {
+  .grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  .dashboard-stats { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .notifications-body { max-height: 40vh; }
+  header { gap: 8px; padding: 0 10px; }
+  header .btn { font-size: 11px; padding: 3px 8px; }
+}
+@media (max-width: 480px) {
+  .grid { grid-template-columns: 1fr; }
+  .dashboard-stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  header { height: auto; min-height: 42px; flex-wrap: wrap; padding: 6px 10px; }
+  .notifications-body { max-height: 50vh; }
+}

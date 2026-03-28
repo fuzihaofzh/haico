@@ -1,9 +1,11 @@
 import { createHash, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import logger from '../logger';
+import { User } from '../types';
 
 const COOKIE_NAME = 'argus-auth';
 const CONFIG_DIR = path.join(os.homedir(), '.argus');
@@ -204,25 +206,88 @@ const LOGIN_HTML = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Argus — Login</title>
-  <style>${PAGE_STYLE}</style>
+  <style>${PAGE_STYLE}
+    input[type="text"] { width: 100%; padding: 0.75rem; border: 1px solid var(--border, #30363d); border-radius: 8px; background: var(--bg, #0d1117); color: var(--fg, #e6edf3); font-size: 1rem; outline: none; margin-bottom: 0.75rem; font-family: inherit; }
+    input[type="text"]:focus { border-color: var(--accent, #58a6ff); }
+  </style>
   ${THEME_SCRIPT}
 </head>
 <body>
   <div class="card">
     <h1><span>Argus</span></h1>
     <form id="form">
+      <div id="username-field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autofocus required>
+      </div>
       <label for="password">Password</label>
-      <input type="password" id="password" name="password" autofocus required>
+      <input type="password" id="password" name="password" required>
       <button type="submit">Login</button>
-      <div class="error" id="error">Incorrect password</div>
+      <div class="error" id="error"></div>
+      <p style="text-align:center;margin-top:1rem;font-size:0.875rem;color:var(--text-secondary,#8b949e)">Don't have an account? <a href="/register" style="color:var(--accent,#58a6ff)">Register</a></p>
     </form>
   </div>
   <script>
     document.getElementById('form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const errEl = document.getElementById('error');
+      errEl.style.display = 'none';
+      const username = document.getElementById('username')?.value;
       const password = document.getElementById('password').value;
-      const res = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
-      if (res.ok) { window.location.href = '/'; } else { document.getElementById('error').style.display = 'block'; }
+      // Try multi-user login first
+      if (username) {
+        const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+        if (res.ok) { window.location.href = '/'; return; }
+      }
+      // Fallback: legacy single-password login
+      const res2 = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+      if (res2.ok) { window.location.href = '/'; return; }
+      errEl.textContent = 'Invalid username or password';
+      errEl.style.display = 'block';
+    });
+  </script>
+</body>
+</html>`;
+
+const REGISTER_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Argus — Register</title>
+  <style>${PAGE_STYLE}</style>
+  ${THEME_SCRIPT}
+</head>
+<body>
+  <div class="card">
+    <h1><span>Argus</span></h1>
+    <p class="subtitle">Create your account</p>
+    <form id="form">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" placeholder="2-32 characters" autofocus required style="width:100%;padding:0.75rem;border:1px solid var(--border,#30363d);border-radius:8px;background:var(--bg,#0d1117);color:var(--fg,#e6edf3);font-size:1rem;outline:none;margin-bottom:0.75rem;font-family:inherit;">
+      <label for="display_name">Display Name (optional)</label>
+      <input type="text" id="display_name" name="display_name" style="width:100%;padding:0.75rem;border:1px solid var(--border,#30363d);border-radius:8px;background:var(--bg,#0d1117);color:var(--fg,#e6edf3);font-size:1rem;outline:none;margin-bottom:0.75rem;font-family:inherit;">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="Min 4 characters" required>
+      <label for="confirm">Confirm Password</label>
+      <input type="password" id="confirm" name="confirm" required>
+      <button type="submit">Register</button>
+      <div class="error" id="error"></div>
+      <p style="text-align:center;margin-top:1rem;font-size:0.875rem;color:var(--text-secondary)">Already have an account? <a href="/login" style="color:var(--accent)">Login</a></p>
+    </form>
+  </div>
+  <script>
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('error');
+      const username = document.getElementById('username').value;
+      const display_name = document.getElementById('display_name').value;
+      const password = document.getElementById('password').value;
+      const confirm = document.getElementById('confirm').value;
+      if (password.length < 4) { errEl.textContent = 'Password must be at least 4 characters'; errEl.style.display = 'block'; return; }
+      if (password !== confirm) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
+      const res = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, display_name: display_name || undefined }) });
+      if (res.ok) { window.location.href = '/'; } else { const data = await res.json(); errEl.textContent = data.error || 'Registration failed'; errEl.style.display = 'block'; }
     });
   </script>
 </body>
@@ -319,9 +384,23 @@ export function setupAuth(app: FastifyInstance): void {
     reply.send({ ok: true });
   });
 
+  // Register page
+  app.get('/register', async (_req, reply) => {
+    reply.type('text/html').send(REGISTER_HTML);
+  });
+
   // Login page
   app.get('/login', async (_req, reply) => {
-    if (!authConfig.passwordHash) return reply.redirect('/setup');
+    if (!authConfig.passwordHash) {
+      // Check if multi-user mode has users
+      let hasUsers = false;
+      try {
+        const { getDatabase } = require('../db/database');
+        const db = getDatabase();
+        hasUsers = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any).c > 0;
+      } catch {}
+      if (!hasUsers) return reply.redirect('/register');
+    }
     reply.type('text/html').send(LOGIN_HTML);
   });
 
@@ -364,16 +443,204 @@ export function setupAuth(app: FastifyInstance): void {
   });
 
   // Logout
-  app.post('/api/auth/logout', async (_request, reply) => {
+  app.post('/api/auth/logout', async (request, reply) => {
+    // Clean up session token from DB
+    const cookies = parseCookies(request.headers.cookie);
+    const token = cookies[COOKIE_NAME];
+    if (token) {
+      try {
+        const { getDatabase } = require('../db/database');
+        const db = getDatabase();
+        db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+      } catch {}
+    }
     reply.header('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`).send({ ok: true });
   });
+
+  // --- Multi-user API ---
+
+  // Register user (first user becomes admin)
+  app.post('/api/auth/register', async (request, reply) => {
+    const body = request.body as { username?: string; email?: string; password?: string; display_name?: string } | null;
+    if (!body?.username || !body?.password) {
+      return reply.status(400).send({ error: 'username and password are required' });
+    }
+    if (body.password.length < 4) {
+      return reply.status(400).send({ error: 'Password must be at least 4 characters' });
+    }
+    if (!/^[a-zA-Z0-9_-]{2,32}$/.test(body.username)) {
+      return reply.status(400).send({ error: 'Username must be 2-32 characters (letters, numbers, -, _)' });
+    }
+
+    const { getDatabase } = require('../db/database');
+    const db = getDatabase();
+
+    // Check if username exists
+    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(body.username);
+    if (existing) return reply.status(409).send({ error: 'Username already taken' });
+
+    // First user becomes admin
+    const userCount = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any).c;
+    const role = userCount === 0 ? 'admin' : 'member';
+
+    const userId = uuidv4();
+    const { hash, salt } = hashPassword(body.password);
+
+    db.prepare(
+      'INSERT INTO users (id, username, email, password_hash, password_salt, display_name, role) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(userId, body.username, body.email || '', hash, salt, body.display_name || body.username, role);
+
+    // Auto-login: create session
+    const sessionToken = randomBytes(32).toString('hex');
+    const now = Date.now();
+    const expiresAt = now + 30 * 24 * 60 * 60 * 1000; // 30 days
+    db.prepare('INSERT INTO sessions (token, user_id, csrf_token, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
+      .run(sessionToken, userId, randomBytes(16).toString('hex'), now, expiresAt);
+
+    reply.header('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Path=/; SameSite=Lax`);
+
+    const user = db.prepare('SELECT id, username, email, display_name, role, created_at FROM users WHERE id = ?').get(userId);
+    return reply.status(201).send({ ok: true, user, token: sessionToken });
+  });
+
+  // Login with username + password (multi-user)
+  app.post('/api/auth/login', async (request, reply) => {
+    const body = request.body as { username?: string; password?: string } | null;
+    if (!body?.username || !body?.password) {
+      return reply.status(400).send({ error: 'username and password are required' });
+    }
+
+    const { getDatabase } = require('../db/database');
+    const db = getDatabase();
+
+    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(body.username) as User | undefined;
+    if (!user || !verifyPassword(body.password, user.password_hash, user.password_salt)) {
+      return reply.status(401).send({ error: 'Invalid username or password' });
+    }
+
+    // Update last_login_at
+    db.prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?").run(user.id);
+
+    // Create session
+    const sessionToken = randomBytes(32).toString('hex');
+    const now = Date.now();
+    const expiresAt = now + 30 * 24 * 60 * 60 * 1000;
+    db.prepare('INSERT INTO sessions (token, user_id, csrf_token, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
+      .run(sessionToken, user.id, randomBytes(16).toString('hex'), now, expiresAt);
+
+    reply.header('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Path=/; SameSite=Lax`);
+    return { ok: true, token: sessionToken, user: { id: user.id, username: user.username, email: user.email, display_name: user.display_name, role: user.role } };
+  });
+
+  // Get current user info
+  app.get('/api/auth/me', async (request, reply) => {
+    const user = getUserFromRequest(request);
+    if (!user) return reply.status(401).send({ error: 'Not authenticated' });
+    return { id: user.id, username: user.username, email: user.email, display_name: user.display_name, role: user.role, created_at: user.created_at };
+  });
+
+  // List users (admin only)
+  app.get('/api/auth/users', async (request, reply) => {
+    const user = getUserFromRequest(request);
+    if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
+
+    const { getDatabase } = require('../db/database');
+    const db = getDatabase();
+    const users = db.prepare('SELECT id, username, email, display_name, role, created_at, last_login_at FROM users ORDER BY created_at').all();
+    return { users };
+  });
+
+  // Update user role (admin only)
+  app.put('/api/auth/users/:id', async (request, reply) => {
+    const user = getUserFromRequest(request);
+    if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
+
+    const { id } = request.params as { id: string };
+    const { role } = request.body as { role?: string };
+
+    if (id === user.id) return reply.status(400).send({ error: 'Cannot change your own role' });
+    if (role && !['admin', 'member'].includes(role)) return reply.status(400).send({ error: 'Invalid role' });
+
+    const { getDatabase } = require('../db/database');
+    const db = getDatabase();
+    const target = db.prepare('SELECT id FROM users WHERE id = ?').get(id);
+    if (!target) return reply.status(404).send({ error: 'User not found' });
+
+    if (role) db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
+    const updated = db.prepare('SELECT id, username, email, display_name, role, created_at, last_login_at FROM users WHERE id = ?').get(id);
+    return { user: updated };
+  });
+
+  // Delete user (admin only)
+  app.delete('/api/auth/users/:id', async (request, reply) => {
+    const user = getUserFromRequest(request);
+    if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
+
+    const { id } = request.params as { id: string };
+    if (id === user.id) return reply.status(400).send({ error: 'Cannot delete yourself' });
+
+    const { getDatabase } = require('../db/database');
+    const db = getDatabase();
+    const target = db.prepare('SELECT id FROM users WHERE id = ?').get(id);
+    if (!target) return reply.status(404).send({ error: 'User not found' });
+
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    return { ok: true };
+  });
+
+  // Helper: resolve user from request token
+  function getUserFromRequest(request: FastifyRequest): User | null {
+    try {
+      const { getDatabase } = require('../db/database');
+      const db = getDatabase();
+
+      // Check cookie
+      const cookies = parseCookies(request.headers.cookie);
+      let token = cookies[COOKIE_NAME];
+
+      // Check Authorization header
+      if (!token) {
+        const authHeader = request.headers.authorization;
+        if (authHeader?.startsWith('Bearer ')) {
+          token = authHeader.slice(7);
+        }
+      }
+
+      if (!token) return null;
+
+      const session = db.prepare('SELECT user_id FROM sessions WHERE token = ? AND expires_at > ?').get(token, Date.now()) as { user_id: string } | undefined;
+      if (!session?.user_id) return null;
+
+      return db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id) as User | undefined || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Check if a session token is valid (for multi-user mode)
+  function isValidSessionToken(token: string): boolean {
+    try {
+      const { getDatabase } = require('../db/database');
+      const db = getDatabase();
+      const session = db.prepare('SELECT token FROM sessions WHERE token = ? AND expires_at > ?').get(token, Date.now());
+      return !!session;
+    } catch {
+      return false;
+    }
+  }
 
   // Auth hook
   app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
     const url = request.url;
 
+    // ARGUS_NO_AUTH=true: skip all authentication
+    if (process.env.ARGUS_NO_AUTH === 'true') {
+      return;
+    }
+
     // Allow auth routes and favicon
-    if (request.method === 'OPTIONS' || url === '/login' || url === '/setup' || url.startsWith('/api/auth') || url === '/favicon.ico') {
+    if (request.method === 'OPTIONS' || url === '/login' || url === '/setup' || url === '/register' || url.startsWith('/api/auth') || url === '/favicon.ico') {
       return;
     }
 
@@ -389,24 +656,37 @@ export function setupAuth(app: FastifyInstance): void {
       authConfig = loadAuthConfig();
     }
     if (!authConfig.passwordHash) {
-      if (url.startsWith('/api/') || url.startsWith('/ws')) {
-        reply.status(401).send({ error: 'Password not configured. Visit /setup first.' });
-      } else {
-        reply.redirect('/setup');
+      // Check if multi-user mode has users
+      let hasUsers = false;
+      try {
+        const { getDatabase } = require('../db/database');
+        const db = getDatabase();
+        const count = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any).c;
+        hasUsers = count > 0;
+      } catch {}
+
+      if (!hasUsers) {
+        if (url.startsWith('/api/') || url.startsWith('/ws')) {
+          reply.status(401).send({ error: 'No authentication configured. Visit /register to create the first account.' });
+        } else {
+          reply.redirect('/register');
+        }
+        return;
       }
-      return;
     }
 
-    // Check cookie
+    // Check cookie token
     const cookies = parseCookies(request.headers.cookie);
     const token = cookies[COOKIE_NAME];
+
+    // Try legacy single-password token first
     if (token && isValidToken(token)) {
       return;
     }
 
-    // Debug: log why auth failed for non-static requests
-    if (!url.startsWith('/public/') && !url.startsWith('/css/') && !url.startsWith('/js/') && !url.startsWith('/vendor/')) {
-      console.error(`[AUTH FAIL] url=${url} method=${request.method} hasToken=${!!token} tokenValid=${token ? isValidToken(token) : 'no-token'} hasPassword=${!!authConfig.passwordHash} ip=${request.ip}`);
+    // Try multi-user session token
+    if (token && isValidSessionToken(token)) {
+      return;
     }
 
     // Check Authorization: Bearer <token>
@@ -414,11 +694,12 @@ export function setupAuth(app: FastifyInstance): void {
     if (authHeader?.startsWith('Bearer ')) {
       const bearerToken = authHeader.slice(7);
       if (isValidToken(bearerToken)) return;
+      if (isValidSessionToken(bearerToken)) return;
     }
 
     // Check query token (for WebSocket connections)
     const queryToken = (request.query as Record<string, string>)?.token;
-    if (queryToken && isValidToken(queryToken)) return;
+    if (queryToken && (isValidToken(queryToken) || isValidSessionToken(queryToken))) return;
 
     // Allow static assets and UI page routes — only protect API/WS
     if (url.startsWith('/public/') || url.startsWith('/css/') || url.startsWith('/js/') || url.startsWith('/vendor/')) {

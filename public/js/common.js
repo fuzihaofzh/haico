@@ -1,3 +1,51 @@
+// ─── User Menu ───
+
+let _currentUser = null;
+
+async function initUserMenu() {
+  try {
+    const res = await fetch('/api/auth/me');
+    if (!res.ok) return;
+    _currentUser = await res.json();
+  } catch { return; }
+
+  const header = document.querySelector('header');
+  if (!header) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'user-menu';
+  const initials = (_currentUser.display_name || _currentUser.username || '?').charAt(0).toUpperCase();
+  menu.innerHTML = `
+    <button class="user-menu-btn" title="${esc(_currentUser.display_name || _currentUser.username)}">${esc(initials)}</button>
+    <div class="user-menu-dropdown" id="user-menu-dropdown">
+      <div class="user-menu-info">
+        <div class="name">${esc(_currentUser.display_name || _currentUser.username)}</div>
+        <div class="role">${esc(_currentUser.role)}</div>
+      </div>
+      ${_currentUser.role === 'admin' ? '<a href="/admin/users">User Management</a>' : ''}
+      <a href="/change-password">Change Password</a>
+      <div class="divider"></div>
+      <button class="menu-item" onclick="doLogout()">Logout</button>
+    </div>
+  `;
+  header.appendChild(menu);
+
+  const btn = menu.querySelector('.user-menu-btn');
+  const dropdown = menu.querySelector('.user-menu-dropdown');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle('open');
+  });
+  document.addEventListener('click', () => dropdown.classList.remove('open'));
+}
+
+async function doLogout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login';
+}
+
+document.addEventListener('DOMContentLoaded', initUserMenu);
+
 // ─── Shared utility functions ───
 
 function esc(s) {
@@ -91,6 +139,30 @@ function showToast(message, type) {
   toast.onclick = function() { toast.remove(); };
   container.appendChild(toast);
   setTimeout(function() { toast.remove(); }, 3000);
+}
+
+function showConfirm(message) {
+  return new Promise(resolve => {
+    let overlay = document.getElementById('confirm-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'confirm-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+      document.body.appendChild(overlay);
+    }
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div style="background:var(--bg-secondary,#1e1e2e);border:1px solid var(--border,#333);border-radius:8px;padding:20px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+      <div style="margin-bottom:16px;font-size:14px;line-height:1.5">${esc(message)}</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-sm" id="confirm-cancel" style="padding:6px 16px">取消</button>
+        <button class="btn btn-sm" id="confirm-ok" style="padding:6px 16px;background:var(--accent);color:#fff">确定</button>
+      </div>
+    </div>`;
+    const close = val => { overlay.style.display = 'none'; resolve(val); };
+    document.getElementById('confirm-ok').onclick = () => close(true);
+    document.getElementById('confirm-cancel').onclick = () => close(false);
+    overlay.onclick = e => { if (e.target === overlay) close(false); };
+  });
 }
 
 // ─── Keyboard shortcuts ───
@@ -373,12 +445,22 @@ function connectProjectEvents(projectId) {
     (listeners['*'] || []).forEach(cb => { try { cb({ type, ...data }); } catch(e) {} });
   }
 
+  function updateWsIndicator(state) {
+    const el = document.getElementById('ws-status-indicator');
+    if (!el) return;
+    const colors = { connected: '#3fb950', connecting: '#d29922', disconnected: '#8b949e' };
+    const labels = { connected: '实时更新已连接', connecting: '正在连接...', disconnected: '实时更新已断开' };
+    el.innerHTML = `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${colors[state] || colors.disconnected};margin-right:4px"></span><span style="font-size:11px;color:var(--text-secondary)">${labels[state] || ''}</span>`;
+    el.title = labels[state] || '';
+  }
+
   function connect() {
     if (closed) return;
+    updateWsIndicator('connecting');
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws/projects/${projectId}/events`);
 
-    ws.onopen = function() { retryDelay = 1000; };
+    ws.onopen = function() { retryDelay = 1000; updateWsIndicator('connected'); };
 
     ws.onmessage = function(e) {
       try {
@@ -388,6 +470,7 @@ function connectProjectEvents(projectId) {
     };
 
     ws.onclose = function() {
+      updateWsIndicator('disconnected');
       if (!closed) {
         setTimeout(connect, retryDelay);
         retryDelay = Math.min(retryDelay * 1.5, 15000);

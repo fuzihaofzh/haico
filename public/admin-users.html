@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Argus - User Management</title>
+  <link rel="stylesheet" href="/public/css/style.css">
+</head>
+<body>
+  <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-header">
+      <h3><span style="color:var(--accent)">Argus</span></h3>
+      <button class="drawer-close" onclick="closeDrawer()">&times;</button>
+    </div>
+    <div class="drawer-content">
+      <div class="drawer-section">
+        <div class="drawer-section-header">Navigation</div>
+        <a href="/" class="drawer-link">Dashboard</a>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-header">Settings</div>
+        <div class="settings-section">
+          <div class="setting-group">
+            <label>Theme</label>
+            <select id="theme-select" onchange="changeTheme(this.value)">
+              <option value="github-dark">GitHub Dark</option>
+              <option value="dracula">Dracula</option>
+              <option value="nord-dark">Nord Dark</option>
+              <option value="nord-light">Nord Light</option>
+              <option value="monokai">Monokai</option>
+              <option value="solarized-dark">Solarized Dark</option>
+              <option value="solarized-light">Solarized Light</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <header>
+    <button class="menu-btn" onclick="toggleDrawer()">
+      <span></span><span></span><span></span>
+    </button>
+    <h1><a href="/" style="color:var(--accent);text-decoration:none">Argus</a></h1>
+    <div class="breadcrumb" style="margin-left:12px">
+      <a href="/">Home</a> / <span>User Management</span>
+    </div>
+  </header>
+
+  <div class="container" style="max-width:800px;margin:0 auto;padding:24px 16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="font-size:18px;font-weight:600">Users</h2>
+      <button class="btn btn-primary btn-sm" onclick="showAddUser()">+ Add User</button>
+    </div>
+    <div id="users-list"></div>
+    <div id="error-msg" style="color:var(--error);margin-top:8px;font-size:13px;display:none"></div>
+  </div>
+
+  <!-- Add User Modal -->
+  <div id="add-user-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:none;align-items:center;justify-content:center">
+    <div style="background:var(--header-bg);border:1px solid var(--border);border-radius:12px;padding:24px;width:100%;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+      <h3 style="margin-bottom:16px;font-size:16px">Add User</h3>
+      <form id="add-user-form">
+        <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary)">Username</label>
+        <input type="text" id="new-username" required style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:14px;margin-bottom:12px;font-family:inherit;box-sizing:border-box">
+        <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary)">Display Name</label>
+        <input type="text" id="new-display-name" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:14px;margin-bottom:12px;font-family:inherit;box-sizing:border-box">
+        <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary)">Password</label>
+        <input type="password" id="new-password" required minlength="4" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:14px;margin-bottom:12px;font-family:inherit;box-sizing:border-box">
+        <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary)">Role</label>
+        <select id="new-role" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:14px;margin-bottom:16px;font-family:inherit">
+          <option value="member">Member</option>
+          <option value="admin">Admin</option>
+        </select>
+        <div id="add-user-error" style="color:var(--error);font-size:13px;margin-bottom:8px;display:none"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn btn-sm" onclick="hideAddUser()" style="background:var(--bg);border:1px solid var(--border);color:var(--fg);padding:6px 14px;border-radius:6px;cursor:pointer;font-family:inherit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" style="padding:6px 14px">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/public/js/common.js"></script>
+  <script>
+    let users = [];
+
+    async function loadUsers() {
+      try {
+        const res = await fetch('/api/auth/users');
+        if (res.status === 403) {
+          document.getElementById('users-list').innerHTML = '<p style="color:var(--error)">Admin access required.</p>';
+          return;
+        }
+        const data = await res.json();
+        users = data.users || [];
+        renderUsers();
+      } catch (e) {
+        showError('Failed to load users');
+      }
+    }
+
+    function renderUsers() {
+      const el = document.getElementById('users-list');
+      if (!users.length) { el.innerHTML = '<p style="color:var(--text-secondary)">No users yet.</p>'; return; }
+      el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="border-bottom:2px solid var(--border);text-align:left">
+          <th style="padding:8px 12px">Username</th>
+          <th style="padding:8px 12px">Display Name</th>
+          <th style="padding:8px 12px">Role</th>
+          <th style="padding:8px 12px">Created</th>
+          <th style="padding:8px 12px">Last Login</th>
+          <th style="padding:8px 12px">Actions</th>
+        </tr></thead>
+        <tbody>${users.map(u => `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 12px">${esc(u.username)}</td>
+          <td style="padding:8px 12px">${esc(u.display_name || '-')}</td>
+          <td style="padding:8px 12px">
+            <select onchange="changeRole('${u.id}', this.value)" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px;font-family:inherit"${_currentUser && u.id === _currentUser.id ? ' disabled' : ''}>
+              <option value="member"${u.role==='member'?' selected':''}>member</option>
+              <option value="admin"${u.role==='admin'?' selected':''}>admin</option>
+            </select>
+          </td>
+          <td style="padding:8px 12px;color:var(--text-secondary)">${u.created_at ? timeAgo(u.created_at) : '-'}</td>
+          <td style="padding:8px 12px;color:var(--text-secondary)">${u.last_login_at ? timeAgo(u.last_login_at) : 'Never'}</td>
+          <td style="padding:8px 12px">${_currentUser && u.id === _currentUser.id ? '<span style="color:var(--text-secondary)">you</span>' : `<button onclick="deleteUser('${u.id}','${esc(u.username)}')" style="background:none;border:none;color:var(--error);cursor:pointer;font-size:12px;font-family:inherit">Delete</button>`}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
+
+    async function changeRole(id, role) {
+      const res = await fetch('/api/auth/users/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({role}) });
+      if (!res.ok) { const d = await res.json(); showError(d.error); loadUsers(); return; }
+      loadUsers();
+    }
+
+    async function deleteUser(id, name) {
+      if (!confirm('Delete user "' + name + '"? This cannot be undone.')) return;
+      const res = await fetch('/api/auth/users/' + id, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json(); showError(d.error); return; }
+      loadUsers();
+    }
+
+    function showAddUser() {
+      document.getElementById('add-user-modal').style.display = 'flex';
+    }
+    function hideAddUser() {
+      document.getElementById('add-user-modal').style.display = 'none';
+      document.getElementById('add-user-form').reset();
+      document.getElementById('add-user-error').style.display = 'none';
+    }
+
+    document.getElementById('add-user-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('add-user-error');
+      errEl.style.display = 'none';
+      const username = document.getElementById('new-username').value;
+      const display_name = document.getElementById('new-display-name').value;
+      const password = document.getElementById('new-password').value;
+      const role = document.getElementById('new-role').value;
+
+      const res = await fetch('/api/auth/register', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ username, password, display_name: display_name || undefined })
+      });
+      if (!res.ok) { const d = await res.json(); errEl.textContent = d.error || 'Failed'; errEl.style.display = 'block'; return; }
+      const data = await res.json();
+      // If role is admin, update it
+      if (role === 'admin' && data.user) {
+        await fetch('/api/auth/users/' + data.user.id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({role:'admin'}) });
+      }
+      hideAddUser();
+      loadUsers();
+    });
+
+    function showError(msg) {
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 5000);
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>

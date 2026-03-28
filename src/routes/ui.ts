@@ -34,4 +34,8 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
   fastify.get('/projects/:pid/issues/:num', async (_request, reply) => {
     return reply.type('text/html').send(serveHtml('issue.html'));
   });
+
+  fastify.get('/admin/users', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('admin-users.html'));
+  });
 }
