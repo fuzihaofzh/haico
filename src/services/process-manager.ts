@@ -27,6 +27,10 @@ interface CpuSnapshot {
 const childCpuSnapshots = new Map<string, CpuSnapshot>();
 const CPU_STALE_THRESHOLD = 3; // 3 consecutive unchanged scans (= 15 min at 5-min interval) → stuck
 
+// Track API connection errors for auto-retry
+const agentApiConnectErrorCount = new Map<string, number>();
+const agentLastErrorWasApiConnect = new Map<string, boolean>();
+
 function writePromptFile(runId: string, prompt: string): string {
   if (!fs.existsSync(PROMPT_DIR)) fs.mkdirSync(PROMPT_DIR, { recursive: true });
   const fp = path.join(PROMPT_DIR, runId + '.txt');
@@ -315,6 +319,12 @@ export function startAgentProcess(
 
   const handleData = (stream: 'stdout' | 'stderr') => (data: Buffer) => {
     const raw = data.toString();
+
+    // Detect API connection failure in any output stream
+    if (raw.includes('Unable to connect to API')) {
+      agentLastErrorWasApiConnect.set(agent.id, true);
+    }
+
     if (stream === 'stderr') {
       // Skip proxychains noise in stderr
       if (!raw.includes('proxychains')) {
@@ -345,11 +355,49 @@ export function startAgentProcess(
     lastActivityTime.delete(agent.id);
     childCpuSnapshots.delete(agent.id);
     cleanupPromptFile(promptFile);
+
+    // Check if this run had an API connection error
+    const wasApiConnectError = agentLastErrorWasApiConnect.get(agent.id) || false;
+    agentLastErrorWasApiConnect.delete(agent.id);
+
     // If agent was explicitly stopped, preserve 'stopped' status
     const currentAgent = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as { status: string } | undefined;
     const status = currentAgent?.status === 'stopped' ? 'stopped' : (code === 0 ? 'idle' : 'error');
 
     if (status === 'error') {
+      // Handle API connection error with auto-retry
+      if (wasApiConnectError) {
+        const apiErrCount = (agentApiConnectErrorCount.get(agent.id) || 0) + 1;
+        agentApiConnectErrorCount.set(agent.id, apiErrCount);
+
+        if (apiErrCount <= 1) {
+          // First API connection failure: auto-retry after 5 seconds
+          logger.info(`Agent ${agent.id} API connection failed (attempt ${apiErrCount}), auto-retrying in 5s`);
+          logAndBroadcast('Argus: API连接失败，5秒后自动重试...\n', 'stderr');
+          // Keep status as 'running' during retry to prevent scheduler from re-triggering
+          db.prepare(`
+            UPDATE agents SET status = 'running', pid = NULL, finished_at = datetime('now') WHERE id = ?
+          `).run(agent.id);
+          setTimeout(() => {
+            const retryAgent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agent.id) as Agent | undefined;
+            if (retryAgent && retryAgent.status === 'running') {
+              logger.info(`Agent ${agent.id} auto-retrying after API connection failure`);
+              startAgentProcess(retryAgent, prompt, commandTemplate, systemPrompt);
+            }
+          }, 5000);
+          return;
+        } else {
+          // Second+ API connection failure: give up, report error
+          logger.info(`Agent ${agent.id} API connection failed ${apiErrCount} times, giving up`);
+          logAndBroadcast('Argus: API连接持续失败，请检查网络/API配置后手动重启agent\n', 'stderr');
+          agentApiConnectErrorCount.delete(agent.id);
+          // Fall through to normal error handling below
+        }
+      } else {
+        // Non-API error: reset API error count
+        agentApiConnectErrorCount.delete(agent.id);
+      }
+
       // P1: Track consecutive errors — only clear session after MAX_CONSECUTIVE_ERRORS
       const errorCount = (agentErrorCount.get(agent.id) || 0) + 1;
       agentErrorCount.set(agent.id, errorCount);
@@ -367,8 +415,9 @@ export function startAgentProcess(
         `).run(status, agent.id);
       }
     } else {
-      // Success — reset error count
+      // Success — reset error counts
       agentErrorCount.delete(agent.id);
+      agentApiConnectErrorCount.delete(agent.id);
       db.prepare(`
         UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now') WHERE id = ?
       `).run(status, agent.id);
