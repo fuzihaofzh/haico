@@ -2119,6 +2119,115 @@ describe('Argus API', () => {
     });
   });
 
+  // ─── API连接失败自动重启 (#436/#437) ───
+
+  describe('API连接失败自动重启 (#436)', () => {
+    // 等待agent进入非running状态（最多等maxMs毫秒），返回最终状态
+    async function waitForNonRunning(agentId: string, maxMs = 15000): Promise<string> {
+      const deadline = Date.now() + maxMs;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 300));
+        const { body: st } = await api(app, `/api/agents/${agentId}/status`);
+        if (st.status !== 'running') return st.status;
+      }
+      const { body: st } = await api(app, `/api/agents/${agentId}/status`);
+      return st.status;
+    }
+
+    // 等待agent的in-memory进程退出（is_running变为false）
+    async function waitForProcessExit(agentId: string, maxMs = 5000): Promise<void> {
+      const deadline = Date.now() + maxMs;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 100));
+        const { body: st } = await api(app, `/api/agents/${agentId}/status`);
+        if (!st.is_running) return;
+      }
+    }
+
+    it('API连接错误时自动重试，两次失败后进入error状态', async () => {
+      // 确保agent不在运行中
+      await waitForNonRunning(workerId);
+
+      await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { command_template: "sh -c 'echo Unable to connect to API >&2; exit 1'" },
+      });
+
+      try {
+        const startRes = await api(app, `/api/agents/${workerId}/start`, {
+          method: 'POST', body: { prompt: 'test api retry' },
+        });
+        assert.equal(startRes.status, 200, `start应返回200，实际: ${startRes.status}`);
+
+        // 等待第一次进程退出（is_running → false）
+        await waitForProcessExit(workerId, 3000);
+
+        // 若API错误被检测到，关闭处理器应保持status='running'（重试等待中）
+        const { body: midState } = await api(app, `/api/agents/${workerId}/status`);
+        assert.equal(midState.status, 'running',
+          `第一次API错误后应保持running（重试中）。实际: ${midState.status}, pid: ${midState.pid}, is_running: ${midState.is_running}`);
+
+        // 等待两次尝试全部完成（5秒重试延迟 + 执行时间 ≈ 8秒）
+        const finalStatus = await waitForNonRunning(workerId, 12000);
+        assert.equal(finalStatus, 'error',
+          `两次API错误后应变为error。实际: ${finalStatus}`);
+      } finally {
+        await api(app, `/api/projects/${projectId}`, {
+          method: 'PUT', body: { command_template: 'echo' },
+        });
+        await waitForNonRunning(workerId, 12000);
+      }
+    });
+
+    it('非API错误不触发自动重试，直接变为error', async () => {
+      await waitForNonRunning(workerId);
+
+      await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { command_template: 'false' },
+      });
+
+      try {
+        const startRes = await api(app, `/api/agents/${workerId}/start`, {
+          method: 'POST', body: { prompt: 'test non-api error no retry' },
+        });
+        assert.equal(startRes.status, 200, `start应返回200，实际: ${startRes.status}`);
+
+        // 非API错误应立即进入error（无5秒重试延迟）
+        const finalStatus = await waitForNonRunning(workerId, 5000);
+        assert.equal(finalStatus, 'error',
+          `非API错误应直接进入error（无自动重试）。实际: ${finalStatus}`);
+      } finally {
+        await api(app, `/api/projects/${projectId}`, {
+          method: 'PUT', body: { command_template: 'echo' },
+        });
+        await waitForNonRunning(workerId, 5000);
+      }
+    });
+
+    it('成功运行后agent变为idle状态', async () => {
+      await waitForNonRunning(workerId);
+
+      await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { command_template: 'echo' },
+      });
+
+      try {
+        const startRes = await api(app, `/api/agents/${workerId}/start`, {
+          method: 'POST', body: { prompt: 'test success' },
+        });
+        assert.equal(startRes.status, 200, `start应返回200，实际: ${startRes.status}`);
+
+        const finalStatus = await waitForNonRunning(workerId, 5000);
+        assert.equal(finalStatus, 'idle',
+          `成功运行后agent应为idle。实际: ${finalStatus}`);
+      } finally {
+        await api(app, `/api/projects/${projectId}`, {
+          method: 'PUT', body: { command_template: 'echo' },
+        });
+        await waitForNonRunning(workerId, 5000);
+      }
+    });
+  });
+
   // ─── Cascade Delete ───
 
   describe('Cleanup', () => {
@@ -3537,115 +3646,6 @@ describe('Argus API', () => {
       const result = checkChildCpuActivity('test-agent-clear', pid);
       assert.equal(result, 'active', '清除快照后应重新返回 active');
       clearCpuSnapshot('test-agent-clear');
-    });
-  });
-
-  // ─── API连接失败自动重启 (#436/#437) ───
-
-  describe('API连接失败自动重启 (#436)', () => {
-    // 等待agent进入非running状态（最多等maxMs毫秒），返回最终状态
-    async function waitForNonRunning(agentId: string, maxMs = 15000): Promise<string> {
-      const deadline = Date.now() + maxMs;
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 300));
-        const { body: st } = await api(app, `/api/agents/${agentId}/status`);
-        if (st.status !== 'running') return st.status;
-      }
-      const { body: st } = await api(app, `/api/agents/${agentId}/status`);
-      return st.status;
-    }
-
-    // 等待agent的in-memory进程退出（is_running变为false）
-    async function waitForProcessExit(agentId: string, maxMs = 5000): Promise<void> {
-      const deadline = Date.now() + maxMs;
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 100));
-        const { body: st } = await api(app, `/api/agents/${agentId}/status`);
-        if (!st.is_running) return;
-      }
-    }
-
-    it('API连接错误时自动重试，两次失败后进入error状态', async () => {
-      // 确保agent不在运行中
-      await waitForNonRunning(workerId);
-
-      await api(app, `/api/projects/${projectId}`, {
-        method: 'PUT', body: { command_template: "sh -c 'echo Unable to connect to API >&2; exit 1'" },
-      });
-
-      try {
-        const startRes = await api(app, `/api/agents/${workerId}/start`, {
-          method: 'POST', body: { prompt: 'test api retry' },
-        });
-        assert.equal(startRes.status, 200, `start应返回200，实际: ${startRes.status}`);
-
-        // 等待第一次进程退出（is_running → false）
-        await waitForProcessExit(workerId, 3000);
-
-        // 若API错误被检测到，关闭处理器应保持status='running'（重试等待中）
-        const { body: midState } = await api(app, `/api/agents/${workerId}/status`);
-        assert.equal(midState.status, 'running',
-          `第一次API错误后应保持running（重试中）。实际: ${midState.status}, pid: ${midState.pid}, is_running: ${midState.is_running}`);
-
-        // 等待两次尝试全部完成（5秒重试延迟 + 执行时间 ≈ 8秒）
-        const finalStatus = await waitForNonRunning(workerId, 12000);
-        assert.equal(finalStatus, 'error',
-          `两次API错误后应变为error。实际: ${finalStatus}`);
-      } finally {
-        await api(app, `/api/projects/${projectId}`, {
-          method: 'PUT', body: { command_template: 'echo' },
-        });
-        await waitForNonRunning(workerId, 12000);
-      }
-    });
-
-    it('非API错误不触发自动重试，直接变为error', async () => {
-      await waitForNonRunning(workerId);
-
-      await api(app, `/api/projects/${projectId}`, {
-        method: 'PUT', body: { command_template: 'false' },
-      });
-
-      try {
-        const startRes = await api(app, `/api/agents/${workerId}/start`, {
-          method: 'POST', body: { prompt: 'test non-api error no retry' },
-        });
-        assert.equal(startRes.status, 200, `start应返回200，实际: ${startRes.status}`);
-
-        // 非API错误应立即进入error（无5秒重试延迟）
-        const finalStatus = await waitForNonRunning(workerId, 5000);
-        assert.equal(finalStatus, 'error',
-          `非API错误应直接进入error（无自动重试）。实际: ${finalStatus}`);
-      } finally {
-        await api(app, `/api/projects/${projectId}`, {
-          method: 'PUT', body: { command_template: 'echo' },
-        });
-        await waitForNonRunning(workerId, 5000);
-      }
-    });
-
-    it('成功运行后agent变为idle状态', async () => {
-      await waitForNonRunning(workerId);
-
-      await api(app, `/api/projects/${projectId}`, {
-        method: 'PUT', body: { command_template: 'echo' },
-      });
-
-      try {
-        const startRes = await api(app, `/api/agents/${workerId}/start`, {
-          method: 'POST', body: { prompt: 'test success' },
-        });
-        assert.equal(startRes.status, 200, `start应返回200，实际: ${startRes.status}`);
-
-        const finalStatus = await waitForNonRunning(workerId, 5000);
-        assert.equal(finalStatus, 'idle',
-          `成功运行后agent应为idle。实际: ${finalStatus}`);
-      } finally {
-        await api(app, `/api/projects/${projectId}`, {
-          method: 'PUT', body: { command_template: 'echo' },
-        });
-        await waitForNonRunning(workerId, 5000);
-      }
     });
   });
 
