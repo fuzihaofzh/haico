@@ -114,7 +114,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       const db = getDatabase();
       const { status, assigned_to, label, q, sort, page, per_page, milestone_id } = request.query;
 
-      let sql = `SELECT issues.*, (SELECT COUNT(*) FROM issue_comments WHERE issue_id = issues.id AND event_type = 'comment') as comment_count FROM issues WHERE project_id = ?`;
+      let sql = `SELECT issues.*, (SELECT COUNT(*) FROM issue_comments WHERE issue_id = issues.id AND event_type = 'comment') as comment_count, (SELECT COUNT(*) > 0 FROM issue_relations r JOIN issues blocker ON blocker.id = r.from_issue_id WHERE r.to_issue_id = issues.id AND r.relation_type = 'blocks' AND blocker.status NOT IN ('done', 'closed')) as is_blocked FROM issues WHERE project_id = ?`;
       const params: any[] = [request.params.pid];
 
       if (status) { sql += ' AND status = ?'; params.push(status); }
@@ -140,7 +140,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       const total = (db.prepare(countSql).get(...params) as any)?.total || 0;
 
       sql += ` LIMIT ${limit} OFFSET ${offset}`;
-      const issues = db.prepare(sql).all(...params);
+      const issues = db.prepare(sql).all(...params).map((issue: any) => ({
+        ...issue,
+        is_blocked: !!issue.is_blocked,
+      }));
 
       return { issues, total, page: Math.floor(offset / limit) + 1, per_page: limit, total_pages: Math.ceil(total / limit) };
     }
