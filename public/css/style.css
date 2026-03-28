@@ -255,6 +255,7 @@ header h1 span { color: var(--accent); }
 .btn-danger { background: #da3633; border-color: #f85149; }
 .btn-danger:hover { background: #f85149; }
 .btn-sm { padding: 3px 10px; font-size: 12px; }
+.usage-period-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* Forms */
 .form-group { margin-bottom: 12px; }

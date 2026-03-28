@@ -9,8 +9,9 @@ async function initUserMenu() {
     _currentUser = await res.json();
   } catch { return; }
 
-  const header = document.querySelector('header');
-  if (!header) return;
+  // Append user menu to .header-right if it exists, otherwise to header
+  const headerRight = document.querySelector('.header-right') || document.querySelector('header');
+  if (!headerRight) return;
 
   const menu = document.createElement('div');
   menu.className = 'user-menu';
@@ -28,7 +29,7 @@ async function initUserMenu() {
       <button class="menu-item" onclick="doLogout()">Logout</button>
     </div>
   `;
-  header.appendChild(menu);
+  headerRight.appendChild(menu);
 
   const btn = menu.querySelector('.user-menu-btn');
   const dropdown = menu.querySelector('.user-menu-dropdown');
