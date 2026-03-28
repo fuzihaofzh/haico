@@ -691,12 +691,18 @@ export function stopAllProcesses(): Promise<void> {
       child.once('close', () => checkAllDone());
     }
 
-    // Force kill after 3 seconds if still running
+    // Force kill after 3 seconds if still running — also kill descendants
+    // to ensure stdio pipes are closed and 'close' event fires promptly
     forceKillTimer = setTimeout(() => {
       for (const agentId of agentIds) {
         const child = runningProcesses.get(agentId);
-        if (child) {
-          logger.info(`Force killing agent ${agentId}`);
+        if (child && child.pid) {
+          logger.info(`Force killing agent ${agentId} and descendants`);
+          // Kill descendants first (grandchild processes holding stdio open)
+          const descendants = getDescendantPids(child.pid);
+          for (const dpid of descendants) {
+            try { process.kill(dpid, 'SIGKILL'); } catch {}
+          }
           child.kill('SIGKILL');
         }
       }

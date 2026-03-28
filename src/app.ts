@@ -7,7 +7,7 @@ import { getDatabase, closeDatabase, isDatabaseOpen } from './db/database';
 import { setupAuth } from './middleware/auth';
 import { registerProjectRoutes } from './routes/projects';
 import { registerAgentRoutes } from './routes/agents';
-import { registerIssueRoutes } from './routes/issues';
+import { registerIssueRoutes, clearPendingControllerTriggerTimers } from './routes/issues';
 import { registerUIRoutes } from './routes/ui';
 import { registerKnowledgeRoutes } from './routes/knowledge';
 import { registerMemoryRoutes } from './routes/memories';
@@ -108,9 +108,10 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
 export async function destroyApp(fastify: FastifyInstance): Promise<void> {
   // Clear onAgentFinish callback to prevent new async activity during shutdown
   setOnAgentFinish(null);
-  // Cancel any pending triggerControllerAgent timers
+  // Cancel any pending triggerControllerAgent timers (from onAgentFinish and issue routes)
   for (const timer of pendingFinishTimers) clearTimeout(timer);
   pendingFinishTimers.clear();
+  clearPendingControllerTriggerTimers();
 
   stopAllSchedulers();
   await stopAllProcesses();

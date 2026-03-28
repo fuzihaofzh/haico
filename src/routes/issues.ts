@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase } from '../db/database';
+import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
 import { startAgentProcess, isAgentRunning } from '../services/process-manager';
 import { buildSystemPrompt } from '../services/system-prompt';
@@ -8,6 +8,14 @@ import { triggerControllerAgent } from '../services/controller';
 import { tryHandleWithoutLLM } from '../services/pre-controller';
 import { broadcastToProject } from '../services/websocket';
 import { config } from '../config';
+
+// Track pending controller trigger timers so they can be cancelled during shutdown
+const pendingControllerTriggerTimers = new Set<NodeJS.Timeout>();
+
+export function clearPendingControllerTriggerTimers(): void {
+  for (const timer of pendingControllerTriggerTimers) clearTimeout(timer);
+  pendingControllerTriggerTimers.clear();
+}
 
 // Parse @agent-name mentions from text and auto-start mentioned agents
 function parseMentionsAndStartAgents(
@@ -80,7 +88,11 @@ function triggerControllerOnDemand(projectId: string, triggerIssueNumber?: numbe
   // Skip if the action was performed by the controller itself to avoid self-trigger loops
   if (actorId && actorId === controller.id) return;
 
-  setTimeout(() => { try { triggerControllerAgent(project, false, triggerIssueNumber); } catch {} }, 1000);
+  const timer = setTimeout(() => {
+    pendingControllerTriggerTimers.delete(timer);
+    try { if (isDatabaseOpen()) triggerControllerAgent(project, false, triggerIssueNumber); } catch {}
+  }, 1000);
+  pendingControllerTriggerTimers.add(timer);
 }
 
 function resolvePriority(createdBy: string, projectId: string): number {
@@ -225,7 +237,13 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       } else if (created_by === 'user' && (!assigned_to || assigned_to === 'all')) {
         // Trigger controller for unassigned/broadcast issues
         const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
-        if (project) setTimeout(() => { try { triggerControllerAgent(project, false, number); } catch {} }, 1000);
+        if (project) {
+          const t = setTimeout(() => {
+            pendingControllerTriggerTimers.delete(t);
+            try { if (isDatabaseOpen()) triggerControllerAgent(project, false, number); } catch {}
+          }, 1000);
+          pendingControllerTriggerTimers.add(t);
+        }
       }
 
       // Parse @mentions in body and auto-start mentioned agents
@@ -332,7 +350,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         eventStmt.run(uuidv4(), request.params.id, actorId, `changed status from ${existing.status} to ${status}`, 'status_change', JSON.stringify({ from: existing.status, to: status }));
       }
       if (assigned_to !== undefined && assigned_to !== existing.assigned_to) {
-        eventStmt.run(uuidv4(), request.params.id, actorId, `assigned to ${assigned_to || 'nobody'}`, 'assignment', JSON.stringify({ from: existing.assigned_to, to: assigned_to }));
+        const agentRow = assigned_to ? db.prepare('SELECT name FROM agents WHERE id = ?').get(assigned_to) as { name: string } | undefined : null;
+        const assigneeName = agentRow ? agentRow.name : (assigned_to || 'nobody');
+        eventStmt.run(uuidv4(), request.params.id, actorId, `assigned to ${assigneeName}`, 'assignment', JSON.stringify({ from: existing.assigned_to, to: assigned_to }));
       }
       if (labels !== undefined && labels !== existing.labels) {
         eventStmt.run(uuidv4(), request.params.id, actorId, `changed labels`, 'label_change', JSON.stringify({ from: existing.labels, to: labels }));
@@ -587,7 +607,11 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(iss.project_id) as Project | undefined;
           if (project) {
             if (agentToStart.is_controller) {
-              setTimeout(() => { try { triggerControllerAgent(project, false, iss.number); } catch {} }, 1000);
+              const t = setTimeout(() => {
+                pendingControllerTriggerTimers.delete(t);
+                try { if (isDatabaseOpen()) triggerControllerAgent(project, false, iss.number); } catch {}
+              }, 1000);
+              pendingControllerTriggerTimers.add(t);
             } else {
               const prompt = `User just commented on issue #${iss.number} "${iss.title}" assigned to you. Review the comment and respond.\n\nComment: ${body}`;
               const commandTemplate = agentToStart.command_template || project.command_template || config.defaultCommandTemplate;
