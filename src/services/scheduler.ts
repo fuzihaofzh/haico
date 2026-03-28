@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { triggerControllerAgent } from './controller';
-import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, DEFAULT_IDLE_TIMEOUT_MS } from './process-manager';
+import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, DEFAULT_IDLE_TIMEOUT_MS } from './process-manager';
 import { buildSystemPrompt } from './system-prompt';
 import { config } from '../config';
 import logger from '../logger';
@@ -122,16 +122,7 @@ function startIssueScan(): void {
   logger.info('Issue scan scheduled: every 1 minute');
 }
 
-// Check if a process has active child processes (e.g., running a Bash command)
-function hasActiveChildren(pid: number): boolean {
-  try {
-    const { execSync } = require('child_process');
-    const result = execSync(`ps --ppid ${pid} -o pid= 2>/dev/null`, { timeout: 5000 }).toString().trim();
-    return result.length > 0;
-  } catch {
-    return false;
-  }
-}
+// hasActiveChildren removed — replaced by CPU activity detection in process-manager.ts
 
 // Watchdog: detect agents stuck in 'running' state.
 // Two checks:
@@ -150,13 +141,26 @@ function startWatchdog(): void {
           // Process exists in-memory — check if it's been silent too long
           const idleMs = getAgentIdleMs(agent.id);
           if (idleMs >= DEFAULT_IDLE_TIMEOUT_MS) {
-            // Before killing, check if the agent has active child processes
-            // (e.g., a long-running Bash command). If so, it's still working.
-            if (agent.pid && hasActiveChildren(agent.pid)) {
-              logger.info(`Watchdog: agent "${agent.name}" idle for ${Math.round(idleMs / 60000)} min but has active child processes, resetting timer`);
-              resetAgentActivity(agent.id);
-              continue;
+            // Before killing, check child process CPU activity to distinguish
+            // "running a long Bash command" from "truly stuck".
+            if (agent.pid) {
+              const cpuStatus = checkChildCpuActivity(agent.id, agent.pid);
+              if (cpuStatus === 'active') {
+                logger.info(`Watchdog: agent "${agent.name}" idle for ${Math.round(idleMs / 60000)} min but child processes are CPU-active, resetting timer`);
+                resetAgentActivity(agent.id);
+                continue;
+              }
+              if (cpuStatus === 'warming') {
+                logger.info(`Watchdog: agent "${agent.name}" idle for ${Math.round(idleMs / 60000)} min, child CPU unchanged but below stale threshold, waiting`);
+                resetAgentActivity(agent.id);
+                continue;
+              }
+              // cpuStatus === 'stale' or 'no_children' → proceed to kill
+              if (cpuStatus === 'stale') {
+                logger.warn(`Watchdog: agent "${agent.name}" child processes exist but CPU stale for multiple scans, killing`);
+              }
             }
+            clearCpuSnapshot(agent.id);
             const idleMin = Math.round(idleMs / 60000);
             logger.warn(`Watchdog: agent "${agent.name}" has no output for ${idleMin} min, killing (pid=${agent.pid})`);
             db.prepare(
