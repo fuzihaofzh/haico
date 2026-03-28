@@ -3,7 +3,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import path from 'path';
 import { config } from './config';
-import { getDatabase, closeDatabase } from './db/database';
+import { getDatabase, closeDatabase, isDatabaseOpen } from './db/database';
 import { setupAuth } from './middleware/auth';
 import { registerProjectRoutes } from './routes/projects';
 import { registerAgentRoutes } from './routes/agents';
@@ -21,6 +21,8 @@ import { stopAllSchedulers } from './services/scheduler';
 import { killAllPtySessions } from './services/terminal';
 import { clearAllPtyCleanupTimers } from './services/websocket';
 import { Agent, Project } from './types';
+
+const pendingFinishTimers = new Set<NodeJS.Timeout>();
 
 export interface AppOptions {
   port?: number;
@@ -71,9 +73,12 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
         `).get(project.id, project.id);
 
         if (needsController) {
-          setTimeout(() => {
+          const timer = setTimeout(() => {
+            pendingFinishTimers.delete(timer);
+            if (!isDatabaseOpen()) return;
             try { triggerControllerAgent(project); } catch (e) { fastify.log.error(e, 'Failed to trigger controller agent'); }
           }, 2000);
+          pendingFinishTimers.add(timer);
         }
       }
     } catch (e) {
@@ -84,12 +89,28 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   initializeScheduler();
 
   await fastify.listen({ port, host });
+
+  // If port 0 was requested, the OS assigned a random port. Update config.port
+  // and process.env.ARGUS_PORT so that system prompts and spawned agents get
+  // the real port.
+  const addr = fastify.server.address();
+  if (addr && typeof addr === 'object' && addr.port) {
+    config.port = addr.port;
+    process.env.ARGUS_PORT = String(addr.port);
+  }
+
   return fastify;
 }
 
 export async function destroyApp(fastify: FastifyInstance): Promise<void> {
+  // Clear onAgentFinish callback to prevent new async activity during shutdown
+  setOnAgentFinish(null);
+  // Cancel any pending triggerControllerAgent timers
+  for (const timer of pendingFinishTimers) clearTimeout(timer);
+  pendingFinishTimers.clear();
+
   stopAllSchedulers();
-  stopAllProcesses();
+  await stopAllProcesses();
   clearAllPtyCleanupTimers();
   killAllPtySessions();
   await fastify.close();

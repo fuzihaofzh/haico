@@ -21,6 +21,10 @@ export function getDatabase(dbPath?: string): Database.Database {
   return db;
 }
 
+export function isDatabaseOpen(): boolean {
+  return db != null && db.open;
+}
+
 export function closeDatabase(): void {
   if (db) {
     db.close();

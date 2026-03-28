@@ -47,10 +47,6 @@ describe('Argus API', () => {
   });
 
   after(async () => {
-    const { stopAllProcesses } = await import('../src/services/process-manager');
-    stopAllProcesses();
-    // Wait for process close handlers to finish DB writes before destroying
-    await new Promise(r => setTimeout(r, 3000));
     const { destroyApp } = await import('../src/app');
     await destroyApp(app);
     for (const f of [TEST_DB, TEST_DB + '-wal', TEST_DB + '-shm', authConfigPath]) {
@@ -3292,9 +3288,11 @@ describe('Argus API', () => {
     before(async () => {
       const { body: proj } = await api(app, '/api/projects', {
         method: 'POST',
-        body: { name: 'msg-test-proj', description: 'Messages test', task_description: 'Test agent messages' },
+        body: { name: 'msg-test-proj', description: 'Messages test', task_description: 'Test agent messages', command_template: 'echo' },
       });
       msgProjId = proj.id;
+      // Pause project to prevent auto-wake spawning background processes during message tests
+      await api(app, `/api/projects/${msgProjId}`, { method: 'PUT', body: { status: 'paused' } });
 
       const { body: a1 } = await api(app, `/api/projects/${msgProjId}/agents`, {
         method: 'POST',

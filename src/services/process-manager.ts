@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { getDatabase } from '../db/database';
+import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent } from '../types';
 import { broadcastToAgent, broadcastToProject } from './websocket';
 import logger from '../logger';
@@ -30,6 +30,13 @@ const CPU_STALE_THRESHOLD = 3; // 3 consecutive unchanged scans (= 15 min at 5-m
 // Track API connection errors for auto-retry
 const agentApiConnectErrorCount = new Map<string, number>();
 const agentLastErrorWasApiConnect = new Map<string, boolean>();
+const pendingRetryTimers = new Map<string, NodeJS.Timeout>();
+
+// Track orphaned timers from stopAgentProcess so they can be cancelled during shutdown
+const pendingStopTimers = new Set<NodeJS.Timeout>();
+
+// Shutdown flag — when true, all async callbacks skip DB access and timer creation
+let shuttingDown = false;
 
 // Track when agent received its final result — used by watchdog to kill stuck post-completion processes
 const agentFinalResultTime = new Map<string, number>();
@@ -49,7 +56,7 @@ function cleanupPromptFile(fp: string): void {
 export type OnAgentFinishCallback = (agent: Agent, exitCode: number | null) => void;
 let onAgentFinish: OnAgentFinishCallback | null = null;
 
-export function setOnAgentFinish(cb: OnAgentFinishCallback): void {
+export function setOnAgentFinish(cb: OnAgentFinishCallback | null): void {
   onAgentFinish = cb;
 }
 
@@ -224,6 +231,7 @@ export function startAgentProcess(
 
   function logAndBroadcast(content: string, stream: string) {
     if (!content.trim()) return;
+    if (shuttingDown || !isDatabaseOpen()) return;
     lastActivityTime.set(agent.id, Date.now());
     logStmt.run(agent.id, runId, content, stream);
     broadcastToAgent(agent.id, { type: 'output', stream, content, runId });
@@ -240,8 +248,10 @@ export function startAgentProcess(
           // Capture Codex's thread_id as session_id for future resume
           handled = true;
           sessionId = obj.thread_id;
-          db.prepare('UPDATE agents SET session_id = ? WHERE id = ?')
-            .run(sessionId, agent.id);
+          if (isDatabaseOpen()) {
+            db.prepare('UPDATE agents SET session_id = ? WHERE id = ?')
+              .run(sessionId, agent.id);
+          }
           logger.info(`Agent ${agent.id} Codex thread started: ${sessionId}`);
         } else if (obj.type === 'item.completed' && obj.item) {
           handled = true;
@@ -364,6 +374,18 @@ export function startAgentProcess(
     agentFinalResultTime.delete(agent.id);
     cleanupPromptFile(promptFile);
 
+    // Skip DB writes if database is already closed (during shutdown)
+    if (!isDatabaseOpen()) {
+      logger.info(`Agent ${agent.id} close event after DB closed, skipping DB writes`);
+      return;
+    }
+
+    // During shutdown, skip all DB writes and timer creation (retry, callback, etc.)
+    if (shuttingDown) {
+      logger.info(`Agent ${agent.id} close event during shutdown, skipping DB writes`);
+      return;
+    }
+
     // Check if this run had an API connection error
     const wasApiConnectError = agentLastErrorWasApiConnect.get(agent.id) || false;
     agentLastErrorWasApiConnect.delete(agent.id);
@@ -386,13 +408,16 @@ export function startAgentProcess(
           db.prepare(`
             UPDATE agents SET status = 'running', pid = NULL, finished_at = datetime('now') WHERE id = ?
           `).run(agent.id);
-          setTimeout(() => {
+          const retryTimer = setTimeout(() => {
+            pendingRetryTimers.delete(agent.id);
+            if (shuttingDown || !isDatabaseOpen()) return;
             const retryAgent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agent.id) as Agent | undefined;
             if (retryAgent && retryAgent.status === 'running') {
               logger.info(`Agent ${agent.id} auto-retrying after API connection failure`);
               startAgentProcess(retryAgent, prompt, commandTemplate, systemPrompt);
             }
           }, 5000);
+          pendingRetryTimers.set(agent.id, retryTimer);
           return;
         } else {
           // Second+ API connection failure: give up, report error
@@ -453,6 +478,11 @@ export function startAgentProcess(
     childCpuSnapshots.delete(agent.id);
     agentFinalResultTime.delete(agent.id);
     cleanupPromptFile(promptFile);
+
+    if (shuttingDown || !isDatabaseOpen()) {
+      logger.info(`Agent ${agent.id} error event during shutdown/after DB closed, skipping DB writes`);
+      return;
+    }
 
     // If resume failed, retry with a fresh session
     if (existingSessionId && err.code === 'ENOENT') {
@@ -567,20 +597,24 @@ export function stopAgentProcess(agentId: string): boolean {
 
   child.kill('SIGTERM');
   // Force kill after 5 seconds
-  setTimeout(() => {
+  const killTimer = setTimeout(() => {
+    pendingStopTimers.delete(killTimer);
     if (runningProcesses.has(agentId)) {
       child.kill('SIGKILL');
       // Force cleanup after 3 more seconds — grandchild processes may hold
       // stdio pipes open, preventing the 'close' event from ever firing.
-      setTimeout(() => {
+      const cleanupTimer = setTimeout(() => {
+        pendingStopTimers.delete(cleanupTimer);
         if (runningProcesses.has(agentId)) {
           logger.info(`Force cleanup: agent ${agentId} close event not fired after SIGKILL, cleaning up`);
           runningProcesses.delete(agentId);
           lastActivityTime.delete(agentId);
         }
       }, 3000);
+      pendingStopTimers.add(cleanupTimer);
     }
   }, 5000);
+  pendingStopTimers.add(killTimer);
 
   return true;
 }
@@ -615,18 +649,74 @@ export function getRunningAgentIds(): string[] {
   return Array.from(runningProcesses.keys());
 }
 
-export function stopAllProcesses(): void {
-  for (const [agentId, child] of runningProcesses) {
-    logger.info(`Killing agent ${agentId} (pid: ${child.pid})`);
-    child.kill('SIGTERM');
+export function stopAllProcesses(): Promise<void> {
+  shuttingDown = true;
+
+  // Cancel any pending API retry timers to prevent DB access after shutdown
+  for (const timer of pendingRetryTimers.values()) {
+    clearTimeout(timer);
   }
-  // Force kill after 3 seconds
-  if (runningProcesses.size > 0) {
-    setTimeout(() => {
-      for (const [agentId, child] of runningProcesses) {
-        logger.info(`Force killing agent ${agentId}`);
-        child.kill('SIGKILL');
+  pendingRetryTimers.clear();
+
+  // Cancel any orphaned timers from previous stopAgentProcess calls
+  for (const timer of pendingStopTimers) clearTimeout(timer);
+  pendingStopTimers.clear();
+
+  const agentIds = Array.from(runningProcesses.keys());
+  if (agentIds.length === 0) return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    let forceKillTimer: NodeJS.Timeout | null = null;
+    let forceCleanupTimer: NodeJS.Timeout | null = null;
+
+    function checkAllDone() {
+      // Check if all processes we were stopping have exited
+      const allDone = agentIds.every(id => !runningProcesses.has(id));
+      if (allDone) {
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+        if (forceCleanupTimer) clearTimeout(forceCleanupTimer);
+        // Clear any retry timers that close handlers may have created
+        for (const timer of pendingRetryTimers.values()) clearTimeout(timer);
+        pendingRetryTimers.clear();
+        resolve();
+      }
+    }
+
+    // Watch for processes exiting
+    for (const agentId of agentIds) {
+      const child = runningProcesses.get(agentId);
+      if (!child) continue;
+      logger.info(`Killing agent ${agentId} (pid: ${child.pid})`);
+      child.kill('SIGTERM');
+      child.once('close', () => checkAllDone());
+    }
+
+    // Force kill after 3 seconds if still running
+    forceKillTimer = setTimeout(() => {
+      for (const agentId of agentIds) {
+        const child = runningProcesses.get(agentId);
+        if (child) {
+          logger.info(`Force killing agent ${agentId}`);
+          child.kill('SIGKILL');
+        }
       }
     }, 3000);
-  }
+
+    // Final cleanup after 6 seconds — resolve even if close events never fired
+    forceCleanupTimer = setTimeout(() => {
+      for (const agentId of agentIds) {
+        if (runningProcesses.has(agentId)) {
+          logger.info(`Force cleanup: agent ${agentId} close event not fired during stopAll, cleaning up`);
+          runningProcesses.delete(agentId);
+          lastActivityTime.delete(agentId);
+          childCpuSnapshots.delete(agentId);
+          agentFinalResultTime.delete(agentId);
+        }
+      }
+      // Clear any retry timers that close handlers may have created
+      for (const timer of pendingRetryTimers.values()) clearTimeout(timer);
+      pendingRetryTimers.clear();
+      resolve();
+    }, 6000);
+  });
 }
