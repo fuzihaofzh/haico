@@ -87,19 +87,6 @@
       </div>
     </div>
 
-    <!-- Usage by Project Chart -->
-    <div id="usage-by-project-panel" class="card" style="display:none;margin-bottom:16px;padding:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <strong style="font-size:14px">Usage by Project</strong>
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-sm usage-period-btn" data-period="hour" onclick="switchUsagePeriod('hour')">Hour</button>
-          <button class="btn btn-sm usage-period-btn active" data-period="day" onclick="switchUsagePeriod('day')">Day</button>
-          <button class="btn btn-sm usage-period-btn" data-period="week" onclick="switchUsagePeriod('week')">Week</button>
-        </div>
-      </div>
-      <div id="usage-by-project-chart"></div>
-    </div>
-
     <!-- Inbox Panel -->
     <div id="notifications-panel" class="notifications-panel" style="display:none">
       <div class="notifications-header">
@@ -122,6 +109,19 @@
 
     <div id="projects" class="grid">
       <div class="empty-state">Loading projects...</div>
+    </div>
+
+    <!-- Usage by Project Chart -->
+    <div id="usage-by-project-panel" class="card" style="display:none;margin-bottom:16px;padding:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <strong style="font-size:14px">Usage by Project</strong>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-sm usage-period-btn" data-period="hour" onclick="switchUsagePeriod('hour')">Hour</button>
+          <button class="btn btn-sm usage-period-btn active" data-period="day" onclick="switchUsagePeriod('day')">Day</button>
+          <button class="btn btn-sm usage-period-btn" data-period="week" onclick="switchUsagePeriod('week')">Week</button>
+        </div>
+      </div>
+      <div id="usage-by-project-chart"></div>
     </div>
   </div>
 
