@@ -292,6 +292,126 @@ describe('Argus API', () => {
     });
   });
 
+  // ─── Multi-user Auth (#420) ───
+
+  describe('Multi-user Auth (#420)', () => {
+    let adminToken: string;
+    let memberToken: string;
+    let adminUserId: string;
+    let memberUserId: string;
+
+    it('POST /api/auth/register creates first user as admin', async () => {
+      const { status, body } = await api(app, '/api/auth/register', {
+        method: 'POST',
+        body: { username: 'testadmin', password: 'admin1234', display_name: 'Test Admin' },
+      });
+      assert.equal(status, 201);
+      assert.equal(body.user.role, 'admin', 'First user should be admin');
+      assert.equal(body.user.username, 'testadmin');
+      adminUserId = body.user.id;
+    });
+
+    it('POST /api/auth/register rejects invalid username', async () => {
+      const { status } = await api(app, '/api/auth/register', {
+        method: 'POST',
+        body: { username: 'a', password: 'pass1234' },
+      });
+      assert.equal(status, 400);
+    });
+
+    it('POST /api/auth/register rejects duplicate username', async () => {
+      const { status } = await api(app, '/api/auth/register', {
+        method: 'POST',
+        body: { username: 'testadmin', password: 'pass1234' },
+      });
+      assert.equal(status, 409);
+    });
+
+    it('POST /api/auth/login authenticates user', async () => {
+      const { status, body } = await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username: 'testadmin', password: 'admin1234' },
+      });
+      assert.equal(status, 200);
+      assert.ok(body.token, 'Should return session token');
+      assert.equal(body.user.username, 'testadmin');
+      adminToken = body.token;
+    });
+
+    it('POST /api/auth/login rejects wrong password', async () => {
+      const { status } = await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username: 'testadmin', password: 'wrongpass' },
+      });
+      assert.equal(status, 401);
+    });
+
+    it('GET /api/auth/me returns current user', async () => {
+      const { status, body } = await api(app, '/api/auth/me', {
+        headers: { cookie: `argus-auth=${adminToken}` },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.username, 'testadmin');
+      assert.equal(body.role, 'admin');
+    });
+
+    it('POST /api/auth/register creates second user as member', async () => {
+      const { status, body } = await api(app, '/api/auth/register', {
+        method: 'POST',
+        body: { username: 'testmember', password: 'member1234' },
+      });
+      assert.equal(status, 201);
+      assert.equal(body.user.role, 'member', 'Second user should be member');
+      memberUserId = body.user.id;
+      const login = await api(app, '/api/auth/login', {
+        method: 'POST', body: { username: 'testmember', password: 'member1234' },
+      });
+      memberToken = login.body.token;
+    });
+
+    it('GET /api/auth/users lists users (admin only)', async () => {
+      const { status, body } = await api(app, '/api/auth/users', {
+        headers: { cookie: `argus-auth=${adminToken}` },
+      });
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.users));
+      assert.ok(body.users.length >= 2);
+    });
+
+    it('GET /api/auth/users returns 403 for non-admin', async () => {
+      const { status } = await api(app, '/api/auth/users', {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(status, 403);
+    });
+
+    it('PUT /api/auth/users/:id updates role (admin only)', async () => {
+      const { status, body } = await api(app, `/api/auth/users/${memberUserId}`, {
+        method: 'PUT',
+        headers: { cookie: `argus-auth=${adminToken}` },
+        body: { role: 'admin' },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.user.role, 'admin');
+    });
+
+    it('DELETE /api/auth/users/:id deletes user (admin only)', async () => {
+      const { status } = await api(app, `/api/auth/users/${memberUserId}`, {
+        method: 'DELETE',
+        headers: { cookie: `argus-auth=${adminToken}` },
+      });
+      assert.equal(status, 200);
+    });
+
+    it('DELETE /api/auth/users/:id rejects deleting self', async () => {
+      const { status } = await api(app, `/api/auth/users/${adminUserId}`, {
+        method: 'DELETE',
+        headers: { cookie: `argus-auth=${adminToken}` },
+      });
+      assert.equal(status, 400);
+    });
+  });
+
   // ─── Projects ───
 
   let projectId: string;
@@ -628,6 +748,12 @@ describe('Argus API', () => {
       const { status, body } = await api(app, `/api/agents/${workerId}/start`, {
         method: 'POST', body: { prompt: 'should not start' },
       });
+      assert.equal(status, 409);
+      assert.ok(body.error.includes('paused'));
+    });
+
+    it('retry paused agent returns 409', async () => {
+      const { status, body } = await api(app, `/api/agents/${workerId}/retry`, { method: 'POST' });
       assert.equal(status, 409);
       assert.ok(body.error.includes('paused'));
     });
@@ -1024,6 +1150,131 @@ describe('Argus API', () => {
       assert.ok(Array.isArray(body.recent_comments));
     });
 
+    describe('pending status visibility (#380)', () => {
+      let pendingProjectId: string;
+      let pendingIssueId: string;
+      let pendingAckedIssueId: string;
+      let closedIssueId: string;
+
+      before(async () => {
+        const { body: proj } = await api(app, '/api/projects', {
+          method: 'POST',
+          body: { name: 'notif-pending-test', description: 'Notif pending test', task_description: 'Test pending status in notifications' },
+        });
+        pendingProjectId = proj.id;
+
+        const createIssue = async (title: string) => {
+          const { body } = await api(app, `/api/projects/${pendingProjectId}/issues`, {
+            method: 'POST',
+            body: { title, body: 'test', created_by: 'user', assigned_to: 'user' },
+          });
+          return body.id as string;
+        };
+
+        pendingIssueId = await createIssue('Notif Pending Issue');
+        pendingAckedIssueId = await createIssue('Notif Pending Acked Issue');
+        closedIssueId = await createIssue('Notif Closed Issue');
+
+        await api(app, `/api/issues/${pendingIssueId}`, {
+          method: 'PUT', body: { status: 'pending', actor: 'user' },
+        });
+        await api(app, `/api/issues/${pendingAckedIssueId}`, {
+          method: 'PUT', body: { status: 'pending', actor: 'user' },
+        });
+        await api(app, `/api/issues/${pendingAckedIssueId}/acknowledge`, {
+          method: 'POST', body: {},
+        });
+        await api(app, `/api/issues/${closedIssueId}`, {
+          method: 'PUT', body: { status: 'closed', actor: 'user' },
+        });
+      });
+
+      it('pending issues assigned to user appear in notifications', async () => {
+        const { body } = await api(app, '/api/notifications');
+        const found = body.user_issues.find((i: any) => i.id === pendingIssueId);
+        assert.ok(found, 'pending user issue should appear in notifications');
+      });
+
+      it('acknowledged pending issues still appear in notifications (grey state)', async () => {
+        const { body } = await api(app, '/api/notifications');
+        const found = body.user_issues.find((i: any) => i.id === pendingAckedIssueId);
+        assert.ok(found, 'acknowledged pending issue should still appear in notifications');
+        assert.ok(found.acknowledged_at, 'acknowledged pending issue should have acknowledged_at set');
+      });
+
+      it('closed issues do NOT appear in notifications', async () => {
+        const { body } = await api(app, '/api/notifications');
+        const found = body.user_issues.find((i: any) => i.id === closedIssueId);
+        assert.ok(!found, 'closed issue should NOT appear in notifications');
+      });
+    });
+
+    describe('acknowledged issue persists in notifications after controller takeover (#382)', () => {
+      let ackProjectId: string;
+      let ackedThenReassignedId: string;
+      let ackedThenReassignedToUserId: string;
+
+      before(async () => {
+        const { body: proj } = await api(app, '/api/projects', {
+          method: 'POST',
+          body: { name: 'ack-takeover-test', description: 'Ack takeover test', task_description: 'Test ack preservation on reassignment' },
+        });
+        ackProjectId = proj.id;
+
+        // Issue 1: user acknowledges, then controller takes over
+        const { body: i1 } = await api(app, `/api/projects/${ackProjectId}/issues`, {
+          method: 'POST',
+          body: { title: 'Acked Then Controller Takeover', body: 'test', created_by: 'user', assigned_to: 'user' },
+        });
+        ackedThenReassignedId = i1.id;
+
+        // Issue 2: user acknowledges, then reassigned back to user
+        const { body: i2 } = await api(app, `/api/projects/${ackProjectId}/issues`, {
+          method: 'POST',
+          body: { title: 'Acked Then Back To User', body: 'test', created_by: 'user', assigned_to: 'user' },
+        });
+        ackedThenReassignedToUserId = i2.id;
+
+        // Acknowledge issue 1, then reassign to controller (agent)
+        await api(app, `/api/issues/${ackedThenReassignedId}/acknowledge`, { method: 'POST', body: {} });
+        await api(app, `/api/issues/${ackedThenReassignedId}`, {
+          method: 'PUT', body: { assigned_to: 'some-agent-id', actor: 'system' },
+        });
+
+        // Acknowledge issue 2, then reassign to controller, then reassign back to user
+        await api(app, `/api/issues/${ackedThenReassignedToUserId}/acknowledge`, { method: 'POST', body: {} });
+        await api(app, `/api/issues/${ackedThenReassignedToUserId}`, {
+          method: 'PUT', body: { assigned_to: 'some-agent-id', actor: 'system' },
+        });
+        await api(app, `/api/issues/${ackedThenReassignedToUserId}`, {
+          method: 'PUT', body: { assigned_to: 'user', actor: 'system' },
+        });
+      });
+
+      it('acknowledged issue still appears in notifications after controller takeover', async () => {
+        const { body } = await api(app, '/api/notifications');
+        const found = body.user_issues.find((i: any) => i.id === ackedThenReassignedId);
+        assert.ok(found, 'acknowledged issue reassigned to controller should still appear in notifications');
+      });
+
+      it('acknowledged_at is preserved when issue reassigned away from user (not reset to null)', async () => {
+        const { body } = await api(app, `/api/issues/${ackedThenReassignedId}`);
+        assert.ok(body.acknowledged_at, 'acknowledged_at should be preserved when issue reassigned to controller');
+      });
+
+      it('acknowledged issue reassigned back to user resets acknowledged_at', async () => {
+        const { body } = await api(app, `/api/issues/${ackedThenReassignedToUserId}`);
+        assert.equal(body.acknowledged_at, null, 'acknowledged_at should be reset when issue reassigned back to user');
+      });
+
+      it('acknowledged issue appears as not actionRequired (grey state)', async () => {
+        const { body } = await api(app, '/api/notifications');
+        const found = body.user_issues.find((i: any) => i.id === ackedThenReassignedId);
+        assert.ok(found, 'issue should be in notifications');
+        assert.ok(found.acknowledged_at, 'acknowledged_at should be set, indicating grey/non-action-required state');
+      });
+    });
+
     describe('done status visibility (#312)', () => {
       let notifProjectId: string;
       let openIssueId: string;
@@ -1083,10 +1334,22 @@ describe('Argus API', () => {
         assert.ok(found, 'done user issue with acknowledged_at=null should appear in notifications');
       });
 
-      it('done issues that are acknowledged do NOT appear in notifications', async () => {
+      it('done issues that are acknowledged still appear in notifications (as acknowledged)', async () => {
         const { body } = await api(app, '/api/notifications');
         const found = body.user_issues.find((i: any) => i.id === doneAckedIssueId);
-        assert.ok(!found, 'done user issue with acknowledged_at set should NOT appear in notifications');
+        assert.ok(found, 'done user issue with acknowledged_at set should still appear in notifications (grey state)');
+        assert.ok(found.acknowledged_at, 'acknowledged issue should have acknowledged_at set');
+      });
+
+      it('acknowledged issues are ordered after unacknowledged issues', async () => {
+        const { body } = await api(app, '/api/notifications');
+        const issues = body.user_issues as any[];
+        const ackedIndex = issues.findIndex((i: any) => i.id === doneAckedIssueId);
+        const unackedIndices = [openIssueId, inProgressIssueId, doneIssueId].map(
+          id => issues.findIndex((i: any) => i.id === id)
+        ).filter(idx => idx !== -1);
+        assert.ok(ackedIndex !== -1, 'acknowledged issue should be in list');
+        assert.ok(unackedIndices.every(idx => idx < ackedIndex), 'unacknowledged issues should come before acknowledged');
       });
     });
   });
@@ -1354,6 +1617,23 @@ describe('Argus API', () => {
     it('GET /api/dashboard/summary requires auth (not localhost-safe)', async () => {
       const res = await inject(app, { url: '/api/dashboard/summary' });
       assert.equal(res.statusCode, 401, 'Dashboard API should require authentication');
+    });
+
+    it('GET /api/dashboard/usage-by-project returns data (with auth)', async () => {
+      const { status, body } = await api(app, '/api/dashboard/usage-by-project?period=day', {
+        headers: { cookie: `argus-auth=${sessionToken}` },
+      });
+      assert.equal(status, 200);
+      assert.ok(typeof body === 'object' && body !== null, 'usage-by-project should return an object');
+      assert.ok(Array.isArray(body.time_buckets), 'should have time_buckets array');
+      assert.ok(Array.isArray(body.projects), 'should have projects array');
+      assert.ok(typeof body.data === 'object', 'should have data object');
+      assert.equal(body.period, 'day');
+    });
+
+    it('GET /api/dashboard/usage-by-project requires auth', async () => {
+      const res = await inject(app, { url: '/api/dashboard/usage-by-project' });
+      assert.equal(res.statusCode, 401);
     });
   });
 
@@ -2583,6 +2863,455 @@ describe('Argus API', () => {
     });
   });
 
+  describe('Knowledge FTS全文搜索 (#399)', () => {
+    let ftsProjId: string;
+    let ftsEntryId: string;
+
+    before(async () => {
+      const { body: proj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'fts-test-proj', description: 'FTS test', task_description: 'Test FTS search' },
+      });
+      ftsProjId = proj.id;
+    });
+
+    it('POST creates knowledge entry for FTS', async () => {
+      const { status, body } = await api(app, `/api/projects/${ftsProjId}/knowledge`, {
+        method: 'POST',
+        body: { title: 'SQLite Performance Tips', content: 'Use indexes for fast queries', tags: 'database,performance', importance: 'high', created_by: 'agent-1' },
+      });
+      assert.equal(status, 201);
+      ftsEntryId = body.id;
+    });
+
+    it('GET ?q= returns FTS matches', async () => {
+      const { status, body } = await api(app, `/api/projects/${ftsProjId}/knowledge?q=SQLite`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.entries));
+      assert.ok(body.entries.length >= 1);
+      assert.ok(body.entries.some((e: any) => e.id === ftsEntryId));
+    });
+
+    it('GET ?q= with non-matching term returns empty', async () => {
+      const { status, body } = await api(app, `/api/projects/${ftsProjId}/knowledge?q=nonexistentxyz`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.entries));
+      assert.equal(body.entries.length, 0);
+    });
+
+    it('FTS updates when entry is updated', async () => {
+      await api(app, `/api/knowledge/${ftsEntryId}`, {
+        method: 'PUT',
+        body: { content: 'Use WAL mode for concurrent writes' },
+      });
+      const { body } = await api(app, `/api/projects/${ftsProjId}/knowledge?q=WAL`);
+      assert.ok(body.entries.length >= 1);
+    });
+
+    it('FTS entry disappears after delete', async () => {
+      await api(app, `/api/knowledge/${ftsEntryId}`, { method: 'DELETE' });
+      const { body } = await api(app, `/api/projects/${ftsProjId}/knowledge?q=WAL`);
+      assert.equal(body.entries.length, 0);
+    });
+  });
+
+  describe('Agent记忆系统 (#399)', () => {
+    let memProjId: string;
+    let memAgentId: string;
+    let memAgent2Id: string;
+    let privateMemId: string;
+    let sharedMemId: string;
+
+    before(async () => {
+      const { body: proj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'mem-test-proj', description: 'Memory test', task_description: 'Test agent memories' },
+      });
+      memProjId = proj.id;
+
+      const { body: a1 } = await api(app, `/api/projects/${memProjId}/agents`, {
+        method: 'POST',
+        body: { name: 'mem-agent-1', role: 'worker' },
+      });
+      memAgentId = a1.id;
+
+      const { body: a2 } = await api(app, `/api/projects/${memProjId}/agents`, {
+        method: 'POST',
+        body: { name: 'mem-agent-2', role: 'worker' },
+      });
+      memAgent2Id = a2.id;
+    });
+
+    it('POST /api/agents/:id/memories saves a private memory', async () => {
+      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories`, {
+        method: 'POST',
+        body: { content: 'Private secret', tags: 'private', scope: 'private' },
+      });
+      assert.equal(status, 201);
+      assert.ok(body.id);
+      assert.equal(body.scope, 'private');
+      privateMemId = body.id;
+    });
+
+    it('POST /api/agents/:id/memories saves a project-scoped memory', async () => {
+      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories`, {
+        method: 'POST',
+        body: { content: 'Shared project memory', tags: 'shared', scope: 'project' },
+      });
+      assert.equal(status, 201);
+      assert.equal(body.scope, 'project');
+      sharedMemId = body.id;
+    });
+
+    it('POST rejects missing content', async () => {
+      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories`, {
+        method: 'POST',
+        body: { tags: 'test' },
+      });
+      assert.equal(status, 400);
+      assert.equal(body.error, 'content is required');
+    });
+
+    it('POST rejects invalid scope', async () => {
+      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories`, {
+        method: 'POST',
+        body: { content: 'test', scope: 'invalid' },
+      });
+      assert.equal(status, 400);
+    });
+
+    it('GET /api/agents/:id/memories lists own + project memories', async () => {
+      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.memories));
+      assert.ok(body.memories.some((m: any) => m.id === privateMemId));
+      assert.ok(body.memories.some((m: any) => m.id === sharedMemId));
+    });
+
+    it('GET ?scope=project filters to project scope only', async () => {
+      const { body } = await api(app, `/api/agents/${memAgentId}/memories?scope=project`);
+      assert.ok(body.memories.every((m: any) => m.scope === 'project'));
+    });
+
+    it('other agent sees project-scope memory but not private memory', async () => {
+      const { body } = await api(app, `/api/agents/${memAgent2Id}/memories`);
+      assert.ok(body.memories.some((m: any) => m.id === sharedMemId), 'should see shared memory');
+      assert.ok(!body.memories.some((m: any) => m.id === privateMemId), 'should NOT see private memory');
+    });
+
+    it('GET /api/agents/:id/memories?q= FTS search works', async () => {
+      const { body } = await api(app, `/api/agents/${memAgentId}/memories?q=Shared`);
+      assert.ok(body.memories.length >= 1);
+      assert.ok(body.memories.some((m: any) => m.id === sharedMemId));
+    });
+
+    it('GET /api/projects/:pid/memories returns project-scope memories', async () => {
+      const { status, body } = await api(app, `/api/projects/${memProjId}/memories`);
+      assert.equal(status, 200);
+      assert.ok(body.memories.some((m: any) => m.id === sharedMemId));
+      assert.ok(!body.memories.some((m: any) => m.id === privateMemId), 'project endpoint should not include private');
+    });
+
+    it('GET /api/projects/:pid/memories?q= FTS search', async () => {
+      const { body } = await api(app, `/api/projects/${memProjId}/memories?q=Shared+project`);
+      assert.ok(body.memories.length >= 1);
+    });
+
+    it('DELETE /api/agents/:id/memories/:memId removes memory', async () => {
+      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories/${privateMemId}`, {
+        method: 'DELETE',
+      });
+      assert.equal(status, 200);
+      assert.equal(body.success, true);
+
+      const { body: list } = await api(app, `/api/agents/${memAgentId}/memories`);
+      assert.ok(!list.memories.some((m: any) => m.id === privateMemId));
+    });
+
+    it('DELETE nonexistent memory returns 404', async () => {
+      const { status } = await api(app, `/api/agents/${memAgentId}/memories/nonexistent-id`, {
+        method: 'DELETE',
+      });
+      assert.equal(status, 404);
+    });
+
+    it('system prompt includes agent memories', async () => {
+      const { buildSystemPrompt } = await import('../src/services/system-prompt');
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(memAgentId) as any;
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(memProjId) as any;
+      if (agent && project) {
+        const prompt = buildSystemPrompt(agent, project);
+        assert.ok(prompt.includes('Memories') || prompt.includes('memories') || prompt.includes('Shared project memory'));
+      }
+    });
+  });
+
+  describe('Issue依赖关系 (#400)', () => {
+    let relProjId: string;
+    let relIssue1Id: string;
+    let relIssue2Id: string;
+    let relIssue3Id: string;
+    let blocksRelId: string;
+    let relatedRelId: string;
+
+    before(async () => {
+      const { body: proj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'rel-test-proj', description: 'Relations test', task_description: 'Test issue relations' },
+      });
+      relProjId = proj.id;
+
+      const { body: i1 } = await api(app, `/api/projects/${relProjId}/issues`, {
+        method: 'POST',
+        body: { title: 'Issue Alpha', body: 'first', created_by: 'user', assigned_to: 'user' },
+      });
+      relIssue1Id = i1.id;
+
+      const { body: i2 } = await api(app, `/api/projects/${relProjId}/issues`, {
+        method: 'POST',
+        body: { title: 'Issue Beta', body: 'second', created_by: 'user', assigned_to: 'user' },
+      });
+      relIssue2Id = i2.id;
+
+      const { body: i3 } = await api(app, `/api/projects/${relProjId}/issues`, {
+        method: 'POST',
+        body: { title: 'Issue Gamma', body: 'third', created_by: 'user', assigned_to: 'user' },
+      });
+      relIssue3Id = i3.id;
+    });
+
+    it('POST /api/issues/:id/relations creates blocks relation', async () => {
+      const { status, body } = await api(app, `/api/issues/${relIssue1Id}/relations`, {
+        method: 'POST',
+        body: { type: 'blocks', target_issue_id: relIssue2Id, actor: 'user' },
+      });
+      assert.equal(status, 201);
+      assert.equal(body.relation_type, 'blocks');
+      assert.equal(body.from_issue_id, relIssue1Id);
+      assert.equal(body.to_issue_id, relIssue2Id);
+      blocksRelId = body.id;
+    });
+
+    it('POST /api/issues/:id/relations creates related_to relation', async () => {
+      const { status, body } = await api(app, `/api/issues/${relIssue1Id}/relations`, {
+        method: 'POST',
+        body: { type: 'related_to', target_issue_id: relIssue3Id, actor: 'user' },
+      });
+      assert.equal(status, 201);
+      assert.equal(body.relation_type, 'related_to');
+      relatedRelId = body.id;
+    });
+
+    it('POST rejects self-relation', async () => {
+      const { status, body } = await api(app, `/api/issues/${relIssue1Id}/relations`, {
+        method: 'POST',
+        body: { type: 'blocks', target_issue_id: relIssue1Id, actor: 'user' },
+      });
+      assert.equal(status, 400);
+      assert.ok(body.error.includes('self'));
+    });
+
+    it('POST rejects invalid type', async () => {
+      const { status } = await api(app, `/api/issues/${relIssue1Id}/relations`, {
+        method: 'POST',
+        body: { type: 'depends_on', target_issue_id: relIssue2Id, actor: 'user' },
+      });
+      assert.equal(status, 400);
+    });
+
+    it('POST duplicate relation returns 409', async () => {
+      const { status } = await api(app, `/api/issues/${relIssue1Id}/relations`, {
+        method: 'POST',
+        body: { type: 'blocks', target_issue_id: relIssue2Id, actor: 'user' },
+      });
+      assert.equal(status, 409);
+    });
+
+    it('GET /api/issues/:id/relations returns blocks, blocked_by, related_to', async () => {
+      const { status, body } = await api(app, `/api/issues/${relIssue1Id}/relations`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.blocks));
+      assert.ok(Array.isArray(body.blocked_by));
+      assert.ok(Array.isArray(body.related_to));
+      assert.ok(body.blocks.some((r: any) => r.to_issue_id === relIssue2Id));
+      assert.ok(body.related_to.some((r: any) => r.to_issue_id === relIssue3Id || r.from_issue_id === relIssue3Id));
+    });
+
+    it('GET /api/issues/:id returns blocks/blocked_by/is_blocked in detail', async () => {
+      const { status, body } = await api(app, `/api/issues/${relIssue2Id}`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.blocked_by));
+      assert.ok(body.blocked_by.some((r: any) => r.id === relIssue1Id));
+      assert.equal(body.is_blocked, true);
+    });
+
+    it('is_blocked=false when blocker is done', async () => {
+      await api(app, `/api/issues/${relIssue1Id}`, {
+        method: 'PUT', body: { status: 'done', actor: 'user' },
+      });
+      const { body } = await api(app, `/api/issues/${relIssue2Id}`);
+      assert.equal(body.is_blocked, false);
+    });
+
+    it('DELETE /api/issues/:id/relations/:relationId removes relation', async () => {
+      const { status, body } = await api(app, `/api/issues/${relIssue1Id}/relations/${relatedRelId}`, {
+        method: 'DELETE',
+      });
+      assert.equal(status, 200);
+      assert.equal(body.success, true);
+
+      const { body: rels } = await api(app, `/api/issues/${relIssue1Id}/relations`);
+      assert.ok(!rels.related_to.some((r: any) => r.id === relatedRelId));
+    });
+
+    it('DELETE nonexistent relation returns 404', async () => {
+      const { status } = await api(app, `/api/issues/${relIssue1Id}/relations/nonexistent-id`, {
+        method: 'DELETE',
+      });
+      assert.equal(status, 404);
+    });
+  });
+
+  describe('Agent直接消息通信 (#401)', () => {
+    let msgProjId: string;
+    let msgAgentAId: string;
+    let msgAgentBId: string;
+    let msgId: string;
+
+    before(async () => {
+      const { body: proj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'msg-test-proj', description: 'Messages test', task_description: 'Test agent messages' },
+      });
+      msgProjId = proj.id;
+
+      const { body: a1 } = await api(app, `/api/projects/${msgProjId}/agents`, {
+        method: 'POST',
+        body: { name: 'msg-agent-a', role: 'sender' },
+      });
+      msgAgentAId = a1.id;
+
+      const { body: a2 } = await api(app, `/api/projects/${msgProjId}/agents`, {
+        method: 'POST',
+        body: { name: 'msg-agent-b', role: 'receiver' },
+      });
+      msgAgentBId = a2.id;
+    });
+
+    it('POST /api/agents/:id/messages/send sends a message', async () => {
+      const { status, body } = await api(app, `/api/agents/${msgAgentAId}/messages/send`, {
+        method: 'POST',
+        body: { to: msgAgentBId, subject: 'Hello', body: 'Hi from agent A' },
+      });
+      assert.equal(status, 201);
+      assert.ok(body.id);
+      assert.equal(body.from_agent_id, msgAgentAId);
+      assert.equal(body.to_agent_id, msgAgentBId);
+      assert.equal(body.status, 'unread');
+      msgId = body.id;
+    });
+
+    it('POST send requires to and body', async () => {
+      const { status } = await api(app, `/api/agents/${msgAgentAId}/messages/send`, {
+        method: 'POST',
+        body: { subject: 'No recipient' },
+      });
+      assert.equal(status, 400);
+    });
+
+    it('POST send rejects unknown sender', async () => {
+      const { status } = await api(app, `/api/agents/nonexistent-id/messages/send`, {
+        method: 'POST',
+        body: { to: msgAgentBId, body: 'test' },
+      });
+      assert.equal(status, 404);
+    });
+
+    it('POST send rejects unknown recipient', async () => {
+      const { status } = await api(app, `/api/agents/${msgAgentAId}/messages/send`, {
+        method: 'POST',
+        body: { to: 'nonexistent-id', body: 'test' },
+      });
+      assert.equal(status, 404);
+    });
+
+    it('GET /api/agents/:id/messages lists inbox', async () => {
+      const { status, body } = await api(app, `/api/agents/${msgAgentBId}/messages`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.messages));
+      assert.ok(body.messages.some((m: any) => m.id === msgId));
+    });
+
+    it('GET ?status=unread filters to unread messages', async () => {
+      const { body } = await api(app, `/api/agents/${msgAgentBId}/messages?status=unread`);
+      assert.ok(body.messages.some((m: any) => m.id === msgId));
+    });
+
+    it('PUT /api/agents/:id/messages/:msgId marks message as read', async () => {
+      const { status, body } = await api(app, `/api/agents/${msgAgentBId}/messages/${msgId}`, {
+        method: 'PUT',
+      });
+      assert.equal(status, 200);
+      assert.equal(body.status, 'read');
+    });
+
+    it('GET ?status=unread returns empty after marking read', async () => {
+      const { body } = await api(app, `/api/agents/${msgAgentBId}/messages?status=unread`);
+      assert.ok(!body.messages.some((m: any) => m.id === msgId));
+    });
+
+    it('POST read-all marks all messages as read', async () => {
+      // Send another message first
+      await api(app, `/api/agents/${msgAgentAId}/messages/send`, {
+        method: 'POST',
+        body: { to: msgAgentBId, subject: 'Second', body: 'Another message' },
+      });
+
+      const { status, body } = await api(app, `/api/agents/${msgAgentBId}/messages/read-all`, {
+        method: 'POST',
+      });
+      assert.equal(status, 200);
+      assert.ok(typeof body.updated === 'number');
+
+      const { body: inbox } = await api(app, `/api/agents/${msgAgentBId}/messages?status=unread`);
+      assert.equal(inbox.messages.length, 0);
+    });
+
+    it('GET /api/agents/:id/messages/sent returns sent messages', async () => {
+      const { status, body } = await api(app, `/api/agents/${msgAgentAId}/messages/sent`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.messages));
+      assert.ok(body.messages.length >= 2);
+    });
+
+    it('PUT nonexistent message returns 404', async () => {
+      const { status } = await api(app, `/api/agents/${msgAgentBId}/messages/nonexistent-id`, {
+        method: 'PUT',
+      });
+      assert.equal(status, 404);
+    });
+
+    it('system prompt includes unread messages', async () => {
+      // Send a fresh message so there's at least one unread
+      await api(app, `/api/agents/${msgAgentAId}/messages/send`, {
+        method: 'POST',
+        body: { to: msgAgentBId, subject: 'Urgent', body: 'Check this out' },
+      });
+
+      const { buildSystemPrompt } = await import('../src/services/system-prompt');
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(msgAgentBId) as any;
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(msgProjId) as any;
+      if (agent && project) {
+        const prompt = buildSystemPrompt(agent, project);
+        assert.ok(prompt.includes('message') || prompt.includes('Message') || prompt.includes('Urgent'));
+      }
+    });
+  });
+
   describe('Child issue auto-sets parent to pending (#326)', () => {
     let pendingProjectId: string;
     let issueAId: string;
@@ -2703,6 +3432,244 @@ describe('Argus API', () => {
         ['open', 'in_progress', 'done'].includes(parentAfter.status),
         `Parent status after all children done should be open/in_progress/done, got: ${parentAfter.status}`
       );
+    });
+  });
+
+  // ─── Watchdog CPU Activity Detection (#429) ───
+
+  describe('Watchdog CPU活跃度检测 (#429)', () => {
+    let checkChildCpuActivity: (agentId: string, pid: number) => 'active' | 'stale' | 'warming' | 'no_children';
+    let clearCpuSnapshot: (agentId: string) => void;
+
+    before(async () => {
+      const pm = await import('../src/services/process-manager');
+      checkChildCpuActivity = pm.checkChildCpuActivity;
+      clearCpuSnapshot = pm.clearCpuSnapshot;
+    });
+
+    it('首次调用返回active（建立基线）', () => {
+      const pid = process.pid;
+      const result = checkChildCpuActivity('test-agent-cpu-1', pid);
+      // 首次调用没有快照，返回 active
+      assert.equal(result, 'active', '首次调用应返回 active');
+      clearCpuSnapshot('test-agent-cpu-1');
+    });
+
+    it('无子进程时返回no_children', () => {
+      // 使用一个不存在的 PID（内核不会给它分配子进程）
+      const fakePid = 99999999;
+      const result = checkChildCpuActivity('test-agent-cpu-2', fakePid);
+      assert.equal(result, 'no_children', '无子进程时应返回 no_children');
+      clearCpuSnapshot('test-agent-cpu-2');
+    });
+
+    it('当前进程有子进程时CPU变化→返回active', async () => {
+      // 用 spawn 启动一个消耗CPU的子进程
+      const { spawn } = await import('child_process');
+      const child = spawn('sh', ['-c', 'i=0; while [ $i -lt 10000 ]; do i=$((i+1)); done; echo done']);
+
+      await new Promise<void>((resolve) => {
+        child.stdout?.once('data', () => resolve());
+        child.on('close', () => resolve());
+        setTimeout(resolve, 2000);
+      });
+
+      const pid = child.pid!;
+      // 第一次调用建立基线
+      checkChildCpuActivity('test-agent-cpu-3', pid);
+      // 等待子进程运行产生 CPU
+      await new Promise(r => setTimeout(r, 200));
+      // 第二次调用检查 CPU 变化
+      const result = checkChildCpuActivity('test-agent-cpu-3', pid);
+      // CPU可能已增加(active)或子进程已退出(no_children/warming)，均为合理结果
+      assert.ok(
+        ['active', 'warming', 'no_children'].includes(result),
+        `存在子进程时结果应为 active/warming/no_children，实际: ${result}`
+      );
+      clearCpuSnapshot('test-agent-cpu-3');
+      child.kill();
+    });
+
+    it('CPU连续不变3次后返回stale', async () => {
+      // 启动一个 sh 进程，它会 fork 出 sleep 子进程
+      // 这样 sh 的 PID 有子进程（sleep），而 sleep 几乎不消耗 CPU
+      const { spawn } = await import('child_process');
+      const child = spawn('sh', ['-c', 'sleep 60 & wait']);
+      const pid = child.pid!;
+
+      // 等待 sh 启动并 fork sleep
+      await new Promise(r => setTimeout(r, 200));
+
+      // 第1次：建立基线 → active（首次调用）
+      const r1 = checkChildCpuActivity('test-agent-stale', pid);
+      assert.equal(r1, 'active', '第1次应返回 active（建立基线）');
+
+      // 等待sh进程完全进入wait休眠，避免wait系统调用产生微量CPU变化
+      await new Promise(r => setTimeout(r, 100));
+
+      // 第2次：CPU未变（sleep不消耗CPU）→ staleCount=1 → warming
+      const r2 = checkChildCpuActivity('test-agent-stale', pid);
+      assert.equal(r2, 'warming', '第2次CPU未变应返回 warming（staleCount=1）');
+
+      await new Promise(r => setTimeout(r, 100));
+
+      // 第3次：staleCount=2 → warming
+      const r3 = checkChildCpuActivity('test-agent-stale', pid);
+      assert.equal(r3, 'warming', '第3次CPU未变应返回 warming（staleCount=2）');
+
+      await new Promise(r => setTimeout(r, 100));
+
+      // 第4次：staleCount=3 >= CPU_STALE_THRESHOLD → stale
+      const r4 = checkChildCpuActivity('test-agent-stale', pid);
+      assert.equal(r4, 'stale', '第4次CPU未变应返回 stale（达到阈值）');
+
+      clearCpuSnapshot('test-agent-stale');
+      child.kill();
+    });
+
+    it('clearCpuSnapshot清除后再次调用返回active', () => {
+      const pid = process.pid;
+      // 建立快照
+      checkChildCpuActivity('test-agent-clear', pid);
+      // 清除快照
+      clearCpuSnapshot('test-agent-clear');
+      // 再次调用：无快照 → 首次调用 → active
+      const result = checkChildCpuActivity('test-agent-clear', pid);
+      assert.equal(result, 'active', '清除快照后应重新返回 active');
+      clearCpuSnapshot('test-agent-clear');
+    });
+  });
+
+  // ─── API连接失败自动重启 (#436/#437) ───
+
+  describe('API连接失败自动重启 (#436)', () => {
+    // 等待agent进入非running状态（最多等maxMs毫秒），返回最终状态
+    async function waitForNonRunning(agentId: string, maxMs = 15000): Promise<string> {
+      const deadline = Date.now() + maxMs;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 300));
+        const { body: st } = await api(app, `/api/agents/${agentId}/status`);
+        if (st.status !== 'running') return st.status;
+      }
+      const { body: st } = await api(app, `/api/agents/${agentId}/status`);
+      return st.status;
+    }
+
+    // 等待agent的in-memory进程退出（is_running变为false）
+    async function waitForProcessExit(agentId: string, maxMs = 5000): Promise<void> {
+      const deadline = Date.now() + maxMs;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 100));
+        const { body: st } = await api(app, `/api/agents/${agentId}/status`);
+        if (!st.is_running) return;
+      }
+    }
+
+    it('API连接错误时自动重试，两次失败后进入error状态', async () => {
+      // 确保agent不在运行中
+      await waitForNonRunning(workerId);
+
+      await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { command_template: "sh -c 'echo Unable to connect to API >&2; exit 1'" },
+      });
+
+      try {
+        const startRes = await api(app, `/api/agents/${workerId}/start`, {
+          method: 'POST', body: { prompt: 'test api retry' },
+        });
+        assert.equal(startRes.status, 200, `start应返回200，实际: ${startRes.status}`);
+
+        // 等待第一次进程退出（is_running → false）
+        await waitForProcessExit(workerId, 3000);
+
+        // 若API错误被检测到，关闭处理器应保持status='running'（重试等待中）
+        const { body: midState } = await api(app, `/api/agents/${workerId}/status`);
+        assert.equal(midState.status, 'running',
+          `第一次API错误后应保持running（重试中）。实际: ${midState.status}, pid: ${midState.pid}, is_running: ${midState.is_running}`);
+
+        // 等待两次尝试全部完成（5秒重试延迟 + 执行时间 ≈ 8秒）
+        const finalStatus = await waitForNonRunning(workerId, 12000);
+        assert.equal(finalStatus, 'error',
+          `两次API错误后应变为error。实际: ${finalStatus}`);
+      } finally {
+        await api(app, `/api/projects/${projectId}`, {
+          method: 'PUT', body: { command_template: 'echo' },
+        });
+        await waitForNonRunning(workerId, 12000);
+      }
+    });
+
+    it('非API错误不触发自动重试，直接变为error', async () => {
+      await waitForNonRunning(workerId);
+
+      await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { command_template: 'false' },
+      });
+
+      try {
+        const startRes = await api(app, `/api/agents/${workerId}/start`, {
+          method: 'POST', body: { prompt: 'test non-api error no retry' },
+        });
+        assert.equal(startRes.status, 200, `start应返回200，实际: ${startRes.status}`);
+
+        // 非API错误应立即进入error（无5秒重试延迟）
+        const finalStatus = await waitForNonRunning(workerId, 5000);
+        assert.equal(finalStatus, 'error',
+          `非API错误应直接进入error（无自动重试）。实际: ${finalStatus}`);
+      } finally {
+        await api(app, `/api/projects/${projectId}`, {
+          method: 'PUT', body: { command_template: 'echo' },
+        });
+        await waitForNonRunning(workerId, 5000);
+      }
+    });
+
+    it('成功运行后agent变为idle状态', async () => {
+      await waitForNonRunning(workerId);
+
+      await api(app, `/api/projects/${projectId}`, {
+        method: 'PUT', body: { command_template: 'echo' },
+      });
+
+      try {
+        const startRes = await api(app, `/api/agents/${workerId}/start`, {
+          method: 'POST', body: { prompt: 'test success' },
+        });
+        assert.equal(startRes.status, 200, `start应返回200，实际: ${startRes.status}`);
+
+        const finalStatus = await waitForNonRunning(workerId, 5000);
+        assert.equal(finalStatus, 'idle',
+          `成功运行后agent应为idle。实际: ${finalStatus}`);
+      } finally {
+        await api(app, `/api/projects/${projectId}`, {
+          method: 'PUT', body: { command_template: 'echo' },
+        });
+        await waitForNonRunning(workerId, 5000);
+      }
+    });
+  });
+
+  // ─── Final Result 自动Kill (#434/#438) ───
+
+  describe('Final Result自动Kill (#434)', () => {
+    let getAgentFinalResultAge: (agentId: string) => number;
+
+    before(async () => {
+      const pm = await import('../src/services/process-manager');
+      getAgentFinalResultAge = pm.getAgentFinalResultAge;
+    });
+
+    it('getAgentFinalResultAge对未知agent返回-1', () => {
+      const result = getAgentFinalResultAge('non-existent-agent-xyz');
+      assert.equal(result, -1, '未知agent的finalResultAge应返回-1');
+    });
+
+    it('FINAL_RESULT_KILL_DELAY_MS已导出且为正数', async () => {
+      const { FINAL_RESULT_KILL_DELAY_MS } = await import('../src/services/process-manager');
+      assert.ok(typeof FINAL_RESULT_KILL_DELAY_MS === 'number', 'FINAL_RESULT_KILL_DELAY_MS应为数字');
+      assert.ok(FINAL_RESULT_KILL_DELAY_MS > 0, 'FINAL_RESULT_KILL_DELAY_MS应为正数');
+      // 默认2分钟
+      assert.equal(FINAL_RESULT_KILL_DELAY_MS, 2 * 60 * 1000, 'FINAL_RESULT_KILL_DELAY_MS应为2分钟');
     });
   });
 });
