@@ -119,7 +119,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         'priority': 'priority DESC, created_at DESC',
         'comments': '(SELECT COUNT(*) FROM issue_comments WHERE issue_id = issues.id) DESC',
       };
-      sql += ' ORDER BY ' + (sortMap[sort || ''] || 'priority DESC, created_at DESC');
+      sql += ' ORDER BY ' + (sortMap[sort || ''] || 'created_at DESC');
 
       // Pagination
       const limit = Math.min(parseInt(per_page || '100'), 200);
@@ -246,11 +246,21 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
 
-    const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(request.params.id);
+    const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(request.params.id) as any[];
     const reactions = db.prepare("SELECT * FROM reactions WHERE target_type = 'issue' AND target_id = ?").all(request.params.id);
-    const commentsWithReactions = (comments as any[]).map(c => ({
+    // Batch-fetch all comment reactions in one query (fixes N+1)
+    const commentIds = comments.map(c => c.id);
+    let commentReactionsMap: Record<string, any[]> = {};
+    if (commentIds.length > 0) {
+      const placeholders = commentIds.map(() => '?').join(',');
+      const allReactions = db.prepare(`SELECT * FROM reactions WHERE target_type = 'comment' AND target_id IN (${placeholders})`).all(...commentIds) as any[];
+      for (const r of allReactions) {
+        (commentReactionsMap[r.target_id] ||= []).push(r);
+      }
+    }
+    const commentsWithReactions = comments.map(c => ({
       ...c,
-      reactions: db.prepare("SELECT * FROM reactions WHERE target_type = 'comment' AND target_id = ?").all(c.id),
+      reactions: commentReactionsMap[c.id] || [],
     }));
 
     // Parent info
@@ -459,7 +469,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   fastify.get('/api/notifications', async () => {
     const db = getDatabase();
     const userIssues = db.prepare(
-      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.assigned_to = 'user' AND i.status IN ('open', 'in_progress', 'pending', 'done') ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC"
+      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE (i.assigned_to = 'user' OR (i.acknowledged_at IS NOT NULL AND i.created_by = 'user')) AND i.status IN ('open', 'in_progress', 'pending', 'done') ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC"
     ).all() as any[];
 
     // Recent comments on any issue (last 50)
@@ -616,11 +626,21 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     const issue = db.prepare('SELECT * FROM issues WHERE project_id = ? AND number = ?').get(request.params.pid, parseInt(request.params.num)) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
-    const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(issue.id);
+    const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(issue.id) as any[];
     const reactions = db.prepare("SELECT * FROM reactions WHERE target_type = 'issue' AND target_id = ?").all(issue.id);
-    const commentsWithReactions = (comments as any[]).map(c => ({
+    // Batch-fetch all comment reactions in one query (fixes N+1)
+    const cIds = comments.map(c => c.id);
+    let cReactionsMap: Record<string, any[]> = {};
+    if (cIds.length > 0) {
+      const ph = cIds.map(() => '?').join(',');
+      const allCReactions = db.prepare(`SELECT * FROM reactions WHERE target_type = 'comment' AND target_id IN (${ph})`).all(...cIds) as any[];
+      for (const r of allCReactions) {
+        (cReactionsMap[r.target_id] ||= []).push(r);
+      }
+    }
+    const commentsWithReactions = comments.map(c => ({
       ...c,
-      reactions: db.prepare("SELECT * FROM reactions WHERE target_type = 'comment' AND target_id = ?").all(c.id),
+      reactions: cReactionsMap[c.id] || [],
     }));
 
     let parent_number: number | null = null;
