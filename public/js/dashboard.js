@@ -382,7 +382,7 @@ async function createProject() {
   await withLoading(btn, async () => {
     const task = document.getElementById('proj-task').value.trim();
     const toolPath = document.getElementById('proj-cmd').value.trim() || 'cld';
-    if (!task) { alert('Please describe what you want to do'); return; }
+    if (!task) { showToast('请描述你想要执行的任务', 'error'); return; }
 
     // Step 1: Call AI to generate project metadata
     btn.textContent = 'Generating...';
@@ -494,15 +494,119 @@ async function sendQuickCmd(projectId) {
   }
 }
 
-// Initial load: summary + notifications + projects in parallel
+// ─── Usage by Project Chart ───
+
+let _usagePeriod = 'day';
+const _projectColors = ['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#39d2c0','#ff7b72','#79c0ff','#7ee787','#e3b341'];
+
+function switchUsagePeriod(period) {
+  _usagePeriod = period;
+  document.querySelectorAll('.usage-period-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.period === period);
+  });
+  loadUsageByProject();
+}
+
+async function loadUsageByProject() {
+  try {
+    const res = await fetch(`/api/dashboard/usage-by-project?period=${_usagePeriod}`, { headers: apiHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const panel = document.getElementById('usage-by-project-panel');
+    const container = document.getElementById('usage-by-project-chart');
+    if (!data.time_buckets || !data.time_buckets.length) {
+      panel.style.display = 'none';
+      return;
+    }
+    panel.style.display = '';
+
+    const projects = data.projects;
+    const buckets = data.time_buckets;
+    const chartData = data.data;
+
+    // Calculate max stacked cost per bucket
+    let maxCost = 0.001;
+    for (const t of buckets) {
+      let sum = 0;
+      for (const p of projects) {
+        sum += (chartData[t] && chartData[t][p.id]) ? chartData[t][p.id].cost : 0;
+      }
+      if (sum > maxCost) maxCost = sum;
+    }
+
+    const W = 600, H = 200;
+    const PAD_L = 50, PAD_R = 16, PAD_T = 12, PAD_B = 32;
+    const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B;
+    const n = buckets.length;
+    const barW = Math.max(2, (cw / n) * 0.7);
+    const gap = cw / n;
+
+    // Y-axis
+    const yLabels = [0, maxCost / 2, maxCost].map(v => {
+      const y = PAD_T + ch - (v / maxCost) * ch;
+      return `<text x="${PAD_L - 6}" y="${y + 3}" text-anchor="end" fill="var(--text-secondary)" font-size="9">$${v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}</text>
+      <line x1="${PAD_L}" y1="${y}" x2="${W - PAD_R}" y2="${y}" stroke="var(--border)" stroke-width="0.5" opacity="0.5"/>`;
+    }).join('');
+
+    // X-axis
+    const step = Math.max(1, Math.floor(n / 6));
+    const xLabels = buckets.map((d, i) => {
+      if (i % step !== 0 && i !== n - 1) return '';
+      const x = PAD_L + i * gap + gap / 2;
+      const label = d.length > 10 ? d.slice(5) : d.slice(5);
+      return `<text x="${x}" y="${H - 4}" text-anchor="middle" fill="var(--text-secondary)" font-size="8">${label}</text>`;
+    }).join('');
+
+    // Stacked bars
+    let bars = '';
+    for (let i = 0; i < n; i++) {
+      const t = buckets[i];
+      const x = PAD_L + i * gap + (gap - barW) / 2;
+      let yOffset = 0;
+      for (let j = 0; j < projects.length; j++) {
+        const p = projects[j];
+        const entry = chartData[t] && chartData[t][p.id];
+        const cost = entry ? entry.cost : 0;
+        if (cost <= 0) continue;
+        const barH = (cost / maxCost) * ch;
+        const y = PAD_T + ch - yOffset - barH;
+        const color = _projectColors[j % _projectColors.length];
+        bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color}" opacity="0.85" rx="1">
+          <title>${esc(p.name)} ${t}: $${cost.toFixed(4)}</title>
+        </rect>`;
+        yOffset += barH;
+      }
+    }
+
+    // Legend
+    const legend = projects.map((p, i) => {
+      const color = _projectColors[i % _projectColors.length];
+      const name = p.name.length > 20 ? p.name.slice(0, 19) + '…' : p.name;
+      return `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11px;color:var(--text-secondary)">
+        <span style="width:10px;height:10px;background:${color};border-radius:2px;display:inline-block"></span>${esc(name)}
+      </span>`;
+    }).join('');
+
+    container.innerHTML = `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
+      ${yLabels}${xLabels}${bars}
+    </svg>
+    <div style="margin-top:6px;line-height:1.8">${legend}</div>`;
+  } catch (e) {
+    console.error('Failed to load usage by project', e);
+  }
+}
+
+// Initial load: summary + notifications + projects + usage chart in parallel
 async function loadDashboard() {
-  await Promise.all([loadDashboardSummary(), loadNotifications(), loadProjects()]);
+  await Promise.all([loadDashboardSummary(), loadNotifications(), loadProjects(), loadUsageByProject()]);
 }
 
 loadDashboard();
-// Polling: 10s for lightweight data, 30s for full project list
+// Polling: 10s for lightweight data, 30s for full project list, 60s for usage chart
 setInterval(() => { loadDashboardSummary(); loadNotifications(); }, 10000);
 setInterval(loadProjects, 30000);
+setInterval(loadUsageByProject, 60000);
 
 // ─── Floating Issue Panel ───
 

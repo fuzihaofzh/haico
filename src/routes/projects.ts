@@ -64,6 +64,66 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     };
   });
 
+  // Dashboard usage by project — stacked bar chart data
+  fastify.get<{ Querystring: { period?: string } }>('/api/dashboard/usage-by-project', async (request) => {
+    const db = getDatabase();
+    const period = request.query.period || 'day';
+
+    const rows = db.prepare(
+      `SELECT c.content, c.created_at, p.id as project_id, p.name as project_name
+       FROM conversation_logs c
+       JOIN agents a ON c.agent_id = a.id
+       JOIN projects p ON a.project_id = p.id
+       WHERE c.stream = 'cost'
+       ORDER BY c.created_at`
+    ).all() as any[];
+
+    // Aggregate by time bucket + project
+    const buckets: Record<string, Record<string, { cost: number; input_tokens: number; output_tokens: number }>> = {};
+    const projectNames: Record<string, string> = {};
+
+    for (const row of rows) {
+      try {
+        const data = JSON.parse(row.content);
+        const costUsd = data.cost_usd || 0;
+        const inputTokens = data.input_tokens || 0;
+        const outputTokens = data.output_tokens || 0;
+        if (!row.created_at) continue;
+
+        let key: string;
+        const date = row.created_at.slice(0, 10);
+        if (period === 'hour') {
+          key = row.created_at.slice(0, 13);
+        } else if (period === 'week') {
+          const d = new Date(date);
+          d.setDate(d.getDate() - d.getDay());
+          key = d.toISOString().slice(0, 10);
+        } else {
+          key = date;
+        }
+
+        projectNames[row.project_id] = row.project_name;
+        if (!buckets[key]) buckets[key] = {};
+        if (!buckets[key][row.project_id]) buckets[key][row.project_id] = { cost: 0, input_tokens: 0, output_tokens: 0 };
+        buckets[key][row.project_id].cost += costUsd;
+        buckets[key][row.project_id].input_tokens += inputTokens;
+        buckets[key][row.project_id].output_tokens += outputTokens;
+      } catch {}
+    }
+
+    const timeBuckets = Object.keys(buckets).sort();
+    const projects = Object.entries(projectNames).map(([id, name]) => ({ id, name }));
+
+    return {
+      period,
+      time_buckets: timeBuckets,
+      projects,
+      data: Object.fromEntries(
+        timeBuckets.map(t => [t, buckets[t]])
+      ),
+    };
+  });
+
   // Generate project metadata from user description using AI
   fastify.post<{ Body: { description: string; tool_path: string } }>('/api/generate-project', async (request, reply) => {
     const { description, tool_path } = request.body;

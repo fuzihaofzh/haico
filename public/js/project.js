@@ -63,8 +63,8 @@ async function triggerController() {
   const btn = event ? event.target : null;
   const run = async () => {
     const controller = agentsData.find(a => a.is_controller);
-    if (!controller) { alert('No controller agent found'); return; }
-    if (controller.status === 'running') { alert('Controller is already running'); return; }
+    if (!controller) { showToast('No controller agent found', 'error'); return; }
+    if (controller.status === 'running') { showToast('Controller is already running', 'error'); return; }
     const res = await fetch(`/api/agents/${controller.id}/start`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
     if (res.ok) { loadAgents(); showToast('Controller已启动', 'success'); } else { const err = await res.json().catch(() => ({})); showToast(err.error || '启动失败', 'error'); }
   };
@@ -78,8 +78,8 @@ async function saveOverview() {
     task_description: document.getElementById('project-task').value.trim(),
     command_template: document.getElementById('project-cmd').value.trim() || 'cld',
   };
-  if (!body.name) { alert('Name cannot be empty'); return; }
-  if (!body.task_description) { alert('Task description cannot be empty'); return; }
+  if (!body.name) { showToast('Name cannot be empty', 'error'); return; }
+  if (!body.task_description) { showToast('Task description cannot be empty', 'error'); return; }
   const btn = document.querySelector('button[onclick="saveOverview()"]');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
@@ -89,7 +89,7 @@ async function saveOverview() {
 }
 
 async function deleteProject() {
-  if (!confirm('Delete this project and all agents/issues?')) return;
+  if (!await showConfirm('Delete this project and all agents/issues?')) return;
   const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
   if (res.ok) { showToast('项目已删除', 'success'); window.location.href = '/'; }
   else { showToast('删除失败', 'error'); }
@@ -433,7 +433,9 @@ async function loadAgentOutput(agentId) {
       if (!filtered.length) return '';
       const content = filtered.map(l => {
         const text = l.content.length > 1500 ? l.content.slice(0, 1500) + '\n... (truncated)' : l.content;
-        return l.stream === 'stderr' ? `<span style="color:var(--error)">${esc(text)}</span>` : esc(text);
+        const ts = l.created_at ? `<span style="color:var(--text-secondary);opacity:0.7">[${l.created_at.slice(11, 19) || ''}]</span> ` : '';
+        const msg = l.stream === 'stderr' ? `<span style="color:var(--error)">${esc(text)}</span>` : esc(text);
+        return ts + msg;
       }).join('');
       const label = idx === recentRuns.length - 1 ? 'Latest Run' : `${recentRuns.length - idx} runs ago`;
       return `<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:600;color:var(--text-secondary);margin-bottom:2px">${label}</div><div>${content}</div></div>`;
@@ -643,7 +645,7 @@ function closeAgentDetail() {
 
 async function deleteAgent(id) {
   const agent = agentsData.find(a => a.id === id);
-  if (!confirm(`Delete agent "${agent?.name || id}"?`)) return;
+  if (!await showConfirm(`Delete agent "${agent?.name || id}"?`)) return;
   const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
   if (res.ok) {
     if (currentAgentId === id) closeAgentDetail();
@@ -687,7 +689,7 @@ async function unpauseAgent(id) {
 }
 
 async function stopAgentById(id) {
-  if (!confirm('Stop this agent?')) return;
+  if (!await showConfirm('Stop this agent?')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/stop`, { method: 'POST', headers: apiHeaders(), body: '{}' });
@@ -709,7 +711,7 @@ async function createAgent() {
   const btn = document.querySelector('#createAgentModal button[onclick="createAgent()"]');
   await withLoading(btn, async () => {
     const body = { name: document.getElementById('agent-name').value, role: document.getElementById('agent-role').value, working_directory: document.getElementById('agent-workdir').value || undefined, command_template: document.getElementById('agent-cmdtpl').value.trim() || undefined };
-    if (!body.name) { alert('Name is required'); return; }
+    if (!body.name) { showToast('Name is required', 'error'); return; }
     const res = await fetch(`/api/projects/${projectId}/agents`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) { hideModal('createAgentModal'); loadAgents(); showToast('Agent已创建', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '创建失败', 'error'); }
   });
@@ -719,6 +721,62 @@ async function createAgent() {
 
 let currentIssueFilter = 'open';
 let currentIssuePage = 1;
+
+// Restore filter/search state from URL params
+(function restoreIssueFilterState() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('status')) currentIssueFilter = params.get('status');
+  if (params.has('page')) currentIssuePage = parseInt(params.get('page')) || 1;
+  if (params.has('q')) {
+    setTimeout(() => {
+      const el = document.getElementById('issue-search');
+      if (el) el.value = params.get('q');
+    }, 0);
+  }
+})();
+
+function updateIssueUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const q = document.getElementById('issue-search')?.value?.trim() || '';
+  if (currentIssueFilter) params.set('status', currentIssueFilter); else params.delete('status');
+  if (q) params.set('q', q); else params.delete('q');
+  if (currentIssuePage > 1) params.set('page', currentIssuePage); else params.delete('page');
+  const newUrl = params.toString() ? `${window.location.pathname}?${params}${window.location.hash}` : `${window.location.pathname}${window.location.hash}`;
+  history.replaceState(null, '', newUrl);
+}
+
+function renderActiveFilters() {
+  const el = document.getElementById('issue-active-filters');
+  if (!el) return;
+  const q = document.getElementById('issue-search')?.value?.trim() || '';
+  const chips = [];
+  if (currentIssueFilter) {
+    chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--selected-bg);border-radius:4px;font-size:11px">状态: ${currentIssueFilter} <span onclick="clearIssueFilter()" style="cursor:pointer;opacity:0.6;font-weight:bold" title="清除">&times;</span></span>`);
+  }
+  if (q) {
+    chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--selected-bg);border-radius:4px;font-size:11px">搜索: "${esc(q)}" <span onclick="clearIssueSearch()" style="cursor:pointer;opacity:0.6;font-weight:bold" title="清除">&times;</span></span>`);
+  }
+  if (chips.length > 1) {
+    chips.push(`<span onclick="clearAllIssueFilters()" style="cursor:pointer;color:var(--accent);font-size:11px;text-decoration:underline">清除所有筛选</span>`);
+  }
+  el.style.display = chips.length ? 'flex' : 'none';
+  el.innerHTML = chips.join('');
+}
+
+function clearIssueFilter() { currentIssueFilter = ''; currentIssuePage = 1; loadIssues(); }
+function clearIssueSearch() {
+  const el = document.getElementById('issue-search');
+  if (el) el.value = '';
+  currentIssuePage = 1;
+  loadIssues();
+}
+function clearAllIssueFilters() {
+  currentIssueFilter = '';
+  const el = document.getElementById('issue-search');
+  if (el) el.value = '';
+  currentIssuePage = 1;
+  loadIssues();
+}
 
 const LABEL_COLORS = ['#e06c75','#98c379','#e5c07b','#61afef','#c678dd','#56b6c2','#d19a66','#b5bd68','#cc6666','#8abeb7'];
 function issueLabelHtml(text) {
@@ -786,21 +844,56 @@ async function loadIssues() {
   }).join('')}</div>`;
 
   renderPagination(data.total_pages || 1, data.page || 1);
+  renderActiveFilters();
+  updateIssueUrlParams();
 }
 
 function renderPagination(totalPages, currentPage) {
   const el = document.getElementById('issue-pagination');
   if (!el || totalPages <= 1) { if (el) el.innerHTML = ''; return; }
+  const btnStyle = 'padding:4px 8px;min-width:28px;';
+  const activeStyle = 'background:var(--accent);color:#fff;';
+  const disabledStyle = 'opacity:0.4;pointer-events:none;';
+  const pageBtn = (p, label) => `<button onclick="goToIssuePage(${p})" class="btn btn-sm" style="${btnStyle}${p===currentPage?activeStyle:''}">${label||p}</button>`;
   let html = '';
-  for (let p = 1; p <= Math.min(totalPages, 10); p++) {
-    html += `<button onclick="goToIssuePage(${p})" class="btn btn-sm" style="${p===currentPage?'background:var(--accent);color:#fff':''}">${p}</button>`;
+  // First + Prev
+  html += `<button onclick="goToIssuePage(1)" class="btn btn-sm" style="${btnStyle}${currentPage===1?disabledStyle:''}" title="首页">«</button>`;
+  html += `<button onclick="goToIssuePage(${currentPage-1})" class="btn btn-sm" style="${btnStyle}${currentPage===1?disabledStyle:''}" title="上一页">‹</button>`;
+  // Page numbers with ellipsis
+  const pages = [];
+  if (totalPages <= 9) {
+    for (let p = 1; p <= totalPages; p++) pages.push(p);
+  } else {
+    pages.push(1);
+    let start = Math.max(2, currentPage - 2);
+    let end = Math.min(totalPages - 1, currentPage + 2);
+    if (currentPage <= 4) end = Math.min(6, totalPages - 1);
+    if (currentPage >= totalPages - 3) start = Math.max(2, totalPages - 5);
+    if (start > 2) pages.push('...');
+    for (let p = start; p <= end; p++) pages.push(p);
+    if (end < totalPages - 1) pages.push('...');
+    pages.push(totalPages);
   }
+  for (const p of pages) {
+    if (p === '...') { html += `<span style="padding:4px 2px;opacity:0.5">…</span>`; }
+    else html += pageBtn(p);
+  }
+  // Next + Last
+  html += `<button onclick="goToIssuePage(${currentPage+1})" class="btn btn-sm" style="${btnStyle}${currentPage===totalPages?disabledStyle:''}" title="下一页">›</button>`;
+  html += `<button onclick="goToIssuePage(${totalPages})" class="btn btn-sm" style="${btnStyle}${currentPage===totalPages?disabledStyle:''}" title="末页">»</button>`;
+  // Page info
+  html += `<span style="margin-left:8px;font-size:11px;color:var(--text-secondary)">第${currentPage}页，共${totalPages}页</span>`;
   el.innerHTML = html;
 }
 
 function goToIssuePage(p) { currentIssuePage = p; loadIssues(); }
 function setIssueFilter(f) { currentIssueFilter = f; currentIssuePage = 1; loadIssues(); }
-function searchIssues() { currentIssuePage = 1; loadIssues(); }
+function searchIssues() {
+  const q = document.getElementById('issue-search')?.value?.trim() || '';
+  if (q) currentIssueFilter = '';  // 搜索时清除状态过滤，避免与搜索条件冲突
+  currentIssuePage = 1;
+  loadIssues();
+}
 
 
 
@@ -847,7 +940,7 @@ async function createIssue() {
       assigned_to: document.getElementById('issue-assign').value || undefined,
       labels: document.getElementById('issue-labels').value || undefined,
     };
-    if (!body.title) { alert('Title is required'); return; }
+    if (!body.title) { showToast('Title is required', 'error'); return; }
     const res = await fetch(`/api/projects/${projectId}/issues`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) { hideModal('createIssueModal'); loadIssues(); showToast('Issue已创建', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '创建失败', 'error'); }
   });
@@ -1480,7 +1573,7 @@ async function saveKnowledge() {
     tags: document.getElementById('knowledge-tags').value,
     importance: document.getElementById('knowledge-importance').value,
   };
-  if (!body.title) { alert('标题不能为空'); return; }
+  if (!body.title) { showToast('标题不能为空', 'error'); return; }
   try {
     const url = id ? `/api/knowledge/${id}` : `/api/projects/${projectId}/knowledge`;
     const method = id ? 'PUT' : 'POST';
@@ -1497,7 +1590,7 @@ async function saveKnowledge() {
 }
 
 async function deleteKnowledge(id) {
-  if (!confirm('确定删除此知识条目？')) return;
+  if (!await showConfirm('确定删除此知识条目？')) return;
   try {
     const res = await fetch(`/api/knowledge/${id}`, { method: 'DELETE', headers: apiHeaders() });
     if (res.ok) { showToast('已删除', 'success'); loadKnowledge(); }
