@@ -439,6 +439,11 @@ export function getAgentIdleMs(agentId: string): number {
   return t ? Date.now() - t : -1;
 }
 
+/** Reset the last activity timestamp to now (used by watchdog when child processes are detected). */
+export function resetAgentActivity(agentId: string): void {
+  lastActivityTime.set(agentId, Date.now());
+}
+
 export { DEFAULT_IDLE_TIMEOUT_MS };
 
 export function getRunningAgentIds(): string[] {
