@@ -59,6 +59,7 @@
     <div class="breadcrumb" style="margin-left:12px">
       <a href="/">Projects</a> / <a id="project-link" href="#">Project</a> / <span id="agent-name">Agent</span>
     </div>
+    <div class="header-right"></div>
   </header>
 
   <div class="container">
@@ -141,6 +142,18 @@
         <span id="activity-count" style="font-size:12px;color:var(--text-secondary)"></span>
       </div>
       <div id="activity-list" class="activity-list"></div>
+    </div>
+
+    <!-- Messages Inbox -->
+    <div class="card mb-16" id="messages-panel">
+      <div class="flex-between mb-16">
+        <h2>Messages <span id="unread-badge" style="display:none;font-size:12px;background:var(--accent);color:#fff;padding:1px 8px;border-radius:10px;margin-left:6px;font-weight:600"></span></h2>
+        <div class="flex">
+          <button class="btn btn-sm" onclick="markAllRead()">Mark all read</button>
+          <button class="btn btn-sm" onclick="showSendMessage()">Send Message</button>
+        </div>
+      </div>
+      <div id="messages-list" style="max-height:300px;overflow-y:auto"></div>
     </div>
 
     <!-- Terminal -->
