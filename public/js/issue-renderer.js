@@ -120,7 +120,7 @@ var IssueRenderer = (function() {
         var icon = c.event_type === 'status_change' ? '🔄' : c.event_type === 'assignment' ? '👤' : '🏷️';
         return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0 8px 40px;font-size:12px;color:var(--text-secondary)">' +
           '<span>' + icon + '</span>' +
-          '<span><strong>' + esc(nameOf(c.author_id)) + '</strong> ' + esc(c.body) + ' <span title="' + esc(entryDate) + '" style="cursor:default">' + timeAgo(c.created_at) + '</span></span>' +
+          '<span><strong>' + esc(nameOf(c.author_id)) + '</strong> ' + esc(c.body.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, function(id) { return nameOf(id); })) + ' <span title="' + esc(entryDate) + '" style="cursor:default">' + timeAgo(c.created_at) + '</span></span>' +
         '</div>';
       }
       return '<div class="timeline-item">' +
@@ -245,6 +245,61 @@ var IssueRenderer = (function() {
               }).join('') +
             '</div>';
           })() : '') +
+          // ─── Dependencies / Relations ───
+          (function() {
+            var blocks = issue.blocks || [];
+            var blocked_by = issue.blocked_by || [];
+            var related_to = issue.related_to || [];
+            if (blocks.length === 0 && blocked_by.length === 0 && related_to.length === 0 && !issue.is_blocked) {
+              // Show add button even if no relations
+              return '<div class="sidebar-section">' +
+                '<div class="sidebar-section-title">Dependencies</div>' +
+                '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">No dependencies</div>' +
+                '<button class="btn btn-sm" onclick="IssueRenderer.showAddRelation()" style="font-size:11px;width:100%">+ Add dependency</button>' +
+              '</div>';
+            }
+            var html = '<div class="sidebar-section">';
+            html += '<div class="sidebar-section-title">Dependencies';
+            if (issue.is_blocked) html += ' <span style="color:var(--error);font-size:10px;font-weight:600;background:var(--error)18;padding:1px 6px;border-radius:8px;margin-left:4px">BLOCKED</span>';
+            html += '</div>';
+            if (blocked_by.length > 0) {
+              html += '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px;font-weight:600">Blocked by</div>';
+              blocked_by.forEach(function(r) {
+                html += '<div style="display:flex;align-items:center;gap:4px;padding:2px 0;font-size:12px">' +
+                  statusIcon(r.status || r.source_status || 'open') +
+                  ' <a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.source_number) + '" style="text-decoration:none;color:inherit;flex:1">#' + (r.number || r.source_number) + ' ' + esc(r.title || r.source_title || '') + '</a>' +
+                  '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>' +
+                '</div>';
+              });
+            }
+            if (blocks.length > 0) {
+              html += '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px;margin-top:4px;font-weight:600">Blocks</div>';
+              blocks.forEach(function(r) {
+                html += '<div style="display:flex;align-items:center;gap:4px;padding:2px 0;font-size:12px">' +
+                  statusIcon(r.status || r.target_status || 'open') +
+                  ' <a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.target_number) + '" style="text-decoration:none;color:inherit;flex:1">#' + (r.number || r.target_number) + ' ' + esc(r.title || r.target_title || '') + '</a>' +
+                  '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>' +
+                '</div>';
+              });
+            }
+            if (related_to.length > 0) {
+              html += '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px;margin-top:4px;font-weight:600">Related to</div>';
+              related_to.forEach(function(r) {
+                var num = r.number || r.target_number || r.source_number;
+                var title = r.title || r.target_title || r.source_title || '';
+                var st = r.status || r.target_status || r.source_status || 'open';
+                html += '<div style="display:flex;align-items:center;gap:4px;padding:2px 0;font-size:12px">' +
+                  statusIcon(st) +
+                  ' <a href="/projects/' + issue.project_id + '/issues/' + num + '" style="text-decoration:none;color:inherit;flex:1">#' + num + ' ' + esc(title) + '</a>' +
+                  '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>' +
+                '</div>';
+              });
+            }
+            html += '<button class="btn btn-sm" onclick="IssueRenderer.showAddRelation()" style="font-size:11px;width:100%;margin-top:6px">+ Add dependency</button>';
+            html += '</div>';
+            return html;
+          })() +
+
           (issue.status === 'open' ? '<div style="margin-top:12px"><button class="btn btn-sm btn-danger" onclick="IssueRenderer.deleteIssue()">Delete</button></div>' : '') +
         '</div>' +
       '</div>';
@@ -304,8 +359,8 @@ var IssueRenderer = (function() {
       .then(function() { _ctx.reload(); _ctx.onAfterAction(); });
   }
 
-  function deleteIssue() {
-    if (!confirm('Delete this issue?')) return;
+  async function deleteIssue() {
+    if (!await showConfirm('Delete this issue?')) return;
     fetch('/api/issues/' + _ctx.issue.id, { method: 'DELETE' })
       .then(function(res) {
         if (res.ok) { showToast('Issue已删除', 'success'); history.back(); }
@@ -369,8 +424,8 @@ var IssueRenderer = (function() {
       .then(function(res) { if (res.ok) showToast('评论已保存', 'success'); _ctx.reload(); });
   }
 
-  function deleteComment(cid) {
-    if (!confirm('Delete this comment?')) return;
+  async function deleteComment(cid) {
+    if (!await showConfirm('Delete this comment?')) return;
     fetch('/api/comments/' + cid, { method: 'DELETE' })
       .then(function() { _ctx.reload(); });
   }
@@ -378,6 +433,85 @@ var IssueRenderer = (function() {
   function toggleReaction(type, id, emoji) {
     fetch('/api/reactions/' + type + '/' + id, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ user_id: 'user', emoji: emoji }) })
       .then(function() { _ctx.reload(); });
+  }
+
+  function showAddRelation() {
+    var existing = document.getElementById('ir-add-relation-dialog');
+    if (existing) { existing.remove(); return; }
+    var div = document.createElement('div');
+    div.id = 'ir-add-relation-dialog';
+    div.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--header-bg);border:1px solid var(--border);border-radius:8px;padding:16px;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,0.3);min-width:300px';
+    div.innerHTML =
+      '<div style="font-weight:600;margin-bottom:12px">Add Dependency</div>' +
+      '<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">Type</label>' +
+        '<select id="ir-rel-type" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px">' +
+          '<option value="blocks">This issue blocks...</option>' +
+          '<option value="blocked_by">This issue is blocked by...</option>' +
+          '<option value="related_to">Related to...</option>' +
+        '</select></div>' +
+      '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--text-secondary)">Issue number (e.g. 42)</label>' +
+        '<input type="text" id="ir-rel-target" placeholder="#" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px"></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+        '<button class="btn btn-sm" onclick="document.getElementById(\'ir-add-relation-dialog\').remove()">Cancel</button>' +
+        '<button class="btn btn-sm btn-primary" onclick="IssueRenderer.addRelation()">Add</button>' +
+      '</div>';
+    document.body.appendChild(div);
+    document.getElementById('ir-rel-target').focus();
+  }
+
+  function addRelation() {
+    var typeSelect = document.getElementById('ir-rel-type');
+    var targetInput = document.getElementById('ir-rel-target');
+    if (!typeSelect || !targetInput) return;
+    var relType = typeSelect.value;
+    var targetNum = targetInput.value.replace('#', '').trim();
+    if (!targetNum) return;
+
+    // For blocked_by: we need to reverse — from=target blocks to=this
+    // For the API: POST /api/issues/:id/relations with {type, target_issue_id}
+    // The API expects: from_issue_id = :id, to_issue_id = target_issue_id for "blocks"
+    // For "blocked_by", we need to call from the target's perspective
+    var issueId = _ctx.issue.id;
+    var projectId = _ctx.issue.project_id;
+
+    // First resolve issue number to ID
+    fetch('/api/projects/' + projectId + '/issues/number/' + targetNum, { headers: apiHeaders() })
+      .then(function(res) { if (!res.ok) throw new Error('Issue not found'); return res.json(); })
+      .then(function(targetIssue) {
+        var fromId, toId, apiType;
+        if (relType === 'blocked_by') {
+          // Target blocks this issue
+          fromId = targetIssue.id;
+          toId = issueId;
+          apiType = 'blocks';
+          return fetch('/api/issues/' + fromId + '/relations', {
+            method: 'POST', headers: apiHeaders(),
+            body: JSON.stringify({ type: apiType, target_issue_id: toId, actor: 'user' })
+          });
+        } else {
+          apiType = relType;
+          return fetch('/api/issues/' + issueId + '/relations', {
+            method: 'POST', headers: apiHeaders(),
+            body: JSON.stringify({ type: apiType, target_issue_id: targetIssue.id, actor: 'user' })
+          });
+        }
+      })
+      .then(function(res) {
+        if (!res.ok) return res.json().then(function(e) { throw new Error(e.error || 'Failed'); });
+        var dialog = document.getElementById('ir-add-relation-dialog');
+        if (dialog) dialog.remove();
+        showToast('Dependency added', 'success');
+        _ctx.reload();
+      })
+      .catch(function(err) { showToast(err.message, 'error'); });
+  }
+
+  function removeRelation(relationId) {
+    fetch('/api/issues/' + _ctx.issue.id + '/relations/' + relationId, { method: 'DELETE', headers: apiHeaders() })
+      .then(function(res) {
+        if (res.ok) { showToast('Dependency removed', 'success'); _ctx.reload(); }
+        else showToast('Failed to remove', 'error');
+      });
   }
 
   function showEmojiPicker(type, id) {
@@ -414,6 +548,9 @@ var IssueRenderer = (function() {
     deleteComment: deleteComment,
     toggleReaction: toggleReaction,
     showEmojiPicker: showEmojiPicker,
+    showAddRelation: showAddRelation,
+    addRelation: addRelation,
+    removeRelation: removeRelation,
     _ctx: _ctx,
   };
 })();
