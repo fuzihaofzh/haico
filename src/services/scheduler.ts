@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { getDatabase } from '../db/database';
+import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
 import { triggerControllerAgent } from './controller';
 import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
@@ -10,6 +10,7 @@ import logger from '../logger';
 let logCleanupTask: cron.ScheduledTask | null = null;
 let issueScanTask: cron.ScheduledTask | null = null;
 let watchdogTask: cron.ScheduledTask | null = null;
+const pendingWatchdogTimers = new Set<NodeJS.Timeout>();
 
 function startLogCleanup(): void {
   // Run daily at 3:00 AM
@@ -150,12 +151,15 @@ function startWatchdog(): void {
             clearCpuSnapshot(agent.id);
             db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
             stopAgentProcess(agent.id);
-            setTimeout(() => {
+            const t1 = setTimeout(() => {
+              pendingWatchdogTimers.delete(t1);
+              if (!isDatabaseOpen()) return;
               const current = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as any;
               if (current?.status === 'stopped') {
                 db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
               }
             }, 10000);
+            pendingWatchdogTimers.add(t1);
             continue;
           }
 
@@ -196,12 +200,15 @@ function startWatchdog(): void {
             stopAgentProcess(agent.id);
             // After close handler fires (preserving 'stopped'), reset to idle so agent
             // can be re-dispatched by issue scan
-            setTimeout(() => {
+            const t2 = setTimeout(() => {
+              pendingWatchdogTimers.delete(t2);
+              if (!isDatabaseOpen()) return;
               const current = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as any;
               if (current?.status === 'stopped') {
                 db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
               }
             }, 10000);
+            pendingWatchdogTimers.add(t2);
           }
         } else {
           // DB says running but process is gone — orphaned state (e.g., Argus restarted)
@@ -242,5 +249,8 @@ export function stopAllSchedulers(): void {
     watchdogTask.stop();
     watchdogTask = null;
   }
+  // Cancel any pending watchdog setTimeout timers
+  for (const timer of pendingWatchdogTimers) clearTimeout(timer);
+  pendingWatchdogTimers.clear();
   logger.info('All schedulers stopped');
 }
