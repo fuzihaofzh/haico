@@ -4,10 +4,16 @@ let _currentUser = null;
 
 async function initUserMenu() {
   try {
-    const res = await fetch('/api/auth/me');
-    if (!res.ok) return;
+    const res = await fetch('/api/auth/me', { cache: 'no-cache' });
+    if (!res.ok) {
+      console.warn('[Argus] initUserMenu: /api/auth/me returned', res.status, '— avatar will not show');
+      return;
+    }
     _currentUser = await res.json();
-  } catch { return; }
+  } catch (e) {
+    console.warn('[Argus] initUserMenu: fetch failed —', e.message || e);
+    return;
+  }
 
   // Append user menu to .header-right if it exists, otherwise to header
   const headerRight = document.querySelector('.header-right') || document.querySelector('header');
