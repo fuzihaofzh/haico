@@ -343,6 +343,29 @@ const CHANGE_PASSWORD_HTML = `<!DOCTYPE html>
 export function setupAuth(app: FastifyInstance): void {
   let authConfig = loadAuthConfig();
 
+  // Ensure sessions table has user_id column (migration may not have been applied yet)
+  try {
+    const { getDatabase } = require('../db/database');
+    const db = getDatabase();
+    const sessionCols = db.prepare("PRAGMA table_info(sessions)").all() as any[];
+    if (!sessionCols.find((c: any) => c.name === 'user_id')) {
+      db.exec("ALTER TABLE sessions ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)");
+      logger.info('Auth: applied sessions.user_id migration');
+    }
+    // Backfill sessions with NULL user_id: if only one user exists, assign all orphan sessions to them
+    const nullCount = (db.prepare("SELECT COUNT(*) as c FROM sessions WHERE user_id IS NULL").get() as any).c;
+    if (nullCount > 0) {
+      const users = db.prepare("SELECT id FROM users").all() as { id: string }[];
+      if (users.length === 1) {
+        db.prepare("UPDATE sessions SET user_id = ? WHERE user_id IS NULL").run(users[0].id);
+        logger.info(`Auth: backfilled ${nullCount} sessions with user_id=${users[0].id}`);
+      }
+    }
+  } catch (e) {
+    logger.warn(e, 'Failed to check/apply sessions migration');
+  }
+
   function checkPassword(pwd: string): boolean {
     if (!authConfig.passwordHash) return false;
     if (isLegacySha256(authConfig)) {
@@ -534,9 +557,18 @@ export function setupAuth(app: FastifyInstance): void {
 
   // Get current user info
   app.get('/api/auth/me', async (request, reply) => {
+    // Try multi-user session first
     const user = getUserFromRequest(request);
-    if (!user) return reply.status(401).send({ error: 'Not authenticated' });
-    return { id: user.id, username: user.username, email: user.email, display_name: user.display_name, role: user.role, created_at: user.created_at };
+    if (user) {
+      return { id: user.id, username: user.username, email: user.email, display_name: user.display_name, role: user.role, created_at: user.created_at };
+    }
+    // Fallback: legacy single-password auth (cookie = passwordHash)
+    const cookies = parseCookies(request.headers.cookie);
+    const token = cookies[COOKIE_NAME];
+    if (token && isValidToken(token)) {
+      return { id: 'legacy', username: 'admin', display_name: 'Admin', role: 'admin' };
+    }
+    return reply.status(401).send({ error: 'Not authenticated' });
   });
 
   // List users (admin only)
