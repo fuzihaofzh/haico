@@ -236,6 +236,31 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
 
   const now = Date.now();
 
+  // Idle-period optimization: skip LLM call entirely when controller has nothing to do.
+  if (!triggerIssueNumber) {
+    // Check 1: any issues that need controller to assign or handle?
+    const needsControllerAction = db.prepare(
+      `SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress')
+       AND (assigned_to IS NULL OR assigned_to = 'all' OR assigned_to IN (
+         SELECT id FROM agents WHERE project_id = ? AND is_controller = 1
+       )) LIMIT 1`
+    ).get(project.id, project.id);
+
+    if (!needsControllerAction) {
+      // Check 2: any workers in error state that controller might need to handle?
+      const errorWorkers = db.prepare(
+        `SELECT 1 FROM agents WHERE project_id = ? AND is_controller = 0 AND status = 'error' AND paused = 0 LIMIT 1`
+      ).get(project.id);
+
+      if (!errorWorkers) {
+        logger.info(`Skipping controller trigger: no unassigned issues and no errored workers in project "${project.name}"`);
+        return;
+      }
+      // If there are errored workers, let controller handle them
+      logger.info(`Controller trigger: errored workers detected in project "${project.name}"`);
+    }
+  }
+
   if (!skipActivityCheck) {
     const lastAt = lastTriggerAtMs.get(project.id);
     if (lastAt && now - lastAt < TRIGGER_DEBOUNCE_MS) {

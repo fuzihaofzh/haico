@@ -665,6 +665,13 @@ export function clearCpuSnapshot(agentId: string): void {
 }
 
 export function stopAgentProcess(agentId: string): boolean {
+  // Cancel any pending API retry timer for this agent
+  const retryTimer = pendingRetryTimers.get(agentId);
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    pendingRetryTimers.delete(agentId);
+  }
+
   const child = runningProcesses.get(agentId);
   if (!child) return false;
 
@@ -709,7 +716,7 @@ export function resetAgentActivity(agentId: string): void {
   lastActivityTime.set(agentId, Date.now());
 }
 
-export { DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS, RESTART_COOLDOWN_MS };
+export { DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS, RESTART_COOLDOWN_MS, MAX_CONSECUTIVE_LOW_OUTPUT };
 
 /** Returns true if the agent recently finished and should not be auto-restarted yet.
  *  Uses extended cooldown (10 min) if the last run had very low output tokens,

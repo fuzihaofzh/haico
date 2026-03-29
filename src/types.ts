@@ -27,7 +27,7 @@ export interface Agent {
   session_max_tokens: number;
   session_resume_timeout: number;
   command_template: string | null;
-  status: 'idle' | 'running' | 'error' | 'stopped';
+  status: 'idle' | 'running' | 'waiting' | 'error' | 'stopped';
   paused: boolean;
   pid: number | null;
   last_prompt: string | null;
@@ -91,4 +91,16 @@ export interface CreateAgentInput {
 
 export interface StartAgentInput {
   prompt: string;
+}
+
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  password_hash: string;
+  password_salt: string;
+  display_name: string;
+  role: 'admin' | 'member';
+  created_at: string;
+  last_login_at: string | null;
 }
