@@ -642,7 +642,13 @@ export function setupAuth(app: FastifyInstance): void {
       if (!token) return null;
 
       const session = db.prepare('SELECT user_id FROM sessions WHERE token = ? AND expires_at > ?').get(token, Date.now()) as { user_id: string } | undefined;
-      if (!session?.user_id) return null;
+      if (!session?.user_id) {
+        // Fallback: legacy single-password auth (cookie = passwordHash)
+        if (isValidToken(token)) {
+          return { id: 'legacy', username: 'admin', email: '', password_hash: '', password_salt: '', display_name: 'Admin', role: 'admin', created_at: '', last_login_at: null } as User;
+        }
+        return null;
+      }
 
       return db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id) as User | undefined || null;
     } catch {
