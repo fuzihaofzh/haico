@@ -265,9 +265,12 @@ var IssueRenderer = (function() {
             if (blocked_by.length > 0) {
               html += '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px;font-weight:600">Blocked by</div>';
               blocked_by.forEach(function(r) {
-                html += '<div style="display:flex;align-items:center;gap:4px;padding:2px 0;font-size:12px">' +
-                  statusIcon(r.status || r.source_status || 'open') +
-                  ' <a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.source_number) + '" style="text-decoration:none;color:inherit;flex:1">#' + (r.number || r.source_number) + ' ' + esc(r.title || r.source_title || '') + '</a>' +
+                var st = r.status || r.source_status || 'open';
+                var resolved = (st === 'done' || st === 'closed');
+                html += '<div style="display:flex;align-items:center;gap:4px;padding:2px 0;font-size:12px' + (resolved ? ';color:var(--text-secondary)' : '') + '">' +
+                  statusIcon(st) +
+                  ' <a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.source_number) + '" style="text-decoration:none;' + (resolved ? 'color:var(--text-secondary);text-decoration:line-through' : 'color:inherit') + ';flex:1">#' + (r.number || r.source_number) + ' ' + esc(r.title || r.source_title || '') + '</a>' +
+                  (resolved ? '<span style="font-size:10px;color:var(--text-secondary);background:var(--bg-secondary);padding:0 4px;border-radius:4px;white-space:nowrap">已解除</span>' : '') +
                   '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>' +
                 '</div>';
               });
