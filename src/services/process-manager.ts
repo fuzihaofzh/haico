@@ -42,6 +42,28 @@ let shuttingDown = false;
 const agentFinalResultTime = new Map<string, number>();
 const FINAL_RESULT_KILL_DELAY_MS = 2 * 60 * 1000; // 2 minutes after Final Result → force kill
 
+// Track when agent last finished — used to prevent rapid restarts that produce low-output tail requests
+const agentLastFinishTime = new Map<string, number>();
+const RESTART_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes cooldown after finish before auto-restart
+
+// Track consecutive low-output runs per agent — auto-extend cooldown to avoid tail requests
+const agentLastOutputTokens = new Map<string, number>();
+const agentConsecutiveLowOutput = new Map<string, number>();
+const LOW_OUTPUT_THRESHOLD = 100; // output tokens below this = "low output"
+const EXTENDED_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes cooldown after consecutive low-output runs
+const MAX_CONSECUTIVE_LOW_OUTPUT = 2; // after 2+ consecutive low-output runs, block auto-restart entirely
+
+// Track whether agent completed all its assigned issues during the current/last run.
+// Set by markAgentIssuesCompleted() called from issue routes; cleared on next meaningful run.
+const agentCompletedAllIssues = new Set<string>();
+
+// Intra-session low-output detection: track consecutive small assistant messages
+// with no tool calls within a single run. When an agent produces multiple such
+// messages, it's doing useless "confirmation" tail rounds that waste tokens.
+const agentIntraSessionLowStreak = new Map<string, number>();
+const INTRA_LOW_OUTPUT_KILL_THRESHOLD = 2; // 2 consecutive low-output assistant turns → terminate
+const INTRA_LOW_OUTPUT_CHAR_LIMIT = 200;   // assistant text below this = "low output"
+
 function writePromptFile(runId: string, prompt: string): string {
   if (!fs.existsSync(PROMPT_DIR)) fs.mkdirSync(PROMPT_DIR, { recursive: true });
   const fp = path.join(PROMPT_DIR, runId + '.txt');
@@ -233,7 +255,12 @@ export function startAgentProcess(
     if (!content.trim()) return;
     if (shuttingDown || !isDatabaseOpen()) return;
     lastActivityTime.set(agent.id, Date.now());
-    logStmt.run(agent.id, runId, content, stream);
+    try {
+      logStmt.run(agent.id, runId, content, stream);
+    } catch (e: any) {
+      logger.warn({ err: e }, `logAndBroadcast: failed to write log for agent ${agent.id}`);
+      return;
+    }
     broadcastToAgent(agent.id, { type: 'output', stream, content, runId });
   }
 
@@ -284,12 +311,34 @@ export function startAgentProcess(
       // --- Claude Code events ---
       if (!handled && obj.type === 'assistant' && obj.message?.content) {
         handled = true;
+        let totalTextLen = 0;
+        let hasToolUse = false;
         for (const block of obj.message.content) {
           if (block.type === 'text' && block.text) {
+            totalTextLen += block.text.length;
             logAndBroadcast(block.text + '\n', 'stdout');
           } else if (block.type === 'tool_use') {
+            hasToolUse = true;
             logAndBroadcast(`[Tool: ${block.name}] ${JSON.stringify(block.input).slice(0, 200)}\n`, 'stdout');
           }
+        }
+
+        // Intra-session tail detection: track consecutive low-output assistant turns
+        // that have no tool calls (pure "confirmation" text with little substance)
+        if (!hasToolUse && totalTextLen < INTRA_LOW_OUTPUT_CHAR_LIMIT) {
+          const streak = (agentIntraSessionLowStreak.get(agent.id) || 0) + 1;
+          agentIntraSessionLowStreak.set(agent.id, streak);
+          if (streak >= INTRA_LOW_OUTPUT_KILL_THRESHOLD && isAgentRunning(agent.id)) {
+            logger.info(`Agent ${agent.id} hit ${streak} consecutive low-output assistant turns (< ${INTRA_LOW_OUTPUT_CHAR_LIMIT} chars, no tools), terminating session tail`);
+            logAndBroadcast(`\n[Argus] Session terminated: ${streak} consecutive low-output turns detected (tail request avoidance)\n`, 'stderr');
+            agentIntraSessionLowStreak.delete(agent.id);
+            // Set 'stopped' so close handler won't mark as error, preserving session for reuse
+            db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
+            stopAgentProcess(agent.id);
+          }
+        } else {
+          // Substantial output or tool use — reset streak
+          agentIntraSessionLowStreak.delete(agent.id);
         }
       } else if (!handled && obj.type === 'user' && obj.tool_use_result !== undefined) {
         handled = true;
@@ -301,6 +350,8 @@ export function startAgentProcess(
         // Mark that this agent has produced its final result — watchdog will force-kill
         // if the process doesn't exit within FINAL_RESULT_KILL_DELAY_MS (child curl stuck etc.)
         agentFinalResultTime.set(agent.id, Date.now());
+        // Track output tokens for low-output detection (tail request avoidance)
+        agentLastOutputTokens.set(agent.id, obj.usage?.output_tokens || 0);
         if (obj.result) {
           logAndBroadcast('\n--- Final Result ---\n' + obj.result + '\n', 'stdout');
         }
@@ -372,6 +423,7 @@ export function startAgentProcess(
     lastActivityTime.delete(agent.id);
     childCpuSnapshots.delete(agent.id);
     agentFinalResultTime.delete(agent.id);
+    agentIntraSessionLowStreak.delete(agent.id);
     cleanupPromptFile(promptFile);
 
     // Skip DB writes if database is already closed (during shutdown)
@@ -401,22 +453,27 @@ export function startAgentProcess(
         agentApiConnectErrorCount.set(agent.id, apiErrCount);
 
         if (apiErrCount <= 1) {
-          // First API connection failure: auto-retry after 5 seconds
-          logger.info(`Agent ${agent.id} API connection failed (attempt ${apiErrCount}), auto-retrying in 5s`);
-          logAndBroadcast('Argus: API连接失败，5秒后自动重试...\n', 'stderr');
-          // Keep status as 'running' during retry to prevent scheduler from re-triggering
+          // First API connection failure: auto-retry after 5 minutes to avoid wasting tokens
+          const retryDelayMs = 5 * 60 * 1000; // 5 minutes
+          logger.info(`Agent ${agent.id} API connection failed (attempt ${apiErrCount}), auto-retrying in 5 minutes`);
+          logAndBroadcast('Argus: API连接失败，5分钟后自动重试...\n', 'stderr');
+          // Set status to 'waiting' during retry delay — visible in UI, prevents scheduler re-trigger
           db.prepare(`
-            UPDATE agents SET status = 'running', pid = NULL, finished_at = datetime('now') WHERE id = ?
+            UPDATE agents SET status = 'waiting', pid = NULL, finished_at = datetime('now') WHERE id = ?
           `).run(agent.id);
+          broadcastToProject(agent.project_id, {
+            type: 'agent_status', projectId: agent.project_id,
+            data: { agentId: agent.id, status: 'waiting' },
+          });
           const retryTimer = setTimeout(() => {
             pendingRetryTimers.delete(agent.id);
             if (shuttingDown || !isDatabaseOpen()) return;
             const retryAgent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agent.id) as Agent | undefined;
-            if (retryAgent && retryAgent.status === 'running') {
-              logger.info(`Agent ${agent.id} auto-retrying after API connection failure`);
+            if (retryAgent && (retryAgent.status === 'waiting' || retryAgent.status === 'running')) {
+              logger.info(`Agent ${agent.id} auto-retrying after 5-minute API wait`);
               startAgentProcess(retryAgent, prompt, commandTemplate, systemPrompt);
             }
-          }, 5000);
+          }, retryDelayMs);
           pendingRetryTimers.set(agent.id, retryTimer);
           return;
         } else {
@@ -448,9 +505,22 @@ export function startAgentProcess(
         `).run(status, agent.id);
       }
     } else {
-      // Success — reset error counts
+      // Success — reset error counts and record finish time for cooldown
       agentErrorCount.delete(agent.id);
       agentApiConnectErrorCount.delete(agent.id);
+      agentLastFinishTime.set(agent.id, Date.now());
+
+      // Track consecutive low-output runs to avoid tail request waste
+      const lastOutput = agentLastOutputTokens.get(agent.id) || 0;
+      agentLastOutputTokens.delete(agent.id);
+      if (lastOutput > 0 && lastOutput < LOW_OUTPUT_THRESHOLD) {
+        const count = (agentConsecutiveLowOutput.get(agent.id) || 0) + 1;
+        agentConsecutiveLowOutput.set(agent.id, count);
+        logger.info(`Agent ${agent.id} low-output run (${lastOutput} tokens), consecutive count: ${count}`);
+      } else {
+        agentConsecutiveLowOutput.delete(agent.id);
+      }
+
       db.prepare(`
         UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now') WHERE id = ?
       `).run(status, agent.id);
@@ -477,6 +547,7 @@ export function startAgentProcess(
     lastActivityTime.delete(agent.id);
     childCpuSnapshots.delete(agent.id);
     agentFinalResultTime.delete(agent.id);
+    agentIntraSessionLowStreak.delete(agent.id);
     cleanupPromptFile(promptFile);
 
     if (shuttingDown || !isDatabaseOpen()) {
@@ -595,11 +666,13 @@ export function stopAgentProcess(agentId: string): boolean {
   const child = runningProcesses.get(agentId);
   if (!child) return false;
 
+  logger.info(`stopAgentProcess: sending SIGTERM to agent ${agentId} (pid=${child.pid})`);
   child.kill('SIGTERM');
   // Force kill after 5 seconds
   const killTimer = setTimeout(() => {
     pendingStopTimers.delete(killTimer);
     if (runningProcesses.has(agentId)) {
+      logger.info(`stopAgentProcess: sending SIGKILL to agent ${agentId} (pid=${child.pid})`);
       child.kill('SIGKILL');
       // Force cleanup after 3 more seconds — grandchild processes may hold
       // stdio pipes open, preventing the 'close' event from ever firing.
@@ -634,7 +707,57 @@ export function resetAgentActivity(agentId: string): void {
   lastActivityTime.set(agentId, Date.now());
 }
 
-export { DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS };
+export { DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS, RESTART_COOLDOWN_MS };
+
+/** Returns true if the agent recently finished and should not be auto-restarted yet.
+ *  Uses extended cooldown (10 min) if the last run had very low output tokens,
+ *  indicating a "tail request" that didn't produce useful work. */
+export function isAgentInCooldown(agentId: string): boolean {
+  const t = agentLastFinishTime.get(agentId);
+  if (!t) return false;
+  const elapsed = Date.now() - t;
+  const consecutiveLow = agentConsecutiveLowOutput.get(agentId) || 0;
+  const cooldown = consecutiveLow > 0 ? EXTENDED_COOLDOWN_MS : RESTART_COOLDOWN_MS;
+  return elapsed < cooldown;
+}
+
+/**
+ * Called from issue routes when a running agent marks all its assigned issues as done/closed.
+ * Signals that the agent's work is complete — subsequent low-output turns are likely tail requests.
+ */
+export function markAgentIssuesCompleted(agentId: string): void {
+  agentCompletedAllIssues.add(agentId);
+  logger.info(`Agent ${agentId} marked as having completed all assigned issues`);
+}
+
+/**
+ * Returns true if the agent should NOT be auto-restarted by scheduler/pre-controller.
+ * Blocks restart when:
+ * 1. Agent had 2+ consecutive low-output runs (clearly just doing tail confirmations)
+ * 2. Agent completed all issues AND had a low-output last run (work is done)
+ * The flag is cleared when new issues are assigned (checked externally).
+ */
+export function shouldSkipAutoRestart(agentId: string): boolean {
+  const consecutiveLow = agentConsecutiveLowOutput.get(agentId) || 0;
+  if (consecutiveLow >= MAX_CONSECUTIVE_LOW_OUTPUT) {
+    logger.info(`Skipping auto-restart for agent ${agentId}: ${consecutiveLow} consecutive low-output runs`);
+    return true;
+  }
+  if (agentCompletedAllIssues.has(agentId) && consecutiveLow > 0) {
+    logger.info(`Skipping auto-restart for agent ${agentId}: completed all issues + low-output last run`);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Reset the auto-restart skip state for an agent.
+ * Called when new issues are assigned or agent state changes meaningfully.
+ */
+export function resetAutoRestartSkip(agentId: string): void {
+  agentConsecutiveLowOutput.delete(agentId);
+  agentCompletedAllIssues.delete(agentId);
+}
 
 /**
  * Returns how many ms since the agent received its final result, or -1 if no final result yet.
@@ -697,10 +820,13 @@ export function stopAllProcesses(): Promise<void> {
       for (const agentId of agentIds) {
         const child = runningProcesses.get(agentId);
         if (child && child.pid) {
-          logger.info(`Force killing agent ${agentId} and descendants`);
-          // Kill descendants first (grandchild processes holding stdio open)
           const descendants = getDescendantPids(child.pid);
+          logger.info(`Force killing agent ${agentId} (pid=${child.pid}) and ${descendants.length} descendants: [${descendants.join(',')}]`);
           for (const dpid of descendants) {
+            if (dpid === process.pid || dpid === process.ppid) {
+              logger.error(`stopAllProcesses: refusing to kill PID ${dpid} — it is the Argus server (pid=${process.pid}, ppid=${process.ppid})`);
+              continue;
+            }
             try { process.kill(dpid, 'SIGKILL'); } catch {}
           }
           child.kill('SIGKILL');
