@@ -209,7 +209,13 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     if (!stopped) {
       // Process not in memory map — try killing PID directly if it exists
       if (agent.pid) {
-        try { process.kill(agent.pid, 'SIGTERM'); } catch {}
+        // Guard: never kill our own process or parent (PID reuse after restart)
+        if (agent.pid === process.pid || agent.pid === process.ppid) {
+          fastify.log.error(`Refusing to kill PID ${agent.pid} — it is the Argus server itself (pid=${process.pid}, ppid=${process.ppid})`);
+        } else {
+          fastify.log.warn(`Killing stale PID ${agent.pid} for agent "${agent.name}" (not in memory map)`);
+          try { process.kill(agent.pid, 'SIGTERM'); } catch {}
+        }
       }
       db.prepare("UPDATE agents SET pid = NULL WHERE id = ?").run(agent.id);
     }
@@ -353,8 +359,11 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
+    // Cost records are cumulative per run — only take the last record per run_id
     const costs = db.prepare(
-      "SELECT content, run_id, created_at FROM conversation_logs WHERE agent_id = ? AND stream = 'cost' ORDER BY created_at"
+      `SELECT c.content, c.run_id, c.created_at FROM conversation_logs c
+       INNER JOIN (SELECT MAX(id) as max_id FROM conversation_logs WHERE agent_id = ? AND stream = 'cost' GROUP BY run_id) latest
+       ON c.id = latest.max_id ORDER BY c.created_at`
     ).all(request.params.id) as any[];
 
     let totalCost = 0;
@@ -414,8 +423,9 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
 
     const result = runs.map(run => {
       // Get cost data for this run
+      // Cost records are cumulative — take the last one (highest cumulative value)
       const costLog = db.prepare(
-        "SELECT content FROM conversation_logs WHERE agent_id = ? AND run_id = ? AND stream = 'cost' LIMIT 1"
+        "SELECT content FROM conversation_logs WHERE agent_id = ? AND run_id = ? AND stream = 'cost' ORDER BY id DESC LIMIT 1"
       ).get(request.params.id, run.run_id) as { content: string } | undefined;
 
       let costUsd = 0, inputTokens = 0, outputTokens = 0, durationMs = 0;

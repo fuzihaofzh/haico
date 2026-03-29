@@ -30,9 +30,11 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
       "SELECT COUNT(*) as total, SUM(CASE WHEN status IN ('open', 'in_progress') THEN 1 ELSE 0 END) as open_count FROM issues"
     ).get() as any;
 
-    // Total cost across all projects
+    // Total cost across all projects — only last record per run_id (cost is cumulative)
     const costRows = db.prepare(
-      "SELECT content FROM conversation_logs WHERE stream = 'cost'"
+      `SELECT c.content FROM conversation_logs c
+       INNER JOIN (SELECT MAX(id) as max_id FROM conversation_logs WHERE stream = 'cost' GROUP BY run_id) latest
+       ON c.id = latest.max_id`
     ).all() as any[];
     let totalCost = 0;
     for (const c of costRows) {
@@ -69,12 +71,13 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     const period = request.query.period || 'day';
 
+    // Only last cost record per run_id (cost is cumulative)
     const rows = db.prepare(
       `SELECT c.content, c.created_at, p.id as project_id, p.name as project_name
        FROM conversation_logs c
+       INNER JOIN (SELECT MAX(id) as max_id FROM conversation_logs WHERE stream = 'cost' GROUP BY run_id) latest ON c.id = latest.max_id
        JOIN agents a ON c.agent_id = a.id
        JOIN projects p ON a.project_id = p.id
-       WHERE c.stream = 'cost'
        ORDER BY c.created_at`
     ).all() as any[];
 
@@ -186,8 +189,13 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const pid = request.params.id;
     const period = request.query.period; // day | week | month
 
+    // Only last cost record per run_id (cost is cumulative)
     const costs = db.prepare(
-      "SELECT c.content, c.run_id, c.created_at, a.name as agent_name FROM conversation_logs c JOIN agents a ON c.agent_id = a.id WHERE a.project_id = ? AND c.stream = 'cost' ORDER BY c.created_at"
+      `SELECT c.content, c.run_id, c.created_at, a.name as agent_name
+       FROM conversation_logs c
+       INNER JOIN (SELECT MAX(id) as max_id FROM conversation_logs cl JOIN agents al ON cl.agent_id = al.id WHERE al.project_id = ? AND cl.stream = 'cost' GROUP BY cl.run_id) latest ON c.id = latest.max_id
+       JOIN agents a ON c.agent_id = a.id
+       ORDER BY c.created_at`
     ).all(pid) as any[];
 
     let totalCost = 0;
@@ -521,9 +529,11 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const issues = db.prepare('SELECT * FROM issues WHERE project_id = ? ORDER BY number').all(pid);
     const milestones = db.prepare('SELECT * FROM milestones WHERE project_id = ?').all(pid);
 
-    // Cost summary
+    // Cost summary — only last cost record per run_id (cost is cumulative)
     const costRows = db.prepare(
-      "SELECT c.content, c.run_id, c.created_at, a.name as agent_name FROM conversation_logs c JOIN agents a ON c.agent_id = a.id WHERE a.project_id = ? AND c.stream = 'cost' ORDER BY c.created_at"
+      `SELECT c.content FROM conversation_logs c
+       INNER JOIN (SELECT MAX(id) as max_id FROM conversation_logs cl JOIN agents al ON cl.agent_id = al.id WHERE al.project_id = ? AND cl.stream = 'cost' GROUP BY cl.run_id) latest
+       ON c.id = latest.max_id`
     ).all(pid) as any[];
 
     let totalCost = 0;
