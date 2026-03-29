@@ -1,6 +1,6 @@
 import { getDatabase } from '../db/database';
 import { Agent, Project, Issue } from '../types';
-import { startAgentProcess, isAgentRunning } from './process-manager';
+import { startAgentProcess, isAgentRunning, isAgentInCooldown } from './process-manager';
 import { buildSystemPrompt } from './system-prompt';
 import { config } from '../config';
 import logger from '../logger';
@@ -67,6 +67,12 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
     // agent 正在运行 → 无需操作（它会处理）
     if (agent.status === 'running' || isAgentRunning(agent.id)) {
       logger.info(`Pre-controller: issue #${triggerIssueNumber} assigned to ${agent.name} which is running, skipping LLM`);
+      return true;
+    }
+
+    // agent in cooldown → skip restart, treat as handled (will restart after cooldown)
+    if (agent.status === 'idle' && isAgentInCooldown(agent.id)) {
+      logger.info(`Pre-controller: agent ${agent.name} in restart cooldown, deferring start for issue #${triggerIssueNumber}`);
       return true;
     }
 

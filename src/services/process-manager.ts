@@ -328,8 +328,10 @@ export function startAgentProcess(
         if (!hasToolUse && totalTextLen < INTRA_LOW_OUTPUT_CHAR_LIMIT) {
           const streak = (agentIntraSessionLowStreak.get(agent.id) || 0) + 1;
           agentIntraSessionLowStreak.set(agent.id, streak);
-          if (streak >= INTRA_LOW_OUTPUT_KILL_THRESHOLD && isAgentRunning(agent.id)) {
-            logger.info(`Agent ${agent.id} hit ${streak} consecutive low-output assistant turns (< ${INTRA_LOW_OUTPUT_CHAR_LIMIT} chars, no tools), terminating session tail`);
+          // More aggressive threshold when agent already completed all its issues
+          const killThreshold = agentCompletedAllIssues.has(agent.id) ? 1 : INTRA_LOW_OUTPUT_KILL_THRESHOLD;
+          if (streak >= killThreshold && isAgentRunning(agent.id)) {
+            logger.info(`Agent ${agent.id} hit ${streak} consecutive low-output assistant turns (< ${INTRA_LOW_OUTPUT_CHAR_LIMIT} chars, no tools, issuesDone=${agentCompletedAllIssues.has(agent.id)}), terminating session tail`);
             logAndBroadcast(`\n[Argus] Session terminated: ${streak} consecutive low-output turns detected (tail request avoidance)\n`, 'stderr');
             agentIntraSessionLowStreak.delete(agent.id);
             // Set 'stopped' so close handler won't mark as error, preserving session for reuse

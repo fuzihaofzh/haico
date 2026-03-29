@@ -2,7 +2,8 @@ import cron from 'node-cron';
 import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
 import { triggerControllerAgent } from './controller';
-import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
+import { tryHandleWithoutLLM } from './pre-controller';
+import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, isAgentInCooldown, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
 import { buildSystemPrompt } from './system-prompt';
 import { config } from '../config';
 import logger from '../logger';
@@ -59,6 +60,8 @@ function startIssueScan(): void {
 
         for (const worker of idleWorkersWithIssues) {
           if (isAgentRunning(worker.id)) continue;
+          // Cooldown: skip agents that just finished to avoid low-output tail restarts
+          if (isAgentInCooldown(worker.id)) continue;
           try {
             // Build prompt same as /api/agents/:id/start
             const parts: string[] = [];
@@ -112,8 +115,13 @@ function startIssueScan(): void {
         `).get(project.id) as { number: number } | undefined;
 
         if (staleIssue) {
-          logger.info(`Issue scan: stale in_progress issue #${staleIssue.number} with idle agent in project "${project.name}", re-triggering controller`);
-          triggerControllerAgent(project, false, staleIssue.number);
+          // Try pre-controller first to restart idle worker directly (avoid expensive LLM controller call)
+          if (tryHandleWithoutLLM(project.id, staleIssue.number)) {
+            logger.info(`Issue scan: stale issue #${staleIssue.number} handled by pre-controller (direct worker restart)`);
+          } else {
+            logger.info(`Issue scan: stale in_progress issue #${staleIssue.number} with idle agent in project "${project.name}", re-triggering controller`);
+            triggerControllerAgent(project, false, staleIssue.number);
+          }
         }
       }
     } catch (e) {
