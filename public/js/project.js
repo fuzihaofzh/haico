@@ -57,6 +57,16 @@ function getProjectAccessMeta(project) {
   return PROJECT_ACCESS_META[getProjectAccessLevel(project)] || PROJECT_ACCESS_META.none;
 }
 
+function canManageProject() {
+  return !!projectData?.can_manage;
+}
+
+function requireProjectManageAccess(message) {
+  if (canManageProject()) return true;
+  showToast(message || '当前权限不足', 'error');
+  return false;
+}
+
 function renderPermissionBadge(meta) {
   return `<span class="permission-badge permission-${meta.tone}" title="${esc(meta.summary)}">${meta.badge}</span>`;
 }
@@ -64,9 +74,9 @@ function renderPermissionBadge(meta) {
 function applyProjectManageState() {
   if (!projectData) return;
 
-  const canManage = !!projectData.can_manage;
+  const canManage = canManageProject();
   const meta = getProjectAccessMeta(projectData);
-  const manageIds = ['btn-toggle', 'btn-trigger', 'btn-delete-project', 'btn-share-project', 'btn-save-overview', 'btn-new-agent'];
+  const manageIds = ['btn-toggle', 'btn-trigger', 'btn-delete-project', 'btn-share-project', 'btn-save-overview', 'btn-new-agent', 'btn-new-issue', 'btn-new-knowledge'];
   manageIds.forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.style.display = canManage ? '' : 'none';
@@ -285,6 +295,8 @@ async function loadProject() {
       document.getElementById('project-cost-value').textContent = `$${c.total_cost_usd.toFixed(4)} (${c.total_input_tokens} in / ${c.total_output_tokens} out)`;
     }
   }).catch(() => {});
+
+  loadAgents();
 }
 
 async function toggleProjectStatus() {
@@ -367,7 +379,7 @@ async function addProjectMember() {
 }
 
 async function removeProjectMember(userId, encodedDisplayName) {
-  if (!projectData?.can_manage) { showToast('当前权限无法管理分享', 'error'); return; }
+  if (!requireProjectManageAccess('当前权限无法管理分享')) return;
   if (projectData?.owner?.id === userId) {
     showToast('项目拥有者不可移除', 'error');
     return;
@@ -380,7 +392,6 @@ async function removeProjectMember(userId, encodedDisplayName) {
 
   const res = await fetch(`/api/projects/${projectId}/members/${userId}`, {
     method: 'DELETE',
-    headers: apiHeaders(),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -399,6 +410,7 @@ async function loadAgents() {
   const res = await fetch(`/api/projects/${projectId}/agents`, { headers: apiHeaders() });
   agentsData = await res.json();
   const list = document.getElementById('agent-list');
+  const canManage = canManageProject();
 
   // Update tab count
   updateTabCounts();
@@ -453,8 +465,10 @@ async function loadAgents() {
       bannerEl.style.display = '';
       bannerEl.innerHTML = errorAgents.map(a => {
         const errMsg = errorLogs[a.id] ? esc(errorLogs[a.id].slice(0, 300)) : 'Unknown error';
-        return `<div style="margin-bottom:4px"><strong>${esc(a.name)}</strong> failed: <span style="font-family:monospace;font-size:11px">${errMsg}</span>
-          <button class="btn btn-sm" onclick="retryAgent('${a.id}')" style="margin-left:8px;color:var(--warning);padding:2px 8px">Retry</button></div>`;
+        const retryAction = canManage
+          ? `<button class="btn btn-sm" onclick="retryAgent('${a.id}')" style="margin-left:8px;color:var(--warning);padding:2px 8px">Retry</button>`
+          : '';
+        return `<div style="margin-bottom:4px"><strong>${esc(a.name)}</strong> failed: <span style="font-family:monospace;font-size:11px">${errMsg}</span>${retryAction}</div>`;
       }).join('');
     } else {
       bannerEl.style.display = 'none';
@@ -479,16 +493,22 @@ async function loadAgents() {
     const errBox = a.status === 'error' && errorLogs[a.id]
       ? `<div style="margin-top:4px;padding:6px 8px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:4px;font-size:11px;color:var(--error);font-family:monospace;max-height:60px;overflow:auto;white-space:pre-wrap">${esc(errorLogs[a.id].slice(0, 500))}</div>` : '';
     const spinner = a.status === 'running' ? '<span class="thinking-spinner">✦</span> ' : '';
-    const deleteBtn = !a.is_controller && a.status !== 'running'
+    const deleteBtn = canManage && !a.is_controller && a.status !== 'running'
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();deleteAgent('${a.id}')" style="color:var(--error);padding:3px 6px" title="Delete">✕</button>` : '';
-    const retryBtn = a.status === 'error' && a.last_prompt && !a.paused
+    const retryBtn = canManage && a.status === 'error' && a.last_prompt && !a.paused
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();retryAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Retry last prompt">Retry</button>` : '';
-    const pauseBtn = !a.paused
+    const pauseBtn = canManage && !a.paused
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();pauseAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Pause agent">⏸</button>`
-      : `<button class="btn btn-sm" onclick="event.stopPropagation();unpauseAgent('${a.id}')" style="color:var(--success);padding:3px 6px" title="Resume agent">▶</button>`;
-    const chatBtn = `<button class="btn btn-sm" onclick="event.stopPropagation();openTerminal('${a.id}')" style="padding:3px 6px" title="Open terminal chat">Chat</button>`;
+      : canManage
+        ? `<button class="btn btn-sm" onclick="event.stopPropagation();unpauseAgent('${a.id}')" style="color:var(--success);padding:3px 6px" title="Resume agent">▶</button>`
+        : '';
+    const chatBtn = canManage
+      ? `<button class="btn btn-sm" onclick="event.stopPropagation();openTerminal('${a.id}')" style="padding:3px 6px" title="Open terminal chat">Chat</button>`
+      : '';
     let actions;
-    if (a.paused) {
+    if (!canManage) {
+      actions = '';
+    } else if (a.paused) {
       actions = `${chatBtn}${pauseBtn}${deleteBtn}`;
     } else if (a.status === 'running') {
       actions = `${chatBtn}${pauseBtn}<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();stopAgentById('${a.id}')">Stop</button>`;
@@ -564,6 +584,20 @@ async function viewAgent(agentId) {
   try {
     const agentRes = await fetch(`/api/agents/${agentId}`, { headers: apiHeaders() });
     const agent = agentRes.ok ? await agentRes.json() : agentsData.find(a => a.id === agentId);
+    const canManage = canManageProject();
+    const readOnlyAttr = canManage ? '' : 'disabled';
+    const readonlyNote = canManage
+      ? ''
+      : `<div class="project-readonly-banner" style="display:block;margin-bottom:16px">当前为共享只读视角，不能启动、暂停、重试、删除、聊天或修改 Agent 设置。</div>`;
+    const detailActions = canManage
+      ? `
+              <button class="btn btn-sm" onclick="openTerminal('${agentId}')" title="Open terminal chat">Chat</button>
+              ${agent.status === 'error' && agent.last_prompt ? `<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>` : ''}
+      `
+      : '';
+    const saveSettingsButton = canManage
+      ? '<button class="btn btn-primary" onclick="saveAllAgentFields(\'' + agentId + '\')">Save Settings</button>'
+      : '';
 
     const L = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:4px';
     const B = 'padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px';
@@ -575,8 +609,7 @@ async function viewAgent(agentId) {
           <div class="flex-between">
             <h3 style="display:flex;align-items:center;gap:8px">${avatarSvg(agent.name, 28)} ${esc(agent.name)} ${agent.is_controller ? '<span style="color:var(--accent);font-size:12px">[controller]</span>' : ''}</h3>
             <div class="flex" style="gap:6px">
-              <button class="btn btn-sm" onclick="openTerminal('${agentId}')" title="Open terminal chat">Chat</button>
-              ${agent.status === 'error' && agent.last_prompt ? `<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>` : ''}
+              ${detailActions}
               <span class="status-badge status-${agent.status}">${agent.status}${agent.pid ? ' (PID:' + agent.pid + ')' : ''}</span>
             </div>
           </div>
@@ -584,6 +617,7 @@ async function viewAgent(agentId) {
         </div>
 
         <div id="agent-detail-scroll" style="padding:16px 20px">
+          ${readonlyNote}
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 16px;font-size:12px;color:var(--text-secondary);margin-bottom:16px">
             <div>Started: <span style="color:var(--fg)">${formatLocalDateTime(agent.started_at)}</span></div>
             <div>Finished: <span style="color:var(--fg)">${formatLocalDateTime(agent.finished_at)}</span></div>
@@ -597,36 +631,36 @@ async function viewAgent(agentId) {
           <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
               <div style="${L}">Working Directory</div>
-              <input type="text" id="ad-workdir-${agentId}" value="${esc(agent.working_directory || '')}" placeholder="(default)" style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
+              <input type="text" id="ad-workdir-${agentId}" value="${esc(agent.working_directory || '')}" placeholder="(default)" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
             </div>
             <div style="flex:1;min-width:200px">
               <div style="${L}">Tool Path</div>
-              <input type="text" id="ad-cmdtpl-${agentId}" value="${esc(agent.command_template || '')}" placeholder="(使用项目默认)" style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
+              <input type="text" id="ad-cmdtpl-${agentId}" value="${esc(agent.command_template || '')}" placeholder="(使用项目默认)" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
               <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">留空=使用项目默认</div>
             </div>
             <div style="width:140px">
               <div style="${L}">Max Cache Tokens</div>
-              <input type="number" id="ad-maxtokens-${agentId}" value="${agent.session_max_tokens || 200000}" min="0" style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
+              <input type="number" id="ad-maxtokens-${agentId}" value="${agent.session_max_tokens || 200000}" min="0" ${readOnlyAttr} style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
               <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0=用次数控制</div>
             </div>
             <div style="width:120px">
               <div style="${L}">Max Runs/Session</div>
-              <input type="number" id="ad-maxruns-${agentId}" value="${agent.session_max_runs || 10}" min="1" style="${B};width:60px;font-size:12px;color:var(--fg);text-align:center">
+              <input type="number" id="ad-maxruns-${agentId}" value="${agent.session_max_runs || 10}" min="1" ${readOnlyAttr} style="${B};width:60px;font-size:12px;color:var(--fg);text-align:center">
             </div>
             <div style="width:140px">
               <div style="${L}">Resume Timeout(s)</div>
-              <input type="number" id="ad-resumetimeout-${agentId}" value="${agent.session_resume_timeout ?? 300}" min="0" style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
+              <input type="number" id="ad-resumetimeout-${agentId}" value="${agent.session_resume_timeout ?? 300}" min="0" ${readOnlyAttr} style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
               <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0=不限时间</div>
             </div>
           </div>
 
           <div style="margin-bottom:16px">
             <div style="${L}">Custom Instructions</div>
-            <textarea id="ad-instructions-${agentId}" rows="3" style="${B};width:100%;font-size:12px;font-family:inherit;color:var(--fg);resize:vertical" placeholder="Extra instructions appended to system prompt...">${esc(agent.custom_instructions || '')}</textarea>
+            <textarea id="ad-instructions-${agentId}" rows="3" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:inherit;color:var(--fg);resize:vertical" placeholder="Extra instructions appended to system prompt...">${esc(agent.custom_instructions || '')}</textarea>
           </div>
 
           <div style="margin-bottom:16px;text-align:right">
-            <button class="btn btn-primary" onclick="saveAllAgentFields('${agentId}')">Save Settings</button>
+            ${saveSettingsButton}
           </div>
 
           <div style="margin-bottom:16px">
@@ -794,6 +828,7 @@ async function loadAgentOutput(agentId, options) {
 }
 
 async function saveAllAgentFields(agentId) {
+  if (!requireProjectManageAccess('当前权限无法修改 Agent 设置')) return;
   const btn = document.querySelector(`button[onclick="saveAllAgentFields('${agentId}')"]`);
   if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
   try {
@@ -986,6 +1021,7 @@ function closeAgentDetail() {
 }
 
 async function deleteAgent(id) {
+  if (!requireProjectManageAccess('当前权限无法删除 Agent')) return;
   const agent = agentsData.find(a => a.id === id);
   if (!await showConfirm(`Delete agent "${agent?.name || id}"?`)) return;
   const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
@@ -996,6 +1032,7 @@ async function deleteAgent(id) {
 }
 
 async function retryAgent(id) {
+  if (!requireProjectManageAccess('当前权限无法重试 Agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/retry`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
@@ -1004,10 +1041,12 @@ async function retryAgent(id) {
 }
 
 function openTerminal(agentId) {
+  if (!requireProjectManageAccess('当前权限无法打开 Agent 终端')) return;
   window.location.href = `/terminal?agentId=${agentId}&newSession=true`;
 }
 
 async function quickStartAgent(id) {
+  if (!requireProjectManageAccess('当前权限无法启动 Agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/start`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
@@ -1015,6 +1054,7 @@ async function quickStartAgent(id) {
   });
 }
 async function pauseAgent(id) {
+  if (!requireProjectManageAccess('当前权限无法暂停 Agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/pause`, { method: 'POST', headers: apiHeaders(), body: '{}' });
@@ -1023,6 +1063,7 @@ async function pauseAgent(id) {
 }
 
 async function unpauseAgent(id) {
+  if (!requireProjectManageAccess('当前权限无法恢复 Agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/unpause`, { method: 'POST', headers: apiHeaders(), body: '{}' });
@@ -1031,6 +1072,7 @@ async function unpauseAgent(id) {
 }
 
 async function stopAgentById(id) {
+  if (!requireProjectManageAccess('当前权限无法停止 Agent')) return;
   if (!await showConfirm('Stop this agent?')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
@@ -1051,6 +1093,7 @@ function showCreateAgentModal() {
 function hideModal(id) { document.getElementById(id).classList.remove('active'); }
 
 async function createAgent() {
+  if (!requireProjectManageAccess('当前权限无法创建 Agent')) return;
   const btn = document.querySelector('#createAgentModal button[onclick="createAgent()"]');
   await withLoading(btn, async () => {
     const body = { name: document.getElementById('agent-name').value, role: document.getElementById('agent-role').value, working_directory: document.getElementById('agent-workdir').value || undefined, command_template: document.getElementById('agent-cmdtpl').value.trim() || undefined };
@@ -1258,6 +1301,7 @@ function applyIssueTemplate(tpl) {
 }
 
 function showCreateIssueModal() {
+  if (!requireProjectManageAccess('当前权限无法创建 Issue')) return;
   document.getElementById('issue-title').value = '';
   document.getElementById('issue-body').value = '';
   document.getElementById('issue-labels').value = '';
@@ -1274,6 +1318,7 @@ function showCreateIssueModal() {
 }
 
 async function createIssue() {
+  if (!requireProjectManageAccess('当前权限无法创建 Issue')) return;
   const btn = document.querySelector('#createIssueModal button[onclick="createIssue()"]');
   await withLoading(btn, async () => {
     const body = {
@@ -1848,6 +1893,7 @@ function renderStackedBarChart(agents, totalSeries, width, height, colorMap) {
 async function loadKnowledge() {
   const el = document.getElementById('knowledge-list');
   if (!el) return;
+  const canManage = canManageProject();
   const importance = document.getElementById('knowledge-filter-importance')?.value || '';
   const qs = importance ? `?importance=${importance}` : '';
   try {
@@ -1856,7 +1902,7 @@ async function loadKnowledge() {
     const data = await res.json();
     const entries = data.entries || [];
     if (entries.length === 0) {
-      el.innerHTML = '<div class="empty-state">暂无知识条目。点击「添加知识」开始构建项目知识库。</div>';
+      el.innerHTML = `<div class="empty-state">暂无知识条目。${canManage ? '点击「添加知识」开始构建项目知识库。' : ''}</div>`;
       return;
     }
     const impBadge = (imp) => {
@@ -1874,10 +1920,10 @@ async function loadKnowledge() {
           <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;max-height:60px;overflow:hidden;white-space:pre-wrap">${esc((e.content || '').slice(0, 200))}${e.content && e.content.length > 200 ? '...' : ''}</div>
           ${e.tags ? `<div style="display:flex;gap:4px;flex-wrap:wrap">${e.tags.split(',').filter(t => t.trim()).map(t => `<span style="padding:1px 6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;font-size:10px">${esc(t.trim())}</span>`).join('')}</div>` : ''}
         </div>
-        <div style="display:flex;gap:4px;flex-shrink:0;margin-left:12px">
+        ${canManage ? `<div style="display:flex;gap:4px;flex-shrink:0;margin-left:12px">
           <button class="btn btn-sm" onclick="editKnowledge('${e.id}')" style="padding:3px 8px">编辑</button>
           <button class="btn btn-sm" onclick="deleteKnowledge('${e.id}')" style="padding:3px 8px;color:var(--error)">删除</button>
-        </div>
+        </div>` : ''}
       </div>
     `).join('') + '</div>';
   } catch (e) { el.innerHTML = renderError(e, 'loadKnowledge()'); }
@@ -1886,6 +1932,7 @@ async function loadKnowledge() {
 let _knowledgeCache = [];
 
 function showCreateKnowledgeModal() {
+  if (!requireProjectManageAccess('当前权限无法添加知识')) return;
   document.getElementById('knowledge-modal-title').textContent = '添加知识条目';
   document.getElementById('knowledge-edit-id').value = '';
   document.getElementById('knowledge-title').value = '';
@@ -1896,6 +1943,7 @@ function showCreateKnowledgeModal() {
 }
 
 async function editKnowledge(id) {
+  if (!requireProjectManageAccess('当前权限无法编辑知识')) return;
   try {
     const res = await fetch(`/api/knowledge/${id}`, { headers: apiHeaders() });
     if (!res.ok) return;
@@ -1911,6 +1959,7 @@ async function editKnowledge(id) {
 }
 
 async function saveKnowledge() {
+  if (!requireProjectManageAccess('当前权限无法保存知识')) return;
   const id = document.getElementById('knowledge-edit-id').value;
   const body = {
     title: document.getElementById('knowledge-title').value,
@@ -1935,6 +1984,7 @@ async function saveKnowledge() {
 }
 
 async function deleteKnowledge(id) {
+  if (!requireProjectManageAccess('当前权限无法删除知识')) return;
   if (!await showConfirm('确定删除此知识条目？')) return;
   try {
     const res = await fetch(`/api/knowledge/${id}`, { method: 'DELETE', headers: apiHeaders() });

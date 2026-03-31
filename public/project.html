@@ -77,12 +77,12 @@
           <span class="meta-chip" id="project-access-summary"></span>
           <span class="meta-chip" id="project-owner-summary"></span>
           <button class="btn btn-sm" id="btn-view-members" onclick="openProjectMembersModal(false)">成员列表</button>
-          <button class="btn btn-sm btn-primary" id="btn-share-project" onclick="openProjectMembersModal(true)">分享管理</button>
+          <button class="btn btn-sm btn-primary" id="btn-share-project" onclick="openProjectMembersModal(true)" style="display:none">分享管理</button>
         </div>
         <div class="project-inline-note" id="project-debug-note" style="display:none"></div>
         <div class="project-readonly-banner" id="project-readonly-banner" style="display:none"></div>
       </div>
-      <div class="flex" id="project-manage-actions">
+      <div class="flex" id="project-manage-actions" style="display:none">
         <button class="btn btn-sm" id="btn-toggle" onclick="toggleProjectStatus()">Pause</button>
         <button class="btn btn-sm btn-primary" id="btn-trigger" onclick="triggerController()">Trigger Controller</button>
         <button class="btn btn-sm btn-danger" id="btn-delete-project" onclick="deleteProject()">Delete</button>
@@ -128,7 +128,7 @@
           <span id="project-cost" style="display:none">Cost: <strong id="project-cost-value"></strong></span>
         </div>
         <div class="project-inline-note" id="project-overview-readonly-hint" style="display:none"></div>
-        <button class="btn btn-primary" id="btn-save-overview" onclick="saveOverview()">Save Changes</button>
+        <button class="btn btn-primary" id="btn-save-overview" onclick="saveOverview()" style="display:none">Save Changes</button>
       </div>
 
       <!-- Cost Time-Series Chart (bottom of overview) -->
@@ -157,7 +157,7 @@
       <div id="orchestration-decision-container" style="margin-bottom:16px"></div>
       <div class="flex-between mb-16">
         <h3>Agents</h3>
-        <button class="btn btn-primary btn-sm" id="btn-new-agent" onclick="showCreateAgentModal()">+ New Agent</button>
+        <button class="btn btn-primary btn-sm" id="btn-new-agent" onclick="showCreateAgentModal()" style="display:none">+ New Agent</button>
       </div>
       <div id="agent-error-banner" style="display:none;padding:10px 14px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:6px;margin-bottom:12px;color:var(--error);font-size:12px"></div>
       <div class="card">
@@ -183,7 +183,7 @@
           <option value="updated">Recently updated</option>
           <option value="comments">Most comments</option>
         </select>
-        <button class="btn btn-primary btn-sm" onclick="showCreateIssueModal()">+ New Issue</button>
+        <button class="btn btn-primary btn-sm" id="btn-new-issue" onclick="showCreateIssueModal()" style="display:none">+ New Issue</button>
       </div>
       <!-- Active filters summary -->
       <div id="issue-active-filters" style="display:none;margin-bottom:8px;font-size:12px;color:var(--text-secondary);align-items:center;gap:6px;flex-wrap:wrap"></div>
@@ -221,7 +221,7 @@
             <option value="low">低</option>
           </select>
         </div>
-        <button class="btn btn-primary" onclick="showCreateKnowledgeModal()">+ 添加知识</button>
+        <button class="btn btn-primary" id="btn-new-knowledge" onclick="showCreateKnowledgeModal()" style="display:none">+ 添加知识</button>
       </div>
       <div id="knowledge-list" class="card">
         <div class="empty-state">Loading...</div>

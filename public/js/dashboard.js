@@ -4,6 +4,7 @@ let _notificationsCollapsed = false;
 let _notifFilter = 'all'; // 'all' or 'action'
 let _inboxSearchQuery = '';
 let _inboxAllItems = []; // cached items for search filtering
+let _dashboardProjectsById = {};
 
 // Track known action-required issue IDs to detect new ones
 let _knownActionIssueIds = null; // null = first load (don't ring on first load)
@@ -335,6 +336,7 @@ async function loadProjects() {
       return;
     }
     const projects = await res.json();
+    _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
     if (!projects.length) {
       container.innerHTML = '<div class="empty-state">No projects yet. Create one to get started.</div>';
       return;
@@ -371,6 +373,15 @@ async function loadProjects() {
       const activityLine = activityText
         ? `<div class="last-activity">Last activity: ${activityText}</div>`
         : '';
+      const quickCmdBar = p.can_manage ? `
+        <div class="quick-cmd-bar" onclick="event.stopPropagation()">
+          <div class="quick-cmd-row">
+            <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." oninput="toggleQuickCmdBody('${p.id}')" onkeydown="if(event.key==='Enter'&&event.shiftKey){event.preventDefault();sendQuickCmd('${p.id}')}">
+            <button class="quick-cmd-btn" onclick="sendQuickCmd('${p.id}')" title="Send">&#9654;</button>
+          </div>
+          <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="详细内容（可选）..." rows="3" data-collapsed></textarea>
+        </div>
+      ` : '';
       return `
       <div class="card project-card" style="cursor:pointer" onclick="window.location='${link}'">
         <div class="project-card-head">
@@ -413,13 +424,7 @@ async function loadProjects() {
           </div>
         </div>
         ${activityLine}
-        <div class="quick-cmd-bar" onclick="event.stopPropagation()">
-          <div class="quick-cmd-row">
-            <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." oninput="toggleQuickCmdBody('${p.id}')" onkeydown="if(event.key==='Enter'&&event.shiftKey){event.preventDefault();sendQuickCmd('${p.id}')}">
-            <button class="quick-cmd-btn" onclick="sendQuickCmd('${p.id}')" title="Send">&#9654;</button>
-          </div>
-          <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="详细内容（可选）..." rows="3" data-collapsed></textarea>
-        </div>
+        ${quickCmdBar}
       </div>
     `}).join('');
 
@@ -504,6 +509,10 @@ async function createProject() {
 }
 
 async function toggleProjectStatus(projectId, currentStatus) {
+  if (!_dashboardProjectsById[projectId]?.can_manage) {
+    showToast('当前权限无法修改项目状态', 'error');
+    return;
+  }
   const newStatus = currentStatus === 'active' ? 'paused' : 'active';
   try {
     const res = await fetch(`/api/projects/${projectId}`, {
@@ -526,6 +535,10 @@ function toggleQuickCmdBody(projectId) {
 }
 
 async function sendQuickCmd(projectId) {
+  if (!_dashboardProjectsById[projectId]?.can_manage) {
+    showToast('当前权限无法创建项目任务', 'error');
+    return;
+  }
   const input = document.getElementById('quick-cmd-' + projectId);
   const bodyEl = document.getElementById('quick-cmd-body-' + projectId);
   const msg = input.value.trim();
