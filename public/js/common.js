@@ -78,10 +78,46 @@ async function withLoading(btn, asyncFn) {
   }
 }
 
+function parseServerDate(dateStr) {
+  if (!dateStr) return null;
+  const value = String(dateStr).trim();
+  if (!value) return null;
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : value.replace(' ', 'T') + 'Z';
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatLocalDateTime(dateStr) {
+  const date = parseServerDate(dateStr);
+  if (!date) return '-';
+  return date.toLocaleString([], {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
+function formatLocalTime(dateStr) {
+  const date = parseServerDate(dateStr);
+  if (!date) return '-';
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
 function timeAgo(dateStr) {
   if (!dateStr) return '-';
   const now = Date.now();
-  const then = new Date(dateStr + (dateStr.includes('Z') ? '' : 'Z')).getTime();
+  const thenDate = parseServerDate(dateStr);
+  if (!thenDate) return '-';
+  const then = thenDate.getTime();
   const diff = now - then;
   if (diff < 0) return 'just now';
   const mins = Math.floor(diff / 60000);
@@ -129,6 +165,38 @@ function renderError(err, onRetryId) {
   var retryHtml = onRetryId ? '<button class="retry-btn" onclick="' + onRetryId + '">重试</button>' : '';
   return '<div class="error-retry"><div class="error-msg">' + esc(msg) + '</div>' + retryHtml + '</div>';
 }
+
+function renderCollapsibleText(text, options) {
+  const value = text == null ? '' : String(text);
+  const opts = options || {};
+  const previewChars = Number.isFinite(opts.previewChars) ? opts.previewChars : 120;
+  const className = opts.className ? ' ' + opts.className : '';
+  const styleAttr = opts.style ? ` style="${opts.style}"` : '';
+  const expandLabel = opts.expandLabel || 'Expand';
+  const collapseLabel = opts.collapseLabel || 'Collapse';
+  const contentHtml = `<span class="collapsible-text__content">${esc(value)}</span>`;
+  const needsCollapse = value.length > previewChars || /[\r\n]/.test(value);
+
+  if (!needsCollapse) {
+    return `<span class="collapsible-text${className}"${styleAttr}>${contentHtml}</span>`;
+  }
+
+  return `<button type="button" class="collapsible-text is-collapsible${className}" data-collapsible-text data-expanded="false" data-expand-label="${esc(expandLabel)}" data-collapse-label="${esc(collapseLabel)}" aria-expanded="false" title="Click to expand"${styleAttr}>${contentHtml}<span class="collapsible-text__hint" aria-hidden="true">${esc(expandLabel)}</span></button>`;
+}
+
+document.addEventListener('click', function(e) {
+  const trigger = e.target.closest('[data-collapsible-text]');
+  if (!trigger) return;
+  const expanded = trigger.getAttribute('data-expanded') === 'true';
+  const nextExpanded = !expanded;
+  trigger.setAttribute('data-expanded', nextExpanded ? 'true' : 'false');
+  trigger.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+  trigger.title = nextExpanded ? 'Click to collapse' : 'Click to expand';
+  const hint = trigger.querySelector('.collapsible-text__hint');
+  if (hint) {
+    hint.textContent = trigger.getAttribute(nextExpanded ? 'data-collapse-label' : 'data-expand-label') || (nextExpanded ? 'Collapse' : 'Expand');
+  }
+});
 
 // Toast notifications
 function showToast(message, type) {
@@ -664,4 +732,3 @@ function setupMentionAutocomplete(textarea, agents) {
     blurTimeout = setTimeout(cancelMention, 200);
   });
 }
-

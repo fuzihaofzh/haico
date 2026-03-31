@@ -5,6 +5,7 @@ import { config } from '../config';
 import { getDatabase } from '../db/database';
 import logger from '../logger';
 import { startAgentProcess } from './process-manager';
+import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
 import { buildSystemPrompt } from './system-prompt';
 
 export interface LangGraphControllerInput {
@@ -91,24 +92,16 @@ const ControllerGraphState = Annotation.Root({
 });
 
 function buildWorkerPrompt(project: Project, agent: Agent, assignedIssues: Issue[]): string {
-  const sortedIssues = [...assignedIssues].sort((a, b) => {
-    if (a.priority !== b.priority) return b.priority - a.priority;
-    return a.number - b.number;
-  });
-
-  const issueText = sortedIssues
-    .map((issue) => {
-      const body = (issue.body || '').slice(0, 1000);
-      return '#' + issue.number + ' [' + issue.status + '] [p' + issue.priority + '] ' + issue.title + '\n' + (body || '(no description)');
-    })
-    .join('\n\n');
+  const issueBatch = getAgentIssueBatch(assignedIssues);
 
   const parts: string[] = [];
   if (agent.role) parts.push('Role: ' + agent.role);
   if (project.task_description) parts.push('Project task: ' + project.task_description);
-  parts.push('You were auto-dispatched because you have ' + sortedIssues.length + ' active assigned issue(s). Prioritize high-priority items first.');
-  parts.push('Assigned issues:\n' + issueText);
-  parts.push('Update issue status/comments while you work and stop when your current batch is complete.');
+  parts.push('You were auto-dispatched because you have ' + issueBatch.activeIssues.length + ' active assigned issue(s). Prioritize high-priority items first.');
+  parts.push(buildAssignedIssuesPrompt(issueBatch, {
+    bodyCharLimit: 1000,
+    stopInstruction: 'Update issue status/comments while you work. Only work on the current batch in this run; when the current batch is complete, stop.',
+  }));
 
   return parts.join('\n\n');
 }
@@ -485,17 +478,16 @@ const controllerGraph = new StateGraph(ControllerGraphState)
 
       try {
         const process = startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
-        db.prepare(
-          "UPDATE issues SET status = 'in_progress', updated_at = datetime('now') WHERE project_id = ? AND assigned_to = ? AND status = 'open'"
-        ).run(state.project.id, agent.id);
+        const issueBatch = getAgentIssueBatch(assignedIssues);
+        markCurrentBatchInProgress(db, issueBatch);
 
         logger.info(
-          'LangGraph dispatched worker agent (project=' + state.project.id + ', agent=' + agent.id + ', issues=' + assignedIssues.length + ', runId=' + process.runId + ')'
+          'LangGraph dispatched worker agent (project=' + state.project.id + ', agent=' + agent.id + ', issues=' + issueBatch.currentBatch.length + '/' + issueBatch.activeIssues.length + ', runId=' + process.runId + ')'
         );
         results.push({
           agentId: action.agentId,
           started: true,
-          message: 'started for ' + assignedIssues.length + ' assigned issue(s)',
+          message: 'started for ' + issueBatch.currentBatch.length + '/' + issueBatch.activeIssues.length + ' assigned issue(s) in current batch',
           runId: process.runId,
           pid: process.pid,
         });

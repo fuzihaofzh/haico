@@ -222,7 +222,7 @@ async function loadHistory() {
         if (trimmed.startsWith('[Tool: ')) {
           const parsed = parseToolActivity(trimmed);
           if (parsed) {
-            activities.push({ tool: parsed.tool, detail: parsed.detail, time: new Date(log.created_at || Date.now()), active: false });
+            activities.push({ tool: parsed.tool, detail: parsed.detail, time: parseServerDate(log.created_at) || new Date(), active: false });
             if (activities.length > MAX_ACTIVITIES) activities.shift();
           }
         }
@@ -247,7 +247,7 @@ async function loadAgentInfo() {
     document.getElementById('agent-role').textContent = agent.role || '-';
     document.getElementById('agent-type').textContent = agent.is_controller ? 'Controller' : 'Worker';
     document.getElementById('agent-status-text').textContent = agent.status + (agent.pid ? ` (PID: ${agent.pid})` : '');
-    document.getElementById('agent-started').textContent = agent.started_at || '-';
+    document.getElementById('agent-started').textContent = formatLocalDateTime(agent.started_at);
     document.getElementById('agent-status').textContent = agent.status;
     document.getElementById('agent-status').className = `status-badge status-${agent.status}`;
     document.title = `Argus - ${agent.name}`;

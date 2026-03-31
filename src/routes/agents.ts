@@ -6,9 +6,12 @@ import * as os from 'os';
 import { getDatabase } from '../db/database';
 import { Agent, Project, CreateAgentInput, StartAgentInput } from '../types';
 import { startAgentProcess, stopAgentProcess, isAgentRunning } from '../services/process-manager';
+import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from '../services/agent-issue-batch';
 import { buildSystemPrompt } from '../services/system-prompt';
 import { config } from '../config';
 import { broadcastToProject } from '../services/websocket';
+
+const TOOL_CALL_REPORT_CHAR_LIMIT = 4000;
 
 export function registerAgentRoutes(fastify: FastifyInstance): void {
   // List agents for a project
@@ -145,10 +148,9 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
         "SELECT * FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
       ).all(project.id, agent.id) as any[];
       if (issues.length > 0) {
-        parts.push('Assigned issues:\n' + issues.map((i: any) => `#${i.number} [${i.status}] ${i.title}: ${i.body.slice(0, 200)}`).join('\n'));
-        // Mark as in_progress
-        db.prepare("UPDATE issues SET status = 'in_progress', updated_at = datetime('now') WHERE project_id = ? AND assigned_to = ? AND status = 'open'")
-          .run(project.id, agent.id);
+        const issueBatch = getAgentIssueBatch(issues);
+        parts.push(buildAssignedIssuesPrompt(issueBatch));
+        markCurrentBatchInProgress(db, issueBatch);
       }
 
       prompt = parts.join('\n\n');
@@ -280,16 +282,38 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
-    // If error, fetch the last stderr log
+    // If error, prefer logs from the latest run so stale stderr from an older
+    // failure does not mask the actual reason the current run exited.
     let lastError: string | null = null;
     if (agent.status === 'error') {
-      const errLog = db.prepare(
-        "SELECT content FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' ORDER BY id DESC LIMIT 1"
-      ).get(agent.id) as { content: string } | undefined;
-      lastError = errLog?.content || null;
+      const latestRun = db.prepare(
+        "SELECT run_id FROM conversation_logs WHERE agent_id = ? ORDER BY id DESC LIMIT 1"
+      ).get(agent.id) as { run_id: string } | undefined;
+
+      if (latestRun?.run_id) {
+        const errLog = db.prepare(
+          "SELECT content FROM conversation_logs WHERE agent_id = ? AND run_id = ? AND stream = 'stderr' AND trim(content) != '' ORDER BY id DESC LIMIT 1"
+        ).get(agent.id, latestRun.run_id) as { content: string } | undefined;
+        lastError = errLog?.content || null;
+
+        if (!lastError) {
+          const finalResult = db.prepare(
+            "SELECT content FROM conversation_logs WHERE agent_id = ? AND run_id = ? AND stream = 'stdout' AND content LIKE '%--- Final Result ---%' ORDER BY id DESC LIMIT 1"
+          ).get(agent.id, latestRun.run_id) as { content: string } | undefined;
+          lastError = finalResult?.content?.replace(/.*--- Final Result ---\n?/, '').trim() || null;
+        }
+
+        if (!lastError) {
+          const anyLog = db.prepare(
+            "SELECT content FROM conversation_logs WHERE agent_id = ? AND run_id = ? AND stream != 'cost' AND trim(content) != '' AND content NOT LIKE '--- [%] Cost:%' ORDER BY id DESC LIMIT 1"
+          ).get(agent.id, latestRun.run_id) as { content: string } | undefined;
+          lastError = anyLog?.content || null;
+        }
+      }
+
       if (!lastError) {
         const anyLog = db.prepare(
-          "SELECT content FROM conversation_logs WHERE agent_id = ? ORDER BY id DESC LIMIT 1"
+          "SELECT content FROM conversation_logs WHERE agent_id = ? AND trim(content) != '' ORDER BY id DESC LIMIT 1"
         ).get(agent.id) as { content: string } | undefined;
         lastError = anyLog?.content || null;
       }
@@ -571,7 +595,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
           if (pathMatch) filesChanged.add(pathMatch[1]);
         }
 
-        toolCalls.push({ name: toolName, input: toolInput.slice(0, 300), result: '', index: i });
+        toolCalls.push({ name: toolName, input: toolInput.slice(0, TOOL_CALL_REPORT_CHAR_LIMIT), result: '', index: i });
         continue;
       }
 

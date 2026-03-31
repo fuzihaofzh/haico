@@ -4,6 +4,7 @@ import { Agent, Project } from '../types';
 import { triggerControllerAgent } from './controller';
 import { tryHandleWithoutLLM } from './pre-controller';
 import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, isAgentInCooldown, shouldSkipAutoRestart, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
+import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
 import { buildSystemPrompt } from './system-prompt';
 import { config } from '../config';
 import logger from '../logger';
@@ -73,16 +74,17 @@ function startIssueScan(): void {
               "SELECT * FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
             ).all(project.id, worker.id) as any[];
             if (issues.length > 0) {
-              parts.push('Assigned issues:\n' + issues.map((i: any) => `#${i.number} [${i.status}] ${i.title}: ${(i.body || '').slice(0, 200)}`).join('\n'));
-              db.prepare("UPDATE issues SET status = 'in_progress', updated_at = datetime('now') WHERE project_id = ? AND assigned_to = ? AND status = 'open'")
-                .run(project.id, worker.id);
+              const issueBatch = getAgentIssueBatch(issues);
+              parts.push(buildAssignedIssuesPrompt(issueBatch));
+              markCurrentBatchInProgress(db, issueBatch);
             }
             const prompt = parts.join('\n\n');
             if (!prompt) continue;
             const commandTemplate = worker.command_template || project.command_template || config.defaultCommandTemplate;
             const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
             const systemPrompt = isRawShell ? undefined : buildSystemPrompt(worker, project);
-            logger.info(`Issue scan: auto-starting idle worker "${worker.name}" with ${issues.length} assigned issue(s) in project "${project.name}"`);
+            const issueBatch = getAgentIssueBatch(issues);
+            logger.info(`Issue scan: auto-starting idle worker "${worker.name}" with ${issueBatch.currentBatch.length}/${issueBatch.activeIssues.length} assigned issue(s) in current batch for project "${project.name}"`);
             startAgentProcess(worker, prompt, commandTemplate, systemPrompt);
           } catch (e) {
             logger.error(e, `Issue scan: failed to auto-start worker "${worker.name}"`);

@@ -671,6 +671,59 @@ header h1 span { color: var(--accent); }
   cursor: not-allowed;
 }
 
+/* Collapsible inline text */
+.collapsible-text {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.45;
+  text-align: left;
+  vertical-align: top;
+}
+.collapsible-text.is-collapsible {
+  cursor: pointer;
+}
+.collapsible-text__content {
+  min-width: 0;
+  max-width: 100%;
+}
+.collapsible-text.is-collapsible[data-expanded="false"] .collapsible-text__content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collapsible-text.is-collapsible[data-expanded="true"] .collapsible-text__content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.collapsible-text__hint {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1.35;
+  opacity: 0.85;
+}
+.collapsible-text.is-collapsible:hover .collapsible-text__hint,
+.collapsible-text.is-collapsible:focus-visible .collapsible-text__hint {
+  opacity: 1;
+}
+.collapsible-text.is-collapsible:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

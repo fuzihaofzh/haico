@@ -63,6 +63,9 @@ const agentCompletedAllIssues = new Set<string>();
 const agentIntraSessionLowStreak = new Map<string, number>();
 const INTRA_LOW_OUTPUT_KILL_THRESHOLD = 2; // 2 consecutive low-output assistant turns → terminate
 const INTRA_LOW_OUTPUT_CHAR_LIMIT = 200;   // assistant text below this = "low output"
+const TOOL_INPUT_LOG_CHAR_LIMIT = 4000;    // large enough for expandable UI without storing unbounded payloads
+const RESUME_MISSING_FILE_RE = /no such file or directory/i;
+const CLOSED_STDIN_SESSION_RE = /stdin is closed for this session|write_stdin failed/i;
 
 function writePromptFile(runId: string, prompt: string): string {
   if (!fs.existsSync(PROMPT_DIR)) fs.mkdirSync(PROMPT_DIR, { recursive: true });
@@ -72,7 +75,14 @@ function writePromptFile(runId: string, prompt: string): string {
 }
 
 function cleanupPromptFile(fp: string): void {
-  try { fs.unlinkSync(fp); } catch (e) { logger.error(e, 'Failed to cleanup prompt file %s', fp); }
+  try {
+    if (!fp || !fs.existsSync(fp)) return;
+    fs.unlinkSync(fp);
+  } catch (e: any) {
+    if (e?.code !== 'ENOENT') {
+      logger.error(e, 'Failed to cleanup prompt file %s', fp);
+    }
+  }
 }
 
 export type OnAgentFinishCallback = (agent: Agent, exitCode: number | null) => void;
@@ -80,6 +90,21 @@ let onAgentFinish: OnAgentFinishCallback | null = null;
 
 export function setOnAgentFinish(cb: OnAgentFinishCallback | null): void {
   onAgentFinish = cb;
+}
+
+export function classifyAgentExitStatus(input: {
+  currentStatus?: string | null;
+  exitCode: number | null;
+  requiresCompletionSignal: boolean;
+  sawClosedStdinSessionError: boolean;
+  sawCompletionSignal: boolean;
+  hadFinalResult: boolean;
+}): 'idle' | 'error' | 'stopped' {
+  if (input.currentStatus === 'stopped') return 'stopped';
+  if (input.hadFinalResult) return 'idle';
+  if (input.exitCode !== 0 || input.sawClosedStdinSessionError) return 'error';
+  if (!input.requiresCompletionSignal) return 'idle';
+  return input.sawCompletionSignal ? 'idle' : 'error';
 }
 
 export function startAgentProcess(
@@ -199,7 +224,7 @@ export function startAgentProcess(
 
   // Update agent status
   db.prepare(`
-    UPDATE agents SET status = 'running', last_prompt = ?, session_id = ?, started_at = datetime('now'), pid = NULL
+    UPDATE agents SET status = 'running', last_prompt = ?, session_id = ?, started_at = datetime('now'), finished_at = NULL, pid = NULL
     WHERE id = ?
   `).run(fullPrompt, sessionId, agent.id);
 
@@ -210,19 +235,39 @@ export function startAgentProcess(
 
   let cwd = agent.working_directory || process.cwd();
   if (cwd.startsWith('~/')) cwd = path.join(os.homedir(), cwd.slice(2));
+  try {
+    if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
+      logger.warn(`Agent ${agent.id} working directory "${cwd}" is missing, falling back to process cwd "${process.cwd()}"`);
+      cwd = process.cwd();
+    }
+  } catch {
+    logger.warn(`Agent ${agent.id} working directory "${cwd}" is invalid, falling back to process cwd "${process.cwd()}"`);
+    cwd = process.cwd();
+  }
 
-  const child = spawn('/bin/sh', ['-c', 'exec ' + command], {
+  // Use a login bash shell when available so agent wrappers like `cld`/`spc`
+  // resolve consistently even when Argus itself was started with a minimal PATH.
+  const shellPath = fs.existsSync('/bin/bash') ? '/bin/bash' : '/bin/sh';
+  const shellArgs = shellPath.endsWith('bash') ? ['-lc', 'exec ' + command] : ['-c', 'exec ' + command];
+  const childEnv = {
+    ...process.env,
+    no_proxy: [process.env.no_proxy, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
+    NO_PROXY: [process.env.NO_PROXY, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
+    ARGUS_PROMPT: fullPrompt,
+    ARGUS_PROMPT_FILE: promptFile,
+    ARGUS_SESSION_ID: sessionId,
+    ARGUS_AGENT_ID: agent.id,
+    ARGUS_RUN_ID: runId,
+  } as NodeJS.ProcessEnv;
+
+  // nvm aborts shell init when npm_config_prefix is preset, which prevents
+  // login shells from restoring Node-based CLIs like `codex` into PATH.
+  delete childEnv.npm_config_prefix;
+  delete childEnv.NPM_CONFIG_PREFIX;
+
+  const child = spawn(shellPath, shellArgs, {
     cwd,
-    env: {
-      ...process.env,
-      no_proxy: [process.env.no_proxy, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
-      NO_PROXY: [process.env.NO_PROXY, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
-      ARGUS_PROMPT: fullPrompt,
-      ARGUS_PROMPT_FILE: promptFile,
-      ARGUS_SESSION_ID: sessionId,
-      ARGUS_AGENT_ID: agent.id,
-      ARGUS_RUN_ID: runId,
-    },
+    env: childEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -249,11 +294,26 @@ export function startAgentProcess(
   // logged as plain text so we don't depend on their JSON schema.
   const isStreamJson = useStreamJson;
   const isCodex = lowerTool === 'codex' || (lowerTool.startsWith('codex ') && useStreamJson);
+  const requiresCompletionSignal = isStreamJson && (
+    isCodex ||
+    lowerTool.startsWith('cld') ||
+    lowerTool.startsWith('claude') ||
+    lowerTool.startsWith('gemini')
+  );
   let stdoutBuffer = '';
+  let sawStdout = false;
+  let stderrSample = '';
+  let sawClosedStdinSessionError = false;
+  let sawCompletionSignal = false;
 
   function logAndBroadcast(content: string, stream: string) {
     if (!content.trim()) return;
     if (shuttingDown || !isDatabaseOpen()) return;
+    if (stream === 'stdout') {
+      sawStdout = true;
+    } else if (stream === 'stderr' && stderrSample.length < 2000) {
+      stderrSample += content.slice(0, 2000 - stderrSample.length);
+    }
     lastActivityTime.set(agent.id, Date.now());
     try {
       logStmt.run(agent.id, runId, content, stream);
@@ -285,13 +345,14 @@ export function startAgentProcess(
           if (obj.item.type === 'agent_message' && obj.item.text) {
             logAndBroadcast(obj.item.text + '\n', 'stdout');
           } else if (obj.item.type === 'tool_call') {
-            logAndBroadcast(`[Tool: ${obj.item.name || 'unknown'}] ${JSON.stringify(obj.item).slice(0, 200)}\n`, 'stdout');
+            logAndBroadcast(`[Tool: ${obj.item.name || 'unknown'}] ${JSON.stringify(obj.item).slice(0, TOOL_INPUT_LOG_CHAR_LIMIT)}\n`, 'stdout');
           } else if (obj.item.type === 'tool_call_output') {
             const output = (obj.item.output || obj.item.text || '').slice(0, 500);
             logAndBroadcast(`[Result] ${output}\n`, 'stdout');
           }
         } else if (obj.type === 'turn.completed' && obj.usage) {
           handled = true;
+          sawCompletionSignal = true;
           const input = obj.usage.input_tokens || 0;
           const output = obj.usage.output_tokens || 0;
           const cacheRead = obj.usage.cached_input_tokens || 0;
@@ -319,7 +380,7 @@ export function startAgentProcess(
             logAndBroadcast(block.text + '\n', 'stdout');
           } else if (block.type === 'tool_use') {
             hasToolUse = true;
-            logAndBroadcast(`[Tool: ${block.name}] ${JSON.stringify(block.input).slice(0, 200)}\n`, 'stdout');
+            logAndBroadcast(`[Tool: ${block.name}] ${JSON.stringify(block.input).slice(0, TOOL_INPUT_LOG_CHAR_LIMIT)}\n`, 'stdout');
           }
         }
 
@@ -349,6 +410,7 @@ export function startAgentProcess(
         logAndBroadcast(`[Result] ${result}\n`, 'stdout');
       } else if (!handled && obj.type === 'result') {
         handled = true;
+        sawCompletionSignal = true;
         // Mark that this agent has produced its final result — watchdog will force-kill
         // if the process doesn't exit within FINAL_RESULT_KILL_DELAY_MS (child curl stuck etc.)
         agentFinalResultTime.set(agent.id, Date.now());
@@ -396,6 +458,9 @@ export function startAgentProcess(
     }
 
     if (stream === 'stderr') {
+      if (CLOSED_STDIN_SESSION_RE.test(raw)) {
+        sawClosedStdinSessionError = true;
+      }
       // Skip proxychains noise in stderr
       if (!raw.includes('proxychains')) {
         logAndBroadcast(raw, 'stderr');
@@ -424,6 +489,7 @@ export function startAgentProcess(
     runningProcesses.delete(agent.id);
     lastActivityTime.delete(agent.id);
     childCpuSnapshots.delete(agent.id);
+    const hadFinalResult = agentFinalResultTime.has(agent.id);
     agentFinalResultTime.delete(agent.id);
     agentIntraSessionLowStreak.delete(agent.id);
     cleanupPromptFile(promptFile);
@@ -446,7 +512,31 @@ export function startAgentProcess(
 
     // If agent was explicitly stopped, preserve 'stopped' status
     const currentAgent = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as { status: string } | undefined;
-    const status = currentAgent?.status === 'stopped' ? 'stopped' : (code === 0 ? 'idle' : 'error');
+    const status = classifyAgentExitStatus({
+      currentStatus: currentAgent?.status,
+      exitCode: code,
+      requiresCompletionSignal,
+      sawClosedStdinSessionError,
+      sawCompletionSignal,
+      hadFinalResult,
+    });
+
+    if (code === 0 && sawClosedStdinSessionError && !hadFinalResult) {
+      logger.info(`Agent ${agent.id} exited with code 0 but had closed-stdin tool session errors; marking run as error`);
+    }
+    if (code === 0 && requiresCompletionSignal && !sawClosedStdinSessionError && !sawCompletionSignal && !hadFinalResult) {
+      logger.info(`Agent ${agent.id} exited with code 0 but without a completion signal; marking run as error`);
+      logAndBroadcast('Argus: agent exited without emitting a completion event; marking this run as error\n', 'stderr');
+    }
+
+    if (status === 'error' && existingSessionId && !sawStdout && RESUME_MISSING_FILE_RE.test(stderrSample)) {
+      logger.info(`Agent ${agent.id} resume failed with missing file, retrying with a fresh session`);
+      logAndBroadcast('Argus: 旧 session 恢复失败，自动改为新 session 重试...\n', 'stderr');
+      db.prepare("UPDATE agents SET session_id = NULL, status = 'idle', pid = NULL WHERE id = ?").run(agent.id);
+      const freshAgent = { ...agent, session_id: null };
+      startAgentProcess(freshAgent, prompt, commandTemplate, systemPrompt);
+      return;
+    }
 
     if (status === 'error') {
       // Handle API connection error with auto-retry
@@ -544,7 +634,7 @@ export function startAgentProcess(
   });
 
   child.on('error', (err: any) => {
-    logger.error(`Spawn error: ${err.message} code=${err.code} path=${err.path} syscall=${err.syscall} cwd=${cwd}`);
+    logger.error(`Spawn error: ${err.message} code=${err.code} path=${err.path} syscall=${err.syscall} cwd=${cwd} shell=${shellPath}`);
     runningProcesses.delete(agent.id);
     lastActivityTime.delete(agent.id);
     childCpuSnapshots.delete(agent.id);
@@ -562,7 +652,7 @@ export function startAgentProcess(
       logger.info(`Retrying agent ${agent.id} with fresh session (resume failed)`);
       const freshAgent = { ...agent, session_id: null };
       db.prepare("UPDATE agents SET session_id = NULL, status = 'idle' WHERE id = ?").run(agent.id);
-      startAgentProcess(freshAgent, prompt, commandTemplate);
+      startAgentProcess(freshAgent, prompt, commandTemplate, systemPrompt);
       return;
     }
 

@@ -5,9 +5,17 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { getDatabase } from '../db/database';
-import { Project, CreateProjectInput, Agent, OrchestratorEngine } from '../types';
+import { Project, CreateProjectInput, Agent, OrchestratorEngine, ProjectMember } from '../types';
 import { stopAgentProcess, isAgentRunning } from '../services/process-manager';
 import { config } from '../config';
+import { isLegacyAuthUser } from '../middleware/auth';
+import {
+  ensureProjectAccess,
+  getProjectPermission,
+  getProjectRequestContext,
+  listAccessibleProjectIds,
+  listAccessibleProjects,
+} from '../services/project-permissions';
 
 function normalizeOrchestratorEngine(value: unknown): OrchestratorEngine | null {
   if (value === undefined) return null;
@@ -16,26 +24,56 @@ function normalizeOrchestratorEngine(value: unknown): OrchestratorEngine | null 
   return null;
 }
 
+function buildSqlPlaceholders(values: readonly unknown[]): string {
+  return values.map(() => '?').join(', ');
+}
+
 export function registerProjectRoutes(fastify: FastifyInstance): void {
 
   // Dashboard summary — aggregate stats across all projects
-  fastify.get('/api/dashboard/summary', async () => {
+  fastify.get('/api/dashboard/summary', async (request) => {
     const db = getDatabase();
+    const { user, localhostBypass } = getProjectRequestContext(request);
+    const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+
+    if (projectIds.length === 0) {
+      return {
+        agents: { total: 0, running: 0, error_count: 0 },
+        issues: { total: 0, open: 0 },
+        total_cost_usd: 0,
+        last_activity: {},
+      };
+    }
+
+    const placeholders = buildSqlPlaceholders(projectIds);
 
     const agentStats = db.prepare(
-      "SELECT COUNT(*) as total, SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running, SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error_count FROM agents"
-    ).get() as any;
+      `SELECT COUNT(*) as total,
+              SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+              SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error_count
+       FROM agents
+       WHERE project_id IN (${placeholders})`
+    ).get(...projectIds) as any;
 
     const issueStats = db.prepare(
-      "SELECT COUNT(*) as total, SUM(CASE WHEN status IN ('open', 'in_progress') THEN 1 ELSE 0 END) as open_count FROM issues"
-    ).get() as any;
+      `SELECT COUNT(*) as total,
+              SUM(CASE WHEN status IN ('open', 'in_progress') THEN 1 ELSE 0 END) as open_count
+       FROM issues
+       WHERE project_id IN (${placeholders})`
+    ).get(...projectIds) as any;
 
     // Total cost across all projects — only last record per run_id (cost is cumulative)
     const costRows = db.prepare(
       `SELECT c.content FROM conversation_logs c
-       INNER JOIN (SELECT MAX(id) as max_id FROM conversation_logs WHERE stream = 'cost' GROUP BY run_id) latest
+       INNER JOIN (
+         SELECT MAX(cl.id) as max_id
+         FROM conversation_logs cl
+         JOIN agents a ON cl.agent_id = a.id
+         WHERE cl.stream = 'cost' AND a.project_id IN (${placeholders})
+         GROUP BY cl.run_id
+       ) latest
        ON c.id = latest.max_id`
-    ).all() as any[];
+    ).all(...projectIds) as any[];
     let totalCost = 0;
     for (const c of costRows) {
       try { totalCost += JSON.parse(c.content).cost_usd || 0; } catch {}
@@ -49,8 +87,9 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
        FROM projects p
        LEFT JOIN agents a ON a.project_id = p.id
        LEFT JOIN issues i ON i.project_id = p.id
+       WHERE p.id IN (${placeholders})
        GROUP BY p.id`
-    ).all() as any[];
+    ).all(...projectIds) as any[];
 
     const lastActivityMap: Record<string, string | null> = {};
     for (const row of projectActivity) {
@@ -70,16 +109,35 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
   fastify.get<{ Querystring: { period?: string } }>('/api/dashboard/usage-by-project', async (request) => {
     const db = getDatabase();
     const period = request.query.period || 'day';
+    const { user, localhostBypass } = getProjectRequestContext(request);
+    const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+
+    if (projectIds.length === 0) {
+      return {
+        period,
+        time_buckets: [],
+        projects: [],
+        data: {},
+      };
+    }
+
+    const placeholders = buildSqlPlaceholders(projectIds);
 
     // Only last cost record per run_id (cost is cumulative)
     const rows = db.prepare(
       `SELECT c.content, c.created_at, p.id as project_id, p.name as project_name
        FROM conversation_logs c
-       INNER JOIN (SELECT MAX(id) as max_id FROM conversation_logs WHERE stream = 'cost' GROUP BY run_id) latest ON c.id = latest.max_id
+       INNER JOIN (
+         SELECT MAX(cl.id) as max_id
+         FROM conversation_logs cl
+         JOIN agents a2 ON cl.agent_id = a2.id
+         WHERE cl.stream = 'cost' AND a2.project_id IN (${placeholders})
+         GROUP BY cl.run_id
+       ) latest ON c.id = latest.max_id
        JOIN agents a ON c.agent_id = a.id
        JOIN projects p ON a.project_id = p.id
        ORDER BY c.created_at`
-    ).all() as any[];
+    ).all(...projectIds) as any[];
 
     // Aggregate by time bucket + project
     const buckets: Record<string, Record<string, { cost: number; input_tokens: number; output_tokens: number }>> = {};
@@ -184,16 +242,18 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     }
   });
   // Project cost summary with per-run breakdowns and time-series support
-  fastify.get<{ Params: { id: string }; Querystring: { period?: string } }>('/api/projects/:id/costs', async (request) => {
+  fastify.get<{ Params: { id: string }; Querystring: { period?: string } }>('/api/projects/:id/costs', async (request, reply) => {
     const db = getDatabase();
     const pid = request.params.id;
     const period = request.query.period; // day | week | month
+    const access = ensureProjectAccess(db, request, reply, pid);
+    if (!access) return;
 
     // Only last cost record per run_id (cost is cumulative)
     const costs = db.prepare(
       `SELECT c.content, c.run_id, c.created_at, a.name as agent_name
        FROM conversation_logs c
-       INNER JOIN (SELECT MAX(id) as max_id FROM conversation_logs cl JOIN agents al ON cl.agent_id = al.id WHERE al.project_id = ? AND cl.stream = 'cost' GROUP BY cl.run_id) latest ON c.id = latest.max_id
+       INNER JOIN (SELECT MAX(cl.id) as max_id FROM conversation_logs cl JOIN agents al ON cl.agent_id = al.id WHERE al.project_id = ? AND cl.stream = 'cost' GROUP BY cl.run_id) latest ON c.id = latest.max_id
        JOIN agents a ON c.agent_id = a.id
        ORDER BY c.created_at`
     ).all(pid) as any[];
@@ -289,10 +349,12 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   });
 
   // Git log — aggregate recent commits from all agents' working directories
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/projects/:id/git-log', async (request) => {
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/projects/:id/git-log', async (request, reply) => {
     const db = getDatabase();
     const pid = request.params.id;
     const limit = Math.min(parseInt(request.query.limit || '20', 10), 100);
+    const access = ensureProjectAccess(db, request, reply, pid);
+    if (!access) return;
 
     const agents = db.prepare('SELECT id, name, working_directory FROM agents WHERE project_id = ?').all(pid) as Agent[];
 
@@ -344,10 +406,12 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   });
 
   // Project activity timeline
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/projects/:id/activity', async (request) => {
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/projects/:id/activity', async (request, reply) => {
     const db = getDatabase();
     const limit = parseInt(request.query.limit || '50', 10);
     const pid = request.params.id;
+    const access = ensureProjectAccess(db, request, reply, pid);
+    if (!access) return;
 
     // Combine: issue events + agent status changes + comments into a unified timeline
     const issues = db.prepare(
@@ -373,10 +437,12 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   // Recent orchestration decision runs (for graph visualization)
   fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
     '/api/projects/:id/orchestration-runs',
-    async (request) => {
+    async (request, reply) => {
       const db = getDatabase();
       const pid = request.params.id;
       const limit = Math.min(Math.max(parseInt(request.query.limit || '20', 10), 1), 100);
+      const access = ensureProjectAccess(db, request, reply, pid);
+      if (!access) return;
 
       const rows = db.prepare(
         "SELECT id, project_id, engine, decision, controller_agent_id, controller_started, controller_run_id, controller_pid, dispatch_count, dispatch_summary, reasons, actions, dispatch_results, created_at FROM orchestration_runs WHERE project_id = ? ORDER BY id DESC LIMIT ?"
@@ -400,7 +466,15 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   // List projects (with optional embedded stats for dashboard performance)
   fastify.get<{ Querystring: { with_stats?: string } }>('/api/projects', async (request) => {
     const db = getDatabase();
-    const projects = db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all() as Project[];
+    const { user, localhostBypass } = getProjectRequestContext(request);
+    const projects = listAccessibleProjects(db, user, localhostBypass).map((project) => {
+      const permission = getProjectPermission(db, project.id, user, localhostBypass);
+      return {
+        ...project,
+        permission_level: permission.level,
+        can_manage: permission.canManage,
+      };
+    });
 
     if (request.query.with_stats !== '1') return projects;
 
@@ -444,15 +518,25 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const id = uuidv4();
     const tmpl = command_template || config.defaultCommandTemplate;
     const orchestratorEngine = normalizeOrchestratorEngine(orchestrator_engine);
+    const { user } = getProjectRequestContext(request);
+    const ownerId = user && !isLegacyAuthUser(user) ? user.id : null;
 
     if (orchestrator_engine !== undefined && orchestratorEngine === null) {
       return reply.code(400).send({ error: 'Invalid orchestrator_engine. Use native or langgraph.' });
     }
 
     db.prepare(`
-      INSERT INTO projects (id, name, description, task_description, command_template, orchestrator_engine, status)
-      VALUES (?, ?, ?, ?, ?, ?, 'active')
-    `).run(id, name, description || '', task_description, tmpl, orchestratorEngine || config.defaultOrchestratorEngine);
+      INSERT INTO projects (id, name, description, task_description, command_template, orchestrator_engine, owner_id, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
+    `).run(id, name, description || '', task_description, tmpl, orchestratorEngine || config.defaultOrchestratorEngine, ownerId);
+
+    if (ownerId) {
+      db.prepare(`
+        INSERT INTO project_members (id, project_id, user_id, role)
+        VALUES (?, ?, ?, 'owner')
+        ON CONFLICT(project_id, user_id) DO UPDATE SET role = 'owner'
+      `).run(uuidv4(), id, ownerId);
+    }
 
     // Create default controller agent (with Sonnet model for cost efficiency)
     const controllerId = uuidv4();
@@ -478,14 +562,22 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   // Get project
   fastify.get<{ Params: { id: string } }>('/api/projects/:id', async (request, reply) => {
     const db = getDatabase();
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id);
+    const access = ensureProjectAccess(db, request, reply, request.params.id);
+    if (!access) return;
+    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project | undefined;
     if (!project) return reply.code(404).send({ error: 'Project not found' });
-    return project;
+    return {
+      ...project,
+      permission_level: access.permission.level,
+      can_manage: access.permission.canManage,
+    };
   });
 
   // Update project
   fastify.put<{ Params: { id: string }; Body: Partial<CreateProjectInput> & { status?: string } }>('/api/projects/:id', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureProjectAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project | undefined;
     if (!existing) return reply.code(404).send({ error: 'Project not found' });
 
@@ -515,13 +607,125 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
     const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project;
 
-    return updated;
+    return {
+      ...updated,
+      permission_level: access.permission.level,
+      can_manage: access.permission.canManage,
+    };
   });
+
+  fastify.get<{ Params: { id: string } }>('/api/projects/:id/members', async (request, reply) => {
+    const db = getDatabase();
+    const access = ensureProjectAccess(db, request, reply, request.params.id);
+    if (!access) return;
+
+    const members = db.prepare(
+      `SELECT pm.*,
+              u.username,
+              u.display_name,
+              u.role as user_role
+       FROM project_members pm
+       JOIN users u ON u.id = pm.user_id
+       WHERE pm.project_id = ?
+       ORDER BY CASE pm.role WHEN 'owner' THEN 0 ELSE 1 END, COALESCE(u.display_name, u.username), u.username`
+    ).all(request.params.id) as Array<ProjectMember & {
+      username: string;
+      display_name: string;
+      user_role: string;
+    }>;
+
+    return { members };
+  });
+
+  fastify.post<{ Params: { id: string }; Body: { user_id?: string; username?: string; role?: string } }>(
+    '/api/projects/:id/members',
+    async (request, reply) => {
+      const db = getDatabase();
+      const access = ensureProjectAccess(db, request, reply, request.params.id, true);
+      if (!access) return;
+
+      const { user_id, username, role } = request.body as any;
+      if (!user_id && !username) {
+        return reply.code(400).send({ error: 'user_id or username is required' });
+      }
+      if (role && role !== 'member') {
+        return reply.code(400).send({ error: 'Only member role is supported' });
+      }
+
+      const project = db.prepare('SELECT owner_id FROM projects WHERE id = ?').get(request.params.id) as { owner_id: string | null } | undefined;
+      if (!project) return reply.code(404).send({ error: 'Project not found' });
+
+      const targetUser = user_id
+        ? db.prepare('SELECT id, username, display_name, role FROM users WHERE id = ?').get(user_id) as any
+        : db.prepare('SELECT id, username, display_name, role FROM users WHERE username = ?').get(username) as any;
+      if (!targetUser) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+      if (project.owner_id === targetUser.id) {
+        return reply.code(400).send({ error: 'Project owner already has access' });
+      }
+
+      const existingMember = db.prepare(
+        'SELECT * FROM project_members WHERE project_id = ? AND user_id = ?'
+      ).get(request.params.id, targetUser.id) as ProjectMember | undefined;
+
+      if (existingMember?.role === 'owner') {
+        return reply.code(400).send({ error: 'Cannot change project owner membership via share API' });
+      }
+
+      if (existingMember) {
+        db.prepare("UPDATE project_members SET role = 'member' WHERE id = ?").run(existingMember.id);
+      } else {
+        db.prepare(
+          "INSERT INTO project_members (id, project_id, user_id, role) VALUES (?, ?, ?, 'member')"
+        ).run(uuidv4(), request.params.id, targetUser.id);
+      }
+
+      const member = db.prepare(
+        `SELECT pm.*,
+                u.username,
+                u.display_name,
+                u.role as user_role
+         FROM project_members pm
+         JOIN users u ON u.id = pm.user_id
+         WHERE pm.project_id = ? AND pm.user_id = ?`
+      ).get(request.params.id, targetUser.id);
+
+      return reply.code(existingMember ? 200 : 201).send(member);
+    }
+  );
+
+  fastify.delete<{ Params: { id: string; userId: string } }>(
+    '/api/projects/:id/members/:userId',
+    async (request, reply) => {
+      const db = getDatabase();
+      const access = ensureProjectAccess(db, request, reply, request.params.id, true);
+      if (!access) return;
+
+      const project = db.prepare('SELECT owner_id FROM projects WHERE id = ?').get(request.params.id) as { owner_id: string | null } | undefined;
+      if (!project) return reply.code(404).send({ error: 'Project not found' });
+      if (project.owner_id === request.params.userId) {
+        return reply.code(400).send({ error: 'Cannot remove project owner' });
+      }
+
+      const existingMember = db.prepare(
+        'SELECT * FROM project_members WHERE project_id = ? AND user_id = ?'
+      ).get(request.params.id, request.params.userId) as ProjectMember | undefined;
+      if (!existingMember) {
+        return reply.code(404).send({ error: 'Project member not found' });
+      }
+
+      db.prepare('DELETE FROM project_members WHERE id = ?').run(existingMember.id);
+      return { success: true };
+    }
+  );
 
   // Export project data as JSON
   fastify.get<{ Params: { id: string } }>('/api/projects/:id/export', async (request, reply) => {
     const db = getDatabase();
     const pid = request.params.id;
+    const access = ensureProjectAccess(db, request, reply, pid);
+    if (!access) return;
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(pid) as Project | undefined;
     if (!project) return reply.code(404).send({ error: 'Project not found' });
 
@@ -532,7 +736,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     // Cost summary — only last cost record per run_id (cost is cumulative)
     const costRows = db.prepare(
       `SELECT c.content FROM conversation_logs c
-       INNER JOIN (SELECT MAX(id) as max_id FROM conversation_logs cl JOIN agents al ON cl.agent_id = al.id WHERE al.project_id = ? AND cl.stream = 'cost' GROUP BY cl.run_id) latest
+       INNER JOIN (SELECT MAX(cl.id) as max_id FROM conversation_logs cl JOIN agents al ON cl.agent_id = al.id WHERE al.project_id = ? AND cl.stream = 'cost' GROUP BY cl.run_id) latest
        ON c.id = latest.max_id`
     ).all(pid) as any[];
 
@@ -564,6 +768,8 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   fastify.get<{ Params: { id: string } }>('/api/projects/:id/export/issues.csv', async (request, reply) => {
     const db = getDatabase();
     const pid = request.params.id;
+    const access = ensureProjectAccess(db, request, reply, pid);
+    if (!access) return;
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(pid) as Project | undefined;
     if (!project) return reply.code(404).send({ error: 'Project not found' });
 
@@ -586,6 +792,8 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   // Delete project
   fastify.delete<{ Params: { id: string } }>('/api/projects/:id', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureProjectAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id);
     if (!existing) return reply.code(404).send({ error: 'Project not found' });
 

@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import logger from '../logger';
 
 export function initializeDatabase(db: Database.Database): void {
@@ -20,6 +21,7 @@ export function initializeDatabase(db: Database.Database): void {
       orchestrator_engine TEXT DEFAULT 'langgraph' CHECK(orchestrator_engine IN ('native', 'langgraph')),
       schedule_hours TEXT DEFAULT '',
       status TEXT DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed')),
+      owner_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       created_at DATETIME DEFAULT (datetime('now')),
       updated_at DATETIME DEFAULT (datetime('now'))
     );
@@ -40,7 +42,7 @@ export function initializeDatabase(db: Database.Database): void {
       session_max_tokens INTEGER DEFAULT 400000,
       session_resume_timeout INTEGER DEFAULT 300,
       command_template TEXT DEFAULT NULL,
-      status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'error', 'stopped')),
+      status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error', 'stopped')),
       paused BOOLEAN DEFAULT 0,
       pid INTEGER,
       last_prompt TEXT,
@@ -142,6 +144,17 @@ export function initializeDatabase(db: Database.Database): void {
       last_login_at DATETIME
     );
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+    CREATE TABLE IF NOT EXISTS project_members (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT DEFAULT 'member' CHECK(role IN ('owner', 'member')),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(project_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id);
+    CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
 
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
@@ -270,6 +283,23 @@ export function initializeDatabase(db: Database.Database): void {
     db.exec("ALTER TABLE projects ADD COLUMN orchestrator_engine TEXT DEFAULT 'langgraph'");
     logger.info('Migration: added orchestrator_engine column to projects table');
   }
+  if (!projectCols.find((c: any) => c.name === 'owner_id')) {
+    db.exec("ALTER TABLE projects ADD COLUMN owner_id TEXT REFERENCES users(id) ON DELETE SET NULL");
+    logger.info('Migration: added owner_id column to projects table');
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_members (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT DEFAULT 'member' CHECK(role IN ('owner', 'member')),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(project_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id);
+    CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
+  `);
 
   // Migration: normalize invalid orchestrator_engine values
   const normalizedEngines = db.prepare(
@@ -352,6 +382,103 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: rebuilt issue_comments table to fix FK references');
   }
 
+  // Migration: fix agents CHECK constraint to include 'waiting' status
+  const agentsTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agents'").get() as any;
+  if (agentsTableSql && !agentsTableSql.sql.includes("'waiting'")) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE agents RENAME TO agents_old;
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        role TEXT DEFAULT '',
+        is_controller BOOLEAN DEFAULT 0,
+        session_id TEXT,
+        working_directory TEXT,
+        custom_instructions TEXT DEFAULT '',
+        new_session_per_run BOOLEAN DEFAULT 0,
+        session_run_count INTEGER DEFAULT 0,
+        session_max_runs INTEGER DEFAULT 10,
+        session_token_count INTEGER DEFAULT 0,
+        session_max_tokens INTEGER DEFAULT 400000,
+        session_resume_timeout INTEGER DEFAULT 300,
+        command_template TEXT DEFAULT NULL,
+        status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error', 'stopped')),
+        paused BOOLEAN DEFAULT 0,
+        pid INTEGER,
+        last_prompt TEXT,
+        started_at DATETIME,
+        finished_at DATETIME,
+        created_at DATETIME DEFAULT (datetime('now'))
+      );
+      INSERT INTO agents (
+        id, project_id, name, role, is_controller, session_id, working_directory,
+        custom_instructions, new_session_per_run, session_run_count, session_max_runs,
+        session_token_count, session_max_tokens, session_resume_timeout, command_template,
+        status, paused, pid, last_prompt, started_at, finished_at, created_at
+      )
+      SELECT
+        id, project_id, name, role, is_controller, session_id, working_directory,
+        custom_instructions, new_session_per_run, session_run_count, session_max_runs,
+        session_token_count, session_max_tokens, session_resume_timeout, command_template,
+        status, paused, pid, last_prompt, started_at, finished_at, created_at
+      FROM agents_old;
+      DROP TABLE agents_old;
+      CREATE INDEX IF NOT EXISTS idx_agents_project ON agents(project_id);
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: rebuilt agents table with waiting status in CHECK constraint');
+  }
+
+  // Migration: fix broken FK references after agents table rebuild
+  const logsTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='conversation_logs'").get() as any;
+  if (logsTableSql && logsTableSql.sql.includes('agents_old')) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE conversation_logs RENAME TO conversation_logs_old;
+      CREATE TABLE conversation_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        stream TEXT DEFAULT 'stdout' CHECK(stream IN ('stdin', 'stdout', 'stderr', 'cost')),
+        created_at DATETIME DEFAULT (datetime('now'))
+      );
+      INSERT INTO conversation_logs SELECT * FROM conversation_logs_old;
+      DROP TABLE conversation_logs_old;
+      CREATE INDEX IF NOT EXISTS idx_logs_agent ON conversation_logs(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: rebuilt conversation_logs table to fix FK references');
+  }
+
+  const memoriesTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_memories'").get() as any;
+  if (memoriesTableSql && memoriesTableSql.sql.includes('agents_old')) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE agent_memories RENAME TO agent_memories_old;
+      CREATE TABLE agent_memories (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        session_id TEXT,
+        content TEXT NOT NULL,
+        tags TEXT DEFAULT '',
+        scope TEXT DEFAULT 'private' CHECK(scope IN ('private', 'project')),
+        created_at DATETIME DEFAULT (datetime('now')),
+        expires_at DATETIME
+      );
+      INSERT INTO agent_memories SELECT * FROM agent_memories_old;
+      DROP TABLE agent_memories_old;
+      CREATE INDEX IF NOT EXISTS idx_memories_agent ON agent_memories(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_memories_project_scope ON agent_memories(project_id, scope);
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: rebuilt agent_memories table to fix FK references');
+  }
+
   // Migration: set default Sonnet model for controller agents without a --model flag
   const ctrlModelUpdated = db.prepare(
     "UPDATE agents SET command_template = COALESCE(command_template, 'cld') || ' --model claude-sonnet-4-6' WHERE is_controller = 1 AND (command_template IS NULL OR (command_template NOT LIKE '%--model%'))"
@@ -418,6 +545,30 @@ export function initializeDatabase(db: Database.Database): void {
     db.exec("ALTER TABLE sessions ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
     db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)");
     logger.info('Migration: added user_id column to sessions table');
+  }
+
+  const firstAdmin = db.prepare(
+    "SELECT id FROM users WHERE role = 'admin' ORDER BY created_at, id LIMIT 1"
+  ).get() as { id: string } | undefined;
+  if (firstAdmin?.id) {
+    const ownerSeeded = db.prepare(
+      "UPDATE projects SET owner_id = ? WHERE owner_id IS NULL"
+    ).run(firstAdmin.id);
+    if (ownerSeeded.changes > 0) {
+      logger.info(`Migration: assigned owner_id to ${ownerSeeded.changes} project(s) using first admin`);
+    }
+  }
+
+  const ownedProjects = db.prepare(
+    'SELECT id, owner_id FROM projects WHERE owner_id IS NOT NULL'
+  ).all() as Array<{ id: string; owner_id: string }>;
+  const upsertOwnerMember = db.prepare(
+    `INSERT INTO project_members (id, project_id, user_id, role)
+     VALUES (?, ?, ?, 'owner')
+     ON CONFLICT(project_id, user_id) DO UPDATE SET role = 'owner'`
+  );
+  for (const project of ownedProjects) {
+    upsertOwnerMember.run(randomUUID(), project.id, project.owner_id);
   }
 
   // Migration: seed builtin project templates

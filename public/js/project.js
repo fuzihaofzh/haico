@@ -2,6 +2,10 @@ const projectId = window.location.pathname.split('/').pop();
 let projectData = null;
 let agentsData = [];
 let orchestrationRunsData = [];
+let agentOutputPollTimer = null;
+let agentOutputPollingAgentId = null;
+let agentOutputRefreshInFlight = false;
+const AGENT_OUTPUT_POLL_MS = 2000;
 
 function statusBadge(s) {
   const map = {
@@ -35,7 +39,7 @@ async function loadProject() {
     document.getElementById('project-task').value = projectData.task_description || '';
     document.getElementById('project-cmd').value = projectData.command_template;
   }
-  document.getElementById('project-created').textContent = projectData.created_at;
+  document.getElementById('project-created').textContent = formatLocalDateTime(projectData.created_at);
 
   document.getElementById('btn-toggle').innerHTML = projectData.status === 'active' ? '⏸' : '▶';
   document.getElementById('btn-toggle').title = projectData.status === 'active' ? 'Pause' : 'Resume';
@@ -235,6 +239,24 @@ async function loadAgents() {
 
 let currentAgentId = null;
 
+function startAgentOutputPolling(agentId) {
+  stopAgentOutputPolling();
+  if (!agentId) return;
+  agentOutputPollingAgentId = agentId;
+  agentOutputPollTimer = setInterval(() => {
+    const agentsTab = document.getElementById('tab-agents');
+    if (!currentAgentId || currentAgentId !== agentId || !agentsTab || agentsTab.style.display === 'none') return;
+    loadAgentOutput(agentId, { silent: true });
+  }, AGENT_OUTPUT_POLL_MS);
+}
+
+function stopAgentOutputPolling() {
+  if (agentOutputPollTimer) clearInterval(agentOutputPollTimer);
+  agentOutputPollTimer = null;
+  agentOutputPollingAgentId = null;
+  agentOutputRefreshInFlight = false;
+}
+
 async function viewAgent(agentId) {
   currentAgentId = agentId;
   // Highlight selected in list
@@ -269,8 +291,8 @@ async function viewAgent(agentId) {
 
         <div id="agent-detail-scroll" style="padding:16px 20px">
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 16px;font-size:12px;color:var(--text-secondary);margin-bottom:16px">
-            <div>Started: <span style="color:var(--fg)">${agent.started_at || '-'}</span></div>
-            <div>Finished: <span style="color:var(--fg)">${agent.finished_at || '-'}</span></div>
+            <div>Started: <span style="color:var(--fg)">${formatLocalDateTime(agent.started_at)}</span></div>
+            <div>Finished: <span style="color:var(--fg)">${formatLocalDateTime(agent.finished_at)}</span></div>
             <div>Session: <code style="color:var(--fg);font-size:10px">${agent.session_id ? agent.session_id.slice(0, 8) + '...' : 'none'}</code></div>
           </div>
 
@@ -328,7 +350,7 @@ async function viewAgent(agentId) {
           </div>
 
           <div>
-            <div style="${L}">Recent Output</div>
+            <div style="${L}">History</div>
             <div id="agent-output-${agentId}" style="color:var(--text-secondary);font-size:12px">Loading output...</div>
           </div>
         </div>
@@ -339,8 +361,10 @@ async function viewAgent(agentId) {
     loadAgentCost(agentId);
     loadAgentGitStatus(agentId);
     loadAgentOutput(agentId);
+    startAgentOutputPolling(agentId);
 
   } catch (e) {
+    stopAgentOutputPolling();
     el.innerHTML = '<div class="card">' + renderError(e, 'viewAgent(\'' + agentId + '\')') + '</div>';
   }
 }
@@ -407,9 +431,12 @@ async function loadAgentGitStatus(agentId) {
   }
 }
 
-async function loadAgentOutput(agentId) {
+async function loadAgentOutput(agentId, options) {
+  const opts = options || {};
   const container = document.getElementById('agent-output-' + agentId);
   if (!container) return;
+  if (opts.silent && agentOutputRefreshInFlight) return;
+  agentOutputRefreshInFlight = true;
   try {
     const logsRes = await fetch(`/api/agents/${agentId}/logs?limit=100`, { headers: apiHeaders() });
     const logs = logsRes.ok ? await logsRes.json() : [];
@@ -427,13 +454,17 @@ async function loadAgentOutput(agentId) {
 
     const html = recentRuns.map((run, idx) => {
       const filtered = run.logs.filter(l =>
-        l.stream !== 'stdin' && l.stream !== 'cost' && !l.content.includes('proxychains') &&
+        l.stream !== 'cost' && !l.content.includes('proxychains') &&
         !l.content.includes('Executing through proxy') && !l.content.includes('Port 7897')
       );
       if (!filtered.length) return '';
       const content = filtered.map(l => {
+        const ts = l.created_at ? `<span style="color:var(--text-secondary);opacity:0.7;cursor:default" title="${esc(formatLocalDateTime(l.created_at))}">[${esc(formatLocalTime(l.created_at))}]</span> ` : '';
+        if (l.stream === 'stdin') {
+          const inputHtml = renderCollapsibleText(l.content, { previewChars: 240, style: 'display:flex;width:100%;margin-top:4px' });
+          return `<div style="background:var(--accent-bg, rgba(59,130,246,0.08));border-left:3px solid var(--accent);padding:4px 8px;margin:4px 0;border-radius:0 4px 4px 0">${ts}<span style="color:var(--accent);font-weight:600">▶ INPUT</span><div>${inputHtml}</div></div>`;
+        }
         const text = l.content.length > 1500 ? l.content.slice(0, 1500) + '\n... (truncated)' : l.content;
-        const ts = l.created_at ? `<span style="color:var(--text-secondary);opacity:0.7">[${l.created_at.slice(11, 19) || ''}]</span> ` : '';
         const msg = l.stream === 'stderr' ? `<span style="color:var(--error)">${esc(text)}</span>` : esc(text);
         return ts + msg;
       }).join('');
@@ -441,15 +472,30 @@ async function loadAgentOutput(agentId) {
       return `<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:600;color:var(--text-secondary);margin-bottom:2px">${label}</div><div>${content}</div></div>`;
     }).filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--border);margin:8px 0">');
 
-    container.innerHTML = html
-      ? `<pre style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-word;margin:0;line-height:1.5;overflow-x:hidden;max-height:400px;overflow-y:auto">${html}</pre>`
-      : '<span style="color:var(--text-secondary)">No output yet.</span>';
+    const nextHtml = html
+      ? `<div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:monospace;white-space:pre-wrap;word-break:break-word;margin:0;line-height:1.5;overflow-x:hidden;max-height:400px;overflow-y:auto">${html}</div>`
+      : '<span style="color:var(--text-secondary)">No history yet.</span>';
 
-    // Scroll output pre to bottom
-    const pre = container.querySelector('pre');
-    if (pre) pre.scrollTop = pre.scrollHeight;
+    const prevScroller = container.firstElementChild;
+    const prevScrollTop = prevScroller ? prevScroller.scrollTop : 0;
+    const wasNearBottom = prevScroller
+      ? (prevScroller.scrollHeight - prevScroller.clientHeight - prevScroller.scrollTop) < 24
+      : true;
+
+    if (container.innerHTML !== nextHtml) {
+      container.innerHTML = nextHtml;
+      const scroller = container.firstElementChild;
+      if (scroller) {
+        if (wasNearBottom || !opts.silent) scroller.scrollTop = scroller.scrollHeight;
+        else scroller.scrollTop = prevScrollTop;
+      }
+    }
   } catch {
-    container.innerHTML = renderError(null, 'loadAgentOutput(\'' + agentId + '\')');
+    if (!opts.silent) {
+      container.innerHTML = renderError(null, 'loadAgentOutput(\'' + agentId + '\')');
+    }
+  } finally {
+    agentOutputRefreshInFlight = false;
   }
 }
 
@@ -583,16 +629,17 @@ async function viewRunReport(agentId, runId) {
     ).join('') || '<span style="color:var(--text-secondary)">None</span>';
 
     // Tool call timeline
-    const toolsHtml = (r.tool_calls || []).map((tc, i) =>
-      `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">
-        <div style="display:flex;gap:6px;align-items:baseline">
+    const toolsHtml = (r.tool_calls || []).map((tc, i) => {
+      const inputHtml = renderCollapsibleText(tc.input, { previewChars: 100, style: 'width:100%' });
+      return `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">
+        <div style="display:flex;gap:6px;align-items:flex-start">
           <span style="color:var(--accent);font-weight:600;min-width:20px">${i + 1}.</span>
           <span style="color:var(--accent);font-weight:500">${esc(tc.name)}</span>
-          <span style="color:var(--text-secondary);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:400px">${esc(tc.input.slice(0, 100))}</span>
+          <div style="min-width:0;flex:1;color:var(--text-secondary);font-family:monospace">${inputHtml}</div>
         </div>
         ${tc.result ? `<div style="margin-left:26px;color:var(--text-secondary);font-family:monospace;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px">${esc(tc.result.slice(0, 150))}</div>` : ''}
-      </div>`
-    ).join('');
+      </div>`;
+    }).join('');
 
     container.innerHTML = `
       <div style="padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px">
@@ -637,6 +684,7 @@ async function viewRunReport(agentId, runId) {
 
 function closeAgentDetail() {
   console.log('closeAgentDetail called');
+  stopAgentOutputPolling();
   currentAgentId = null;
   const el = document.getElementById('agent-detail');
   if (el) { el.style.display = 'none'; el.innerHTML = ''; }
@@ -977,6 +1025,8 @@ function switchTab(tab) {
   }
   // Update URL hash
   window.location.hash = tab === 'overview' ? '' : tab;
+  if (tab === 'agents' && currentAgentId) startAgentOutputPolling(currentAgentId);
+  else stopAgentOutputPolling();
   if (tab === 'issues') loadIssues();
   if (tab === 'activity') loadActivity();
   if (tab === 'git') loadGitTab();

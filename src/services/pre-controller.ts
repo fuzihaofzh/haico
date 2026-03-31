@@ -1,6 +1,7 @@
 import { getDatabase } from '../db/database';
 import { Agent, Project, Issue } from '../types';
 import { startAgentProcess, isAgentRunning, isAgentInCooldown, resetAutoRestartSkip } from './process-manager';
+import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
 import { buildSystemPrompt } from './system-prompt';
 import { config } from '../config';
 import logger from '../logger';
@@ -76,7 +77,7 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
       return true;
     }
 
-    // agent idle → 直接启动，包含该 agent 所有 assigned issue（不只是触发的那个）
+    // agent idle → 直接启动，但每轮只处理一个小批次，避免 prompt 过载
     // New issue assigned = new work, so reset any low-output skip state
     if (agent.status === 'idle') {
       resetAutoRestartSkip(agent.id);
@@ -86,14 +87,14 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
       const allAssigned = db.prepare(
         "SELECT * FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
       ).all(projectId, agent.id) as Issue[];
+      const issueBatch = getAgentIssueBatch(allAssigned);
 
       const parts: string[] = [];
       if (agent.role) parts.push(`Role: ${agent.role}`);
       if (project.task_description) parts.push(`Task: ${project.task_description}`);
-      if (allAssigned.length > 0) {
-        parts.push('Assigned issues:\n' + allAssigned.map(i => `#${i.number} [${i.status}] ${i.title}: ${(i.body || '').slice(0, 200)}`).join('\n'));
-        db.prepare("UPDATE issues SET status = 'in_progress', updated_at = datetime('now') WHERE project_id = ? AND assigned_to = ? AND status = 'open'")
-          .run(projectId, agent.id);
+      if (issueBatch.currentBatch.length > 0) {
+        parts.push(buildAssignedIssuesPrompt(issueBatch));
+        markCurrentBatchInProgress(db, issueBatch);
       }
       const prompt = parts.join('\n\n');
       if (!prompt) return false;
@@ -102,7 +103,7 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
       const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
       const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agent, project);
 
-      logger.info(`Pre-controller: directly starting ${agent.name} for ${allAssigned.length} issue(s) (triggered by #${triggerIssueNumber}), bypassing LLM controller`);
+      logger.info(`Pre-controller: directly starting ${agent.name} for ${issueBatch.currentBatch.length}/${issueBatch.activeIssues.length} issue(s) in current batch (triggered by #${triggerIssueNumber}), bypassing LLM controller`);
       startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
       return true;
     }

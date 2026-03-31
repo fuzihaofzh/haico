@@ -408,6 +408,95 @@ describe('Argus API', () => {
     });
   });
 
+  describe('Legacy admin fallback for user management (#482/#483)', () => {
+    let fallbackMemberId: string;
+    let fallbackMemberToken: string;
+
+    it('creates a fresh member for legacy fallback checks', async () => {
+      const username = `legacycheck${Date.now()}`;
+      const { status, body } = await api(app, '/api/auth/register', {
+        method: 'POST',
+        body: { username, password: 'member1234', display_name: 'Legacy Check Member' },
+      });
+      assert.equal(status, 201);
+      assert.equal(body.user.role, 'member');
+      fallbackMemberId = body.user.id;
+
+      const login = await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username, password: 'member1234' },
+      });
+      assert.equal(login.status, 200);
+      fallbackMemberToken = login.body.token;
+    });
+
+    it('GET /api/auth/me returns legacy admin from single-password cookie', async () => {
+      const { status, body } = await api(app, '/api/auth/me', {
+        headers: { cookie: `argus-auth=${sessionToken}` },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.id, 'legacy');
+      assert.equal(body.username, 'admin');
+      assert.equal(body.role, 'admin');
+    });
+
+    it('legacy single-password admin can list users', async () => {
+      const { status, body } = await api(app, '/api/auth/users', {
+        headers: { cookie: `argus-auth=${sessionToken}` },
+      });
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.users));
+      assert.ok(body.users.some((user: any) => user.id === fallbackMemberId));
+    });
+
+    it('multi-user admin/member permissions still work alongside legacy fallback', async () => {
+      const adminLogin = await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username: 'testadmin', password: 'admin1234' },
+      });
+      assert.equal(adminLogin.status, 200);
+      const adminToken = adminLogin.body.token;
+
+      const adminUsers = await api(app, '/api/auth/users', {
+        headers: { cookie: `argus-auth=${adminToken}` },
+      });
+      assert.equal(adminUsers.status, 200);
+      assert.ok(Array.isArray(adminUsers.body.users));
+
+      const memberUsers = await api(app, '/api/auth/users', {
+        headers: { cookie: `argus-auth=${fallbackMemberToken}` },
+      });
+      assert.equal(memberUsers.status, 403);
+      assert.equal(memberUsers.body.error, 'Admin access required');
+    });
+
+    it('legacy single-password admin can update another user role', async () => {
+      const { status, body } = await api(app, `/api/auth/users/${fallbackMemberId}`, {
+        method: 'PUT',
+        headers: { cookie: `argus-auth=${sessionToken}` },
+        body: { role: 'admin' },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.user.id, fallbackMemberId);
+      assert.equal(body.user.role, 'admin');
+    });
+
+    it('legacy single-password admin can delete another user', async () => {
+      const { status, body } = await api(app, `/api/auth/users/${fallbackMemberId}`, {
+        method: 'DELETE',
+        headers: { cookie: `argus-auth=${sessionToken}` },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.ok, true);
+
+      const users = await api(app, '/api/auth/users', {
+        headers: { cookie: `argus-auth=${sessionToken}` },
+      });
+      assert.equal(users.status, 200);
+      assert.ok(!users.body.users.some((user: any) => user.id === fallbackMemberId));
+    });
+  });
+
   // ─── Projects ───
 
   let projectId: string;
@@ -1673,6 +1762,143 @@ describe('Argus API', () => {
       assert.equal(status, 200);
       assert.ok(Array.isArray(body.time_series));
       assert.ok(Array.isArray(body.runs));
+    });
+  });
+
+  describe('Cost de-duplication (#489/#493/#494/#495)', () => {
+    let dedupeProjectId: string;
+    let dedupeAgentId: string;
+
+    before(async () => {
+      const createdProject = await api(app, '/api/projects', {
+        method: 'POST',
+        body: {
+          name: 'cost-dedupe-project',
+          description: 'dedupe regression checks',
+          task_description: 'verify cost de-duplication',
+          command_template: 'echo',
+        },
+      });
+      assert.equal(createdProject.status, 201);
+      dedupeProjectId = createdProject.body.id;
+
+      const createdAgent = await api(app, `/api/projects/${dedupeProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'cost-dedupe-agent', role: 'Cost dedupe verification' },
+      });
+      assert.equal(createdAgent.status, 201);
+      dedupeAgentId = createdAgent.body.id;
+
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const insertLog = db.prepare(
+        `INSERT INTO conversation_logs (agent_id, run_id, content, stream, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      );
+
+      insertLog.run(
+        dedupeAgentId,
+        'dedupe-run-1',
+        JSON.stringify({ cost_usd: 0.1, input_tokens: 100, output_tokens: 50 }),
+        'cost',
+        '2026-01-01 10:00:00'
+      );
+      insertLog.run(
+        dedupeAgentId,
+        'dedupe-run-1',
+        JSON.stringify({ cost_usd: 0.3, input_tokens: 300, output_tokens: 150, duration_ms: 1000 }),
+        'cost',
+        '2026-01-01 10:05:00'
+      );
+      insertLog.run(
+        dedupeAgentId,
+        'dedupe-run-2',
+        JSON.stringify({ cost_usd: 0.2, input_tokens: 200, output_tokens: 80, duration_ms: 2000 }),
+        'cost',
+        '2026-01-02 09:00:00'
+      );
+    });
+
+    after(async () => {
+      await api(app, `/api/projects/${dedupeProjectId}`, { method: 'DELETE' });
+    });
+
+    it('GET /api/agents/:id/costs only counts the latest cumulative row per run_id', async () => {
+      const { status, body } = await api(app, `/api/agents/${dedupeAgentId}/costs`);
+      assert.equal(status, 200);
+      assert.equal(body.total_runs, 2);
+      assert.equal(body.total_cost_usd, 0.5);
+      assert.equal(body.total_input_tokens, 500);
+      assert.equal(body.total_output_tokens, 230);
+      assert.deepEqual(
+        body.runs.map((run: any) => ({ run_id: run.run_id, cost_usd: run.cost_usd })),
+        [
+          { run_id: 'dedupe-run-1', cost_usd: 0.3 },
+          { run_id: 'dedupe-run-2', cost_usd: 0.2 },
+        ]
+      );
+    });
+
+    it('GET /api/agents/:id/runs uses the latest cost row for each run_id', async () => {
+      const { status, body } = await api(app, `/api/agents/${dedupeAgentId}/runs`);
+      assert.equal(status, 200);
+      const byRunId = new Map(body.runs.map((run: any) => [run.run_id, run]));
+      assert.equal(byRunId.get('dedupe-run-1')?.cost_usd, 0.3);
+      assert.equal(byRunId.get('dedupe-run-1')?.input_tokens, 300);
+      assert.equal(byRunId.get('dedupe-run-1')?.output_tokens, 150);
+      assert.equal(byRunId.get('dedupe-run-2')?.cost_usd, 0.2);
+    });
+
+    it('project-level cost endpoints use de-duplicated totals', async () => {
+      const costs = await api(app, `/api/projects/${dedupeProjectId}/costs?period=day`);
+      assert.equal(costs.status, 200);
+      assert.equal(costs.body.total_cost_usd, 0.5);
+      assert.equal(costs.body.total_input_tokens, 500);
+      assert.equal(costs.body.total_output_tokens, 230);
+      assert.equal(costs.body.by_agent['cost-dedupe-agent'].cost, 0.5);
+      assert.equal(costs.body.by_agent['cost-dedupe-agent'].runs, 2);
+
+      const exported = await api(app, `/api/projects/${dedupeProjectId}/export`);
+      assert.equal(exported.status, 200);
+      assert.equal(exported.body.cost_summary.total_cost_usd, 0.5);
+      assert.equal(exported.body.cost_summary.total_input_tokens, 500);
+      assert.equal(exported.body.cost_summary.total_output_tokens, 230);
+    });
+
+    it('dashboard aggregates also use de-duplicated totals', async () => {
+      const usage = await api(app, '/api/dashboard/usage-by-project?period=day', {
+        headers: { cookie: `argus-auth=${sessionToken}` },
+      });
+      assert.equal(usage.status, 200);
+      const projectEntry = usage.body.projects.find((project: any) => project.id === dedupeProjectId);
+      assert.ok(projectEntry, 'usage-by-project should include the dedupe test project');
+
+      let projectCost = 0;
+      for (const bucket of usage.body.time_buckets) {
+        projectCost += usage.body.data[bucket]?.[dedupeProjectId]?.cost || 0;
+      }
+      assert.equal(projectCost, 0.5);
+
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const rawCostRows = db.prepare(
+        `SELECT run_id, content, id
+         FROM conversation_logs
+         WHERE stream = 'cost'
+         ORDER BY run_id, id DESC`
+      ).all() as Array<{ run_id: string; content: string; id: number }>;
+      const latestByRun = new Map<string, number>();
+      for (const row of rawCostRows) {
+        if (latestByRun.has(row.run_id)) continue;
+        latestByRun.set(row.run_id, JSON.parse(row.content).cost_usd || 0);
+      }
+      const expectedTotal = Array.from(latestByRun.values()).reduce((sum, value) => sum + value, 0);
+
+      const summaryAfter = await api(app, '/api/dashboard/summary', {
+        headers: { cookie: `argus-auth=${sessionToken}` },
+      });
+      assert.equal(summaryAfter.status, 200);
+      assert.equal(summaryAfter.body.total_cost_usd, expectedTotal);
     });
   });
 
@@ -3691,6 +3917,106 @@ describe('Argus API', () => {
       assert.ok(FINAL_RESULT_KILL_DELAY_MS > 0, 'FINAL_RESULT_KILL_DELAY_MS应为正数');
       // 默认2分钟
       assert.equal(FINAL_RESULT_KILL_DELAY_MS, 2 * 60 * 1000, 'FINAL_RESULT_KILL_DELAY_MS应为2分钟');
+    });
+  });
+
+  describe('Agent issue batching', () => {
+    let getAgentIssueBatch: (issues: any[], maxIssues?: number) => any;
+    let buildAssignedIssuesPrompt: (batch: any, options?: any) => string;
+
+    before(async () => {
+      const batch = await import('../src/services/agent-issue-batch');
+      getAgentIssueBatch = batch.getAgentIssueBatch;
+      buildAssignedIssuesPrompt = batch.buildAssignedIssuesPrompt;
+    });
+
+    it('limits each run to a small highest-priority batch', () => {
+      const issues = [
+        { id: '3', number: 3, title: 'low', body: 'low body', status: 'open', priority: 1, created_at: '2026-03-31 10:02:00' },
+        { id: '1', number: 1, title: 'high-a', body: 'high a body', status: 'open', priority: 5, created_at: '2026-03-31 10:00:00' },
+        { id: '2', number: 2, title: 'high-b', body: 'high b body', status: 'in_progress', priority: 5, created_at: '2026-03-31 10:01:00' },
+      ];
+
+      const batch = getAgentIssueBatch(issues);
+      assert.equal(batch.currentBatch.length, 2);
+      assert.equal(batch.queuedIssues.length, 1);
+      assert.deepEqual(batch.currentBatch.map((issue: any) => issue.number), [1, 2]);
+      assert.deepEqual(batch.queuedIssues.map((issue: any) => issue.number), [3]);
+    });
+
+    it('prompt explicitly tells the agent to stop after the current batch', () => {
+      const batch = getAgentIssueBatch([
+        { id: '1', number: 1, title: 'alpha', body: 'alpha body', status: 'open', priority: 5, created_at: '2026-03-31 10:00:00' },
+        { id: '2', number: 2, title: 'beta', body: 'beta body', status: 'open', priority: 4, created_at: '2026-03-31 10:01:00' },
+        { id: '3', number: 3, title: 'gamma', body: 'gamma body', status: 'open', priority: 3, created_at: '2026-03-31 10:02:00' },
+      ]);
+
+      const prompt = buildAssignedIssuesPrompt(batch);
+      assert.ok(prompt.includes('Current batch (2/3 assigned issue(s))'));
+      assert.ok(prompt.includes('Queued for later (1 more assigned issue(s))'));
+      assert.ok(prompt.includes('Only work on the current batch in this run.'));
+      assert.ok(prompt.includes('#3 [open] [p3] gamma'));
+    });
+  });
+
+  describe('Run completion classification', () => {
+    let classifyAgentExitStatus: (input: {
+      currentStatus?: string | null;
+      exitCode: number | null;
+      requiresCompletionSignal: boolean;
+      sawClosedStdinSessionError: boolean;
+      sawCompletionSignal: boolean;
+      hadFinalResult: boolean;
+    }) => 'idle' | 'error' | 'stopped';
+
+    before(async () => {
+      const pm = await import('../src/services/process-manager');
+      classifyAgentExitStatus = pm.classifyAgentExitStatus;
+    });
+
+    it('marks structured zero-exit runs without completion as error', () => {
+      const status = classifyAgentExitStatus({
+        exitCode: 0,
+        requiresCompletionSignal: true,
+        sawClosedStdinSessionError: false,
+        sawCompletionSignal: false,
+        hadFinalResult: false,
+      });
+      assert.equal(status, 'error');
+    });
+
+    it('accepts structured completion signals on zero-exit runs', () => {
+      const status = classifyAgentExitStatus({
+        exitCode: 0,
+        requiresCompletionSignal: true,
+        sawClosedStdinSessionError: false,
+        sawCompletionSignal: true,
+        hadFinalResult: false,
+      });
+      assert.equal(status, 'idle');
+    });
+
+    it('keeps plain shell zero-exit runs successful', () => {
+      const status = classifyAgentExitStatus({
+        exitCode: 0,
+        requiresCompletionSignal: false,
+        sawClosedStdinSessionError: false,
+        sawCompletionSignal: false,
+        hadFinalResult: false,
+      });
+      assert.equal(status, 'idle');
+    });
+
+    it('preserves explicit stopped status', () => {
+      const status = classifyAgentExitStatus({
+        currentStatus: 'stopped',
+        exitCode: 1,
+        requiresCompletionSignal: true,
+        sawClosedStdinSessionError: true,
+        sawCompletionSignal: false,
+        hadFinalResult: false,
+      });
+      assert.equal(status, 'stopped');
     });
   });
 });

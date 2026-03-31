@@ -8,8 +8,17 @@ export interface Project {
   command_template: string;
   orchestrator_engine: OrchestratorEngine;
   status: 'active' | 'paused' | 'completed';
+  owner_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectMember {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: 'owner' | 'member';
+  created_at: string;
 }
 
 export interface Agent {
@@ -68,7 +77,7 @@ export interface ConversationLog {
   agent_id: string;
   run_id: string;
   content: string;
-  stream: 'stdin' | 'stdout' | 'stderr';
+  stream: 'stdin' | 'stdout' | 'stderr' | 'cost';
   created_at: string;
 }
 

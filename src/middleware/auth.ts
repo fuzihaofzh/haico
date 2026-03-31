@@ -108,7 +108,7 @@ const LOCALHOST_BLOCKED_PATTERNS = [
   { method: 'GET', prefix: '/api/auth/' },
 ];
 
-function isLocalhostSafe(method: string, url: string): boolean {
+export function isLocalhostSafeRoute(method: string, url: string): boolean {
   for (const pattern of LOCALHOST_BLOCKED_PATTERNS) {
     if (method === pattern.method && url.startsWith(pattern.prefix)) {
       return false;
@@ -119,6 +119,70 @@ function isLocalhostSafe(method: string, url: string): boolean {
   }
   if (url.startsWith('/ws/')) return true;
   return false;
+}
+
+export function isLocalhostRequest(request: FastifyRequest): boolean {
+  const remoteIp = request.ip;
+  return remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '::ffff:127.0.0.1';
+}
+
+export function isLocalhostBypassRequest(request: FastifyRequest): boolean {
+  return isLocalhostRequest(request) && isLocalhostSafeRoute(request.method, request.url);
+}
+
+export function isLegacyAuthUser(user: User | null | undefined): boolean {
+  return !!user && user.id === 'legacy';
+}
+
+function getRequestToken(request: FastifyRequest): string | null {
+  const cookies = parseCookies(request.headers.cookie);
+  let token = cookies[COOKIE_NAME];
+
+  if (!token) {
+    const authHeader = request.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    }
+  }
+
+  return token || null;
+}
+
+export function getRequestUser(request: FastifyRequest): User | null {
+  try {
+    const token = getRequestToken(request);
+    if (!token) return null;
+
+    const { getDatabase } = require('../db/database');
+    const db = getDatabase();
+
+    const session = db.prepare(
+      'SELECT user_id FROM sessions WHERE token = ? AND expires_at > ?'
+    ).get(token, Date.now()) as { user_id: string } | undefined;
+
+    if (session?.user_id) {
+      return db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id) as User | undefined || null;
+    }
+
+    const currentAuthConfig = loadAuthConfig();
+    if (currentAuthConfig.passwordHash && token === currentAuthConfig.passwordHash) {
+      return {
+        id: 'legacy',
+        username: 'admin',
+        email: '',
+        password_hash: '',
+        password_salt: '',
+        display_name: 'Admin',
+        role: 'admin',
+        created_at: '',
+        last_login_at: null,
+      } as User;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // --- HTML pages ---
@@ -623,37 +687,7 @@ export function setupAuth(app: FastifyInstance): void {
 
   // Helper: resolve user from request token
   function getUserFromRequest(request: FastifyRequest): User | null {
-    try {
-      const { getDatabase } = require('../db/database');
-      const db = getDatabase();
-
-      // Check cookie
-      const cookies = parseCookies(request.headers.cookie);
-      let token = cookies[COOKIE_NAME];
-
-      // Check Authorization header
-      if (!token) {
-        const authHeader = request.headers.authorization;
-        if (authHeader?.startsWith('Bearer ')) {
-          token = authHeader.slice(7);
-        }
-      }
-
-      if (!token) return null;
-
-      const session = db.prepare('SELECT user_id FROM sessions WHERE token = ? AND expires_at > ?').get(token, Date.now()) as { user_id: string } | undefined;
-      if (!session?.user_id) {
-        // Fallback: legacy single-password auth (cookie = passwordHash)
-        if (isValidToken(token)) {
-          return { id: 'legacy', username: 'admin', email: '', password_hash: '', password_salt: '', display_name: 'Admin', role: 'admin', created_at: '', last_login_at: null } as User;
-        }
-        return null;
-      }
-
-      return db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id) as User | undefined || null;
-    } catch {
-      return null;
-    }
+    return getRequestUser(request);
   }
 
   // Check if a session token is valid (for multi-user mode)
@@ -683,9 +717,7 @@ export function setupAuth(app: FastifyInstance): void {
     }
 
     // Localhost bypass: only for agent-safe routes
-    const remoteIp = request.ip;
-    const isLocalhost = remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '::ffff:127.0.0.1';
-    if (isLocalhost && isLocalhostSafe(request.method, url)) {
+    if (isLocalhostBypassRequest(request)) {
       return;
     }
 
