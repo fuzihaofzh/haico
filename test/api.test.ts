@@ -2118,13 +2118,13 @@ describe('Argus API', () => {
   // ─── API连接失败自动重启 (#436/#437) ───
 
   describe('API连接失败自动重启 (#436)', () => {
-    // 等待agent进入非running状态（最多等maxMs毫秒），返回最终状态
-    async function waitForNonRunning(agentId: string, maxMs = 15000): Promise<string> {
+    // 等待agent进入非running/非waiting状态（最多等maxMs毫秒），返回最终状态
+    async function waitForNonRunning(agentId: string, maxMs = 15000, alsoSkipWaiting = false): Promise<string> {
       const deadline = Date.now() + maxMs;
       while (Date.now() < deadline) {
         await new Promise(r => setTimeout(r, 300));
         const { body: st } = await api(app, `/api/agents/${agentId}/status`);
-        if (st.status !== 'running') return st.status;
+        if (st.status !== 'running' && (!alsoSkipWaiting || st.status !== 'waiting')) return st.status;
       }
       const { body: st } = await api(app, `/api/agents/${agentId}/status`);
       return st.status;
@@ -2157,20 +2157,19 @@ describe('Argus API', () => {
         // 等待第一次进程退出（is_running → false）
         await waitForProcessExit(workerId, 3000);
 
-        // 若API错误被检测到，关闭处理器应保持status='running'（重试等待中）
+        // 若API错误被检测到，关闭处理器应进入'waiting'状态（5分钟重试等待中）
         const { body: midState } = await api(app, `/api/agents/${workerId}/status`);
-        assert.equal(midState.status, 'running',
-          `第一次API错误后应保持running（重试中）。实际: ${midState.status}, pid: ${midState.pid}, is_running: ${midState.is_running}`);
+        assert.equal(midState.status, 'waiting',
+          `第一次API错误后应为waiting（等待重试）。实际: ${midState.status}, pid: ${midState.pid}, is_running: ${midState.is_running}`);
 
-        // 等待两次尝试全部完成（5秒重试延迟 + 执行时间 ≈ 8秒）
-        const finalStatus = await waitForNonRunning(workerId, 12000);
-        assert.equal(finalStatus, 'error',
-          `两次API错误后应变为error。实际: ${finalStatus}`);
+        // 5分钟重试延迟太长，不等待完成。手动停止agent让状态恢复。
+        await api(app, `/api/agents/${workerId}/stop`, { method: 'POST' });
+        await waitForNonRunning(workerId, 5000, true);
       } finally {
         await api(app, `/api/projects/${projectId}`, {
           method: 'PUT', body: { command_template: 'echo' },
         });
-        await waitForNonRunning(workerId, 12000);
+        await waitForNonRunning(workerId, 12000, true);
       }
     });
 
@@ -2187,7 +2186,7 @@ describe('Argus API', () => {
         });
         assert.equal(startRes.status, 200, `start应返回200，实际: ${startRes.status}`);
 
-        // 非API错误应立即进入error（无5秒重试延迟）
+        // 非API错误应立即进入error（无重试延迟）
         const finalStatus = await waitForNonRunning(workerId, 5000);
         assert.equal(finalStatus, 'error',
           `非API错误应直接进入error（无自动重试）。实际: ${finalStatus}`);
@@ -3252,12 +3251,36 @@ describe('Argus API', () => {
       assert.equal(body.is_blocked, true);
     });
 
+    it('列表接口 is_blocked=true 当存在未完成的 blocker', async () => {
+      const { status, body } = await api(app, `/api/projects/${relProjId}/issues`);
+      assert.equal(status, 200);
+      const beta = body.issues.find((i: any) => i.id === relIssue2Id);
+      assert.ok(beta, 'Issue Beta 应在列表中');
+      assert.equal(typeof beta.is_blocked, 'boolean', 'is_blocked 应为布尔值，非 null');
+      assert.equal(beta.is_blocked, true, 'blocker 未完成时 is_blocked 应为 true');
+      // Issue Alpha (blocker) 自身不应被 blocked
+      const alpha = body.issues.find((i: any) => i.id === relIssue1Id);
+      assert.ok(alpha, 'Issue Alpha 应在列表中');
+      assert.equal(typeof alpha.is_blocked, 'boolean', 'is_blocked 应为布尔值，非 null');
+      assert.equal(alpha.is_blocked, false, '没有 blocker 的 issue，is_blocked 应为 false');
+    });
+
     it('is_blocked=false when blocker is done', async () => {
       await api(app, `/api/issues/${relIssue1Id}`, {
         method: 'PUT', body: { status: 'done', actor: 'user' },
       });
       const { body } = await api(app, `/api/issues/${relIssue2Id}`);
       assert.equal(body.is_blocked, false);
+    });
+
+    it('列表接口 is_blocked=false 当所有 blocker 都已完成', async () => {
+      // relIssue1 已在上一个测试中置为 done
+      const { status, body } = await api(app, `/api/projects/${relProjId}/issues`);
+      assert.equal(status, 200);
+      const beta = body.issues.find((i: any) => i.id === relIssue2Id);
+      assert.ok(beta, 'Issue Beta 应在列表中');
+      assert.equal(typeof beta.is_blocked, 'boolean', 'is_blocked 应为布尔值，非 null');
+      assert.equal(beta.is_blocked, false, 'blocker 已完成时 is_blocked 应为 false');
     });
 
     it('DELETE /api/issues/:id/relations/:relationId removes relation', async () => {

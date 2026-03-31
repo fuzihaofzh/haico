@@ -10,10 +10,67 @@ export interface PtySession {
   pty: pty.IPty;
   agentId: string;
   createdAt: number;
+  outputBuffer: string;
 }
 
 // Map of agentId -> active PTY session
 const ptySessions = new Map<string, PtySession>();
+const PTY_OUTPUT_BUFFER_MAX = 200000;
+
+function splitCommandTemplate(template: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  let escape = false;
+
+  for (const ch of template) {
+    if (escape) {
+      current += ch;
+      escape = false;
+      continue;
+    }
+
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      else current += ch;
+      continue;
+    }
+
+    if (ch === '\\') {
+      escape = true;
+      continue;
+    }
+
+    if (quote === '"') {
+      if (ch === '"') quote = null;
+      else current += ch;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+
+    current += ch;
+  }
+
+  if (escape) current += '\\';
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+function needsShellExecution(template: string): boolean {
+  return /[|&;<>()`$]/.test(template);
+}
 
 /**
  * Get or create a PTY session for an agent.
@@ -40,30 +97,37 @@ export function getOrCreatePtySession(
   if (cwd.startsWith('~/')) cwd = path.join(os.homedir(), cwd.slice(2));
 
   // Get command template: agent-level > project-level > default
-  let command = 'claude';
+  let commandTemplate = 'claude';
   if (agent) {
     if (agent.command_template) {
-      command = agent.command_template.trim() || 'claude';
+      commandTemplate = agent.command_template.trim() || 'claude';
     } else {
       const project = db.prepare('SELECT command_template FROM projects WHERE id = ?').get(agent.project_id) as { command_template: string } | undefined;
       if (project?.command_template) {
-        command = project.command_template.trim() || 'claude';
+        commandTemplate = project.command_template.trim() || 'claude';
       } else {
-        command = config.defaultCommandTemplate || 'claude';
+        commandTemplate = config.defaultCommandTemplate || 'claude';
       }
     }
   }
 
-  // Build session args - interactive mode (no -p flag, no stream-json)
+  const parsed = splitCommandTemplate(commandTemplate);
+  const baseCommand = parsed[0] || 'claude';
+  const baseArgs = parsed.slice(1);
+
+  // Build session args for Claude-family CLIs.
   const sessionId = agent?.session_id || undefined;
+  const toolName = path.basename(baseCommand).toLowerCase();
+  const isClaudeFamily = toolName === 'cld' || toolName === 'claude' || toolName === 'ccr';
   const sessionArgs: string[] = [];
-  if (sessionId) {
-    sessionArgs.push('--resume', sessionId);
+  if (isClaudeFamily) {
+    sessionArgs.push('--dangerously-skip-permissions');
+    if (sessionId) {
+      sessionArgs.push('--resume', sessionId);
+    }
   }
 
-  logger.info(`Spawning PTY for agent ${agentId}: ${command} ${sessionArgs.join(' ')} in ${cwd}`);
-
-  const ptyProcess = pty.spawn(command, sessionArgs, {
+  const ptyOptions = {
     name: 'xterm-256color',
     cols,
     rows,
@@ -73,13 +137,36 @@ export function getOrCreatePtySession(
       no_proxy: [process.env.no_proxy, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
       NO_PROXY: [process.env.NO_PROXY, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
     } as Record<string, string>,
-  });
+  };
+
+  const finalArgs = [...baseArgs, ...sessionArgs];
+  let ptyProcess: pty.IPty;
+
+  if (needsShellExecution(commandTemplate)) {
+    const escapeArg = (arg: string): string => "'" + arg.replace(/'/g, "'\\''") + "'";
+    const shellCommand = [commandTemplate, ...sessionArgs.map(escapeArg)].join(' ');
+    logger.info(`Spawning PTY for agent ${agentId} via shell: ${shellCommand} in ${cwd}`);
+    ptyProcess = pty.spawn('/bin/sh', ['-lc', shellCommand], ptyOptions);
+  } else {
+    logger.info(`Spawning PTY for agent ${agentId}: ${baseCommand} ${finalArgs.join(' ')} in ${cwd}`);
+    ptyProcess = pty.spawn(baseCommand, finalArgs, ptyOptions);
+  }
 
   const session: PtySession = {
     pty: ptyProcess,
     agentId,
     createdAt: Date.now(),
+    outputBuffer: '',
   };
+
+  // Keep a rolling output buffer so clients that reconnect (or attach late)
+  // can still render the latest terminal content.
+  ptyProcess.onData((data: string) => {
+    session.outputBuffer += data;
+    if (session.outputBuffer.length > PTY_OUTPUT_BUFFER_MAX) {
+      session.outputBuffer = session.outputBuffer.slice(-PTY_OUTPUT_BUFFER_MAX);
+    }
+  });
 
   ptySessions.set(agentId, session);
 
@@ -112,6 +199,10 @@ export function killAllPtySessions(): void {
   for (const [agentId] of ptySessions) {
     killPtySession(agentId);
   }
+}
+
+export function getPtyOutputBuffer(agentId: string): string {
+  return ptySessions.get(agentId)?.outputBuffer || '';
 }
 
 export function getPtySession(agentId: string): PtySession | undefined {

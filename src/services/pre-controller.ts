@@ -1,6 +1,6 @@
 import { getDatabase } from '../db/database';
 import { Agent, Project, Issue } from '../types';
-import { startAgentProcess, isAgentRunning, isAgentInCooldown } from './process-manager';
+import { startAgentProcess, isAgentRunning, isAgentInCooldown, resetAutoRestartSkip } from './process-manager';
 import { buildSystemPrompt } from './system-prompt';
 import { config } from '../config';
 import logger from '../logger';
@@ -77,7 +77,9 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
     }
 
     // agent idle → 直接启动，包含该 agent 所有 assigned issue（不只是触发的那个）
+    // New issue assigned = new work, so reset any low-output skip state
     if (agent.status === 'idle') {
+      resetAutoRestartSkip(agent.id);
       const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
       if (!project) return false;
 

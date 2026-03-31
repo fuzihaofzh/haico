@@ -3,7 +3,7 @@ import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
 import { triggerControllerAgent } from './controller';
 import { tryHandleWithoutLLM } from './pre-controller';
-import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, isAgentInCooldown, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
+import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, isAgentInCooldown, shouldSkipAutoRestart, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
 import { buildSystemPrompt } from './system-prompt';
 import { config } from '../config';
 import logger from '../logger';
@@ -62,6 +62,8 @@ function startIssueScan(): void {
           if (isAgentRunning(worker.id)) continue;
           // Cooldown: skip agents that just finished to avoid low-output tail restarts
           if (isAgentInCooldown(worker.id)) continue;
+          // Skip agents with consecutive low-output runs (tail request avoidance)
+          if (shouldSkipAutoRestart(worker.id)) continue;
           try {
             // Build prompt same as /api/agents/:id/start
             const parts: string[] = [];

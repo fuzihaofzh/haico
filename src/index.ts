@@ -9,14 +9,42 @@ async function main() {
     logger: true,
   });
 
-  logger.info(`Argus server running at http://${config.host}:${config.port}`);
+  logger.info(`Argus server running at http://${config.host}:${config.port} (pid: ${process.pid})`);
 
-  const shutdown = () => {
-    logger.info('Shutting down...');
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info(`Received ${signal}, shutting down... (pid: ${process.pid})`);
     destroyApp(fastify).then(() => process.exit(0));
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGHUP', () => {
+    logger.warn(`Received SIGHUP (pid: ${process.pid}) — ignoring`);
+  });
 }
 
-main();
+process.on('uncaughtException', (err) => {
+  logger.error({ err }, 'Uncaught exception — process will exit');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.error({ err: reason }, 'Unhandled rejection — process will exit');
+  process.exit(1);
+});
+
+process.on('beforeExit', (code) => {
+  logger.warn(`beforeExit event with code ${code} (pid: ${process.pid})`);
+});
+
+process.on('exit', (code) => {
+  // This is synchronous-only — last chance to log
+  console.error(`[Argus] process.exit with code=${code} pid=${process.pid} at ${new Date().toISOString()}`);
+});
+
+main().catch((err) => {
+  logger.error({ err }, 'Failed to start server');
+  process.exit(1);
+});

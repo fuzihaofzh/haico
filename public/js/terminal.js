@@ -377,7 +377,7 @@ async function retryAgent() {
 }
 
 async function stopAgent() {
-  if (!confirm('Stop this agent?')) return;
+  if (!await showConfirm('Stop this agent?')) return;
   const btn = document.getElementById('btn-stop');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${agentId}/stop`, { method: 'POST', headers: apiHeaders(), body: '{}' });
@@ -419,13 +419,135 @@ function toggleSystemPrompt() {
   else { el.style.display = 'none'; }
 }
 
+// ─── Messages ───
+
+let allAgents = [];
+
+async function loadMessages() {
+  try {
+    const res = await fetch(`/api/agents/${agentId}/messages?limit=30`, { headers: apiHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+    const messages = data.messages || [];
+    const unread = messages.filter(m => m.status === 'unread').length;
+
+    const badge = document.getElementById('unread-badge');
+    if (unread > 0) {
+      badge.textContent = unread;
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    const container = document.getElementById('messages-list');
+    if (messages.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;padding:8px">No messages</div>';
+      return;
+    }
+    container.innerHTML = messages.map(function(m) {
+      var isUnread = m.status === 'unread';
+      var date = m.created_at ? new Date(m.created_at + (m.created_at.includes('Z') ? '' : 'Z')).toLocaleString() : '';
+      return '<div style="padding:8px 12px;border-bottom:1px solid var(--border);' + (isUnread ? 'background:var(--selected-bg);' : '') + 'cursor:pointer" onclick="toggleMessageDetail(this,\'' + m.id + '\')">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<span style="font-weight:' + (isUnread ? '600' : '400') + ';font-size:13px">' +
+            (isUnread ? '<span style="color:var(--accent);margin-right:4px">●</span>' : '') +
+            (m.from_name || m.from_agent_id.slice(0,8)) +
+            (m.subject ? ': ' + esc(m.subject) : '') +
+          '</span>' +
+          '<span style="font-size:11px;color:var(--text-secondary)">' + timeAgo(m.created_at) + '</span>' +
+        '</div>' +
+        '<div class="msg-detail" style="display:none;margin-top:8px;padding:8px;background:var(--bg);border-radius:4px;font-size:12px;white-space:pre-wrap">' + esc(m.body) + '</div>' +
+      '</div>';
+    }).join('');
+  } catch(e) {}
+}
+
+function toggleMessageDetail(el, msgId) {
+  var detail = el.querySelector('.msg-detail');
+  if (!detail) return;
+  var visible = detail.style.display !== 'none';
+  detail.style.display = visible ? 'none' : '';
+  if (!visible) {
+    // Mark as read
+    fetch('/api/agents/' + agentId + '/messages/' + msgId, {
+      method: 'PUT', headers: apiHeaders()
+    }).then(function() { setTimeout(loadMessages, 500); });
+  }
+}
+
+async function markAllRead() {
+  await fetch('/api/agents/' + agentId + '/messages/read-all', { method: 'POST', headers: apiHeaders() });
+  showToast('All messages marked as read', 'success');
+  loadMessages();
+}
+
+async function showSendMessage() {
+  // Load agents if not loaded
+  if (allAgents.length === 0) {
+    try {
+      var aRes = await fetch('/api/agents/' + agentId, { headers: apiHeaders() });
+      var me = await aRes.json();
+      var pRes = await fetch('/api/projects/' + me.project_id + '/agents', { headers: apiHeaders() });
+      allAgents = await pRes.json();
+    } catch(e) {}
+  }
+
+  var existing = document.getElementById('send-msg-dialog');
+  if (existing) { existing.remove(); return; }
+  var opts = allAgents.filter(function(a) { return a.id !== agentId; }).map(function(a) {
+    return '<option value="' + a.id + '">' + esc(a.name) + '</option>';
+  }).join('');
+
+  var div = document.createElement('div');
+  div.id = 'send-msg-dialog';
+  div.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--header-bg);border:1px solid var(--border);border-radius:8px;padding:16px;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,0.3);min-width:350px';
+  div.innerHTML =
+    '<div style="font-weight:600;margin-bottom:12px">Send Message</div>' +
+    '<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">To</label>' +
+      '<select id="msg-to" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px">' + opts + '</select></div>' +
+    '<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">Subject</label>' +
+      '<input type="text" id="msg-subject" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px"></div>' +
+    '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--text-secondary)">Message</label>' +
+      '<textarea id="msg-body" rows="4" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px;font-family:inherit;resize:vertical"></textarea></div>' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="btn btn-sm" onclick="document.getElementById(\'send-msg-dialog\').remove()">Cancel</button>' +
+      '<button class="btn btn-sm btn-primary" onclick="sendMessage()">Send</button>' +
+    '</div>';
+  document.body.appendChild(div);
+}
+
+async function sendMessage() {
+  var to = document.getElementById('msg-to').value;
+  var subject = document.getElementById('msg-subject').value;
+  var body = document.getElementById('msg-body').value;
+  if (!to || !body) { showToast('Recipient and message are required', 'error'); return; }
+  try {
+    var res = await fetch('/api/agents/' + agentId + '/messages/send', {
+      method: 'POST', headers: apiHeaders(),
+      body: JSON.stringify({ to: to, subject: subject, body: body })
+    });
+    if (res.ok) {
+      showToast('Message sent', 'success');
+      var dialog = document.getElementById('send-msg-dialog');
+      if (dialog) dialog.remove();
+      loadMessages();
+    } else {
+      var err = await res.json();
+      showToast(err.error || 'Failed to send', 'error');
+    }
+  } catch(e) { showToast('Network error', 'error'); }
+}
+
 // ─── Init ───
 
 initTerminal();
 loadAgentInfo();
 loadHistory();
+loadMessages();
 
 // Poll every 1 second for new logs (real-time feel)
 setInterval(pollLogs, 1000);
 // Refresh agent info every 3 seconds
 setInterval(loadAgentInfo, 3000);
+// Refresh messages every 10 seconds
+setInterval(loadMessages, 10000);

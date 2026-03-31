@@ -1,4 +1,6 @@
-const agentId = new URLSearchParams(window.location.search).get('agentId');
+const qs = new URLSearchParams(window.location.search);
+const agentId = qs.get('agentId');
+const initialNewSession = qs.get('newSession') === null ? true : qs.get('newSession') === 'true';
 let term = null;
 let fitAddon = null;
 let ws = null;
@@ -43,8 +45,36 @@ function sendResize() {
   }
 }
 
-function setStatus(text) {
-  document.getElementById('connection-status').textContent = text;
+let reconnectTimer = null;
+let reconnectCountdown = 0;
+
+function setStatus(text, state) {
+  const el = document.getElementById('connection-status');
+  // state: 'connected' | 'connecting' | 'disconnected' | 'error'
+  const colors = { connected: '#3fb950', connecting: '#d29922', disconnected: '#8b949e', error: '#f85149' };
+  const color = colors[state] || colors.disconnected;
+  el.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle"></span>${text}`;
+}
+
+function showReconnectUI(seconds) {
+  clearReconnectTimer();
+  reconnectCountdown = seconds;
+  const statusEl = document.getElementById('connection-status');
+  const updateCountdown = () => {
+    if (reconnectCountdown <= 0) {
+      connectWebSocket(false);
+      return;
+    }
+    statusEl.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#d29922;margin-right:6px;vertical-align:middle"></span>` +
+      `${reconnectCountdown}秒后重连... <button onclick="connectWebSocket(false)" style="margin-left:8px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--header-bg);color:var(--fg);cursor:pointer;font-size:12px">立即重连</button>`;
+    reconnectCountdown--;
+    reconnectTimer = setTimeout(updateCountdown, 1000);
+  };
+  updateCountdown();
+}
+
+function clearReconnectTimer() {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 }
 
 function connectWebSocket(newSession) {
@@ -58,11 +88,12 @@ function connectWebSocket(newSession) {
   const rows = term ? term.rows : 30;
   const url = `${proto}//${location.host}/ws/terminal/${agentId}?newSession=${newSession}&cols=${cols}&rows=${rows}`;
 
-  setStatus('Connecting...');
+  clearReconnectTimer();
+  setStatus('连接中...', 'connecting');
   ws = new WebSocket(url);
 
   ws.onopen = () => {
-    setStatus('Connected');
+    setStatus('已连接', 'connected');
     sendResize();
   };
 
@@ -93,12 +124,19 @@ function connectWebSocket(newSession) {
     }
   };
 
-  ws.onclose = () => {
-    setStatus('Disconnected');
+  ws.onclose = (e) => {
+    // Don't auto-reconnect if intentionally closed (code 1000) or process exited
+    if (e.code === 1000) {
+      setStatus('已断开', 'disconnected');
+    } else {
+      setStatus('连接断开', 'disconnected');
+      showReconnectUI(5);
+    }
   };
 
   ws.onerror = () => {
-    setStatus('Connection error');
+    setStatus('连接失败', 'error');
+    showReconnectUI(5);
   };
 }
 
@@ -116,14 +154,14 @@ function startSession(isNew) {
   // If continuing, we're already connected — do nothing
 }
 
-function reconnect(newSession) {
-  if (newSession && !confirm('Start a new session? This will kill the existing one.')) return;
+async function reconnect(newSession) {
+  if (newSession && !await showConfirm('Start a new session? This will kill the existing one.')) return;
   term.clear();
   connectWebSocket(newSession);
 }
 
-function killSession() {
-  if (!confirm('Kill the terminal process?')) return;
+async function killSession() {
+  if (!await showConfirm('Kill the terminal process?')) return;
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'kill' }));
   }
@@ -158,6 +196,6 @@ if (!agentId) {
 } else {
   initTerminal();
   loadAgentInfo();
-  // Start connection — first time, don't force new session
-  connectWebSocket(false);
+  // Start connection; default to new session to avoid attaching to stale blank PTY state
+  connectWebSocket(initialNewSession);
 }
