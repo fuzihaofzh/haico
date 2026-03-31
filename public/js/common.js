@@ -10,6 +10,7 @@ async function initUserMenu() {
       return;
     }
     _currentUser = await res.json();
+    window.dispatchEvent(new CustomEvent('argus:user-ready', { detail: _currentUser }));
   } catch (e) {
     console.warn('[Argus] initUserMenu: fetch failed —', e.message || e);
     return;

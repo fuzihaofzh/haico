@@ -11,6 +11,55 @@ let _knownActionIssueIds = null; // null = first load (don't ring on first load)
 // Track locally acknowledged issue IDs so they survive inbox refresh
 let _acknowledgedIds = new Set();
 
+const PROJECT_ACCESS_META = {
+  owner: {
+    badge: 'OWNER',
+    tone: 'owner',
+    summary: '项目拥有者',
+    detail: '由你拥有',
+  },
+  member: {
+    badge: 'SHARED',
+    tone: 'shared',
+    summary: '被分享成员',
+    detail: '共享给你',
+  },
+  admin: {
+    badge: 'ADMIN VIEW',
+    tone: 'admin',
+    summary: '全局管理员',
+    detail: '管理员视角',
+  },
+  bypass: {
+    badge: 'DEBUG',
+    tone: 'debug',
+    summary: '调试态',
+    detail: 'legacy / localhost bypass',
+  },
+  none: {
+    badge: 'UNKNOWN',
+    tone: 'shared',
+    summary: '未知权限',
+    detail: '权限信息缺失',
+  },
+};
+
+function displayProjectUser(user) {
+  if (!user) return '未设置';
+  return user.display_name || user.username || '未设置';
+}
+
+function getProjectAccessLevel(project) {
+  if (project?.owner?.id && _currentUser?.id && project.owner.id === _currentUser.id) {
+    return 'owner';
+  }
+  return project?.permission_level || 'none';
+}
+
+function getProjectAccessMeta(project) {
+  return PROJECT_ACCESS_META[getProjectAccessLevel(project)] || PROJECT_ACCESS_META.none;
+}
+
 async function loadDashboardSummary() {
   try {
     const res = await fetch('/api/dashboard/summary', { headers: apiHeaders() });
@@ -306,6 +355,13 @@ async function loadProjects() {
     container.innerHTML = projects.map(p => {
       const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
       const link = `/projects/${p.id}`;
+      const access = getProjectAccessMeta(p);
+      const ownerName = displayProjectUser(p.owner);
+      const ownerRole = p.owner?.role === 'admin' ? '全局管理员' : '项目成员';
+      const memberCount = Number.isFinite(p.member_count) ? p.member_count : 0;
+      const toggleButton = p.can_manage
+        ? `<button onclick="event.stopPropagation();toggleProjectStatus('${p.id}','${p.status}')" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>`
+        : '';
       const userCount = s.userIssues?.length || 0;
       const notifBadge = userCount > 0
         ? `<span onclick="event.stopPropagation();window.location='${link}#issues'" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</span>`
@@ -316,16 +372,34 @@ async function loadProjects() {
         ? `<div class="last-activity">Last activity: ${activityText}</div>`
         : '';
       return `
-      <div class="card" style="cursor:pointer" onclick="window.location='${link}'">
-        <div class="flex-between">
-          <strong style="font-size:15px">${esc(p.name)}${notifBadge}</strong>
+      <div class="card project-card" style="cursor:pointer" onclick="window.location='${link}'">
+        <div class="project-card-head">
+          <div class="project-card-main">
+            <strong class="project-card-title">${esc(p.name)}${notifBadge}</strong>
+            <div class="project-card-tags">
+              <span class="permission-badge permission-${access.tone}" title="${esc(access.summary)}">${access.badge}</span>
+              <span class="meta-chip" title="项目拥有者">
+                <span class="meta-chip-label">Owner</span>
+                <span>${esc(ownerName)}</span>
+              </span>
+              <span class="meta-chip" title="项目成员数">
+                <span class="meta-chip-label">成员</span>
+                <span>${memberCount}</span>
+              </span>
+            </div>
+          </div>
           <div style="display:flex;align-items:center;gap:6px">
             <span class="status-badge status-${p.status}">${p.status}</span>
-            <button onclick="event.stopPropagation();toggleProjectStatus('${p.id}','${p.status}')" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>
+            ${toggleButton}
           </div>
         </div>
-        <p style="color:var(--text-secondary);font-size:13px;margin-top:6px;margin-bottom:12px">${esc(p.description || '')}</p>
-        <div style="display:flex;gap:16px;font-size:12px">
+        <div class="project-card-note">
+          <span>${esc(access.detail)}</span>
+          <span>·</span>
+          <span>${esc(ownerRole)}</span>
+        </div>
+        <p class="project-card-desc">${esc(p.description || '')}</p>
+        <div class="project-card-stats">
           <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm5 7c0-2.8-2.2-5-5-5s-5 2.2-5 5h10z"/></svg>
             <span>${s.running} running</span>
@@ -607,6 +681,7 @@ loadDashboard();
 setInterval(() => { loadDashboardSummary(); loadNotifications(); }, 10000);
 setInterval(loadProjects, 30000);
 setInterval(loadUsageByProject, 60000);
+window.addEventListener('argus:user-ready', () => { loadProjects(); });
 
 // ─── Floating Issue Panel ───
 

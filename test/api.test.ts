@@ -561,6 +561,95 @@ describe('Argus API', () => {
     });
   });
 
+  describe('Project permission summaries (#520)', () => {
+    it('returns owner/member_count/permission fields for owner and shared member views', async () => {
+      const suffix = Date.now();
+      const ownerUsername = `owner-${suffix}`;
+      const memberUsername = `member-${suffix}`;
+
+      const ownerRegister = await api(app, '/api/auth/register', {
+        method: 'POST',
+        body: { username: ownerUsername, password: 'pass1234', display_name: 'Owner User' },
+      });
+      assert.equal(ownerRegister.status, 201);
+
+      const memberRegister = await api(app, '/api/auth/register', {
+        method: 'POST',
+        body: { username: memberUsername, password: 'pass1234', display_name: 'Shared Member' },
+      });
+      assert.equal(memberRegister.status, 201);
+
+      const ownerLogin = await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username: ownerUsername, password: 'pass1234' },
+      });
+      assert.equal(ownerLogin.status, 200);
+      const ownerToken = ownerLogin.body.token;
+
+      const memberLogin = await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username: memberUsername, password: 'pass1234' },
+      });
+      assert.equal(memberLogin.status, 200);
+      const memberToken = memberLogin.body.token;
+
+      const created = await api(app, '/api/projects', {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: {
+          name: `shared-project-${suffix}`,
+          description: 'permission summary test',
+          task_description: 'verify permission metadata',
+          command_template: 'echo',
+        },
+      });
+      assert.equal(created.status, 201);
+      assert.equal(created.body.permission_level, 'owner');
+      assert.equal(created.body.can_manage, true);
+      assert.equal(created.body.owner.username, ownerUsername);
+      assert.equal(created.body.member_count, 1);
+      const sharedProjectId = created.body.id;
+
+      const shareRes = await api(app, `/api/projects/${sharedProjectId}/members`, {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: { username: memberUsername },
+      });
+      assert.equal(shareRes.status, 201);
+
+      const ownerList = await api(app, '/api/projects', {
+        headers: { cookie: `argus-auth=${ownerToken}` },
+      });
+      assert.equal(ownerList.status, 200);
+      const ownerProject = ownerList.body.find((project: any) => project.id === sharedProjectId);
+      assert.ok(ownerProject, 'owner should see the shared project');
+      assert.equal(ownerProject.permission_level, 'owner');
+      assert.equal(ownerProject.can_manage, true);
+      assert.equal(ownerProject.owner.username, ownerUsername);
+      assert.equal(ownerProject.member_count, 2);
+
+      const memberList = await api(app, '/api/projects', {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(memberList.status, 200);
+      const memberProject = memberList.body.find((project: any) => project.id === sharedProjectId);
+      assert.ok(memberProject, 'shared member should see the project');
+      assert.equal(memberProject.permission_level, 'member');
+      assert.equal(memberProject.can_manage, false);
+      assert.equal(memberProject.owner.username, ownerUsername);
+      assert.equal(memberProject.member_count, 2);
+
+      const memberDetail = await api(app, `/api/projects/${sharedProjectId}`, {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(memberDetail.status, 200);
+      assert.equal(memberDetail.body.permission_level, 'member');
+      assert.equal(memberDetail.body.can_manage, false);
+      assert.equal(memberDetail.body.owner.username, ownerUsername);
+      assert.equal(memberDetail.body.member_count, 2);
+    });
+  });
+
   // ─── Agents ───
 
   let workerId: string;

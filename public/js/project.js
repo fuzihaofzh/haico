@@ -5,7 +5,237 @@ let orchestrationRunsData = [];
 let agentOutputPollTimer = null;
 let agentOutputPollingAgentId = null;
 let agentOutputRefreshInFlight = false;
+let projectMembersData = [];
 const AGENT_OUTPUT_POLL_MS = 2000;
+
+const PROJECT_ACCESS_META = {
+  owner: {
+    badge: 'OWNER',
+    tone: 'owner',
+    summary: '项目拥有者',
+    detail: '你可以编辑项目、管理分享与维护项目设置。',
+  },
+  member: {
+    badge: 'SHARED',
+    tone: 'shared',
+    summary: '被分享成员',
+    detail: '当前为共享只读视角，可查看项目与成员列表，但不能管理分享。',
+  },
+  admin: {
+    badge: 'ADMIN VIEW',
+    tone: 'admin',
+    summary: '全局管理员',
+    detail: '你正以全局管理员视角查看此项目。',
+  },
+  bypass: {
+    badge: 'DEBUG',
+    tone: 'debug',
+    summary: '调试态',
+    detail: 'legacy / localhost bypass，仅用于调试，不代表普通用户角色。',
+  },
+  none: {
+    badge: 'UNKNOWN',
+    tone: 'shared',
+    summary: '未知权限',
+    detail: '权限信息缺失。',
+  },
+};
+
+function displayProjectUser(user) {
+  if (!user) return '未设置';
+  return user.display_name || user.username || '未设置';
+}
+
+function getProjectAccessLevel(project) {
+  if (project?.owner?.id && _currentUser?.id && project.owner.id === _currentUser.id) {
+    return 'owner';
+  }
+  return project?.permission_level || 'none';
+}
+
+function getProjectAccessMeta(project) {
+  return PROJECT_ACCESS_META[getProjectAccessLevel(project)] || PROJECT_ACCESS_META.none;
+}
+
+function renderPermissionBadge(meta) {
+  return `<span class="permission-badge permission-${meta.tone}" title="${esc(meta.summary)}">${meta.badge}</span>`;
+}
+
+function applyProjectManageState() {
+  if (!projectData) return;
+
+  const canManage = !!projectData.can_manage;
+  const meta = getProjectAccessMeta(projectData);
+  const manageIds = ['btn-toggle', 'btn-trigger', 'btn-delete-project', 'btn-share-project', 'btn-save-overview', 'btn-new-agent'];
+  manageIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = canManage ? '' : 'none';
+  });
+
+  const overviewIds = ['project-name-edit', 'project-desc-edit', 'project-task', 'project-cmd'];
+  overviewIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !canManage;
+  });
+
+  const headerActions = document.getElementById('project-manage-actions');
+  if (headerActions) headerActions.style.display = canManage ? 'flex' : 'none';
+
+  const readonlyBanner = document.getElementById('project-readonly-banner');
+  if (readonlyBanner) {
+    readonlyBanner.style.display = canManage ? 'none' : '';
+    readonlyBanner.textContent = canManage ? '' : meta.detail;
+  }
+
+  const overviewReadonlyHint = document.getElementById('project-overview-readonly-hint');
+  if (overviewReadonlyHint) {
+    overviewReadonlyHint.style.display = canManage ? 'none' : '';
+    overviewReadonlyHint.textContent = canManage ? '' : '共享成员可以查看项目概览，但项目设置与分享管理为只读。';
+  }
+}
+
+function renderProjectAccessSummary() {
+  if (!projectData) return;
+
+  const meta = getProjectAccessMeta(projectData);
+  const memberCount = Number.isFinite(projectData.member_count) ? projectData.member_count : 0;
+  const ownerName = displayProjectUser(projectData.owner);
+  const ownerRole = projectData.owner?.role === 'admin' ? '全局管理员' : '项目成员';
+
+  const accessBadge = document.getElementById('project-access-badge');
+  if (accessBadge) accessBadge.innerHTML = renderPermissionBadge(meta);
+
+  const accessSummary = document.getElementById('project-access-summary');
+  if (accessSummary) accessSummary.innerHTML = `<span class="meta-chip-label">权限</span><span>${esc(meta.summary)}</span>`;
+
+  const ownerSummary = document.getElementById('project-owner-summary');
+  if (ownerSummary) ownerSummary.innerHTML = `<span class="meta-chip-label">Owner</span><span>${esc(ownerName)}</span><span class="meta-chip-secondary">${esc(ownerRole)}</span>`;
+
+  const membersButton = document.getElementById('btn-view-members');
+  if (membersButton) membersButton.textContent = `成员列表 (${memberCount})`;
+
+  const debugNote = document.getElementById('project-debug-note');
+  if (debugNote) {
+    debugNote.style.display = meta.tone === 'debug' ? '' : 'none';
+    debugNote.textContent = meta.tone === 'debug' ? meta.detail : '';
+  }
+}
+
+function mergeOwnerIntoMembers(members) {
+  const normalized = Array.isArray(members) ? [...members] : [];
+  if (projectData?.owner?.id && !normalized.some((member) => member.user_id === projectData.owner.id)) {
+    normalized.unshift({
+      id: `owner-${projectData.owner.id}`,
+      user_id: projectData.owner.id,
+      username: projectData.owner.username,
+      display_name: projectData.owner.display_name,
+      user_role: projectData.owner.role,
+      role: 'owner',
+    });
+  }
+  return normalized.sort((a, b) => {
+    if (a.role === 'owner' && b.role !== 'owner') return -1;
+    if (a.role !== 'owner' && b.role === 'owner') return 1;
+    return displayProjectUser(a).localeCompare(displayProjectUser(b), 'zh-Hans-CN');
+  });
+}
+
+function renderProjectMembers() {
+  const list = document.getElementById('project-members-list');
+  if (!list) return;
+
+  const members = mergeOwnerIntoMembers(projectMembersData);
+  if (!members.length) {
+    list.innerHTML = '<div class="empty-state">暂无成员信息</div>';
+    return;
+  }
+
+  const canManage = !!projectData?.can_manage;
+  list.innerHTML = members.map((member) => {
+    const isOwner = member.role === 'owner';
+    const displayName = displayProjectUser(member);
+    const encodedDisplayName = encodeURIComponent(displayName);
+    const username = member.username ? `@${member.username}` : member.user_id;
+    const membershipLabel = isOwner ? '项目拥有者' : '被分享成员';
+    const accountRole = member.user_role === 'admin' ? '全局管理员' : '普通成员';
+    const removeButton = isOwner
+      ? '<span class="project-member-static">Owner 不可移除</span>'
+      : canManage
+        ? `<button class="btn btn-sm" onclick="removeProjectMember('${member.user_id}', '${encodedDisplayName}')" style="color:var(--error)">移除</button>`
+        : '<span class="project-member-static">只读</span>';
+    return `
+      <div class="project-member-item">
+        <div class="project-member-main">
+          <div class="project-member-name-row">
+            <strong>${esc(displayName)}</strong>
+            ${renderPermissionBadge({
+              badge: isOwner ? 'OWNER' : 'MEMBER',
+              tone: isOwner ? 'owner' : 'shared',
+              summary: membershipLabel,
+            })}
+          </div>
+          <div class="project-member-meta">${esc(username)} · ${esc(accountRole)}</div>
+        </div>
+        <div class="project-member-actions">
+          ${removeButton}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadProjectMembers() {
+  if (!projectData) return;
+
+  const list = document.getElementById('project-members-list');
+  if (list) list.innerHTML = renderLoading('加载成员列表...');
+
+  try {
+    const res = await fetch(`/api/projects/${projectId}/members`, { headers: apiHeaders() });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || '成员列表加载失败');
+    }
+    const data = await res.json();
+    projectMembersData = Array.isArray(data.members) ? data.members : [];
+    renderProjectMembers();
+  } catch (e) {
+    if (list) list.innerHTML = renderError(e, 'loadProjectMembers()');
+  }
+}
+
+async function openProjectMembersModal(focusShare) {
+  if (!projectData) return;
+
+  const meta = getProjectAccessMeta(projectData);
+  const canManage = !!projectData.can_manage;
+  document.getElementById('projectMembersModal').classList.add('active');
+
+  const subtitle = document.getElementById('project-members-subtitle');
+  if (subtitle) subtitle.textContent = `当前权限：${meta.summary} · 成员数 ${Number.isFinite(projectData.member_count) ? projectData.member_count : 0}`;
+
+  const readonlyNote = document.getElementById('project-members-readonly-note');
+  if (readonlyNote) {
+    readonlyNote.style.display = canManage ? 'none' : '';
+    readonlyNote.textContent = canManage ? '' : '当前为共享成员，只能查看成员列表，不能添加或移除成员。';
+  }
+
+  const debugHint = document.getElementById('project-members-debug-hint');
+  if (debugHint) {
+    debugHint.style.display = meta.tone === 'debug' ? '' : 'none';
+    debugHint.textContent = meta.tone === 'debug' ? meta.detail : '';
+  }
+
+  const managePanel = document.getElementById('project-members-manage-panel');
+  if (managePanel) managePanel.style.display = canManage ? '' : 'none';
+
+  await loadProjectMembers();
+
+  if (focusShare && canManage) {
+    const input = document.getElementById('project-share-username');
+    if (input) input.focus();
+  }
+}
 
 function statusBadge(s) {
   const map = {
@@ -30,6 +260,8 @@ async function loadProject() {
   document.getElementById('project-status').textContent = projectData.status;
   document.getElementById('project-status').className = `status-badge status-${projectData.status}`;
   document.title = `Argus - ${projectData.name}`;
+  renderProjectAccessSummary();
+  applyProjectManageState();
 
   // Editable fields (only set on first load to avoid overwriting user edits)
   if (!window._overviewLoaded) {
@@ -43,7 +275,8 @@ async function loadProject() {
 
   document.getElementById('btn-toggle').innerHTML = projectData.status === 'active' ? '⏸' : '▶';
   document.getElementById('btn-toggle').title = projectData.status === 'active' ? 'Pause' : 'Resume';
-  document.getElementById('btn-trigger').style.display = projectData.status === 'active' ? '' : 'none';
+  const triggerButton = document.getElementById('btn-trigger');
+  if (triggerButton) triggerButton.style.display = projectData.can_manage && projectData.status === 'active' ? '' : 'none';
 
   // Load cost
   fetch(`/api/projects/${projectId}/costs`, { headers: apiHeaders() }).then(r => r.ok ? r.json() : null).then(c => {
@@ -56,6 +289,7 @@ async function loadProject() {
 
 async function toggleProjectStatus() {
   if (!projectData) return;
+  if (!projectData.can_manage) { showToast('当前权限无法修改项目状态', 'error'); return; }
   const newStatus = projectData.status === 'active' ? 'paused' : 'active';
   const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: newStatus }) });
   if (res.ok) showToast('状态已更新', 'success');
@@ -64,6 +298,7 @@ async function toggleProjectStatus() {
 }
 
 async function triggerController() {
+  if (!projectData?.can_manage) { showToast('当前权限无法触发 Controller', 'error'); return; }
   const btn = event ? event.target : null;
   const run = async () => {
     const controller = agentsData.find(a => a.is_controller);
@@ -76,6 +311,7 @@ async function triggerController() {
 }
 
 async function saveOverview() {
+  if (!projectData?.can_manage) { showToast('当前权限无法修改项目设置', 'error'); return; }
   const body = {
     name: document.getElementById('project-name-edit').value.trim(),
     description: document.getElementById('project-desc-edit').value.trim(),
@@ -93,10 +329,68 @@ async function saveOverview() {
 }
 
 async function deleteProject() {
+  if (!projectData?.can_manage) { showToast('当前权限无法删除项目', 'error'); return; }
   if (!await showConfirm('Delete this project and all agents/issues?')) return;
   const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
   if (res.ok) { showToast('项目已删除', 'success'); window.location.href = '/'; }
   else { showToast('删除失败', 'error'); }
+}
+
+async function addProjectMember() {
+  if (!projectData?.can_manage) { showToast('当前权限无法管理分享', 'error'); return; }
+
+  const input = document.getElementById('project-share-username');
+  const username = input?.value?.trim();
+  if (!username) {
+    showToast('请输入用户名', 'error');
+    return;
+  }
+
+  const button = document.getElementById('btn-add-member');
+  await withLoading(button, async () => {
+    const res = await fetch(`/api/projects/${projectId}/members`, {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify({ username }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || '添加成员失败', 'error');
+      return;
+    }
+
+    if (input) input.value = '';
+    showToast('成员已添加', 'success');
+    await loadProject();
+    await loadProjectMembers();
+  });
+}
+
+async function removeProjectMember(userId, encodedDisplayName) {
+  if (!projectData?.can_manage) { showToast('当前权限无法管理分享', 'error'); return; }
+  if (projectData?.owner?.id === userId) {
+    showToast('项目拥有者不可移除', 'error');
+    return;
+  }
+
+  const displayName = decodeURIComponent(encodedDisplayName || '');
+
+  const confirmed = await showConfirm(`确认移除 ${displayName} 的项目访问权限？\n\n移除后，对方将不再看到此项目。`);
+  if (!confirmed) return;
+
+  const res = await fetch(`/api/projects/${projectId}/members/${userId}`, {
+    method: 'DELETE',
+    headers: apiHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    showToast(err.error || '移除成员失败', 'error');
+    return;
+  }
+
+  showToast('成员已移除', 'success');
+  await loadProject();
+  await loadProjectMembers();
 }
 
 // ─── Agents ───
@@ -747,6 +1041,7 @@ async function stopAgentById(id) {
 }
 
 function showCreateAgentModal() {
+  if (!projectData?.can_manage) { showToast('当前权限无法创建 Agent', 'error'); return; }
   document.getElementById('agent-name').value = '';
   document.getElementById('agent-role').value = '';
   document.getElementById('agent-workdir').value = '';
@@ -1653,6 +1948,7 @@ loadProject();
 loadAgents();
 loadDashboard();
 loadCostChart();
+window.addEventListener('argus:user-ready', () => { renderProjectAccessSummary(); });
 
 // Slow fallback polling (WS handles real-time)
 setInterval(loadAgents, 30000);

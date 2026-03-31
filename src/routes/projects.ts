@@ -28,6 +28,55 @@ function buildSqlPlaceholders(values: readonly unknown[]): string {
   return values.map(() => '?').join(', ');
 }
 
+interface ProjectOwnerSummary {
+  id: string;
+  username: string;
+  display_name: string;
+  role: string;
+}
+
+function getProjectOwnerSummary(db: ReturnType<typeof getDatabase>, projectId: string): ProjectOwnerSummary | null {
+  return db.prepare(
+    `SELECT u.id, u.username, u.display_name, u.role
+     FROM projects p
+     LEFT JOIN users u ON u.id = p.owner_id
+     WHERE p.id = ?`
+  ).get(projectId) as ProjectOwnerSummary | null;
+}
+
+function getProjectMemberCount(db: ReturnType<typeof getDatabase>, projectId: string): number {
+  const row = db.prepare(
+    `SELECT COUNT(*) as count
+     FROM (
+       SELECT owner_id as user_id
+       FROM projects
+       WHERE id = ? AND owner_id IS NOT NULL
+       UNION
+       SELECT user_id
+       FROM project_members
+       WHERE project_id = ?
+     ) members`
+  ).get(projectId, projectId) as { count: number } | undefined;
+  return row?.count || 0;
+}
+
+function serializeProject(
+  db: ReturnType<typeof getDatabase>,
+  project: Project,
+  user: ReturnType<typeof getProjectRequestContext>['user'],
+  localhostBypass: boolean
+) {
+  const permission = getProjectPermission(db, project.id, user, localhostBypass);
+  const owner = getProjectOwnerSummary(db, project.id);
+  return {
+    ...project,
+    permission_level: permission.level,
+    can_manage: permission.canManage,
+    owner,
+    member_count: getProjectMemberCount(db, project.id),
+  };
+}
+
 export function registerProjectRoutes(fastify: FastifyInstance): void {
 
   // Dashboard summary — aggregate stats across all projects
@@ -467,14 +516,9 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   fastify.get<{ Querystring: { with_stats?: string } }>('/api/projects', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
-    const projects = listAccessibleProjects(db, user, localhostBypass).map((project) => {
-      const permission = getProjectPermission(db, project.id, user, localhostBypass);
-      return {
-        ...project,
-        permission_level: permission.level,
-        can_manage: permission.canManage,
-      };
-    });
+    const projects = listAccessibleProjects(db, user, localhostBypass).map((project) =>
+      serializeProject(db, project, user, localhostBypass)
+    );
 
     if (request.query.with_stats !== '1') return projects;
 
@@ -556,7 +600,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project;
 
-    return reply.code(201).send(project);
+    return reply.code(201).send(serializeProject(db, project, user, false));
   });
 
   // Get project
@@ -566,11 +610,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     if (!access) return;
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project | undefined;
     if (!project) return reply.code(404).send({ error: 'Project not found' });
-    return {
-      ...project,
-      permission_level: access.permission.level,
-      can_manage: access.permission.canManage,
-    };
+    return serializeProject(db, project, access.user, access.localhostBypass);
   });
 
   // Update project
@@ -607,11 +647,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
     const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project;
 
-    return {
-      ...updated,
-      permission_level: access.permission.level,
-      can_manage: access.permission.canManage,
-    };
+    return serializeProject(db, updated, access.user, access.localhostBypass);
   });
 
   fastify.get<{ Params: { id: string } }>('/api/projects/:id/members', async (request, reply) => {

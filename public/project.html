@@ -66,15 +66,26 @@
 
   <div class="container">
     <!-- Header bar with project name + actions -->
-    <div class="flex-between mb-16">
-      <div class="flex">
-        <h2 id="project-title">Project</h2>
-        <span id="project-status" class="status-badge"></span>
+    <div class="project-header mb-16">
+      <div class="project-header-main">
+        <div class="project-title-row">
+          <h2 id="project-title">Project</h2>
+          <span id="project-status" class="status-badge"></span>
+          <span id="project-access-badge"></span>
+        </div>
+        <div class="project-access-row">
+          <span class="meta-chip" id="project-access-summary"></span>
+          <span class="meta-chip" id="project-owner-summary"></span>
+          <button class="btn btn-sm" id="btn-view-members" onclick="openProjectMembersModal(false)">成员列表</button>
+          <button class="btn btn-sm btn-primary" id="btn-share-project" onclick="openProjectMembersModal(true)">分享管理</button>
+        </div>
+        <div class="project-inline-note" id="project-debug-note" style="display:none"></div>
+        <div class="project-readonly-banner" id="project-readonly-banner" style="display:none"></div>
       </div>
-      <div class="flex">
+      <div class="flex" id="project-manage-actions">
         <button class="btn btn-sm" id="btn-toggle" onclick="toggleProjectStatus()">Pause</button>
         <button class="btn btn-sm btn-primary" id="btn-trigger" onclick="triggerController()">Trigger Controller</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteProject()">Delete</button>
+        <button class="btn btn-sm btn-danger" id="btn-delete-project" onclick="deleteProject()">Delete</button>
       </div>
     </div>
 
@@ -116,7 +127,8 @@
           <span>Created: <span id="project-created"></span></span>
           <span id="project-cost" style="display:none">Cost: <strong id="project-cost-value"></strong></span>
         </div>
-        <button class="btn btn-primary" onclick="saveOverview()">Save Changes</button>
+        <div class="project-inline-note" id="project-overview-readonly-hint" style="display:none"></div>
+        <button class="btn btn-primary" id="btn-save-overview" onclick="saveOverview()">Save Changes</button>
       </div>
 
       <!-- Cost Time-Series Chart (bottom of overview) -->
@@ -145,7 +157,7 @@
       <div id="orchestration-decision-container" style="margin-bottom:16px"></div>
       <div class="flex-between mb-16">
         <h3>Agents</h3>
-        <button class="btn btn-primary btn-sm" onclick="showCreateAgentModal()">+ New Agent</button>
+        <button class="btn btn-primary btn-sm" id="btn-new-agent" onclick="showCreateAgentModal()">+ New Agent</button>
       </div>
       <div id="agent-error-banner" style="display:none;padding:10px 14px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:6px;margin-bottom:12px;color:var(--error);font-size:12px"></div>
       <div class="card">
@@ -218,6 +230,32 @@
   </div>
 
   <!-- Create/Edit Knowledge Modal -->
+  <div class="modal-overlay" id="projectMembersModal" onclick="if(event.target===this)hideModal('projectMembersModal')">
+    <div class="modal project-members-modal">
+      <div class="project-members-header">
+        <div>
+          <h3>项目成员与分享</h3>
+          <div class="project-inline-note" id="project-members-subtitle"></div>
+        </div>
+        <button class="drawer-close" type="button" onclick="hideModal('projectMembersModal')">&times;</button>
+      </div>
+      <div class="project-readonly-banner" id="project-members-readonly-note" style="display:none"></div>
+      <div class="project-inline-note" id="project-members-debug-hint" style="display:none"></div>
+      <div id="project-members-manage-panel">
+        <div class="project-share-form">
+          <div class="form-group" style="margin-bottom:0">
+            <label for="project-share-username">添加成员</label>
+            <input type="text" id="project-share-username" placeholder="输入用户名，例如 alice" onkeydown="if(event.key==='Enter'){event.preventDefault();addProjectMember()}">
+          </div>
+          <button class="btn btn-primary" id="btn-add-member" onclick="addProjectMember()">添加访问</button>
+        </div>
+      </div>
+      <div id="project-members-list" class="project-members-list">
+        <div class="empty-state">Loading members...</div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="knowledgeModal">
     <div class="modal" style="max-width:600px">
       <h3 id="knowledge-modal-title">添加知识条目</h3>
