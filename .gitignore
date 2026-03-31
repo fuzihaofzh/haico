@@ -3,6 +3,10 @@ dist/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+/argus.db
+*.db-wal
+*.db-shm
+.nfs*
 .env
 .env.local
 *.log
