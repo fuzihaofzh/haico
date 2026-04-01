@@ -531,15 +531,30 @@
 
     async loadOfficeLib(mode) {
       if (mode === 'docx') {
-        if (!window._mammothLoaded) {
+        if (!window.mammoth) {
           await this._loadScript('https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js');
-          window._mammothLoaded = true;
+          // Wait for the global to become available
+          await this._waitForGlobal('mammoth');
         }
       } else if (mode === 'xlsx') {
         if (!window.XLSX) {
           await this._loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+          await this._waitForGlobal('XLSX');
         }
       }
+    }
+
+    _waitForGlobal(name, timeout = 5000) {
+      return new Promise((resolve, reject) => {
+        if (window[name]) return resolve();
+        const start = Date.now();
+        const check = () => {
+          if (window[name]) return resolve();
+          if (Date.now() - start > timeout) return reject(new Error(`${name} failed to load`));
+          setTimeout(check, 50);
+        };
+        check();
+      });
     }
 
     _loadScript(url) {
@@ -563,7 +578,8 @@
 
         let html = '';
         if (mode === 'docx') {
-          const result = await mammoth.convertToHtml({ arrayBuffer });
+          if (!window.mammoth) throw new Error('mammoth library not available');
+          const result = await window.mammoth.convertToHtml({ arrayBuffer });
           html = '<div style="max-width:800px;margin:0 auto;line-height:1.6">' + result.value + '</div>';
           if (result.messages && result.messages.length > 0) {
             html += '<div style="margin-top:16px;padding:8px;background:#fff3cd;border-radius:4px;font-size:12px;color:#856404">' +
