@@ -650,6 +650,255 @@ describe('Argus API', () => {
     });
   });
 
+  describe('统一项目权限边界 (#525/#530)', () => {
+    let ownerToken: string;
+    let memberToken: string;
+    let outsiderToken: string;
+    let sharedProjectId: string;
+    let hiddenProjectId: string;
+    let sharedAgentId: string;
+    let hiddenAgentId: string;
+    let sharedKnowledgeId: string;
+    let sharedMemoryId: string;
+    let sharedMessageId: string;
+    let sharedSearchIssueId: string;
+    let hiddenSearchIssueId: string;
+
+    before(async () => {
+      const suffix = Date.now();
+      const ownerUsername = `perm-owner-${suffix}`;
+      const memberUsername = `perm-member-${suffix}`;
+      const outsiderUsername = `perm-outsider-${suffix}`;
+
+      for (const username of [ownerUsername, memberUsername, outsiderUsername]) {
+        const register = await api(app, '/api/auth/register', {
+          method: 'POST',
+          body: { username, password: 'pass1234', display_name: username },
+        });
+        assert.equal(register.status, 201);
+      }
+
+      ownerToken = (await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username: ownerUsername, password: 'pass1234' },
+      })).body.token;
+      memberToken = (await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username: memberUsername, password: 'pass1234' },
+      })).body.token;
+      outsiderToken = (await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username: outsiderUsername, password: 'pass1234' },
+      })).body.token;
+
+      const sharedProject = await api(app, '/api/projects', {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: {
+          name: `perm-shared-${suffix}`,
+          description: 'shared project',
+          task_description: 'shared permission boundary test',
+          command_template: 'echo',
+        },
+      });
+      assert.equal(sharedProject.status, 201);
+      sharedProjectId = sharedProject.body.id;
+
+      const hiddenProject = await api(app, '/api/projects', {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: {
+          name: `perm-hidden-${suffix}`,
+          description: 'hidden project',
+          task_description: 'hidden permission boundary test',
+          command_template: 'echo',
+        },
+      });
+      assert.equal(hiddenProject.status, 201);
+      hiddenProjectId = hiddenProject.body.id;
+
+      const shareRes = await api(app, `/api/projects/${sharedProjectId}/members`, {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: { username: memberUsername },
+      });
+      assert.equal(shareRes.status, 201);
+
+      const sharedAgent = await api(app, `/api/projects/${sharedProjectId}/agents`, {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: { name: 'perm-shared-worker', role: 'shared worker' },
+      });
+      assert.equal(sharedAgent.status, 201);
+      sharedAgentId = sharedAgent.body.id;
+
+      const hiddenAgent = await api(app, `/api/projects/${hiddenProjectId}/agents`, {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: { name: 'perm-hidden-worker', role: 'hidden worker' },
+      });
+      assert.equal(hiddenAgent.status, 201);
+      hiddenAgentId = hiddenAgent.body.id;
+
+      const knowledgeRes = await api(app, `/api/projects/${sharedProjectId}/knowledge`, {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: { title: 'Boundary knowledge', content: 'visible to shared member', importance: 'high' },
+      });
+      assert.equal(knowledgeRes.status, 201);
+      sharedKnowledgeId = knowledgeRes.body.id;
+
+      const memoryRes = await api(app, `/api/agents/${sharedAgentId}/memories`, {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: { content: 'shared project memory', scope: 'project', tags: 'perm' },
+      });
+      assert.equal(memoryRes.status, 201);
+      sharedMemoryId = memoryRes.body.id;
+
+      const messageRes = await api(app, `/api/agents/${sharedAgentId}/messages/send`, {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: { to: sharedAgentId, subject: 'Boundary ping', body: 'read-only member can see this inbox' },
+      });
+      assert.equal(messageRes.status, 201);
+      sharedMessageId = messageRes.body.id;
+
+      const sharedIssue = await api(app, `/api/projects/${sharedProjectId}/issues`, {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: {
+          title: 'Boundary shared issue',
+          body: 'boundary-visible-token',
+          created_by: 'user',
+          assigned_to: 'user',
+        },
+      });
+      assert.equal(sharedIssue.status, 201);
+      sharedSearchIssueId = sharedIssue.body.id;
+
+      const hiddenIssue = await api(app, `/api/projects/${hiddenProjectId}/issues`, {
+        method: 'POST',
+        headers: { cookie: `argus-auth=${ownerToken}` },
+        body: {
+          title: 'Boundary hidden issue',
+          body: 'boundary-visible-token',
+          created_by: 'user',
+          assigned_to: 'user',
+        },
+      });
+      assert.equal(hiddenIssue.status, 201);
+      hiddenSearchIssueId = hiddenIssue.body.id;
+    });
+
+    it('shared member can read shared project resources but cannot perform write actions', async () => {
+      const sharedAgent = await api(app, `/api/agents/${sharedAgentId}`, {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(sharedAgent.status, 200);
+
+      const sharedKnowledge = await api(app, `/api/knowledge/${sharedKnowledgeId}`, {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(sharedKnowledge.status, 200);
+
+      const sharedMemories = await api(app, `/api/agents/${sharedAgentId}/memories`, {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(sharedMemories.status, 200);
+      assert.ok(sharedMemories.body.memories.some((memory: any) => memory.id === sharedMemoryId));
+
+      const sharedInbox = await api(app, `/api/agents/${sharedAgentId}/messages`, {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(sharedInbox.status, 200);
+      assert.ok(sharedInbox.body.messages.some((message: any) => message.id === sharedMessageId));
+
+      const markRead = await api(app, `/api/agents/${sharedAgentId}/messages/${sharedMessageId}`, {
+        method: 'PUT',
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(markRead.status, 403);
+
+      const updateKnowledge = await api(app, `/api/knowledge/${sharedKnowledgeId}`, {
+        method: 'PUT',
+        headers: { cookie: `argus-auth=${memberToken}` },
+        body: { title: 'member cannot edit' },
+      });
+      assert.equal(updateKnowledge.status, 403);
+
+      const deleteMemory = await api(app, `/api/agents/${sharedAgentId}/memories/${sharedMemoryId}`, {
+        method: 'DELETE',
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(deleteMemory.status, 403);
+    });
+
+    it('non-member cannot access shared project resources by project id or direct entity id', async () => {
+      const projectDetail = await api(app, `/api/projects/${sharedProjectId}`, {
+        headers: { cookie: `argus-auth=${outsiderToken}` },
+      });
+      assert.equal(projectDetail.status, 403);
+
+      const agentDetail = await api(app, `/api/agents/${sharedAgentId}`, {
+        headers: { cookie: `argus-auth=${outsiderToken}` },
+      });
+      assert.equal(agentDetail.status, 403);
+
+      const knowledgeDetail = await api(app, `/api/knowledge/${sharedKnowledgeId}`, {
+        headers: { cookie: `argus-auth=${outsiderToken}` },
+      });
+      assert.equal(knowledgeDetail.status, 403);
+
+      const memoryList = await api(app, `/api/agents/${sharedAgentId}/memories`, {
+        headers: { cookie: `argus-auth=${outsiderToken}` },
+      });
+      assert.equal(memoryList.status, 403);
+
+      const inbox = await api(app, `/api/agents/${sharedAgentId}/messages`, {
+        headers: { cookie: `argus-auth=${outsiderToken}` },
+      });
+      assert.equal(inbox.status, 403);
+    });
+
+    it('dashboard, notifications, my-issues and inbox search only include accessible projects', async () => {
+      const dashboard = await api(app, '/api/dashboard/summary', {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(dashboard.status, 200);
+      assert.ok(sharedProjectId in dashboard.body.last_activity, 'shared project should remain visible');
+      assert.ok(!(hiddenProjectId in dashboard.body.last_activity), 'hidden project should be filtered out');
+
+      const search = await api(app, '/api/inbox/search?q=boundary-visible-token', {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(search.status, 200);
+      assert.ok(search.body.some((issue: any) => issue.id === sharedSearchIssueId));
+      assert.ok(!search.body.some((issue: any) => issue.id === hiddenSearchIssueId));
+
+      const notifications = await api(app, '/api/notifications', {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(notifications.status, 200);
+      assert.ok(notifications.body.user_issues.some((issue: any) => issue.id === sharedSearchIssueId));
+      assert.ok(!notifications.body.user_issues.some((issue: any) => issue.id === hiddenSearchIssueId));
+
+      const myIssues = await api(app, '/api/my-issues', {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(myIssues.status, 200);
+      assert.ok(myIssues.body.some((issue: any) => issue.id === sharedSearchIssueId));
+      assert.ok(!myIssues.body.some((issue: any) => issue.id === hiddenSearchIssueId));
+    });
+
+    it('direct agent resources from hidden projects stay filtered for shared members', async () => {
+      const hiddenAgent = await api(app, `/api/agents/${hiddenAgentId}`, {
+        headers: { cookie: `argus-auth=${memberToken}` },
+      });
+      assert.equal(hiddenAgent.status, 403);
+    });
+  });
+
   // ─── Agents ───
 
   let workerId: string;
@@ -3754,6 +4003,138 @@ describe('Argus API', () => {
         const prompt = buildSystemPrompt(agent, project);
         assert.ok(prompt.includes('message') || prompt.includes('Message') || prompt.includes('Urgent'));
       }
+    });
+  });
+
+  describe('Agent层级结构 (#523/#528)', () => {
+    let hierarchyProjectId: string;
+    let hierarchyControllerId: string;
+    let managerAgentId: string;
+    let leafAgentId: string;
+    let siblingAgentId: string;
+    let otherProjectId: string;
+    let otherProjectAgentId: string;
+
+    before(async () => {
+      const { body: proj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: {
+          name: 'hierarchy-test-proj',
+          description: 'Hierarchy test',
+          task_description: 'Test parent_agent_id hierarchy',
+          command_template: 'echo',
+        },
+      });
+      hierarchyProjectId = proj.id;
+      await api(app, `/api/projects/${hierarchyProjectId}`, { method: 'PUT', body: { status: 'paused' } });
+
+      const { body: projectAgents } = await api(app, `/api/projects/${hierarchyProjectId}/agents`);
+      hierarchyControllerId = projectAgents.find((agent: any) => agent.is_controller)?.id;
+      assert.ok(hierarchyControllerId, 'project should have a controller');
+
+      const manager = await api(app, `/api/projects/${hierarchyProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'hier-manager', role: 'manager', parent_agent_id: hierarchyControllerId },
+      });
+      assert.equal(manager.status, 201);
+      managerAgentId = manager.body.id;
+      assert.equal(manager.body.parent_agent_id, hierarchyControllerId);
+
+      const leaf = await api(app, `/api/projects/${hierarchyProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'hier-leaf', role: 'leaf', parent_agent_id: managerAgentId },
+      });
+      assert.equal(leaf.status, 201);
+      leafAgentId = leaf.body.id;
+
+      const sibling = await api(app, `/api/projects/${hierarchyProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'hier-sibling', role: 'sibling', parent_agent_id: managerAgentId },
+      });
+      assert.equal(sibling.status, 201);
+      siblingAgentId = sibling.body.id;
+
+      const { body: otherProj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: {
+          name: 'hierarchy-other-proj',
+          description: 'Hierarchy other project',
+          task_description: 'Test cross-project parent validation',
+          command_template: 'echo',
+        },
+      });
+      otherProjectId = otherProj.id;
+      await api(app, `/api/projects/${otherProjectId}`, { method: 'PUT', body: { status: 'paused' } });
+
+      const otherAgent = await api(app, `/api/projects/${otherProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'hier-other', role: 'other project agent' },
+      });
+      assert.equal(otherAgent.status, 201);
+      otherProjectAgentId = otherAgent.body.id;
+    });
+
+    it('GET /api/projects/:pid/agents returns parent_agent_id', async () => {
+      const { status, body } = await api(app, `/api/projects/${hierarchyProjectId}/agents`);
+      assert.equal(status, 200);
+      const manager = body.find((agent: any) => agent.id === managerAgentId);
+      const leaf = body.find((agent: any) => agent.id === leafAgentId);
+      assert.equal(manager.parent_agent_id, hierarchyControllerId);
+      assert.equal(leaf.parent_agent_id, managerAgentId);
+    });
+
+    it('POST /api/projects/:pid/agents rejects parent agents from other projects', async () => {
+      const { status, body } = await api(app, `/api/projects/${hierarchyProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'bad-parent', role: 'invalid', parent_agent_id: otherProjectAgentId },
+      });
+      assert.equal(status, 400);
+      assert.equal(body.error, 'Parent agent must belong to the same project');
+    });
+
+    it('PUT /api/agents/:id rejects descendant parent assignment to prevent cycles', async () => {
+      const { status, body } = await api(app, `/api/agents/${managerAgentId}`, {
+        method: 'PUT',
+        body: { parent_agent_id: leafAgentId },
+      });
+      assert.equal(status, 400);
+      assert.equal(body.error, 'Parent agent cannot be a descendant of this agent');
+    });
+
+    it('hierarchy messaging allows direct parent communication', async () => {
+      const { status, body } = await api(app, `/api/agents/${leafAgentId}/messages/send`, {
+        method: 'POST',
+        body: { to: managerAgentId, subject: 'parent', body: 'direct parent is allowed' },
+      });
+      assert.equal(status, 201);
+      assert.equal(body.to_agent_id, managerAgentId);
+    });
+
+    it('hierarchy messaging rejects sibling communication with fixed 403 message', async () => {
+      const { status, body } = await api(app, `/api/agents/${leafAgentId}/messages/send`, {
+        method: 'POST',
+        body: { to: siblingAgentId, subject: 'sibling', body: 'this should fail' },
+      });
+      assert.equal(status, 403);
+      assert.equal(body.error, '只能与直接上级或下属通信');
+    });
+
+    it('system prompt includes direct parent, direct children and hierarchy restriction', async () => {
+      const { buildSystemPrompt } = await import('../src/services/system-prompt');
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+
+      const manager = db.prepare('SELECT * FROM agents WHERE id = ?').get(managerAgentId) as any;
+      const leaf = db.prepare('SELECT * FROM agents WHERE id = ?').get(leafAgentId) as any;
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(hierarchyProjectId) as any;
+
+      const managerPrompt = buildSystemPrompt(manager, project);
+      const leafPrompt = buildSystemPrompt(leaf, project);
+
+      assert.ok(managerPrompt.includes('你的直接下属'), 'manager prompt should list direct children');
+      assert.ok(managerPrompt.includes('hier-leaf') && managerPrompt.includes('hier-sibling'));
+      assert.ok(leafPrompt.includes('你的直接上级是 hier-manager'));
+      assert.ok(leafPrompt.includes('只能通过消息与直接上级或直接下属沟通'));
     });
   });
 

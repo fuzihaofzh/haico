@@ -6,6 +6,8 @@ import { broadcastToProject } from '../services/websocket';
 import { startAgentProcess, isAgentRunning } from '../services/process-manager';
 import { buildSystemPrompt } from '../services/system-prompt';
 import { config } from '../config';
+import { ensureAgentAccess, ensureMessageAccess } from '../services/project-permissions';
+import { canMessageDirectHierarchyOnly } from '../services/agent-hierarchy';
 
 export function registerMessageRoutes(fastify: FastifyInstance): void {
   // Send a message to an agent
@@ -18,14 +20,28 @@ export function registerMessageRoutes(fastify: FastifyInstance): void {
 
       if (!to || !body) return reply.status(400).send({ error: 'to and body are required' });
 
+      const fromAccess = ensureAgentAccess(db, request, reply, fromAgentId, true);
+      if (!fromAccess) return;
+
       const fromAgent = db.prepare('SELECT * FROM agents WHERE id = ?').get(fromAgentId) as Agent | undefined;
       const toAgent = db.prepare('SELECT * FROM agents WHERE id = ?').get(to) as Agent | undefined;
       if (!fromAgent) return reply.status(404).send({ error: 'Sender agent not found' });
       if (!toAgent) return reply.status(404).send({ error: 'Recipient agent not found' });
+      if (toAgent.project_id !== fromAgent.project_id) {
+        return reply.status(400).send({ error: 'Recipient agent must belong to the same project' });
+      }
+      if (!canMessageDirectHierarchyOnly(db, fromAgent, to)) {
+        return reply.status(403).send({ error: '只能与直接上级或下属通信' });
+      }
 
       if (reply_to_id) {
-        const replyMsg = db.prepare('SELECT id FROM agent_messages WHERE id = ?').get(reply_to_id);
+        const replyMsg = db.prepare('SELECT id, project_id FROM agent_messages WHERE id = ?').get(reply_to_id) as
+          | { id: string; project_id: string }
+          | undefined;
         if (!replyMsg) return reply.status(400).send({ error: 'reply_to message not found' });
+        if (replyMsg.project_id !== fromAgent.project_id) {
+          return reply.status(400).send({ error: 'reply_to message must belong to the same project' });
+        }
       }
 
       const msgId = uuidv4();
@@ -61,8 +77,10 @@ export function registerMessageRoutes(fastify: FastifyInstance): void {
   // Get inbox (messages received by this agent)
   fastify.get<{ Params: { id: string }; Querystring: { status?: string; limit?: string } }>(
     '/api/agents/:id/messages',
-    async (request) => {
+    async (request, reply) => {
       const db = getDatabase();
+      const access = ensureAgentAccess(db, request, reply, request.params.id);
+      if (!access) return;
       const { id } = request.params;
       const { status, limit } = request.query;
       const maxResults = Math.min(parseInt(limit || '50', 10), 200);
@@ -88,8 +106,10 @@ export function registerMessageRoutes(fastify: FastifyInstance): void {
   // Get sent messages
   fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
     '/api/agents/:id/messages/sent',
-    async (request) => {
+    async (request, reply) => {
       const db = getDatabase();
+      const access = ensureAgentAccess(db, request, reply, request.params.id);
+      if (!access) return;
       const { id } = request.params;
       const maxResults = Math.min(parseInt(request.query.limit || '50', 10), 200);
 
@@ -110,9 +130,14 @@ export function registerMessageRoutes(fastify: FastifyInstance): void {
     '/api/agents/:id/messages/:msgId',
     async (request, reply) => {
       const db = getDatabase();
+      const agentAccess = ensureAgentAccess(db, request, reply, request.params.id, true);
+      if (!agentAccess) return;
+      const msgAccess = ensureMessageAccess(db, request, reply, request.params.msgId, true);
+      if (!msgAccess) return;
       const { msgId } = request.params;
-      const msg = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(msgId) as any;
-      if (!msg) return reply.status(404).send({ error: 'Message not found' });
+      if (msgAccess.entity.to_agent_id !== request.params.id) {
+        return reply.status(404).send({ error: 'Message not found' });
+      }
 
       db.prepare("UPDATE agent_messages SET status = 'read' WHERE id = ?").run(msgId);
       return db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(msgId);
@@ -122,8 +147,10 @@ export function registerMessageRoutes(fastify: FastifyInstance): void {
   // Mark all messages as read for an agent
   fastify.post<{ Params: { id: string } }>(
     '/api/agents/:id/messages/read-all',
-    async (request) => {
+    async (request, reply) => {
       const db = getDatabase();
+      const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+      if (!access) return;
       const result = db.prepare("UPDATE agent_messages SET status = 'read' WHERE to_agent_id = ? AND status = 'unread'").run(request.params.id);
       return { updated: result.changes };
     }

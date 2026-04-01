@@ -27,6 +27,7 @@ export interface Agent {
   name: string;
   role: string;
   is_controller: boolean;
+  parent_agent_id: string | null;
   session_id: string | null;
   working_directory: string | null;
   custom_instructions: string;
@@ -93,6 +94,7 @@ export interface CreateAgentInput {
   name: string;
   role: string;
   is_controller?: boolean;
+  parent_agent_id?: string | null;
   session_id?: string;
   working_directory?: string;
   command_template?: string;

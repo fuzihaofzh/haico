@@ -251,13 +251,52 @@ export function ensureMemoryAccess(
   memoryId: string,
   requireManage = false
 ) {
-  return ensureEntityAccess<{ id: string; project_id: string }>(
+  return ensureEntityAccess<{ id: string; project_id: string; agent_id: string }>(
     db,
     request,
     reply,
-    'SELECT id, project_id FROM agent_memories WHERE id = ?',
+    'SELECT id, project_id, agent_id FROM agent_memories WHERE id = ?',
     memoryId,
     'Memory not found',
+    requireManage
+  );
+}
+
+export function ensureMessageAccess(
+  db: Database.Database,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  messageId: string,
+  requireManage = false
+) {
+  return ensureEntityAccess<{ id: string; project_id: string; from_agent_id: string; to_agent_id: string }>(
+    db,
+    request,
+    reply,
+    'SELECT id, project_id, from_agent_id, to_agent_id FROM agent_messages WHERE id = ?',
+    messageId,
+    'Message not found',
+    requireManage
+  );
+}
+
+export function ensureRelationAccess(
+  db: Database.Database,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  relationId: string,
+  requireManage = false
+) {
+  return ensureEntityAccess<{ id: string; project_id: string; from_issue_id: string; to_issue_id: string }>(
+    db,
+    request,
+    reply,
+    `SELECT r.id, src.project_id, r.from_issue_id, r.to_issue_id
+     FROM issue_relations r
+     JOIN issues src ON src.id = r.from_issue_id
+     WHERE r.id = ?`,
+    relationId,
+    'Relation not found',
     requireManage
   );
 }

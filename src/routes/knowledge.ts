@@ -1,15 +1,18 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../db/database';
+import { ensureKnowledgeAccess, ensureProjectAccess } from '../services/project-permissions';
 
 export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
   // List knowledge entries for a project (supports FTS5 full-text search via ?q=)
   fastify.get<{ Params: { pid: string }; Querystring: { tag?: string; importance?: string; q?: string } }>(
     '/api/projects/:pid/knowledge',
-    async (request) => {
+    async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
       const { tag, importance, q } = request.query;
+      const access = ensureProjectAccess(db, request, reply, pid);
+      if (!access) return;
 
       if (q && q.trim()) {
         // FTS5 full-text search
@@ -58,6 +61,8 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
       const db = getDatabase();
       const { pid } = request.params;
       const { title, content, tags, importance, created_by } = request.body as any;
+      const access = ensureProjectAccess(db, request, reply, pid, true);
+      if (!access) return;
 
       if (!title) return reply.status(400).send({ error: 'title is required' });
       const validImportance = ['high', 'medium', 'low'];
@@ -80,6 +85,8 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
     '/api/knowledge/:id',
     async (request, reply) => {
       const db = getDatabase();
+      const access = ensureKnowledgeAccess(db, request, reply, request.params.id);
+      if (!access) return;
       const entry = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(request.params.id);
       if (!entry) return reply.status(404).send({ error: 'Knowledge entry not found' });
       return entry;
@@ -93,6 +100,8 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
       const db = getDatabase();
       const { id } = request.params;
       const body = request.body as any;
+      const access = ensureKnowledgeAccess(db, request, reply, id, true);
+      if (!access) return;
 
       const existing = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(id) as any;
       if (!existing) return reply.status(404).send({ error: 'Knowledge entry not found' });
@@ -122,6 +131,8 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
     async (request, reply) => {
       const db = getDatabase();
       const { id } = request.params;
+      const access = ensureKnowledgeAccess(db, request, reply, id, true);
+      if (!access) return;
       const existing = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(id) as any;
       if (!existing) return reply.status(404).send({ error: 'Knowledge entry not found' });
 

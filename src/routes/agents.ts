@@ -10,24 +10,35 @@ import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgre
 import { buildSystemPrompt } from '../services/system-prompt';
 import { config } from '../config';
 import { broadcastToProject } from '../services/websocket';
+import { ensureAgentAccess, ensureProjectAccess } from '../services/project-permissions';
+import { validateParentAgentAssignment } from '../services/agent-hierarchy';
 
 const TOOL_CALL_REPORT_CHAR_LIMIT = 4000;
 
 export function registerAgentRoutes(fastify: FastifyInstance): void {
   // List agents for a project
-  fastify.get<{ Params: { pid: string } }>('/api/projects/:pid/agents', async (request) => {
+  fastify.get<{ Params: { pid: string } }>('/api/projects/:pid/agents', async (request, reply) => {
     const db = getDatabase();
-    return db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY created_at').all(request.params.pid);
+    const access = ensureProjectAccess(db, request, reply, request.params.pid);
+    if (!access) return;
+    return db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY is_controller DESC, created_at').all(request.params.pid);
   });
 
   // Create agent
   fastify.post<{ Params: { pid: string }; Body: CreateAgentInput }>('/api/projects/:pid/agents', async (request, reply) => {
-    const { name, role, is_controller, session_id, working_directory, command_template } = request.body;
+    const { name, role, is_controller, session_id, working_directory, command_template, parent_agent_id } = request.body as any;
     if (!name) return reply.code(400).send({ error: 'name is required' });
 
     const db = getDatabase();
+    const access = ensureProjectAccess(db, request, reply, request.params.pid, true);
+    if (!access) return;
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid);
     if (!project) return reply.code(404).send({ error: 'Project not found' });
+
+    const parentValidation = validateParentAgentAssignment(db, request.params.pid, parent_agent_id);
+    if (parentValidation.error) {
+      return reply.code(400).send({ error: parentValidation.error });
+    }
 
     const id = uuidv4();
     // For controller agents, default to Sonnet model if no --model flag specified
@@ -38,9 +49,19 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       finalCommandTemplate = 'cld --model claude-sonnet-4-6';
     }
     db.prepare(`
-      INSERT INTO agents (id, project_id, name, role, is_controller, session_id, working_directory, command_template, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle')
-    `).run(id, request.params.pid, name, role || '', is_controller ? 1 : 0, session_id || null, working_directory || null, finalCommandTemplate);
+      INSERT INTO agents (id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory, command_template, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle')
+    `).run(
+      id,
+      request.params.pid,
+      name,
+      role || '',
+      is_controller ? 1 : 0,
+      parentValidation.parentAgent?.id || null,
+      session_id || null,
+      working_directory || null,
+      finalCommandTemplate
+    );
 
     return reply.code(201).send(db.prepare('SELECT * FROM agents WHERE id = ?').get(id));
   });
@@ -48,6 +69,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Get agent
   fastify.get<{ Params: { id: string } }>('/api/agents/:id', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id);
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
     return agent;
@@ -56,10 +79,32 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Update agent
   fastify.put<{ Params: { id: string }; Body: Partial<CreateAgentInput> }>('/api/agents/:id', async (request, reply) => {
     const db = getDatabase();
-    const existing = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id);
+    const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
+    const existing = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!existing) return reply.code(404).send({ error: 'Agent not found' });
 
-    const { name, role, session_id, working_directory, custom_instructions, session_max_runs, session_max_tokens, session_resume_timeout, command_template } = request.body as any;
+    const {
+      name,
+      role,
+      session_id,
+      working_directory,
+      custom_instructions,
+      session_max_runs,
+      session_max_tokens,
+      session_resume_timeout,
+      command_template,
+      parent_agent_id,
+    } = request.body as any;
+
+    let validatedParentId: string | null | undefined;
+    if (parent_agent_id !== undefined) {
+      const parentValidation = validateParentAgentAssignment(db, existing.project_id, parent_agent_id, existing.id);
+      if (parentValidation.error) {
+        return reply.code(400).send({ error: parentValidation.error });
+      }
+      validatedParentId = parentValidation.parentAgent?.id || null;
+    }
 
     // Build update fields dynamically — command_template and custom_instructions
     // need special handling: COALESCE(NULL, col) preserves the old value, but we
@@ -90,6 +135,11 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       params.push(custom_instructions || null);
     }
 
+    if (validatedParentId !== undefined) {
+      fields.push('parent_agent_id = ?');
+      params.push(validatedParentId);
+    }
+
     params.push(request.params.id);
     db.prepare(`UPDATE agents SET ${fields.join(', ')} WHERE id = ?`).run(...params);
 
@@ -99,6 +149,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Delete agent
   fastify.delete<{ Params: { id: string } }>('/api/agents/:id', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
@@ -116,6 +168,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Start agent
   fastify.post<{ Params: { id: string }; Body: { prompt?: string; force_new_session?: boolean } }>('/api/agents/:id/start', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
@@ -171,6 +225,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Retry agent (re-run with the same last_prompt)
   fastify.post<{ Params: { id: string } }>('/api/agents/:id/retry', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
@@ -201,6 +257,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Stop agent
   fastify.post<{ Params: { id: string } }>('/api/agents/:id/stop', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
@@ -234,6 +292,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Pause agent — prevents auto-start and manual start until unpaused
   fastify.post<{ Params: { id: string } }>('/api/agents/:id/pause', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
@@ -259,6 +319,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Unpause agent — allows it to be started again
   fastify.post<{ Params: { id: string } }>('/api/agents/:id/unpause', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
@@ -279,6 +341,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Get agent status
   fastify.get<{ Params: { id: string } }>('/api/agents/:id/status', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
@@ -335,6 +399,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Preview system prompt for an agent
   fastify.get<{ Params: { id: string } }>('/api/agents/:id/system-prompt', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(agent.project_id) as Project | undefined;
@@ -345,6 +411,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Plain text terminal output (for debugging / curl)
   fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/agents/:id/terminal', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send('Agent not found');
     const limit = parseInt(request.query.limit || '200', 10);
@@ -371,6 +439,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Get agent logs
   fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/agents/:id/logs', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const limit = parseInt(request.query.limit || '100', 10);
     return db.prepare(
       'SELECT * FROM conversation_logs WHERE agent_id = ? ORDER BY id DESC LIMIT ?'
@@ -380,6 +450,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Get agent cost summary
   fastify.get<{ Params: { id: string } }>('/api/agents/:id/costs', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
@@ -418,8 +490,10 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Get logs for a specific run
-  fastify.get<{ Params: { id: string; run_id: string } }>('/api/agents/:id/logs/:run_id', async (request) => {
+  fastify.get<{ Params: { id: string; run_id: string } }>('/api/agents/:id/logs/:run_id', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
     return db.prepare(
       'SELECT * FROM conversation_logs WHERE agent_id = ? AND run_id = ? ORDER BY id'
     ).all(request.params.id, request.params.run_id);
@@ -428,6 +502,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // List agent runs with summary
   fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/agents/:id/runs', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
@@ -500,6 +576,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Get agent git status
   fastify.get<{ Params: { id: string } }>('/api/agents/:id/git-status', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
@@ -542,6 +620,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   // Get structured run report
   fastify.get<{ Params: { id: string; run_id: string } }>('/api/agents/:id/runs/:run_id/report', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 

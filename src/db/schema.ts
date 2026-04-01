@@ -32,6 +32,7 @@ export function initializeDatabase(db: Database.Database): void {
       name TEXT NOT NULL,
       role TEXT DEFAULT '',
       is_controller BOOLEAN DEFAULT 0,
+      parent_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
       session_id TEXT,
       working_directory TEXT,
       custom_instructions TEXT DEFAULT '',
@@ -125,6 +126,7 @@ export function initializeDatabase(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_agents_project ON agents(project_id);
+    CREATE INDEX IF NOT EXISTS idx_agents_parent ON agents(parent_agent_id);
     CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
     CREATE INDEX IF NOT EXISTS idx_issues_assigned ON issues(assigned_to, status);
     CREATE INDEX IF NOT EXISTS idx_issue_comments ON issue_comments(issue_id);
@@ -277,6 +279,13 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: added command_template column to agents table');
   }
 
+  // Migration: add parent_agent_id column to agents if missing
+  if (!cols.find((c: any) => c.name === 'parent_agent_id')) {
+    db.exec("ALTER TABLE agents ADD COLUMN parent_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_agents_parent ON agents(parent_agent_id)");
+    logger.info('Migration: added parent_agent_id column to agents table');
+  }
+
   // Migration: add orchestrator_engine column to projects if missing
   const projectCols = db.prepare("PRAGMA table_info(projects)").all() as any[];
   if (!projectCols.find((c: any) => c.name === 'orchestrator_engine')) {
@@ -394,6 +403,7 @@ export function initializeDatabase(db: Database.Database): void {
         name TEXT NOT NULL,
         role TEXT DEFAULT '',
         is_controller BOOLEAN DEFAULT 0,
+        parent_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
         session_id TEXT,
         working_directory TEXT,
         custom_instructions TEXT DEFAULT '',
@@ -413,19 +423,20 @@ export function initializeDatabase(db: Database.Database): void {
         created_at DATETIME DEFAULT (datetime('now'))
       );
       INSERT INTO agents (
-        id, project_id, name, role, is_controller, session_id, working_directory,
+        id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
         custom_instructions, new_session_per_run, session_run_count, session_max_runs,
         session_token_count, session_max_tokens, session_resume_timeout, command_template,
         status, paused, pid, last_prompt, started_at, finished_at, created_at
       )
       SELECT
-        id, project_id, name, role, is_controller, session_id, working_directory,
+        id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
         custom_instructions, new_session_per_run, session_run_count, session_max_runs,
         session_token_count, session_max_tokens, session_resume_timeout, command_template,
         status, paused, pid, last_prompt, started_at, finished_at, created_at
       FROM agents_old;
       DROP TABLE agents_old;
       CREATE INDEX IF NOT EXISTS idx_agents_project ON agents(project_id);
+      CREATE INDEX IF NOT EXISTS idx_agents_parent ON agents(parent_agent_id);
     `);
     db.pragma('foreign_keys = ON');
     logger.info('Migration: rebuilt agents table with waiting status in CHECK constraint');

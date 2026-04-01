@@ -67,6 +67,79 @@ function requireProjectManageAccess(message) {
   return false;
 }
 
+function getControllerAgent() {
+  return agentsData.find((agent) => agent.is_controller);
+}
+
+function getAgentMap() {
+  return new Map((agentsData || []).map((agent) => [agent.id, agent]));
+}
+
+function getDirectChildAgents(agentId) {
+  return (agentsData || []).filter((agent) => agent.parent_agent_id === agentId);
+}
+
+function getDescendantAgentIds(agentId) {
+  const descendants = new Set();
+  const queue = getDirectChildAgents(agentId).map((agent) => agent.id);
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    if (!currentId || descendants.has(currentId)) continue;
+    descendants.add(currentId);
+    getDirectChildAgents(currentId).forEach((child) => {
+      if (!descendants.has(child.id)) queue.push(child.id);
+    });
+  }
+
+  return descendants;
+}
+
+function buildParentAgentOptions(currentAgentId, selectedParentId) {
+  const excludedIds = new Set();
+  if (currentAgentId) {
+    excludedIds.add(currentAgentId);
+    getDescendantAgentIds(currentAgentId).forEach((id) => excludedIds.add(id));
+  }
+
+  const options = ['<option value="">无上级（顶层 Agent）</option>'];
+  agentsData.forEach((agent) => {
+    if (excludedIds.has(agent.id)) return;
+    const suffix = agent.is_controller ? ' [controller]' : '';
+    const selected = selectedParentId && selectedParentId === agent.id ? ' selected' : '';
+    options.push(`<option value="${agent.id}"${selected}>${esc(agent.name)}${suffix}</option>`);
+  });
+  return options.join('');
+}
+
+function syncParentAgentSelect(selectId, currentAgentId, selectedParentId, disabled) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  select.innerHTML = buildParentAgentOptions(currentAgentId, selectedParentId);
+  select.disabled = !!disabled;
+  select.value = selectedParentId || '';
+}
+
+function getDisplayParentAgent(agent) {
+  if (!agent?.parent_agent_id) return null;
+  return getAgentMap().get(agent.parent_agent_id) || null;
+}
+
+function getGraphParentId(agent) {
+  if (!agent) return null;
+  const byId = getAgentMap();
+  if (agent.parent_agent_id && byId.has(agent.parent_agent_id)) return agent.parent_agent_id;
+  const controller = getControllerAgent();
+  if (controller && !agent.is_controller && controller.id !== agent.id) {
+    return controller.id;
+  }
+  return null;
+}
+
+function hasHierarchyLayout() {
+  return agentsData.some((agent) => !!agent.parent_agent_id);
+}
+
 function renderPermissionBadge(meta) {
   return `<span class="permission-badge permission-${meta.tone}" title="${esc(meta.summary)}">${meta.badge}</span>`;
 }
@@ -409,6 +482,7 @@ async function removeProjectMember(userId, encodedDisplayName) {
 async function loadAgents() {
   const res = await fetch(`/api/projects/${projectId}/agents`, { headers: apiHeaders() });
   agentsData = await res.json();
+  syncParentAgentSelect('agent-parent', null, document.getElementById('agent-parent')?.value || '', !canManageProject());
   const list = document.getElementById('agent-list');
   const canManage = canManageProject();
 
@@ -490,6 +564,12 @@ async function loadAgents() {
 
   list.innerHTML = agentsData.map(a => {
     const tag = a.is_controller ? ' <span style="color:var(--accent);font-size:11px">[controller]</span>' : '';
+    const parentAgent = getDisplayParentAgent(a);
+    const childAgents = getDirectChildAgents(a.id);
+    const hierarchyMeta = [
+      parentAgent ? `上级 ${esc(parentAgent.name)}` : null,
+      childAgents.length > 0 ? `${childAgents.length} 个直属下属` : null,
+    ].filter(Boolean).join(' · ');
     const errBox = a.status === 'error' && errorLogs[a.id]
       ? `<div style="margin-top:4px;padding:6px 8px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:4px;font-size:11px;color:var(--error);font-family:monospace;max-height:60px;overflow:auto;white-space:pre-wrap">${esc(errorLogs[a.id].slice(0, 500))}</div>` : '';
     const spinner = a.status === 'running' ? '<span class="thinking-spinner">✦</span> ' : '';
@@ -523,6 +603,7 @@ async function loadAgents() {
       <div class="agent-info">
         <div class="agent-name">${spinner}${esc(a.name)}${tag}</div>
         <div class="agent-role">${esc(a.role)}</div>
+        ${hierarchyMeta ? `<div style="margin-top:3px;font-size:10px;color:var(--text-secondary)">${hierarchyMeta}</div>` : ''}
         ${(agentIssues[a.id] || []).length > 0
           ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${(agentIssues[a.id] || []).map(iss => {
               const isActive = iss.status === 'in_progress';
@@ -585,6 +666,8 @@ async function viewAgent(agentId) {
     const agentRes = await fetch(`/api/agents/${agentId}`, { headers: apiHeaders() });
     const agent = agentRes.ok ? await agentRes.json() : agentsData.find(a => a.id === agentId);
     const canManage = canManageProject();
+    const parentAgent = getDisplayParentAgent(agent);
+    const childAgents = getDirectChildAgents(agentId);
     const readOnlyAttr = canManage ? '' : 'disabled';
     const readonlyNote = canManage
       ? ''
@@ -624,6 +707,19 @@ async function viewAgent(agentId) {
             <div>Session: <code style="color:var(--fg);font-size:10px">${agent.session_id ? agent.session_id.slice(0, 8) + '...' : 'none'}</code></div>
           </div>
 
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px">
+            <div style="padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+              <div style="${L}">直属上级</div>
+              <div style="font-size:13px;color:var(--fg)">${parentAgent ? esc(parentAgent.name) : '无'}</div>
+              <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${parentAgent ? '只能向该上级或直属下属发送消息。' : '未设置上级时，当前 Agent 不受层级通信限制。'}</div>
+            </div>
+            <div style="padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+              <div style="${L}">直属下属</div>
+              <div style="font-size:13px;color:var(--fg)">${childAgents.length > 0 ? childAgents.map((child) => esc(child.name)).join('、') : '无'}</div>
+              <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${childAgents.length > 0 ? `共 ${childAgents.length} 个直属下属。` : '当前没有直属下属。'}</div>
+            </div>
+          </div>
+
           <div id="agent-git-status-${agentId}" style="margin-bottom:16px"></div>
 
           <div id="agent-cost-${agentId}" style="margin-bottom:16px"></div>
@@ -651,6 +747,13 @@ async function viewAgent(agentId) {
               <div style="${L}">Resume Timeout(s)</div>
               <input type="number" id="ad-resumetimeout-${agentId}" value="${agent.session_resume_timeout ?? 300}" min="0" ${readOnlyAttr} style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
               <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0=不限时间</div>
+            </div>
+            <div style="min-width:220px;flex:1">
+              <div style="${L}">Parent Agent</div>
+              <select id="ad-parent-${agentId}" ${!canManage || agent.is_controller ? 'disabled' : ''} style="${B};width:100%;font-size:12px;color:var(--fg)">
+                ${buildParentAgentOptions(agentId, agent.parent_agent_id)}
+              </select>
+              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">${agent.is_controller ? 'Controller 默认作为根节点。' : '不能选择自己或自己的下属作为上级。'}</div>
             </div>
           </div>
 
@@ -833,17 +936,28 @@ async function saveAllAgentFields(agentId) {
   if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
   try {
     const instructionsVal = document.getElementById('ad-instructions-' + agentId).value;
+    const maxTokensRaw = parseInt(document.getElementById('ad-maxtokens-' + agentId).value, 10);
+    const maxRunsRaw = parseInt(document.getElementById('ad-maxruns-' + agentId).value, 10);
+    const resumeTimeoutRaw = parseInt(document.getElementById('ad-resumetimeout-' + agentId).value, 10);
+    const parentAgentId = document.getElementById('ad-parent-' + agentId)?.value || null;
     const body = {
       working_directory: document.getElementById('ad-workdir-' + agentId).value || null,
       command_template: document.getElementById('ad-cmdtpl-' + agentId).value || null,
-      session_max_tokens: Math.max(0, parseInt(document.getElementById('ad-maxtokens-' + agentId).value)) || 200000,
-      session_max_runs: Math.max(1, parseInt(document.getElementById('ad-maxruns-' + agentId).value)) || 10,
-      session_resume_timeout: Math.max(0, parseInt(document.getElementById('ad-resumetimeout-' + agentId).value)) || 0,
+      parent_agent_id: parentAgentId,
+      session_max_tokens: Number.isNaN(maxTokensRaw) ? 200000 : Math.max(0, maxTokensRaw),
+      session_max_runs: Number.isNaN(maxRunsRaw) ? 10 : Math.max(1, maxRunsRaw),
+      session_resume_timeout: Number.isNaN(resumeTimeoutRaw) ? 0 : Math.max(0, resumeTimeoutRaw),
       custom_instructions: instructionsVal.trim() === '' ? null : instructionsVal
     };
     const res = await fetch(`/api/agents/${agentId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
-    if (res.ok) showToast('已保存', 'success');
-    else showToast('保存失败', 'error');
+    if (res.ok) {
+      await loadAgents();
+      await viewAgent(agentId);
+      showToast('已保存', 'success');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || '保存失败', 'error');
+    }
   } catch (e) {
     console.error('Failed to save agent fields', e);
     showToast('保存失败: 网络错误', 'error');
@@ -1087,6 +1201,7 @@ function showCreateAgentModal() {
   document.getElementById('agent-name').value = '';
   document.getElementById('agent-role').value = '';
   document.getElementById('agent-workdir').value = '';
+  syncParentAgentSelect('agent-parent', null, '', false);
   document.getElementById('agent-cmdtpl').value = '';
   document.getElementById('createAgentModal').classList.add('active');
 }
@@ -1096,7 +1211,13 @@ async function createAgent() {
   if (!requireProjectManageAccess('当前权限无法创建 Agent')) return;
   const btn = document.querySelector('#createAgentModal button[onclick="createAgent()"]');
   await withLoading(btn, async () => {
-    const body = { name: document.getElementById('agent-name').value, role: document.getElementById('agent-role').value, working_directory: document.getElementById('agent-workdir').value || undefined, command_template: document.getElementById('agent-cmdtpl').value.trim() || undefined };
+    const body = {
+      name: document.getElementById('agent-name').value,
+      role: document.getElementById('agent-role').value,
+      working_directory: document.getElementById('agent-workdir').value || undefined,
+      parent_agent_id: document.getElementById('agent-parent').value || null,
+      command_template: document.getElementById('agent-cmdtpl').value.trim() || undefined
+    };
     if (!body.name) { showToast('Name is required', 'error'); return; }
     const res = await fetch(`/api/projects/${projectId}/agents`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) { hideModal('createAgentModal'); loadAgents(); showToast('Agent已创建', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '创建失败', 'error'); }
@@ -1537,51 +1658,48 @@ async function loadDashboard() {
   } catch { el.innerHTML = ''; }
 }
 
-function renderAgentGraph() {
-  const container = document.getElementById('agent-graph-container');
-  if (!container || !agentsData.length) { if (container) container.innerHTML = ''; return; }
+function getAgentGraphStatusColor(agent) {
+  if (agent.paused) return '#d29922';
+  switch (agent.status) {
+    case 'running': return '#3fb950';
+    case 'error': return '#f85149';
+    case 'stopped': return '#d29922';
+    default: return '#8b949e';
+  }
+}
 
-  const W = Math.min(container.clientWidth || 600, 700);
-  const H = 280;
-  const cx = W / 2, cy = H / 2;
-
-  const controller = agentsData.find(a => a.is_controller);
-  const workers = agentsData.filter(a => !a.is_controller);
+function getAgentGraphContext() {
   const latestRun = getLatestOrchestrationRun();
   const dispatchResults = Array.isArray(latestRun?.dispatch_results) ? latestRun.dispatch_results : [];
   const plannedActions = Array.isArray(latestRun?.actions) ? latestRun.actions : [];
-
-  const dispatchedAgents = new Set(
-    dispatchResults.filter(r => r && r.started).map(r => r.agentId)
-  );
-  const actionReasonByAgent = new Map(
-    plannedActions
-      .filter(a => a && a.agentId)
-      .map(a => [a.agentId, a.reason || ''])
-  );
-
-  const statusColor = (a) => {
-    if (a.paused) return '#d29922';
-    switch (a.status) {
-      case 'running': return '#3fb950';
-      case 'error': return '#f85149';
-      case 'stopped': return '#d29922';
-      default: return '#8b949e';
-    }
+  return {
+    latestRun,
+    dispatchedAgents: new Set(dispatchResults.filter((result) => result && result.started).map((result) => result.agentId)),
+    actionReasonByAgent: new Map(
+      plannedActions
+        .filter((action) => action && action.agentId)
+        .map((action) => [action.agentId, action.reason || ''])
+    ),
   };
+}
 
-  const nodeRadius = 30;
+function renderStarAgentGraph(container, graphContext) {
+  const W = Math.min(container.clientWidth || 600, 700);
+  const H = 280;
+  const cx = W / 2;
+  const cy = H / 2;
+  const controller = getControllerAgent();
+  const workers = agentsData.filter((agent) => !agent.is_controller);
   const orbitRadius = Math.min(W / 2 - 60, H / 2 - 50);
-
+  const nodeRadius = 30;
   let svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;margin:0 auto">';
 
-  // Draw connections from controller to workers
   if (controller) {
-    workers.forEach((w, i) => {
-      const angle = (2 * Math.PI * i / workers.length) - Math.PI / 2;
+    workers.forEach((worker, index) => {
+      const angle = (2 * Math.PI * index / workers.length) - Math.PI / 2;
       const wx = cx + orbitRadius * Math.cos(angle);
       const wy = cy + orbitRadius * Math.sin(angle);
-      const dispatched = dispatchedAgents.has(w.id);
+      const dispatched = graphContext.dispatchedAgents.has(worker.id);
       const lineColor = dispatched ? 'var(--accent)' : 'var(--border)';
       const lineWidth = dispatched ? 2 : 1;
       const lineDash = dispatched ? '' : '4,4';
@@ -1598,32 +1716,29 @@ function renderAgentGraph() {
     });
   }
 
-  // Draw worker nodes
-  workers.forEach((w, i) => {
-    const angle = (2 * Math.PI * i / workers.length) - Math.PI / 2;
+  workers.forEach((worker, index) => {
+    const angle = (2 * Math.PI * index / workers.length) - Math.PI / 2;
     const wx = cx + orbitRadius * Math.cos(angle);
     const wy = cy + orbitRadius * Math.sin(angle);
-    const color = statusColor(w);
-    const pulse = w.status === 'running' ? '<animate attributeName="r" values="' + nodeRadius + ';' + (nodeRadius + 4) + ';' + nodeRadius + '" dur="2s" repeatCount="indefinite"/>' : '';
-
-    const assignedCount = (window._dashboardIssues || []).filter(iss => iss.assigned_to === w.id && ['open','in_progress','pending'].includes(iss.status)).length;
-    const dispatched = dispatchedAgents.has(w.id);
+    const color = getAgentGraphStatusColor(worker);
+    const pulse = worker.status === 'running' ? '<animate attributeName="r" values="' + nodeRadius + ';' + (nodeRadius + 4) + ';' + nodeRadius + '" dur="2s" repeatCount="indefinite"/>' : '';
+    const assignedCount = (window._dashboardIssues || []).filter((issue) => issue.assigned_to === worker.id && ['open', 'in_progress', 'pending'].includes(issue.status)).length;
+    const dispatched = graphContext.dispatchedAgents.has(worker.id);
     const dispatchHint = dispatched ? ' · dispatched' : '';
-    const reason = actionReasonByAgent.get(w.id);
+    const reason = graphContext.actionReasonByAgent.get(worker.id);
 
-    svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + w.id + '\")">' +
-      '<circle cx="' + wx + '" cy="' + wy + '" r="' + nodeRadius + '" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (w.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</circle>' +
-      '<text x="' + wx + '" y="' + (wy - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(w.name.length > 10 ? w.name.slice(0, 9) + '…' : w.name) + '</text>' +
-      '<text x="' + wx + '" y="' + (wy + 12) + '" text-anchor="middle" fill="' + (dispatched ? 'var(--accent)' : color) + '" font-size="9">' + (w.paused ? 'paused' : w.status) + (assignedCount > 0 ? (' · ' + assignedCount + ' tasks') : '') + dispatchHint + '</text>' +
+    svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + worker.id + '\")">' +
+      '<circle cx="' + wx + '" cy="' + wy + '" r="' + nodeRadius + '" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (worker.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</circle>' +
+      '<text x="' + wx + '" y="' + (wy - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(worker.name.length > 10 ? worker.name.slice(0, 9) + '…' : worker.name) + '</text>' +
+      '<text x="' + wx + '" y="' + (wy + 12) + '" text-anchor="middle" fill="' + (dispatched ? 'var(--accent)' : color) + '" font-size="9">' + (worker.paused ? 'paused' : worker.status) + (assignedCount > 0 ? (' · ' + assignedCount + ' tasks') : '') + dispatchHint + '</text>' +
       (reason ? ('<title>' + esc(reason) + '</title>') : '') +
     '</g>';
   });
 
-  // Draw controller node (center)
   if (controller) {
-    const color = statusColor(controller);
+    const color = getAgentGraphStatusColor(controller);
     const pulse = controller.status === 'running' ? '<animate attributeName="r" values="34;38;34" dur="2s" repeatCount="indefinite"/>' : '';
-    const decision = latestRun?.decision || '';
+    const decision = graphContext.latestRun?.decision || '';
     svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + controller.id + '\")">' +
       '<circle cx="' + cx + '" cy="' + cy + '" r="34" fill="' + color + '22" stroke="' + color + '" stroke-width="2.5">' + pulse + '</circle>' +
       '<text x="' + cx + '" y="' + (cy - 4) + '" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="700">' + esc(controller.name.length > 12 ? controller.name.slice(0, 11) + '…' : controller.name) + '</text>' +
@@ -1633,14 +1748,151 @@ function renderAgentGraph() {
   }
 
   svg += '</svg>';
+  return {
+    title: 'Agent Collaboration · Star',
+    note: '当前未设置层级关系，保持兼容的星形布局。',
+    svg,
+  };
+}
 
-  const runInfo = latestRun
-    ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Latest decision: <span style="color:var(--fg)">' + esc(latestRun.decision || '-') + '</span> · ' + esc(timeAgo(latestRun.created_at)) + '</div>'
+function renderHierarchyAgentGraph(container, graphContext) {
+  const byId = getAgentMap();
+  const controller = getControllerAgent();
+  const levelMap = new Map();
+  const visited = new Set();
+  const syntheticLinks = [];
+
+  function walk(agent, depth) {
+    if (!agent || visited.has(agent.id)) return;
+    visited.add(agent.id);
+    if (!levelMap.has(depth)) levelMap.set(depth, []);
+    levelMap.get(depth).push(agent);
+
+    const children = agentsData.filter((candidate) => getGraphParentId(candidate) === agent.id);
+    children.forEach((child) => {
+      if (!child.parent_agent_id) {
+        syntheticLinks.push(child.id);
+      }
+      walk(child, depth + 1);
+    });
+  }
+
+  const roots = [];
+  if (controller) {
+    roots.push(controller);
+  }
+  agentsData.forEach((agent) => {
+    if (agent.is_controller) return;
+    const parentId = getGraphParentId(agent);
+    if (!parentId || !byId.has(parentId)) {
+      roots.push(agent);
+    }
+  });
+
+  roots.forEach((root) => walk(root, 0));
+  agentsData.forEach((agent) => {
+    if (!visited.has(agent.id)) walk(agent, 0);
+  });
+
+  const levels = Array.from(levelMap.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, items]) => items);
+
+  const W = Math.min(Math.max(container.clientWidth || 760, 640), 960);
+  const levelGap = 112;
+  const topPadding = 56;
+  const H = Math.max(280, topPadding + Math.max(levels.length - 1, 1) * levelGap + 96);
+  const nodeRadius = 28;
+  const positions = new Map();
+
+  levels.forEach((level, depth) => {
+    const spacing = W / (level.length + 1);
+    const y = topPadding + depth * levelGap;
+    level.forEach((agent, index) => {
+      positions.set(agent.id, {
+        x: spacing * (index + 1),
+        y,
+      });
+    });
+  });
+
+  let svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;margin:0 auto">';
+
+  agentsData.forEach((agent) => {
+    const parentId = getGraphParentId(agent);
+    if (!parentId) return;
+    const parentPos = positions.get(parentId);
+    const childPos = positions.get(agent.id);
+    if (!parentPos || !childPos) return;
+
+    const dispatched = graphContext.dispatchedAgents.has(agent.id);
+    const synthetic = !agent.parent_agent_id;
+    svg += '<line x1="' + parentPos.x + '" y1="' + (parentPos.y + nodeRadius) + '" x2="' + childPos.x + '" y2="' + (childPos.y - nodeRadius) + '" stroke="' + (dispatched ? 'var(--accent)' : 'var(--border)') + '" stroke-width="' + (dispatched ? 2.2 : 1.2) + '"' +
+      (synthetic ? ' stroke-dasharray="6,4"' : '') +
+      ' opacity="' + (dispatched ? 0.95 : synthetic ? 0.45 : 0.7) + '"/>';
+
+    if (dispatched) {
+      const mx = (parentPos.x + childPos.x) / 2;
+      const my = (parentPos.y + childPos.y) / 2;
+      svg += '<text x="' + mx + '" y="' + (my - 8) + '" text-anchor="middle" fill="var(--accent)" font-size="8">dispatch</text>';
+    }
+  });
+
+  agentsData.forEach((agent) => {
+    const position = positions.get(agent.id);
+    if (!position) return;
+    const color = getAgentGraphStatusColor(agent);
+    const pulse = agent.status === 'running'
+      ? '<animate attributeName="r" values="' + nodeRadius + ';' + (nodeRadius + 4) + ';' + nodeRadius + '" dur="2s" repeatCount="indefinite"/>'
+      : '';
+    const assignedCount = (window._dashboardIssues || []).filter((issue) => issue.assigned_to === agent.id && ['open', 'in_progress', 'pending'].includes(issue.status)).length;
+    const childCount = getDirectChildAgents(agent.id).length;
+    const dispatched = graphContext.dispatchedAgents.has(agent.id);
+    const reason = graphContext.actionReasonByAgent.get(agent.id);
+    const statusLabel = agent.paused ? 'paused' : agent.status;
+    const metaParts = [statusLabel, assignedCount > 0 ? assignedCount + ' tasks' : null, childCount > 0 ? childCount + ' child' : null].filter(Boolean).join(' · ');
+
+    svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + agent.id + '\")">' +
+      '<circle cx="' + position.x + '" cy="' + position.y + '" r="' + nodeRadius + '" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (agent.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</circle>' +
+      '<text x="' + position.x + '" y="' + (position.y - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(agent.name.length > 11 ? agent.name.slice(0, 10) + '…' : agent.name) + '</text>' +
+      '<text x="' + position.x + '" y="' + (position.y + 12) + '" text-anchor="middle" fill="' + (dispatched ? 'var(--accent)' : color) + '" font-size="8.5">' + esc(metaParts || statusLabel) + '</text>' +
+      '<title>' + esc([agent.name, reason].filter(Boolean).join(' · ')) + '</title>' +
+    '</g>';
+  });
+
+  svg += '</svg>';
+
+  const syntheticNote = syntheticLinks.length > 0
+    ? '未设置上级的 Agent 会在图中以 controller 的直属节点展示（虚线连接）。'
+    : '图中连线按直属父子关系展示。';
+
+  return {
+    title: 'Agent Collaboration · Tree',
+    note: syntheticNote,
+    svg,
+  };
+}
+
+function renderAgentGraph() {
+  const container = document.getElementById('agent-graph-container');
+  if (!container || !agentsData.length) {
+    if (container) container.innerHTML = '';
+    return;
+  }
+
+  const graphContext = getAgentGraphContext();
+  const graph = hasHierarchyLayout()
+    ? renderHierarchyAgentGraph(container, graphContext)
+    : renderStarAgentGraph(container, graphContext);
+
+  const runInfo = graphContext.latestRun
+    ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Latest decision: <span style="color:var(--fg)">' + esc(graphContext.latestRun.decision || '-') + '</span> · ' + esc(timeAgo(graphContext.latestRun.created_at)) + '</div>'
     : '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">No orchestration decision records yet.</div>';
 
   container.innerHTML = '<div class="card" style="padding:12px;text-align:center">' +
-    '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">Agent Collaboration</div>' +
-    svg +
+    '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">' + graph.title + '</div>' +
+    graph.svg +
+    '<div style="font-size:11px;color:var(--text-secondary);margin-top:8px">' + graph.note + '</div>' +
     runInfo +
   '</div>';
 }

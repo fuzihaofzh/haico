@@ -1,6 +1,7 @@
 import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { config } from '../config';
+import { getDirectChildAgents, loadProjectHierarchyAgents } from './agent-hierarchy';
 
 const BASE_URL = () => `http://localhost:${config.port}`;
 
@@ -22,14 +23,34 @@ You are running inside Argus, a multi-agent collaboration platform. Multiple age
 - **Project ID**: ${project.id}`;
 
   // Agent list
-  const agents = db.prepare('SELECT id, name, role, is_controller, status FROM agents WHERE project_id = ?').all(project.id) as any[];
+  const hierarchyAgents = loadProjectHierarchyAgents(db, project.id);
+  const hierarchyById = new Map(hierarchyAgents.map((item) => [item.id, item]));
+  const agents = db.prepare(`
+    SELECT a.id, a.name, a.role, a.is_controller, a.status, a.parent_agent_id, parent.name as parent_name
+    FROM agents a
+    LEFT JOIN agents parent ON parent.id = a.parent_agent_id
+    WHERE a.project_id = ?
+    ORDER BY a.is_controller DESC, a.created_at
+  `).all(project.id) as any[];
   const agentList = agents.map(a =>
-    `  - ${a.name} (ID: ${a.id}, Role: ${a.role || '-'}, Status: ${a.status}${a.is_controller ? ', Controller' : ''})`
+    `  - ${a.name} (ID: ${a.id}, Role: ${a.role || '-'}, Status: ${a.status}${a.is_controller ? ', Controller' : ''}${a.parent_name ? `, Parent: ${a.parent_name}` : ''})`
   ).join('\n');
+  const parentAgent = agent.parent_agent_id ? hierarchyById.get(agent.parent_agent_id) || null : null;
+  const directChildren = getDirectChildAgents(hierarchyAgents, agent.id);
+  const hierarchyNotes: string[] = [];
+  if (parentAgent) {
+    hierarchyNotes.push(`- 你的直接上级是 ${parentAgent.name}（ID: ${parentAgent.id}）`);
+  }
+  if (directChildren.length > 0) {
+    hierarchyNotes.push(`- 你的直接下属：${directChildren.map((child) => `${child.name}（ID: ${child.id}）`).join('、')}`);
+  }
+  if (agent.parent_agent_id) {
+    hierarchyNotes.push('- 通信限制：只能通过消息与直接上级或直接下属沟通，不能跨级通信。');
+  }
 
   const agentSection = `
 ## Agents
-${agentList || '  (none)'}`;
+${agentList || '  (none)'}${hierarchyNotes.length > 0 ? `\n\n### Hierarchy\n${hierarchyNotes.join('\n')}` : ''}`;
 
   // Issue API (available to all)
   // IMPORTANT: use "env -u LD_PRELOAD curl" to bypass any proxy for localhost

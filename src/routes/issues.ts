@@ -8,6 +8,15 @@ import { triggerControllerAgent } from '../services/controller';
 import { tryHandleWithoutLLM } from '../services/pre-controller';
 import { broadcastToProject } from '../services/websocket';
 import { config } from '../config';
+import {
+  ensureCommentAccess,
+  ensureIssueAccess,
+  ensureMilestoneAccess,
+  ensureProjectAccess,
+  ensureRelationAccess,
+  getProjectRequestContext,
+  listAccessibleProjectIds,
+} from '../services/project-permissions';
 
 // Track pending controller trigger timers so they can be cancelled during shutdown
 const pendingControllerTriggerTimers = new Set<NodeJS.Timeout>();
@@ -103,6 +112,10 @@ function resolvePriority(createdBy: string, projectId: string): number {
   return 1;
 }
 
+function buildSqlPlaceholders(values: readonly unknown[]): string {
+  return values.map(() => '?').join(', ');
+}
+
 export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // ─── Issues ───
@@ -110,8 +123,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // List issues (with search, sort, pagination)
   fastify.get<{ Params: { pid: string }; Querystring: { status?: string; assigned_to?: string; label?: string; q?: string; sort?: string; page?: string; per_page?: string; milestone_id?: string } }>(
     '/api/projects/:pid/issues',
-    async (request) => {
+    async (request, reply) => {
       const db = getDatabase();
+      const access = ensureProjectAccess(db, request, reply, request.params.pid);
+      if (!access) return;
       const { status, assigned_to, label, q, sort, page, per_page, milestone_id } = request.query;
 
       let sql = `SELECT issues.*, (SELECT COUNT(*) FROM issue_comments WHERE issue_id = issues.id AND event_type = 'comment') as comment_count, (SELECT COUNT(*) > 0 FROM issue_relations r JOIN issues blocker ON blocker.id = r.from_issue_id WHERE r.to_issue_id = issues.id AND r.relation_type = 'blocks' AND blocker.status NOT IN ('done', 'closed')) as is_blocked FROM issues WHERE project_id = ?`;
@@ -152,8 +167,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // Issue counts by status (lightweight alternative to loading all issues)
   fastify.get<{ Params: { pid: string } }>(
     '/api/projects/:pid/issues/counts',
-    async (request) => {
+    async (request, reply) => {
       const db = getDatabase();
+      const access = ensureProjectAccess(db, request, reply, request.params.pid);
+      if (!access) return;
       const rows = db.prepare(
         `SELECT status, COUNT(*) as count FROM issues WHERE project_id = ? GROUP BY status`
       ).all(request.params.pid) as { status: string; count: number }[];
@@ -177,6 +194,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       }
 
       const db = getDatabase();
+      const access = ensureProjectAccess(db, request, reply, request.params.pid, true);
+      if (!access) return;
       const id = uuidv4();
       const priority = resolvePriority(created_by, request.params.pid);
 
@@ -269,6 +288,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // Get issue detail (with comments + reactions + parent/children)
   fastify.get<{ Params: { id: string } }>('/api/issues/:id', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureIssueAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
 
@@ -342,6 +363,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     '/api/issues/:id',
     async (request, reply) => {
       const db = getDatabase();
+      const access = ensureIssueAccess(db, request, reply, request.params.id, true);
+      if (!access) return;
       const existing = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id) as any;
       if (!existing) return reply.code(404).send({ error: 'Issue not found' });
 
@@ -489,6 +512,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // Delete issue (only open, no children)
   fastify.delete<{ Params: { id: string } }>('/api/issues/:id', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureIssueAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
     if (issue.status !== 'open') {
@@ -505,38 +530,66 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // ─── Comments ───
 
   // List comments
-  fastify.get<{ Params: { id: string } }>('/api/issues/:id/comments', async (request) => {
+  fastify.get<{ Params: { id: string } }>('/api/issues/:id/comments', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureIssueAccess(db, request, reply, request.params.id);
+    if (!access) return;
     return db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(request.params.id);
   });
 
   // User notifications — open issues assigned to user + recent comments on user's issues
-  fastify.get('/api/notifications', async () => {
+  fastify.get('/api/notifications', async (request) => {
     const db = getDatabase();
+    const { user, localhostBypass } = getProjectRequestContext(request);
+    const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+    if (projectIds.length === 0) {
+      return { user_issues: [], recent_comments: [] };
+    }
+    const placeholders = buildSqlPlaceholders(projectIds);
     const userIssues = db.prepare(
-      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE (i.assigned_to = 'user' OR (i.acknowledged_at IS NOT NULL AND i.created_by = 'user')) AND i.status IN ('open', 'in_progress', 'pending', 'done') ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC"
-    ).all() as any[];
+      `SELECT i.*, p.name as project_name
+       FROM issues i
+       JOIN projects p ON i.project_id = p.id
+       WHERE i.project_id IN (${placeholders})
+         AND (i.assigned_to = 'user' OR (i.acknowledged_at IS NOT NULL AND i.created_by = 'user'))
+         AND i.status IN ('open', 'in_progress', 'pending', 'done')
+       ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC`
+    ).all(...projectIds) as any[];
 
     // Recent comments on any issue (last 50)
     const recentComments = db.prepare(
-      "SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name FROM issue_comments c JOIN issues i ON c.issue_id = i.id JOIN projects p ON i.project_id = p.id WHERE c.author_id != 'user' ORDER BY c.created_at DESC LIMIT 50"
-    ).all() as any[];
+      `SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name
+       FROM issue_comments c
+       JOIN issues i ON c.issue_id = i.id
+       JOIN projects p ON i.project_id = p.id
+       WHERE i.project_id IN (${placeholders})
+         AND c.author_id != 'user'
+       ORDER BY c.created_at DESC
+       LIMIT 50`
+    ).all(...projectIds) as any[];
 
     return { user_issues: userIssues, recent_comments: recentComments };
   });
 
   // My Issues — all issues the user is involved in (assigned, created, or commented)
-  fastify.get('/api/my-issues', async () => {
+  fastify.get('/api/my-issues', async (request) => {
     const db = getDatabase();
+    const { user, localhostBypass } = getProjectRequestContext(request);
+    const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+    if (projectIds.length === 0) return [];
+    const placeholders = buildSqlPlaceholders(projectIds);
     return db.prepare(`
       SELECT DISTINCT i.*, p.name as project_name FROM issues i
       JOIN projects p ON i.project_id = p.id
-      WHERE i.assigned_to = 'user'
-         OR i.created_by = 'user'
-         OR i.id IN (SELECT DISTINCT issue_id FROM issue_comments WHERE author_id = 'user')
+      WHERE i.project_id IN (${placeholders})
+        AND (
+          i.assigned_to = 'user'
+          OR i.created_by = 'user'
+          OR i.id IN (SELECT DISTINCT issue_id FROM issue_comments WHERE author_id = 'user')
+        )
       ORDER BY i.updated_at DESC
       LIMIT 100
-    `).all();
+    `).all(...projectIds);
   });
 
   // Inbox search — search all issues by title, body, or number
@@ -544,15 +597,27 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     const q = (request.query.q || '').trim();
     if (!q) return [];
+    const { user, localhostBypass } = getProjectRequestContext(request);
+    const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+    if (projectIds.length === 0) return [];
+    const placeholders = buildSqlPlaceholders(projectIds);
     const like = `%${q}%`;
     return db.prepare(
-      "SELECT i.*, p.name as project_name FROM issues i JOIN projects p ON i.project_id = p.id WHERE i.title LIKE ? OR i.body LIKE ? OR CAST(i.number AS TEXT) LIKE ? ORDER BY i.updated_at DESC LIMIT 200"
-    ).all(like, like, like);
+      `SELECT i.*, p.name as project_name
+       FROM issues i
+       JOIN projects p ON i.project_id = p.id
+       WHERE i.project_id IN (${placeholders})
+         AND (i.title LIKE ? OR i.body LIKE ? OR CAST(i.number AS TEXT) LIKE ?)
+       ORDER BY i.updated_at DESC
+       LIMIT 200`
+    ).all(...projectIds, like, like, like);
   });
 
   // Acknowledge issue (mark as read — hides from notifications)
   fastify.post<{ Params: { id: string } }>('/api/issues/:id/acknowledge', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureIssueAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id);
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
     db.prepare("UPDATE issues SET acknowledged_at = datetime('now') WHERE id = ?").run(request.params.id);
@@ -562,6 +627,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // Unacknowledge issue (show again in notifications)
   fastify.post<{ Params: { id: string } }>('/api/issues/:id/unacknowledge', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureIssueAccess(db, request, reply, request.params.id);
+    if (!access) return;
     const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id);
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
     db.prepare("UPDATE issues SET acknowledged_at = NULL WHERE id = ?").run(request.params.id);
@@ -578,6 +645,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       }
 
       const db = getDatabase();
+      const access = ensureIssueAccess(db, request, reply, request.params.id, true);
+      if (!access) return;
       const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id);
       if (!issue) return reply.code(404).send({ error: 'Issue not found' });
 
@@ -655,6 +724,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // Edit comment
   fastify.put<{ Params: { id: string }; Body: { body: string } }>('/api/comments/:id', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureCommentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const existing = db.prepare('SELECT * FROM issue_comments WHERE id = ?').get(request.params.id);
     if (!existing) return reply.code(404).send({ error: 'Comment not found' });
     db.prepare('UPDATE issue_comments SET body = ? WHERE id = ?').run(request.body.body, request.params.id);
@@ -664,6 +735,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // Delete comment
   fastify.delete<{ Params: { id: string } }>('/api/comments/:id', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureCommentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     const existing = db.prepare('SELECT * FROM issue_comments WHERE id = ?').get(request.params.id);
     if (!existing) return reply.code(404).send({ error: 'Comment not found' });
     db.prepare('DELETE FROM issue_comments WHERE id = ?').run(request.params.id);
@@ -673,6 +746,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // Get issue by project ID + number (with reactions + parent/children)
   fastify.get<{ Params: { pid: string; num: string } }>('/api/projects/:pid/issues/number/:num', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureProjectAccess(db, request, reply, request.params.pid);
+    if (!access) return;
     const issue = db.prepare('SELECT * FROM issues WHERE project_id = ? AND number = ?').get(request.params.pid, parseInt(request.params.num)) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
     const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(issue.id) as any[];
@@ -740,6 +815,15 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     '/api/reactions/:type/:id',
     async (request, reply) => {
       const db = getDatabase();
+      if (request.params.type === 'issue') {
+        const access = ensureIssueAccess(db, request, reply, request.params.id, true);
+        if (!access) return;
+      } else if (request.params.type === 'comment') {
+        const access = ensureCommentAccess(db, request, reply, request.params.id, true);
+        if (!access) return;
+      } else {
+        return reply.code(400).send({ error: 'Invalid reaction target type' });
+      }
       const { user_id, emoji } = request.body;
       if (!user_id || !emoji) return reply.code(400).send({ error: 'user_id and emoji required' });
       const id = uuidv4();
@@ -756,16 +840,27 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     }
   );
 
-  fastify.get<{ Params: { type: string; id: string } }>('/api/reactions/:type/:id', async (request) => {
+  fastify.get<{ Params: { type: string; id: string } }>('/api/reactions/:type/:id', async (request, reply) => {
     const db = getDatabase();
+    if (request.params.type === 'issue') {
+      const access = ensureIssueAccess(db, request, reply, request.params.id);
+      if (!access) return;
+    } else if (request.params.type === 'comment') {
+      const access = ensureCommentAccess(db, request, reply, request.params.id);
+      if (!access) return;
+    } else {
+      return reply.code(400).send({ error: 'Invalid reaction target type' });
+    }
     return db.prepare('SELECT emoji, COUNT(*) as count, GROUP_CONCAT(user_id) as users FROM reactions WHERE target_type = ? AND target_id = ? GROUP BY emoji')
       .all(request.params.type, request.params.id);
   });
 
   // ─── Milestones ───
 
-  fastify.get<{ Params: { pid: string } }>('/api/projects/:pid/milestones', async (request) => {
+  fastify.get<{ Params: { pid: string } }>('/api/projects/:pid/milestones', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureProjectAccess(db, request, reply, request.params.pid);
+    if (!access) return;
     const milestones = db.prepare('SELECT * FROM milestones WHERE project_id = ? ORDER BY created_at DESC').all(request.params.pid);
     // Add progress
     return (milestones as any[]).map(m => {
@@ -779,6 +874,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     '/api/projects/:pid/milestones',
     async (request, reply) => {
       const db = getDatabase();
+      const access = ensureProjectAccess(db, request, reply, request.params.pid, true);
+      if (!access) return;
       const { title, description, due_date } = request.body;
       if (!title) return reply.code(400).send({ error: 'title required' });
       const id = uuidv4();
@@ -792,6 +889,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     '/api/milestones/:id',
     async (request, reply) => {
       const db = getDatabase();
+      const access = ensureMilestoneAccess(db, request, reply, request.params.id, true);
+      if (!access) return;
       const { title, description, due_date, status } = request.body;
       db.prepare('UPDATE milestones SET title = COALESCE(?, title), description = COALESCE(?, description), due_date = COALESCE(?, due_date), status = COALESCE(?, status) WHERE id = ?')
         .run(title ?? null, description ?? null, due_date ?? null, status ?? null, request.params.id);
@@ -801,6 +900,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   fastify.delete<{ Params: { id: string } }>('/api/milestones/:id', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureMilestoneAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
     db.prepare('UPDATE issues SET milestone_id = NULL WHERE milestone_id = ?').run(request.params.id);
     db.prepare('DELETE FROM milestones WHERE id = ?').run(request.params.id);
     return { success: true };
@@ -808,8 +909,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // ─── Search ───
 
-  fastify.get<{ Params: { pid: string }; Querystring: { q: string } }>('/api/projects/:pid/search', async (request) => {
+  fastify.get<{ Params: { pid: string }; Querystring: { q: string } }>('/api/projects/:pid/search', async (request, reply) => {
     const db = getDatabase();
+    const access = ensureProjectAccess(db, request, reply, request.params.pid);
+    if (!access) return;
     const q = `%${request.query.q}%`;
     const issues = db.prepare('SELECT * FROM issues WHERE project_id = ? AND (title LIKE ? OR body LIKE ?) ORDER BY updated_at DESC LIMIT 50')
       .all(request.params.pid, q, q);
@@ -825,6 +928,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     '/api/issues/:id/relations',
     async (request, reply) => {
       const db = getDatabase();
+      const sourceAccess = ensureIssueAccess(db, request, reply, request.params.id, true);
+      if (!sourceAccess) return;
       const { id: fromId } = request.params;
       const { type: relationType, target_issue_id: toId, actor } = request.body as any;
 
@@ -842,6 +947,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       const toIssue = db.prepare('SELECT * FROM issues WHERE id = ?').get(toId) as any;
       if (!fromIssue) return reply.code(404).send({ error: 'Source issue not found' });
       if (!toIssue) return reply.code(404).send({ error: 'Target issue not found' });
+      if (toIssue.project_id !== fromIssue.project_id || toIssue.project_id !== sourceAccess.entity.project_id) {
+        return reply.code(400).send({ error: 'Target issue must belong to the same project' });
+      }
 
       const relId = uuidv4();
       try {
@@ -880,6 +988,13 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     '/api/issues/:id/relations/:relationId',
     async (request, reply) => {
       const db = getDatabase();
+      const issueAccess = ensureIssueAccess(db, request, reply, request.params.id, true);
+      if (!issueAccess) return;
+      const relationAccess = ensureRelationAccess(db, request, reply, request.params.relationId, true);
+      if (!relationAccess) return;
+      if (relationAccess.entity.from_issue_id !== request.params.id && relationAccess.entity.to_issue_id !== request.params.id) {
+        return reply.code(404).send({ error: 'Relation not found' });
+      }
       const relation = db.prepare('SELECT * FROM issue_relations WHERE id = ?').get(request.params.relationId) as any;
       if (!relation) return reply.code(404).send({ error: 'Relation not found' });
 
@@ -900,8 +1015,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // List relations for an issue
   fastify.get<{ Params: { id: string } }>(
     '/api/issues/:id/relations',
-    async (request) => {
+    async (request, reply) => {
       const db = getDatabase();
+      const access = ensureIssueAccess(db, request, reply, request.params.id);
+      if (!access) return;
       const issueId = request.params.id;
 
       const blocks = db.prepare(`
