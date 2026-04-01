@@ -421,7 +421,7 @@
       iframe.style.cssText = 'width:100%;height:100%;border:none;background:#fff;';
       iframe.src = src;
       if (mode === 'html') {
-        iframe.sandbox = 'allow-same-origin';
+        iframe.sandbox = 'allow-scripts allow-forms allow-popups';
       }
       editorEl.appendChild(iframe);
       this.state.previewMode = mode;
