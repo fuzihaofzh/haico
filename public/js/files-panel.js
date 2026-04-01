@@ -532,13 +532,13 @@
     async loadOfficeLib(mode) {
       if (mode === 'docx') {
         if (!window.mammoth) {
-          await this._loadScript('https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js');
+          await this._loadScript('/js/mammoth.browser.min.js');
           // Wait for the global to become available
           await this._waitForGlobal('mammoth');
         }
       } else if (mode === 'xlsx') {
         if (!window.XLSX) {
-          await this._loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+          await this._loadScript('/js/xlsx.full.min.js');
           await this._waitForGlobal('XLSX');
         }
       }
@@ -621,7 +621,7 @@
     async _renderPptxPreview(arrayBuffer) {
       // Use JSZip to extract slide info from PPTX
       if (!window.JSZip) {
-        await this._loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js');
+        await this._loadScript('/js/jszip.min.js');
       }
       const zip = await JSZip.loadAsync(arrayBuffer);
       const slideFiles = Object.keys(zip.files).filter(f => /^ppt\/slides\/slide\d+\.xml$/.test(f)).sort();
