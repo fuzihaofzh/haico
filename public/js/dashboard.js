@@ -69,7 +69,14 @@ async function loadDashboardSummary() {
 
     document.getElementById('stat-running').textContent = data.agents.running;
     document.getElementById('stat-open-issues').textContent = data.issues.open;
-    document.getElementById('stat-cost').textContent = '$' + data.total_cost_usd.toFixed(2);
+    const fmtTokensDash = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
+    if (data.total_cost_usd > 0) {
+      document.getElementById('stat-cost').textContent = '$' + data.total_cost_usd.toFixed(2);
+    } else if (data.total_input_tokens > 0) {
+      document.getElementById('stat-cost').textContent = fmtTokensDash(data.total_input_tokens) + '↑ ' + fmtTokensDash(data.total_output_tokens) + '↓';
+      const costLabel = document.getElementById('stat-cost')?.closest('.stat-card')?.querySelector('.stat-label');
+      if (costLabel) costLabel.textContent = 'Token Usage';
+    }
 
     const errCard = document.getElementById('stat-errors-card');
     if (data.agents.error_count > 0) {

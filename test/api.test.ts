@@ -2328,6 +2328,79 @@ describe('Argus API', () => {
     });
   });
 
+  // ─── Codex zero-cost usage visibility (#548) ───
+
+  describe('Codex zero-cost usage visibility (#548)', () => {
+    let codexProjectId: string;
+    let codexAgentId: string;
+
+    before(async () => {
+      const p = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'codex-cost-project', description: 'Codex cost test', task_description: 'test', command_template: 'echo' },
+      });
+      assert.equal(p.status, 201);
+      codexProjectId = p.body.id;
+
+      const a = await api(app, `/api/projects/${codexProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'codex-agent', role: 'Codex cost test agent' },
+      });
+      assert.equal(a.status, 201);
+      codexAgentId = a.body.id;
+
+      // Simulate Codex cost record: cost_usd=0 but tokens present
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      db.prepare(
+        `INSERT INTO conversation_logs (agent_id, run_id, content, stream, created_at) VALUES (?, ?, ?, ?, ?)`
+      ).run(codexAgentId, 'codex-run-1',
+        JSON.stringify({ cost_usd: 0, input_tokens: 5000, output_tokens: 1200, cache_read: 3000, cache_creation: 2000 }),
+        'cost', '2026-03-15 12:00:00');
+    });
+
+    after(async () => {
+      await api(app, `/api/projects/${codexProjectId}`, { method: 'DELETE' });
+    });
+
+    it('agent costs API returns token data even when cost_usd is 0', async () => {
+      const { status, body } = await api(app, `/api/agents/${codexAgentId}/costs`);
+      assert.equal(status, 200);
+      assert.equal(body.total_runs, 1);
+      assert.equal(body.total_cost_usd, 0);
+      assert.equal(body.total_input_tokens, 5000);
+      assert.equal(body.total_output_tokens, 1200);
+      assert.equal(body.runs[0].cost_usd, 0);
+      assert.equal(body.runs[0].input_tokens, 5000);
+      assert.equal(body.runs[0].output_tokens, 1200);
+    });
+
+    it('project costs API includes by_agent token data for zero-cost agents', async () => {
+      const { status, body } = await api(app, `/api/projects/${codexProjectId}/costs`);
+      assert.equal(status, 200);
+      assert.equal(body.total_cost_usd, 0);
+      assert.equal(body.total_input_tokens, 5000);
+      assert.equal(body.total_output_tokens, 1200);
+      const agentData = body.by_agent['codex-agent'];
+      assert.ok(agentData, 'by_agent should include codex-agent');
+      assert.equal(agentData.cost, 0);
+      assert.equal(agentData.runs, 1);
+      assert.equal(agentData.input_tokens, 5000);
+      assert.equal(agentData.output_tokens, 1200);
+    });
+
+    it('run history returns token fields for zero-cost runs', async () => {
+      const { status, body } = await api(app, `/api/agents/${codexAgentId}/runs`);
+      assert.equal(status, 200);
+      assert.ok(body.runs.length >= 1);
+      const run = body.runs.find((r: any) => r.run_id === 'codex-run-1');
+      assert.ok(run, 'should find the codex run');
+      assert.equal(run.cost_usd, 0);
+      assert.equal(run.input_tokens, 5000);
+      assert.equal(run.output_tokens, 1200);
+    });
+  });
+
   // ─── Agent Runs & Report ───
 
   describe('Agent Runs', () => {

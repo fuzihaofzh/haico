@@ -124,8 +124,15 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
        ON c.id = latest.max_id`
     ).all(...projectIds) as any[];
     let totalCost = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
     for (const c of costRows) {
-      try { totalCost += JSON.parse(c.content).cost_usd || 0; } catch {}
+      try {
+        const data = JSON.parse(c.content);
+        totalCost += data.cost_usd || 0;
+        totalInputTokens += data.input_tokens || 0;
+        totalOutputTokens += data.output_tokens || 0;
+      } catch {}
     }
 
     // Last activity per project (most recent agent started_at or issue updated_at)
@@ -150,6 +157,8 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
       agents: { total: agentStats.total || 0, running: agentStats.running || 0, error_count: agentStats.error_count || 0 },
       issues: { total: issueStats.total || 0, open: issueStats.open_count || 0 },
       total_cost_usd: totalCost,
+      total_input_tokens: totalInputTokens,
+      total_output_tokens: totalOutputTokens,
       last_activity: lastActivityMap,
     };
   });
