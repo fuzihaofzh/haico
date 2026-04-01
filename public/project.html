@@ -76,8 +76,8 @@
         <div class="project-access-row">
           <span class="meta-chip" id="project-access-summary"></span>
           <span class="meta-chip" id="project-owner-summary"></span>
-          <button class="btn btn-sm" id="btn-view-members" onclick="openProjectMembersModal(false)">成员列表</button>
-          <button class="btn btn-sm btn-primary" id="btn-share-project" onclick="openProjectMembersModal(true)" style="display:none">分享管理</button>
+          <button class="btn btn-sm" id="btn-view-members" onclick="openProjectMembersModal(false)">Members</button>
+          <button class="btn btn-sm btn-primary" id="btn-share-project" onclick="openProjectMembersModal(true)" style="display:none">Share Settings</button>
         </div>
         <div class="project-inline-note" id="project-debug-note" style="display:none"></div>
         <div class="project-readonly-banner" id="project-readonly-banner" style="display:none"></div>
@@ -137,9 +137,9 @@
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6">Cost Trend</div>
             <div style="display:flex;gap:4px" id="cost-period-tabs">
-              <button class="btn btn-sm cost-period-btn" data-period="hour" onclick="switchCostPeriod('hour')" style="padding:2px 8px;font-size:10px">时</button>
-              <button class="btn btn-sm cost-period-btn" data-period="day" onclick="switchCostPeriod('day')" style="padding:2px 8px;font-size:10px">日</button>
-              <button class="btn btn-sm cost-period-btn" data-period="week" onclick="switchCostPeriod('week')" style="padding:2px 8px;font-size:10px">周</button>
+              <button class="btn btn-sm cost-period-btn" data-period="hour" onclick="switchCostPeriod('hour')" style="padding:2px 8px;font-size:10px">hr</button>
+              <button class="btn btn-sm cost-period-btn" data-period="day" onclick="switchCostPeriod('day')" style="padding:2px 8px;font-size:10px">day</button>
+              <button class="btn btn-sm cost-period-btn" data-period="week" onclick="switchCostPeriod('week')" style="padding:2px 8px;font-size:10px">wk</button>
             </div>
           </div>
           <div id="cost-chart-agents"></div>
@@ -174,7 +174,7 @@
       <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
         <div style="flex:1;min-width:200px;position:relative">
           <input type="text" id="issue-search" placeholder="Search issues..." onkeyup="if(event.key==='Enter')searchIssues()" style="width:100%;padding:6px 30px 6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px;box-sizing:border-box">
-          <button onclick="searchIssues()" style="position:absolute;right:2px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:4px 6px" title="搜索"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/></svg></button>
+          <button onclick="searchIssues()" style="position:absolute;right:2px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:4px 6px" title="Search"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/></svg></button>
         </div>
         <select id="issue-sort" onchange="loadIssues()" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:12px">
           <option value="priority">Priority</option>
@@ -215,13 +215,13 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <div style="display:flex;gap:8px;align-items:center">
           <select id="knowledge-filter-importance" onchange="loadKnowledge()" style="font-size:12px;padding:4px 8px">
-            <option value="">全部重要性</option>
-            <option value="high">高 (自动注入)</option>
-            <option value="medium">中</option>
-            <option value="low">低</option>
+            <option value="">All Importance</option>
+            <option value="high">High (auto-inject)</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
           </select>
         </div>
-        <button class="btn btn-primary" id="btn-new-knowledge" onclick="showCreateKnowledgeModal()" style="display:none">+ 添加知识</button>
+        <button class="btn btn-primary" id="btn-new-knowledge" onclick="showCreateKnowledgeModal()" style="display:none">+ Add Knowledge</button>
       </div>
       <div id="knowledge-list" class="card">
         <div class="empty-state">Loading...</div>
@@ -234,7 +234,7 @@
     <div class="modal project-members-modal">
       <div class="project-members-header">
         <div>
-          <h3>项目成员与分享</h3>
+          <h3>Project Members &amp; Sharing</h3>
           <div class="project-inline-note" id="project-members-subtitle"></div>
         </div>
         <button class="drawer-close" type="button" onclick="hideModal('projectMembersModal')">&times;</button>
@@ -244,10 +244,10 @@
       <div id="project-members-manage-panel">
         <div class="project-share-form">
           <div class="form-group" style="margin-bottom:0">
-            <label for="project-share-username">添加成员</label>
-            <input type="text" id="project-share-username" placeholder="输入用户名，例如 alice" onkeydown="if(event.key==='Enter'){event.preventDefault();addProjectMember()}">
+            <label for="project-share-username">Add Member</label>
+            <input type="text" id="project-share-username" placeholder="Enter username, e.g. alice" onkeydown="if(event.key==='Enter'){event.preventDefault();addProjectMember()}">
           </div>
-          <button class="btn btn-primary" id="btn-add-member" onclick="addProjectMember()">添加访问</button>
+          <button class="btn btn-primary" id="btn-add-member" onclick="addProjectMember()">Grant Access</button>
         </div>
       </div>
       <div id="project-members-list" class="project-members-list">
@@ -258,31 +258,31 @@
 
   <div class="modal-overlay" id="knowledgeModal">
     <div class="modal" style="max-width:600px">
-      <h3 id="knowledge-modal-title">添加知识条目</h3>
+      <h3 id="knowledge-modal-title">Add Knowledge Entry</h3>
       <input type="hidden" id="knowledge-edit-id">
       <div class="form-group">
-        <label>标题</label>
-        <input type="text" id="knowledge-title" placeholder="知识条目标题">
+        <label>Title</label>
+        <input type="text" id="knowledge-title" placeholder="Knowledge entry title">
       </div>
       <div class="form-group">
-        <label>内容</label>
-        <textarea id="knowledge-content" rows="8" placeholder="知识内容（支持Markdown）..."></textarea>
+        <label>Content</label>
+        <textarea id="knowledge-content" rows="8" placeholder="Knowledge content (Markdown supported)..."></textarea>
       </div>
       <div class="form-group">
-        <label>标签 (逗号分隔)</label>
+        <label>Tags (comma-separated)</label>
         <input type="text" id="knowledge-tags" placeholder="architecture, convention, api">
       </div>
       <div class="form-group">
-        <label>重要性</label>
+        <label>Importance</label>
         <select id="knowledge-importance">
-          <option value="high">高 — Agent启动时自动注入</option>
-          <option value="medium" selected>中 — 按需查询</option>
-          <option value="low">低 — 参考</option>
+          <option value="high">High — auto-injected on agent start</option>
+          <option value="medium" selected>Medium — queryable on demand</option>
+          <option value="low">Low — reference</option>
         </select>
       </div>
       <div class="modal-actions">
-        <button class="btn" onclick="hideModal('knowledgeModal')">取消</button>
-        <button class="btn btn-primary" onclick="saveKnowledge()">保存</button>
+        <button class="btn" onclick="hideModal('knowledgeModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveKnowledge()">Save</button>
       </div>
     </div>
   </div>
@@ -306,14 +306,14 @@
       <div class="form-group">
         <label>Parent Agent</label>
         <select id="agent-parent">
-          <option value="">无上级（顶层 Agent）</option>
+          <option value="">No parent (top-level agent)</option>
         </select>
-        <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">可选直属上级。树形协作图会按这里的父子关系展示。</div>
+        <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Optional direct parent. The hierarchy graph follows this parent-child relation.</div>
       </div>
       <div class="form-group">
         <label>Tool Path</label>
-        <input type="text" id="agent-cmdtpl" style="font-family:monospace;font-size:13px" placeholder="(留空=使用项目默认)">
-        <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">留空则使用项目级别的Tool Path设置</div>
+        <input type="text" id="agent-cmdtpl" style="font-family:monospace;font-size:13px" placeholder="(leave blank = use project default)">
+        <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Leave blank to use project-level Tool Path setting</div>
       </div>
       <div class="modal-actions">
         <button class="btn" onclick="hideModal('createAgentModal')">Cancel</button>
@@ -345,9 +345,9 @@
       <div class="form-group">
         <label>Template</label>
         <select id="issue-template" onchange="applyIssueTemplate(this.value)">
-          <option value="">空白</option>
-          <option value="bug">Bug报告</option>
-          <option value="feature">功能需求</option>
+          <option value="">Blank</option>
+          <option value="bug">Bug Report</option>
+          <option value="feature">Feature Request</option>
         </select>
       </div>
       <div class="form-group">

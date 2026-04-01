@@ -16,38 +16,38 @@ const PROJECT_ACCESS_META = {
   owner: {
     badge: 'OWNER',
     tone: 'owner',
-    summary: '项目拥有者',
-    detail: '由你拥有',
+    summary: 'Project Owner',
+    detail: 'Owned by you',
   },
   member: {
     badge: 'SHARED',
     tone: 'shared',
-    summary: '被分享成员',
-    detail: '共享给你',
+    summary: 'Shared Member',
+    detail: 'Shared with you',
   },
   admin: {
     badge: 'ADMIN VIEW',
     tone: 'admin',
-    summary: '全局管理员',
-    detail: '管理员视角',
+    summary: 'Global Admin',
+    detail: 'Admin view',
   },
   bypass: {
     badge: 'DEBUG',
     tone: 'debug',
-    summary: '调试态',
+    summary: 'Debug mode',
     detail: 'legacy / localhost bypass',
   },
   none: {
     badge: 'UNKNOWN',
     tone: 'shared',
-    summary: '未知权限',
-    detail: '权限信息缺失',
+    summary: 'Unknown role',
+    detail: 'Role info missing',
   },
 };
 
 function displayProjectUser(user) {
-  if (!user) return '未设置';
-  return user.display_name || user.username || '未设置';
+  if (!user) return 'Not set';
+  return user.display_name || user.username || 'Not set';
 }
 
 function getProjectAccessLevel(project) {
@@ -176,9 +176,9 @@ function renderInboxItems(items) {
       if (query && !matchesSearch(query, '#' + issue.number, issue.title, issue.body || '')) continue;
       const isAction = item.actionRequired;
       const isAcked = _acknowledgedIds.has(issue.id) || !!issue.acknowledged_at;
-      const ackBtnHtml = isAcked ? '' : `<button class="notif-ack-btn" onclick="event.stopPropagation();acknowledgeIssue('${issue.id}')" title="标记已阅">✓</button>`;
+      const ackBtnHtml = isAcked ? '' : `<button class="notif-ack-btn" onclick="event.stopPropagation();acknowledgeIssue('${issue.id}')" title="Mark read">✓</button>`;
       html += `<div class="notif-item${isAction ? ' notif-action-required' : ''}" id="notif-issue-${issue.id}" onclick="openIssuePanel('${issue.id}')" style="cursor:pointer">
-        <span class="notif-icon" style="color:${isAction ? 'var(--error)' : 'var(--text-secondary)'}">&#9679;</span>
+        <span class="notif-icon" style="color:${isAction ? 'var(--warning)' : 'var(--text-secondary)'}">&#9679;</span>
         <span class="notif-text">
           <span style="color:var(--text-secondary);font-size:10px">[${esc(issue.project_name || '')}]</span>
           <a href="/projects/${issue.project_id}/issues/${issue.number}" onclick="event.stopPropagation()">#${issue.number}</a>
@@ -204,9 +204,9 @@ function renderInboxItems(items) {
   }
 
   if (!html && query) {
-    html = '<div style="padding:12px 16px;color:var(--text-secondary);font-size:12px;text-align:center">无匹配结果</div>';
+    html = '<div style="padding:12px 16px;color:var(--text-secondary);font-size:12px;text-align:center">No results</div>';
   } else if (!html) {
-    html = '<div style="padding:12px 16px;color:var(--text-secondary);font-size:12px;text-align:center">暂无通知</div>';
+    html = '<div style="padding:12px 16px;color:var(--text-secondary);font-size:12px;text-align:center">No notifications</div>';
   }
 
   body.innerHTML = html;
@@ -359,7 +359,7 @@ async function loadProjects() {
       const link = `/projects/${p.id}`;
       const access = getProjectAccessMeta(p);
       const ownerName = displayProjectUser(p.owner);
-      const ownerRole = p.owner?.role === 'admin' ? '全局管理员' : '项目成员';
+      const ownerRole = p.owner?.role === 'admin' ? 'Global Admin' : 'Project Member';
       const memberCount = Number.isFinite(p.member_count) ? p.member_count : 0;
       const toggleButton = p.can_manage
         ? `<button onclick="event.stopPropagation();toggleProjectStatus('${p.id}','${p.status}')" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>`
@@ -379,7 +379,7 @@ async function loadProjects() {
             <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." oninput="toggleQuickCmdBody('${p.id}')" onkeydown="if(event.key==='Enter'&&event.shiftKey){event.preventDefault();sendQuickCmd('${p.id}')}">
             <button class="quick-cmd-btn" onclick="sendQuickCmd('${p.id}')" title="Send">&#9654;</button>
           </div>
-          <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="详细内容（可选）..." rows="3" data-collapsed></textarea>
+          <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="Details (optional)..." rows="3" data-collapsed></textarea>
         </div>
       ` : '';
       return `
@@ -389,12 +389,12 @@ async function loadProjects() {
             <strong class="project-card-title">${esc(p.name)}${notifBadge}</strong>
             <div class="project-card-tags">
               <span class="permission-badge permission-${access.tone}" title="${esc(access.summary)}">${access.badge}</span>
-              <span class="meta-chip" title="项目拥有者">
+              <span class="meta-chip" title="Project owner">
                 <span class="meta-chip-label">Owner</span>
                 <span>${esc(ownerName)}</span>
               </span>
-              <span class="meta-chip" title="项目成员数">
-                <span class="meta-chip-label">成员</span>
+              <span class="meta-chip" title="Project member count">
+                <span class="meta-chip-label">Members</span>
                 <span>${memberCount}</span>
               </span>
             </div>
@@ -461,7 +461,7 @@ async function createProject() {
   await withLoading(btn, async () => {
     const task = document.getElementById('proj-task').value.trim();
     const toolPath = document.getElementById('proj-cmd').value.trim() || 'cld';
-    if (!task) { showToast('请描述你想要执行的任务', 'error'); return; }
+    if (!task) { showToast('Please describe the task to execute', 'error'); return; }
 
     // Step 1: Call AI to generate project metadata
     btn.textContent = 'Generating...';
@@ -503,14 +503,14 @@ async function createProject() {
       window.location.href = '/projects/' + proj.id;
     } else {
       const err = await res.json();
-      showToast(err.error || '创建失败', 'error');
+      showToast(err.error || 'Failed to create', 'error');
     }
   });
 }
 
 async function toggleProjectStatus(projectId, currentStatus) {
   if (!_dashboardProjectsById[projectId]?.can_manage) {
-    showToast('当前权限无法修改项目状态', 'error');
+    showToast('Insufficient permission to update project status', 'error');
     return;
   }
   const newStatus = currentStatus === 'active' ? 'paused' : 'active';
@@ -518,9 +518,9 @@ async function toggleProjectStatus(projectId, currentStatus) {
     const res = await fetch(`/api/projects/${projectId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: newStatus })
     });
-    if (res.ok) { showToast('状态已更新', 'success'); loadProjects(); }
-    else showToast('状态更新失败', 'error');
-  } catch { showToast('网络错误', 'error'); }
+    if (res.ok) { showToast('Status updated', 'success'); loadProjects(); }
+    else showToast('Failed to update status', 'error');
+  } catch { showToast('Network error', 'error'); }
 }
 
 function toggleQuickCmdBody(projectId) {
@@ -536,7 +536,7 @@ function toggleQuickCmdBody(projectId) {
 
 async function sendQuickCmd(projectId) {
   if (!_dashboardProjectsById[projectId]?.can_manage) {
-    showToast('当前权限无法创建项目任务', 'error');
+    showToast('Insufficient permission to create task', 'error');
     return;
   }
   const input = document.getElementById('quick-cmd-' + projectId);
@@ -709,7 +709,7 @@ function openIssuePanel(issueId) {
 
 async function openIssuePanelByProject(projectId, issueNumber) {
   document.getElementById('issueDetailModal').classList.add('active');
-  document.getElementById('issueDetailContent').innerHTML = renderLoading('加载Issue...');
+  document.getElementById('issueDetailContent').innerHTML = renderLoading('Loading issue...');
   try {
     const res = await fetch(`/api/projects/${projectId}/issues/number/${issueNumber}`, { headers: apiHeaders() });
     if (!res.ok) { document.getElementById('issueDetailContent').innerHTML = renderError({ status: res.status }); return; }

@@ -145,7 +145,7 @@ var IssueRenderer = (function() {
         '<div style="display:flex;align-items:flex-start;gap:8px" id="ir-title-display">' +
           '<h2 style="flex:1;font-size:22px;font-weight:600">' + esc(issue.title) + ' <span style="color:var(--text-secondary);font-weight:400">#' + issue.number + '</span></h2>' +
           '<button class="btn btn-sm" onclick="IssueRenderer.startEditTitle()">Edit</button>' +
-          '<a href="/projects/' + issue.project_id + '/issues/' + issue.number + '" class="btn btn-sm" title="在新页面打开" style="text-decoration:none">↗</a>' +
+          '<a href="/projects/' + issue.project_id + '/issues/' + issue.number + '" class="btn btn-sm" title="Open in a new page" style="text-decoration:none">↗</a>' +
         '</div>' +
         '<div id="ir-title-edit" style="display:none;margin-bottom:8px">' +
           '<div style="display:flex;gap:8px">' +
@@ -270,7 +270,7 @@ var IssueRenderer = (function() {
                 html += '<div style="display:flex;align-items:center;gap:4px;padding:2px 0;font-size:12px' + (resolved ? ';color:var(--text-secondary)' : '') + '">' +
                   statusIcon(st) +
                   ' <a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.source_number) + '" style="text-decoration:none;' + (resolved ? 'color:var(--text-secondary);text-decoration:line-through' : 'color:inherit') + ';flex:1">#' + (r.number || r.source_number) + ' ' + esc(r.title || r.source_title || '') + '</a>' +
-                  (resolved ? '<span style="font-size:10px;color:var(--text-secondary);background:var(--bg-secondary);padding:0 4px;border-radius:4px;white-space:nowrap">已解除</span>' : '') +
+                  (resolved ? '<span style="font-size:10px;color:var(--text-secondary);background:var(--bg-secondary);padding:0 4px;border-radius:4px;white-space:nowrap">Resolved</span>' : '') +
                   '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>' +
                 '</div>';
               });
@@ -366,8 +366,8 @@ var IssueRenderer = (function() {
     if (!await showConfirm('Delete this issue?')) return;
     fetch('/api/issues/' + _ctx.issue.id, { method: 'DELETE' })
       .then(function(res) {
-        if (res.ok) { showToast('Issue已删除', 'success'); history.back(); }
-        else showToast('只能删除open状态的issue', 'error');
+        if (res.ok) { showToast('Issue deleted', 'success'); history.back(); }
+        else showToast('Only open issues can be deleted', 'error');
       });
   }
 
@@ -380,7 +380,7 @@ var IssueRenderer = (function() {
     p.then(function() {
       return fetch('/api/issues/' + _ctx.issue.id, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: 'closed', actor: 'user' }) });
     }).then(function() {
-      showToast(body ? '评论已添加并关闭Issue' : 'Issue已关闭', 'success');
+      showToast(body ? 'Comment added and issue closed' : 'Issue closed', 'success');
       _ctx.reload();
       _ctx.onAfterAction();
     });
@@ -395,7 +395,7 @@ var IssueRenderer = (function() {
     p.then(function() {
       return fetch('/api/issues/' + _ctx.issue.id, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: 'open', actor: 'user' }) });
     }).then(function() {
-      showToast(body ? '评论已添加并重新打开Issue' : 'Issue已重新打开', 'success');
+      showToast(body ? 'Comment added and issue reopened' : 'Issue reopened', 'success');
       _ctx.reload();
       _ctx.onAfterAction();
     });
@@ -405,7 +405,7 @@ var IssueRenderer = (function() {
     var body = document.getElementById('ir-comment-input').value.trim();
     if (!body) return;
     fetch('/api/issues/' + _ctx.issue.id + '/comments', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body: body }) })
-      .then(function(res) { if (res.ok) showToast('评论已添加', 'success'); _ctx.reload(); });
+      .then(function(res) { if (res.ok) showToast('Comment added', 'success'); _ctx.reload(); });
   }
 
   function editComment(cid) {
@@ -424,7 +424,7 @@ var IssueRenderer = (function() {
     var v = document.getElementById('ir-edit-comment-' + cid);
     if (!v || !v.value) return;
     fetch('/api/comments/' + cid, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v.value }) })
-      .then(function(res) { if (res.ok) showToast('评论已保存', 'success'); _ctx.reload(); });
+      .then(function(res) { if (res.ok) showToast('Comment saved', 'success'); _ctx.reload(); });
   }
 
   async function deleteComment(cid) {

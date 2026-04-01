@@ -12,38 +12,38 @@ const PROJECT_ACCESS_META = {
   owner: {
     badge: 'OWNER',
     tone: 'owner',
-    summary: '项目拥有者',
-    detail: '你可以编辑项目、管理分享与维护项目设置。',
+    summary: 'Project Owner',
+    detail: 'You can edit the project, manage sharing, and maintain project settings.',
   },
   member: {
     badge: 'SHARED',
     tone: 'shared',
-    summary: '被分享成员',
-    detail: '当前为共享只读视角，可查看项目与成员列表，但不能管理分享。',
+    summary: 'Shared Member',
+    detail: 'This is a shared read-only view. You can browse the project and member list, but cannot manage sharing.',
   },
   admin: {
     badge: 'ADMIN VIEW',
     tone: 'admin',
-    summary: '全局管理员',
-    detail: '你正以全局管理员视角查看此项目。',
+    summary: 'Global Admin',
+    detail: 'You are viewing this project as a global admin.',
   },
   bypass: {
     badge: 'DEBUG',
     tone: 'debug',
-    summary: '调试态',
-    detail: 'legacy / localhost bypass，仅用于调试，不代表普通用户角色。',
+    summary: 'Debug mode',
+    detail: 'legacy / localhost bypass, for debugging only and not a normal user role.',
   },
   none: {
     badge: 'UNKNOWN',
     tone: 'shared',
-    summary: '未知权限',
-    detail: '权限信息缺失。',
+    summary: 'Unknown role',
+    detail: 'Role info missing.',
   },
 };
 
 function displayProjectUser(user) {
-  if (!user) return '未设置';
-  return user.display_name || user.username || '未设置';
+  if (!user) return 'Not set';
+  return user.display_name || user.username || 'Not set';
 }
 
 function getProjectAccessLevel(project) {
@@ -63,7 +63,7 @@ function canManageProject() {
 
 function requireProjectManageAccess(message) {
   if (canManageProject()) return true;
-  showToast(message || '当前权限不足', 'error');
+  showToast(message || 'Insufficient permission', 'error');
   return false;
 }
 
@@ -102,7 +102,7 @@ function buildParentAgentOptions(currentAgentId, selectedParentId) {
     getDescendantAgentIds(currentAgentId).forEach((id) => excludedIds.add(id));
   }
 
-  const options = ['<option value="">无上级（顶层 Agent）</option>'];
+  const options = ['<option value="">No parent (top-level agent)</option>'];
   agentsData.forEach((agent) => {
     if (excludedIds.has(agent.id)) return;
     const suffix = agent.is_controller ? ' [controller]' : '';
@@ -173,7 +173,7 @@ function applyProjectManageState() {
   const overviewReadonlyHint = document.getElementById('project-overview-readonly-hint');
   if (overviewReadonlyHint) {
     overviewReadonlyHint.style.display = canManage ? 'none' : '';
-    overviewReadonlyHint.textContent = canManage ? '' : '共享成员可以查看项目概览，但项目设置与分享管理为只读。';
+    overviewReadonlyHint.textContent = canManage ? '' : 'Shared members can view the project overview, but project settings and sharing are read-only.';
   }
 }
 
@@ -183,19 +183,19 @@ function renderProjectAccessSummary() {
   const meta = getProjectAccessMeta(projectData);
   const memberCount = Number.isFinite(projectData.member_count) ? projectData.member_count : 0;
   const ownerName = displayProjectUser(projectData.owner);
-  const ownerRole = projectData.owner?.role === 'admin' ? '全局管理员' : '项目成员';
+  const ownerRole = projectData.owner?.role === 'admin' ? 'Global Admin' : 'Project Member';
 
   const accessBadge = document.getElementById('project-access-badge');
   if (accessBadge) accessBadge.innerHTML = renderPermissionBadge(meta);
 
   const accessSummary = document.getElementById('project-access-summary');
-  if (accessSummary) accessSummary.innerHTML = `<span class="meta-chip-label">权限</span><span>${esc(meta.summary)}</span>`;
+  if (accessSummary) accessSummary.innerHTML = `<span class="meta-chip-label">Access</span><span>${esc(meta.summary)}</span>`;
 
   const ownerSummary = document.getElementById('project-owner-summary');
   if (ownerSummary) ownerSummary.innerHTML = `<span class="meta-chip-label">Owner</span><span>${esc(ownerName)}</span><span class="meta-chip-secondary">${esc(ownerRole)}</span>`;
 
   const membersButton = document.getElementById('btn-view-members');
-  if (membersButton) membersButton.textContent = `成员列表 (${memberCount})`;
+  if (membersButton) membersButton.textContent = `Members (${memberCount})`;
 
   const debugNote = document.getElementById('project-debug-note');
   if (debugNote) {
@@ -229,7 +229,7 @@ function renderProjectMembers() {
 
   const members = mergeOwnerIntoMembers(projectMembersData);
   if (!members.length) {
-    list.innerHTML = '<div class="empty-state">暂无成员信息</div>';
+    list.innerHTML = '<div class="empty-state">No member information</div>';
     return;
   }
 
@@ -239,13 +239,13 @@ function renderProjectMembers() {
     const displayName = displayProjectUser(member);
     const encodedDisplayName = encodeURIComponent(displayName);
     const username = member.username ? `@${member.username}` : member.user_id;
-    const membershipLabel = isOwner ? '项目拥有者' : '被分享成员';
-    const accountRole = member.user_role === 'admin' ? '全局管理员' : '普通成员';
+    const membershipLabel = isOwner ? 'Project Owner' : 'Shared Member';
+    const accountRole = member.user_role === 'admin' ? 'Global Admin' : 'Member';
     const removeButton = isOwner
-      ? '<span class="project-member-static">Owner 不可移除</span>'
+      ? '<span class="project-member-static">Owner cannot be removed</span>'
       : canManage
-        ? `<button class="btn btn-sm" onclick="removeProjectMember('${member.user_id}', '${encodedDisplayName}')" style="color:var(--error)">移除</button>`
-        : '<span class="project-member-static">只读</span>';
+        ? `<button class="btn btn-sm" onclick="removeProjectMember('${member.user_id}', '${encodedDisplayName}')" style="color:var(--error)">Remove</button>`
+        : '<span class="project-member-static">Read only</span>';
     return `
       <div class="project-member-item">
         <div class="project-member-main">
@@ -271,13 +271,13 @@ async function loadProjectMembers() {
   if (!projectData) return;
 
   const list = document.getElementById('project-members-list');
-  if (list) list.innerHTML = renderLoading('加载成员列表...');
+  if (list) list.innerHTML = renderLoading('Loading members...');
 
   try {
     const res = await fetch(`/api/projects/${projectId}/members`, { headers: apiHeaders() });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || '成员列表加载失败');
+      throw new Error(err.error || 'Failed to load members');
     }
     const data = await res.json();
     projectMembersData = Array.isArray(data.members) ? data.members : [];
@@ -295,12 +295,12 @@ async function openProjectMembersModal(focusShare) {
   document.getElementById('projectMembersModal').classList.add('active');
 
   const subtitle = document.getElementById('project-members-subtitle');
-  if (subtitle) subtitle.textContent = `当前权限：${meta.summary} · 成员数 ${Number.isFinite(projectData.member_count) ? projectData.member_count : 0}`;
+  if (subtitle) subtitle.textContent = `Access: ${meta.summary} · Members ${Number.isFinite(projectData.member_count) ? projectData.member_count : 0}`;
 
   const readonlyNote = document.getElementById('project-members-readonly-note');
   if (readonlyNote) {
     readonlyNote.style.display = canManage ? 'none' : '';
-    readonlyNote.textContent = canManage ? '' : '当前为共享成员，只能查看成员列表，不能添加或移除成员。';
+    readonlyNote.textContent = canManage ? '' : 'You are a shared member. You can view the member list, but cannot add or remove members.';
   }
 
   const debugHint = document.getElementById('project-members-debug-hint');
@@ -335,7 +335,7 @@ function statusBadge(s) {
 
 async function loadProject() {
   const res = await fetch(`/api/projects/${projectId}`, { headers: apiHeaders() });
-  if (!res.ok) { showToast('项目加载失败', 'error'); return; }
+  if (!res.ok) { showToast('Failed to load project', 'error'); return; }
   projectData = await res.json();
 
   document.getElementById('project-name').textContent = projectData.name;
@@ -374,29 +374,29 @@ async function loadProject() {
 
 async function toggleProjectStatus() {
   if (!projectData) return;
-  if (!projectData.can_manage) { showToast('当前权限无法修改项目状态', 'error'); return; }
+  if (!projectData.can_manage) { showToast('Insufficient permission to update project status', 'error'); return; }
   const newStatus = projectData.status === 'active' ? 'paused' : 'active';
   const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: newStatus }) });
-  if (res.ok) showToast('状态已更新', 'success');
-  else showToast('状态更新失败', 'error');
+  if (res.ok) showToast('Status updated', 'success');
+  else showToast('Failed to update status', 'error');
   loadProject();
 }
 
 async function triggerController() {
-  if (!projectData?.can_manage) { showToast('当前权限无法触发 Controller', 'error'); return; }
+  if (!projectData?.can_manage) { showToast('Insufficient permission to trigger Controller', 'error'); return; }
   const btn = event ? event.target : null;
   const run = async () => {
     const controller = agentsData.find(a => a.is_controller);
     if (!controller) { showToast('No controller agent found', 'error'); return; }
     if (controller.status === 'running') { showToast('Controller is already running', 'error'); return; }
     const res = await fetch(`/api/agents/${controller.id}/start`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) { loadAgents(); showToast('Controller已启动', 'success'); } else { const err = await res.json().catch(() => ({})); showToast(err.error || '启动失败', 'error'); }
+    if (res.ok) { loadAgents(); showToast('Controller started', 'success'); } else { const err = await res.json().catch(() => ({})); showToast(err.error || 'Failed to start', 'error'); }
   };
   if (btn) await withLoading(btn, run); else await run();
 }
 
 async function saveOverview() {
-  if (!projectData?.can_manage) { showToast('当前权限无法修改项目设置', 'error'); return; }
+  if (!projectData?.can_manage) { showToast('Insufficient permission to update project settings', 'error'); return; }
   const body = {
     name: document.getElementById('project-name-edit').value.trim(),
     description: document.getElementById('project-desc-edit').value.trim(),
@@ -408,26 +408,26 @@ async function saveOverview() {
   const btn = document.querySelector('button[onclick="saveOverview()"]');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { window._overviewLoaded = false; loadProject(); showToast('已保存', 'success'); }
-    else showToast('保存失败', 'error');
+    if (res.ok) { window._overviewLoaded = false; loadProject(); showToast('Saved', 'success'); }
+    else showToast('Failed to save', 'error');
   });
 }
 
 async function deleteProject() {
-  if (!projectData?.can_manage) { showToast('当前权限无法删除项目', 'error'); return; }
+  if (!projectData?.can_manage) { showToast('Insufficient permission to delete project', 'error'); return; }
   if (!await showConfirm('Delete this project and all agents/issues?')) return;
   const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
-  if (res.ok) { showToast('项目已删除', 'success'); window.location.href = '/'; }
-  else { showToast('删除失败', 'error'); }
+  if (res.ok) { showToast('Project deleted', 'success'); window.location.href = '/'; }
+  else { showToast('Failed to delete', 'error'); }
 }
 
 async function addProjectMember() {
-  if (!projectData?.can_manage) { showToast('当前权限无法管理分享', 'error'); return; }
+  if (!projectData?.can_manage) { showToast('Insufficient permission to manage sharing', 'error'); return; }
 
   const input = document.getElementById('project-share-username');
   const username = input?.value?.trim();
   if (!username) {
-    showToast('请输入用户名', 'error');
+    showToast('Please enter a username', 'error');
     return;
   }
 
@@ -440,27 +440,27 @@ async function addProjectMember() {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      showToast(err.error || '添加成员失败', 'error');
+      showToast(err.error || 'Failed to add member', 'error');
       return;
     }
 
     if (input) input.value = '';
-    showToast('成员已添加', 'success');
+    showToast('Member added', 'success');
     await loadProject();
     await loadProjectMembers();
   });
 }
 
 async function removeProjectMember(userId, encodedDisplayName) {
-  if (!requireProjectManageAccess('当前权限无法管理分享')) return;
+  if (!requireProjectManageAccess('Insufficient permission to manage sharing')) return;
   if (projectData?.owner?.id === userId) {
-    showToast('项目拥有者不可移除', 'error');
+    showToast('Project owner cannot be removed', 'error');
     return;
   }
 
   const displayName = decodeURIComponent(encodedDisplayName || '');
 
-  const confirmed = await showConfirm(`确认移除 ${displayName} 的项目访问权限？\n\n移除后，对方将不再看到此项目。`);
+  const confirmed = await showConfirm(`Remove ${displayName} from this project?\n\nThey will no longer see this project after removal.`);
   if (!confirmed) return;
 
   const res = await fetch(`/api/projects/${projectId}/members/${userId}`, {
@@ -468,11 +468,11 @@ async function removeProjectMember(userId, encodedDisplayName) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    showToast(err.error || '移除成员失败', 'error');
+    showToast(err.error || 'Failed to remove member', 'error');
     return;
   }
 
-  showToast('成员已移除', 'success');
+  showToast('Member removed', 'success');
   await loadProject();
   await loadProjectMembers();
 }
@@ -567,8 +567,8 @@ async function loadAgents() {
     const parentAgent = getDisplayParentAgent(a);
     const childAgents = getDirectChildAgents(a.id);
     const hierarchyMeta = [
-      parentAgent ? `上级 ${esc(parentAgent.name)}` : null,
-      childAgents.length > 0 ? `${childAgents.length} 个直属下属` : null,
+      parentAgent ? `Parent ${esc(parentAgent.name)}` : null,
+      childAgents.length > 0 ? `${childAgents.length} direct reports` : null,
     ].filter(Boolean).join(' · ');
     const errBox = a.status === 'error' && errorLogs[a.id]
       ? `<div style="margin-top:4px;padding:6px 8px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:4px;font-size:11px;color:var(--error);font-family:monospace;max-height:60px;overflow:auto;white-space:pre-wrap">${esc(errorLogs[a.id].slice(0, 500))}</div>` : '';
@@ -613,7 +613,7 @@ async function loadAgents() {
               const dot = isActive ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--success, #3fb950);margin-right:3px;animation:pulse 1.5s infinite"></span>' : '';
               return `<a href="/issues/${iss.id}" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;padding:2px 6px;background:${bg};border:1px solid ${border};border-radius:3px;font-size:10px;color:${color};text-decoration:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="#${iss.number} ${esc(iss.title)} [${iss.status}]">${dot}#${iss.number} ${esc(iss.title)}</a>`;
             }).join('')}</div>`
-          : (a.status !== 'error' ? '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);opacity:0.5">空闲 — 无待处理任务</div>' : '')}
+          : (a.status !== 'error' ? '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);opacity:0.5">Idle - no active tasks</div>' : '')}
         ${errBox}
       </div>
       <div class="flex" style="gap:8px">
@@ -660,7 +660,7 @@ async function viewAgent(agentId) {
 
   const el = document.getElementById('agent-detail');
   el.style.display = '';
-  el.innerHTML = '<div class="card">' + renderLoading('加载Agent详情...') + '</div>';
+  el.innerHTML = '<div class="card">' + renderLoading('Loading agent details...') + '</div>';
 
   try {
     const agentRes = await fetch(`/api/agents/${agentId}`, { headers: apiHeaders() });
@@ -671,7 +671,7 @@ async function viewAgent(agentId) {
     const readOnlyAttr = canManage ? '' : 'disabled';
     const readonlyNote = canManage
       ? ''
-      : `<div class="project-readonly-banner" style="display:block;margin-bottom:16px">当前为共享只读视角，不能启动、暂停、重试、删除、聊天或修改 Agent 设置。</div>`;
+      : `<div class="project-readonly-banner" style="display:block;margin-bottom:16px">This is a shared read-only view. You cannot start, pause, retry, delete, chat with, or edit this agent.</div>`;
     const detailActions = canManage
       ? `
               <button class="btn btn-sm" onclick="openTerminal('${agentId}')" title="Open terminal chat">Chat</button>
@@ -709,14 +709,14 @@ async function viewAgent(agentId) {
 
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px">
             <div style="padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
-              <div style="${L}">直属上级</div>
-              <div style="font-size:13px;color:var(--fg)">${parentAgent ? esc(parentAgent.name) : '无'}</div>
-              <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${parentAgent ? '只能向该上级或直属下属发送消息。' : '未设置上级时，当前 Agent 不受层级通信限制。'}</div>
+              <div style="${L}">Direct Parent</div>
+              <div style="font-size:13px;color:var(--fg)">${parentAgent ? esc(parentAgent.name) : 'None'}</div>
+              <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${parentAgent ? 'Messages are limited to this parent and direct reports.' : 'Without a parent, this agent is not restricted by hierarchy messaging rules.'}</div>
             </div>
             <div style="padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
-              <div style="${L}">直属下属</div>
-              <div style="font-size:13px;color:var(--fg)">${childAgents.length > 0 ? childAgents.map((child) => esc(child.name)).join('、') : '无'}</div>
-              <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${childAgents.length > 0 ? `共 ${childAgents.length} 个直属下属。` : '当前没有直属下属。'}</div>
+              <div style="${L}">Direct Reports</div>
+              <div style="font-size:13px;color:var(--fg)">${childAgents.length > 0 ? childAgents.map((child) => esc(child.name)).join(', ') : 'None'}</div>
+              <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${childAgents.length > 0 ? `${childAgents.length} direct reports total.` : 'This agent has no direct reports.'}</div>
             </div>
           </div>
 
@@ -731,29 +731,29 @@ async function viewAgent(agentId) {
             </div>
             <div style="flex:1;min-width:200px">
               <div style="${L}">Tool Path</div>
-              <input type="text" id="ad-cmdtpl-${agentId}" value="${esc(agent.command_template || '')}" placeholder="(使用项目默认)" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
-              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">留空=使用项目默认</div>
+              <input type="text" id="ad-cmdtpl-${agentId}" value="${esc(agent.command_template || '')}" placeholder="(use project default)" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
+              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">Leave blank to use the project default.</div>
             </div>
             <div style="width:140px">
               <div style="${L}">Max Cache Tokens</div>
-              <input type="number" id="ad-maxtokens-${agentId}" value="${agent.session_max_tokens || 200000}" min="0" ${readOnlyAttr} style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
-              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0=用次数控制</div>
+              <input type="number" id="ad-maxtokens-${agentId}" value="${agent.session_max_tokens ?? 200000}" min="0" ${readOnlyAttr} style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
+              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0 = run-count mode</div>
             </div>
             <div style="width:120px">
               <div style="${L}">Max Runs/Session</div>
-              <input type="number" id="ad-maxruns-${agentId}" value="${agent.session_max_runs || 10}" min="1" ${readOnlyAttr} style="${B};width:60px;font-size:12px;color:var(--fg);text-align:center">
+              <input type="number" id="ad-maxruns-${agentId}" value="${agent.session_max_runs ?? 10}" min="1" ${readOnlyAttr} style="${B};width:60px;font-size:12px;color:var(--fg);text-align:center">
             </div>
             <div style="width:140px">
               <div style="${L}">Resume Timeout(s)</div>
               <input type="number" id="ad-resumetimeout-${agentId}" value="${agent.session_resume_timeout ?? 300}" min="0" ${readOnlyAttr} style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
-              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0=不限时间</div>
+              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0 = unlimited</div>
             </div>
             <div style="min-width:220px;flex:1">
               <div style="${L}">Parent Agent</div>
               <select id="ad-parent-${agentId}" ${!canManage || agent.is_controller ? 'disabled' : ''} style="${B};width:100%;font-size:12px;color:var(--fg)">
                 ${buildParentAgentOptions(agentId, agent.parent_agent_id)}
               </select>
-              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">${agent.is_controller ? 'Controller 默认作为根节点。' : '不能选择自己或自己的下属作为上级。'}</div>
+              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">${agent.is_controller ? 'The controller stays at the root by default.' : 'You cannot choose this agent or its descendants as the parent.'}</div>
             </div>
           </div>
 
@@ -931,9 +931,9 @@ async function loadAgentOutput(agentId, options) {
 }
 
 async function saveAllAgentFields(agentId) {
-  if (!requireProjectManageAccess('当前权限无法修改 Agent 设置')) return;
+  if (!requireProjectManageAccess('Insufficient permission to update agent settings')) return;
   const btn = document.querySelector(`button[onclick="saveAllAgentFields('${agentId}')"]`);
-  if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
   try {
     const instructionsVal = document.getElementById('ad-instructions-' + agentId).value;
     const maxTokensRaw = parseInt(document.getElementById('ad-maxtokens-' + agentId).value, 10);
@@ -953,14 +953,14 @@ async function saveAllAgentFields(agentId) {
     if (res.ok) {
       await loadAgents();
       await viewAgent(agentId);
-      showToast('已保存', 'success');
+      showToast('Saved', 'success');
     } else {
       const err = await res.json().catch(() => ({}));
-      showToast(err.error || '保存失败', 'error');
+      showToast(err.error || 'Failed to save', 'error');
     }
   } catch (e) {
     console.error('Failed to save agent fields', e);
-    showToast('保存失败: 网络错误', 'error');
+    showToast('Failed to save: network error', 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Settings'; }
   }
@@ -998,7 +998,7 @@ async function toggleRunHistory(agentId) {
   el.style.display = '';
   if (arrow) arrow.textContent = '▼';
   if (el.innerHTML) return;
-  el.innerHTML = renderLoading('加载运行记录...', true);
+  el.innerHTML = renderLoading('Loading runs...', true);
   await loadRunHistory(agentId);
 }
 
@@ -1045,7 +1045,7 @@ async function loadRunHistory(agentId) {
 async function viewRunReport(agentId, runId) {
   const container = document.getElementById('agent-runs-' + agentId);
   if (!container) return;
-  container.innerHTML = renderLoading('加载报告...', true);
+  container.innerHTML = renderLoading('Loading report...', true);
   try {
     const res = await fetch(`/api/agents/${agentId}/runs/${runId}/report`, { headers: apiHeaders() });
     if (!res.ok) { container.innerHTML = renderError({ status: res.status }, 'viewRunReport(\'' + agentId + '\',\'' + runId + '\')'); return; }
@@ -1135,69 +1135,69 @@ function closeAgentDetail() {
 }
 
 async function deleteAgent(id) {
-  if (!requireProjectManageAccess('当前权限无法删除 Agent')) return;
+  if (!requireProjectManageAccess('Insufficient permission to delete agent')) return;
   const agent = agentsData.find(a => a.id === id);
   if (!await showConfirm(`Delete agent "${agent?.name || id}"?`)) return;
   const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
   if (res.ok) {
     if (currentAgentId === id) closeAgentDetail();
-    loadAgents(); showToast('Agent已删除', 'success');
-  } else { showToast('删除失败', 'error'); }
+    loadAgents(); showToast('Agent deleted', 'success');
+  } else { showToast('Failed to delete', 'error'); }
 }
 
 async function retryAgent(id) {
-  if (!requireProjectManageAccess('当前权限无法重试 Agent')) return;
+  if (!requireProjectManageAccess('Insufficient permission to retry agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/retry`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) { loadAgents(); showToast('Agent已重试', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '重试失败', 'error'); }
+    if (res.ok) { loadAgents(); showToast('Agent retried', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to retry', 'error'); }
   });
 }
 
 function openTerminal(agentId) {
-  if (!requireProjectManageAccess('当前权限无法打开 Agent 终端')) return;
+  if (!requireProjectManageAccess('Insufficient permission to open the agent terminal')) return;
   window.location.href = `/terminal?agentId=${agentId}&newSession=true`;
 }
 
 async function quickStartAgent(id) {
-  if (!requireProjectManageAccess('当前权限无法启动 Agent')) return;
+  if (!requireProjectManageAccess('Insufficient permission to start agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/start`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) { loadAgents(); showToast('Agent已启动', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '启动失败', 'error'); }
+    if (res.ok) { loadAgents(); showToast('Agent started', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to start', 'error'); }
   });
 }
 async function pauseAgent(id) {
-  if (!requireProjectManageAccess('当前权限无法暂停 Agent')) return;
+  if (!requireProjectManageAccess('Insufficient permission to pause agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/pause`, { method: 'POST', headers: apiHeaders(), body: '{}' });
-    if (res.ok) { loadAgents(); showToast('Agent已暂停', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '暂停失败', 'error'); }
+    if (res.ok) { loadAgents(); showToast('Agent paused', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to pause', 'error'); }
   });
 }
 
 async function unpauseAgent(id) {
-  if (!requireProjectManageAccess('当前权限无法恢复 Agent')) return;
+  if (!requireProjectManageAccess('Insufficient permission to resume agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/unpause`, { method: 'POST', headers: apiHeaders(), body: '{}' });
-    if (res.ok) { loadAgents(); showToast('Agent已恢复', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '恢复失败', 'error'); }
+    if (res.ok) { loadAgents(); showToast('Agent resumed', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to resume', 'error'); }
   });
 }
 
 async function stopAgentById(id) {
-  if (!requireProjectManageAccess('当前权限无法停止 Agent')) return;
+  if (!requireProjectManageAccess('Insufficient permission to stop agent')) return;
   if (!await showConfirm('Stop this agent?')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/stop`, { method: 'POST', headers: apiHeaders(), body: '{}' });
-    if (res.ok) { showToast('Agent已停止', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '停止失败', 'error'); }
+    if (res.ok) { showToast('Agent stopped', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to stop', 'error'); }
     loadAgents();
   });
 }
 
 function showCreateAgentModal() {
-  if (!projectData?.can_manage) { showToast('当前权限无法创建 Agent', 'error'); return; }
+  if (!projectData?.can_manage) { showToast('Insufficient permission to create agent', 'error'); return; }
   document.getElementById('agent-name').value = '';
   document.getElementById('agent-role').value = '';
   document.getElementById('agent-workdir').value = '';
@@ -1208,7 +1208,7 @@ function showCreateAgentModal() {
 function hideModal(id) { document.getElementById(id).classList.remove('active'); }
 
 async function createAgent() {
-  if (!requireProjectManageAccess('当前权限无法创建 Agent')) return;
+  if (!requireProjectManageAccess('Insufficient permission to create agent')) return;
   const btn = document.querySelector('#createAgentModal button[onclick="createAgent()"]');
   await withLoading(btn, async () => {
     const body = {
@@ -1220,7 +1220,7 @@ async function createAgent() {
     };
     if (!body.name) { showToast('Name is required', 'error'); return; }
     const res = await fetch(`/api/projects/${projectId}/agents`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { hideModal('createAgentModal'); loadAgents(); showToast('Agent已创建', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '创建失败', 'error'); }
+    if (res.ok) { hideModal('createAgentModal'); loadAgents(); showToast('Agent created', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to create', 'error'); }
   });
 }
 
@@ -1258,13 +1258,13 @@ function renderActiveFilters() {
   const q = document.getElementById('issue-search')?.value?.trim() || '';
   const chips = [];
   if (currentIssueFilter) {
-    chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--selected-bg);border-radius:4px;font-size:11px">状态: ${currentIssueFilter} <span onclick="clearIssueFilter()" style="cursor:pointer;opacity:0.6;font-weight:bold" title="清除">&times;</span></span>`);
+    chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--selected-bg);border-radius:4px;font-size:11px">Status: ${currentIssueFilter} <span onclick="clearIssueFilter()" style="cursor:pointer;opacity:0.6;font-weight:bold" title="Clear">&times;</span></span>`);
   }
   if (q) {
-    chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--selected-bg);border-radius:4px;font-size:11px">搜索: "${esc(q)}" <span onclick="clearIssueSearch()" style="cursor:pointer;opacity:0.6;font-weight:bold" title="清除">&times;</span></span>`);
+    chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--selected-bg);border-radius:4px;font-size:11px">Search: "${esc(q)}" <span onclick="clearIssueSearch()" style="cursor:pointer;opacity:0.6;font-weight:bold" title="Clear">&times;</span></span>`);
   }
   if (chips.length > 1) {
-    chips.push(`<span onclick="clearAllIssueFilters()" style="cursor:pointer;color:var(--accent);font-size:11px;text-decoration:underline">清除所有筛选</span>`);
+    chips.push(`<span onclick="clearAllIssueFilters()" style="cursor:pointer;color:var(--accent);font-size:11px;text-decoration:underline">Clear all filters</span>`);
   }
   el.style.display = chips.length ? 'flex' : 'none';
   el.innerHTML = chips.join('');
@@ -1345,7 +1345,7 @@ async function loadIssues() {
         <div class="issue-title-row"><span class="issue-title">${esc(i.title)}</span> ${labels}</div>
         <div class="issue-meta">#${i.number} by ${nameOf(i.created_by)} · ${i.assigned_to ? nameOf(i.assigned_to) : 'unassigned'} · ${timeAgo(i.created_at)}</div>
       </div>
-      ${i.comment_count ? `<div style="flex-shrink:0;display:flex;align-items:center;gap:4px;color:var(--text-secondary);font-size:12px" title="${i.comment_count} 条评论"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0113.25 12H9.06l-2.573 2.573A1.458 1.458 0 014 13.543V12H2.75A1.75 1.75 0 011 10.25zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 01.75.75v2.19l2.72-2.72a.749.749 0 01.53-.22h4.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25z"/></svg>${i.comment_count}</div>` : ''}
+      ${i.comment_count ? `<div style="flex-shrink:0;display:flex;align-items:center;gap:4px;color:var(--text-secondary);font-size:12px" title="${i.comment_count} comments"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0113.25 12H9.06l-2.573 2.573A1.458 1.458 0 014 13.543V12H2.75A1.75 1.75 0 011 10.25zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 01.75.75v2.19l2.72-2.72a.749.749 0 01.53-.22h4.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25z"/></svg>${i.comment_count}</div>` : ''}
       ${i.assigned_to ? `<div style="flex-shrink:0">${avatarSvg(nameOf(i.assigned_to), 22)}</div>` : ''}
     </a>`;
   }).join('')}</div>`;
@@ -1364,8 +1364,8 @@ function renderPagination(totalPages, currentPage) {
   const pageBtn = (p, label) => `<button onclick="goToIssuePage(${p})" class="btn btn-sm" style="${btnStyle}${p===currentPage?activeStyle:''}">${label||p}</button>`;
   let html = '';
   // First + Prev
-  html += `<button onclick="goToIssuePage(1)" class="btn btn-sm" style="${btnStyle}${currentPage===1?disabledStyle:''}" title="首页">«</button>`;
-  html += `<button onclick="goToIssuePage(${currentPage-1})" class="btn btn-sm" style="${btnStyle}${currentPage===1?disabledStyle:''}" title="上一页">‹</button>`;
+  html += `<button onclick="goToIssuePage(1)" class="btn btn-sm" style="${btnStyle}${currentPage===1?disabledStyle:''}" title="First page">«</button>`;
+  html += `<button onclick="goToIssuePage(${currentPage-1})" class="btn btn-sm" style="${btnStyle}${currentPage===1?disabledStyle:''}" title="Previous page">‹</button>`;
   // Page numbers with ellipsis
   const pages = [];
   if (totalPages <= 9) {
@@ -1386,10 +1386,10 @@ function renderPagination(totalPages, currentPage) {
     else html += pageBtn(p);
   }
   // Next + Last
-  html += `<button onclick="goToIssuePage(${currentPage+1})" class="btn btn-sm" style="${btnStyle}${currentPage===totalPages?disabledStyle:''}" title="下一页">›</button>`;
-  html += `<button onclick="goToIssuePage(${totalPages})" class="btn btn-sm" style="${btnStyle}${currentPage===totalPages?disabledStyle:''}" title="末页">»</button>`;
+  html += `<button onclick="goToIssuePage(${currentPage+1})" class="btn btn-sm" style="${btnStyle}${currentPage===totalPages?disabledStyle:''}" title="Next page">›</button>`;
+  html += `<button onclick="goToIssuePage(${totalPages})" class="btn btn-sm" style="${btnStyle}${currentPage===totalPages?disabledStyle:''}" title="Last page">»</button>`;
   // Page info
-  html += `<span style="margin-left:8px;font-size:11px;color:var(--text-secondary)">第${currentPage}页，共${totalPages}页</span>`;
+  html += `<span style="margin-left:8px;font-size:11px;color:var(--text-secondary)">Page ${currentPage} of ${totalPages}</span>`;
   el.innerHTML = html;
 }
 
@@ -1397,7 +1397,7 @@ function goToIssuePage(p) { currentIssuePage = p; loadIssues(); }
 function setIssueFilter(f) { currentIssueFilter = f; currentIssuePage = 1; loadIssues(); }
 function searchIssues() {
   const q = document.getElementById('issue-search')?.value?.trim() || '';
-  if (q) currentIssueFilter = '';  // 搜索时清除状态过滤，避免与搜索条件冲突
+  if (q) currentIssueFilter = '';  // Clear the status filter while searching to avoid conflicting constraints.
   currentIssuePage = 1;
   loadIssues();
 }
@@ -1405,8 +1405,8 @@ function searchIssues() {
 
 
 const ISSUE_TEMPLATES = {
-  bug: { labels: 'bug', body: `## 问题描述\n\n## 复现步骤\n1. \n2. \n\n## 期望行为\n\n## 实际行为\n` },
-  feature: { labels: 'feature', body: `## 背景与动机\n\n## 期望功能\n\n## 验收标准\n` },
+  bug: { labels: 'bug', body: `## Problem Description\n\n## Steps to Reproduce\n1. \n2. \n\n## Expected Behavior\n\n## Actual Behavior\n` },
+  feature: { labels: 'feature', body: `## Background and Motivation\n\n## Requested Feature\n\n## Acceptance Criteria\n` },
 };
 
 function applyIssueTemplate(tpl) {
@@ -1422,7 +1422,7 @@ function applyIssueTemplate(tpl) {
 }
 
 function showCreateIssueModal() {
-  if (!requireProjectManageAccess('当前权限无法创建 Issue')) return;
+  if (!requireProjectManageAccess('Insufficient permission to create issue')) return;
   document.getElementById('issue-title').value = '';
   document.getElementById('issue-body').value = '';
   document.getElementById('issue-labels').value = '';
@@ -1439,7 +1439,7 @@ function showCreateIssueModal() {
 }
 
 async function createIssue() {
-  if (!requireProjectManageAccess('当前权限无法创建 Issue')) return;
+  if (!requireProjectManageAccess('Insufficient permission to create issue')) return;
   const btn = document.querySelector('#createIssueModal button[onclick="createIssue()"]');
   await withLoading(btn, async () => {
     const body = {
@@ -1451,7 +1451,7 @@ async function createIssue() {
     };
     if (!body.title) { showToast('Title is required', 'error'); return; }
     const res = await fetch(`/api/projects/${projectId}/issues`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { hideModal('createIssueModal'); loadIssues(); showToast('Issue已创建', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '创建失败', 'error'); }
+    if (res.ok) { hideModal('createIssueModal'); loadIssues(); showToast('Issue created', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to create', 'error'); }
   });
 }
 
@@ -1750,7 +1750,7 @@ function renderStarAgentGraph(container, graphContext) {
   svg += '</svg>';
   return {
     title: 'Agent Collaboration · Star',
-    note: '当前未设置层级关系，保持兼容的星形布局。',
+    note: 'No hierarchy is configured yet, so the compatibility star layout is used.',
     svg,
   };
 }
@@ -1863,8 +1863,8 @@ function renderHierarchyAgentGraph(container, graphContext) {
   svg += '</svg>';
 
   const syntheticNote = syntheticLinks.length > 0
-    ? '未设置上级的 Agent 会在图中以 controller 的直属节点展示（虚线连接）。'
-    : '图中连线按直属父子关系展示。';
+    ? 'Agents without a parent are shown as direct controller children with dashed links.'
+    : 'Links in the graph follow the configured direct parent-child hierarchy.';
 
   return {
     title: 'Agent Collaboration · Tree',
@@ -2051,7 +2051,7 @@ function renderAgentCostComparison(byAgent, colorMap) {
   const el = document.getElementById('cost-agent-comparison');
   if (!el) return;
   const entries = Object.entries(byAgent).filter(([, v]) => v.cost > 0).sort((a, b) => b[1].cost - a[1].cost);
-  if (entries.length === 0) { el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary)">暂无数据</div>'; return; }
+  if (entries.length === 0) { el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary)">No data</div>'; return; }
 
   const totalCost = entries.reduce((s, [, v]) => s + v.cost, 0);
   const maxCost = entries[0][1].cost;
@@ -2070,7 +2070,7 @@ function renderAgentCostComparison(byAgent, colorMap) {
       <div style="width:40px;font-size:10px;color:var(--text-secondary);text-align:right">${pct}%</div>
     </div>`;
   }).join('') +
-  `<div style="margin-top:8px;font-size:12px;color:var(--fg);font-weight:600">总计: $${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}</div>`;
+  `<div style="margin-top:8px;font-size:12px;color:var(--fg);font-weight:600">Total: $${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}</div>`;
 }
 
 function renderStackedBarChart(agents, totalSeries, width, height, colorMap) {
@@ -2154,12 +2154,12 @@ async function loadKnowledge() {
     const data = await res.json();
     const entries = data.entries || [];
     if (entries.length === 0) {
-      el.innerHTML = `<div class="empty-state">暂无知识条目。${canManage ? '点击「添加知识」开始构建项目知识库。' : ''}</div>`;
+      el.innerHTML = `<div class="empty-state">No knowledge entries yet.${canManage ? ' Click "Add Knowledge" to start building the project knowledge base.' : ''}</div>`;
       return;
     }
     const impBadge = (imp) => {
       const colors = { high: 'var(--error)', medium: 'var(--warning)', low: 'var(--text-secondary)' };
-      const labels = { high: '高', medium: '中', low: '低' };
+      const labels = { high: 'High', medium: 'Medium', low: 'Low' };
       return `<span style="padding:1px 6px;border-radius:3px;font-size:10px;background:${colors[imp] || 'var(--text-secondary)'};color:#fff">${labels[imp] || imp}</span>`;
     };
     el.innerHTML = '<div style="padding:8px 0">' + entries.map(e => `
@@ -2173,8 +2173,8 @@ async function loadKnowledge() {
           ${e.tags ? `<div style="display:flex;gap:4px;flex-wrap:wrap">${e.tags.split(',').filter(t => t.trim()).map(t => `<span style="padding:1px 6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;font-size:10px">${esc(t.trim())}</span>`).join('')}</div>` : ''}
         </div>
         ${canManage ? `<div style="display:flex;gap:4px;flex-shrink:0;margin-left:12px">
-          <button class="btn btn-sm" onclick="editKnowledge('${e.id}')" style="padding:3px 8px">编辑</button>
-          <button class="btn btn-sm" onclick="deleteKnowledge('${e.id}')" style="padding:3px 8px;color:var(--error)">删除</button>
+          <button class="btn btn-sm" onclick="editKnowledge('${e.id}')" style="padding:3px 8px">Edit</button>
+          <button class="btn btn-sm" onclick="deleteKnowledge('${e.id}')" style="padding:3px 8px;color:var(--error)">Delete</button>
         </div>` : ''}
       </div>
     `).join('') + '</div>';
@@ -2184,8 +2184,8 @@ async function loadKnowledge() {
 let _knowledgeCache = [];
 
 function showCreateKnowledgeModal() {
-  if (!requireProjectManageAccess('当前权限无法添加知识')) return;
-  document.getElementById('knowledge-modal-title').textContent = '添加知识条目';
+  if (!requireProjectManageAccess('Insufficient permission to add knowledge')) return;
+  document.getElementById('knowledge-modal-title').textContent = 'Add Knowledge Entry';
   document.getElementById('knowledge-edit-id').value = '';
   document.getElementById('knowledge-title').value = '';
   document.getElementById('knowledge-content').value = '';
@@ -2195,23 +2195,23 @@ function showCreateKnowledgeModal() {
 }
 
 async function editKnowledge(id) {
-  if (!requireProjectManageAccess('当前权限无法编辑知识')) return;
+  if (!requireProjectManageAccess('Insufficient permission to edit knowledge')) return;
   try {
     const res = await fetch(`/api/knowledge/${id}`, { headers: apiHeaders() });
     if (!res.ok) return;
     const e = await res.json();
-    document.getElementById('knowledge-modal-title').textContent = '编辑知识条目';
+    document.getElementById('knowledge-modal-title').textContent = 'Edit Knowledge Entry';
     document.getElementById('knowledge-edit-id').value = id;
     document.getElementById('knowledge-title').value = e.title || '';
     document.getElementById('knowledge-content').value = e.content || '';
     document.getElementById('knowledge-tags').value = e.tags || '';
     document.getElementById('knowledge-importance').value = e.importance || 'medium';
     document.getElementById('knowledgeModal').classList.add('active');
-  } catch { showToast('加载失败', 'error'); }
+  } catch { showToast('Failed to load', 'error'); }
 }
 
 async function saveKnowledge() {
-  if (!requireProjectManageAccess('当前权限无法保存知识')) return;
+  if (!requireProjectManageAccess('Insufficient permission to save knowledge')) return;
   const id = document.getElementById('knowledge-edit-id').value;
   const body = {
     title: document.getElementById('knowledge-title').value,
@@ -2219,30 +2219,30 @@ async function saveKnowledge() {
     tags: document.getElementById('knowledge-tags').value,
     importance: document.getElementById('knowledge-importance').value,
   };
-  if (!body.title) { showToast('标题不能为空', 'error'); return; }
+  if (!body.title) { showToast('Title is required', 'error'); return; }
   try {
     const url = id ? `/api/knowledge/${id}` : `/api/projects/${projectId}/knowledge`;
     const method = id ? 'PUT' : 'POST';
     const res = await fetch(url, { method, headers: { ...apiHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (res.ok) {
       hideModal('knowledgeModal');
-      showToast(id ? '已更新' : '已创建', 'success');
+      showToast(id ? 'Updated' : 'Created', 'success');
       loadKnowledge();
     } else {
       const err = await res.json().catch(() => ({}));
-      showToast(err.error || '保存失败', 'error');
+      showToast(err.error || 'Failed to save', 'error');
     }
-  } catch { showToast('保存失败', 'error'); }
+  } catch { showToast('Failed to save', 'error'); }
 }
 
 async function deleteKnowledge(id) {
-  if (!requireProjectManageAccess('当前权限无法删除知识')) return;
-  if (!await showConfirm('确定删除此知识条目？')) return;
+  if (!requireProjectManageAccess('Insufficient permission to delete knowledge')) return;
+  if (!await showConfirm('Delete this knowledge entry?')) return;
   try {
     const res = await fetch(`/api/knowledge/${id}`, { method: 'DELETE', headers: apiHeaders() });
-    if (res.ok) { showToast('已删除', 'success'); loadKnowledge(); }
-    else showToast('删除失败', 'error');
-  } catch { showToast('删除失败', 'error'); }
+    if (res.ok) { showToast('Deleted', 'success'); loadKnowledge(); }
+    else showToast('Failed to delete', 'error');
+  } catch { showToast('Failed to delete', 'error'); }
 }
 
 // ─── Init ───

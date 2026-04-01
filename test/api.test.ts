@@ -1873,6 +1873,94 @@ describe('Argus API', () => {
     });
   });
 
+  describe('Agent File API', () => {
+    let fileAgentId: string;
+    let noWorkdirAgentId: string;
+    let tmpDir: string;
+
+    before(async () => {
+      tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'argus-files-'));
+      fs.mkdirSync(path.join(tmpDir, 'nested'));
+      fs.writeFileSync(path.join(tmpDir, 'visible.txt'), 'hello from file api');
+      fs.writeFileSync(path.join(tmpDir, '.hidden.txt'), 'hidden');
+      fs.writeFileSync(path.join(tmpDir, 'nested', 'child.ts'), 'export const value = 1;\n');
+      fs.writeFileSync(path.join(tmpDir, 'binary.bin'), Buffer.from([0, 1, 2, 3]));
+
+      const fileAgent = await api(app, `/api/projects/${projectId}/agents`, {
+        method: 'POST',
+        body: { name: 'file-api-agent', role: 'File API test agent', working_directory: tmpDir },
+      });
+      assert.equal(fileAgent.status, 201);
+      fileAgentId = fileAgent.body.id;
+
+      const noWorkdirAgent = await api(app, `/api/projects/${projectId}/agents`, {
+        method: 'POST',
+        body: { name: 'no-workdir-agent', role: 'No workdir agent' },
+      });
+      assert.equal(noWorkdirAgent.status, 201);
+      noWorkdirAgentId = noWorkdirAgent.body.id;
+    });
+
+    after(async () => {
+      if (fileAgentId) await api(app, `/api/agents/${fileAgentId}`, { method: 'DELETE' });
+      if (noWorkdirAgentId) await api(app, `/api/agents/${noWorkdirAgentId}`, { method: 'DELETE' });
+      if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('lists visible files by default and hides dotfiles', async () => {
+      const { status, body } = await api(app, `/api/agents/${fileAgentId}/files`);
+      assert.equal(status, 200);
+      assert.equal(body.path, '');
+      assert.equal(body.showHidden, false);
+      assert.ok(Array.isArray(body.entries));
+      assert.deepEqual(body.entries.map((entry: any) => entry.name), ['nested', 'binary.bin', 'visible.txt']);
+      assert.equal(body.entries[0].type, 'dir');
+      assert.equal(typeof body.entries[1].size, 'number');
+      assert.ok(body.entries[1].modified);
+    });
+
+    it('includes dotfiles when showHidden is enabled', async () => {
+      const { status, body } = await api(app, `/api/agents/${fileAgentId}/files?showHidden=1`);
+      assert.equal(status, 200);
+      assert.ok(body.entries.some((entry: any) => entry.name === '.hidden.txt'));
+    });
+
+    it('rejects path traversal outside the working directory', async () => {
+      const { status, body } = await api(app, `/api/agents/${fileAgentId}/files?path=../`);
+      assert.equal(status, 400);
+      assert.equal(body.error, 'Path is outside the working_directory');
+    });
+
+    it('returns 400 when the agent has no working directory configured', async () => {
+      const { status, body } = await api(app, `/api/agents/${noWorkdirAgentId}/files`);
+      assert.equal(status, 400);
+      assert.equal(body.error, 'Agent does not have a working_directory configured');
+    });
+
+    it('reads text files as plain text', async () => {
+      const res = await inject(app, { url: `/api/agents/${fileAgentId}/files/content?path=${encodeURIComponent('nested/child.ts')}` });
+      assert.equal(res.statusCode, 200);
+      assert.ok(String(res.headers['content-type']).includes('text/plain'));
+      assert.equal(res.body, 'export const value = 1;\n');
+    });
+
+    it('rejects binary file previews', async () => {
+      const { status, body } = await api(app, `/api/agents/${fileAgentId}/files/content?path=${encodeURIComponent('binary.bin')}`);
+      assert.equal(status, 415);
+      assert.equal(body.error, 'Cannot preview binary files');
+    });
+
+    it('writes file contents within the working directory', async () => {
+      const update = await api(app, `/api/agents/${fileAgentId}/files/content`, {
+        method: 'PUT',
+        body: { path: 'visible.txt', content: 'updated content\n' },
+      });
+      assert.equal(update.status, 200);
+      assert.equal(update.body.path, 'visible.txt');
+      assert.equal(fs.readFileSync(path.join(tmpDir, 'visible.txt'), 'utf-8'), 'updated content\n');
+    });
+  });
+
   // ─── Issue Delete (open issue) ───
 
   describe('Issue Delete', () => {
@@ -2784,6 +2872,260 @@ describe('Argus API', () => {
         });
         await waitForNonRunning(workerId, 5000);
       }
+    });
+  });
+
+  describe('成本优化/调度回归 (#497/#498)', () => {
+    let restoreMockClaude: (() => void) | null = null;
+
+    before(() => {
+      const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'argus-mock-claude-'));
+      const binPath = path.join(tmpDir, 'claude');
+      fs.writeFileSync(binPath, `#!/bin/sh
+set -eu
+
+prompt="\${ARGUS_PROMPT:-}"
+
+contains() {
+  printf '%s' "$prompt" | grep -q "$1"
+}
+
+if contains 'API_RETRY_FAIL'; then
+  echo 'Unable to connect to API' >&2
+  exit 1
+fi
+
+if contains 'TAIL_SESSION'; then
+  cat <<'JSON'
+{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"tiny"}]}}
+JSON
+  sleep 10
+  exit 0
+fi
+
+if contains 'PRECTRL_KEEPALIVE'; then
+  sleep 10
+  cat <<'JSON'
+{"type":"result","result":"pre-controller done","usage":{"input_tokens":10,"output_tokens":120},"total_cost_usd":0}
+JSON
+  exit 0
+fi
+
+if contains 'LOW_OUTPUT'; then
+  cat <<'JSON'
+{"type":"result","result":"low output done","usage":{"input_tokens":10,"output_tokens":50},"total_cost_usd":0}
+JSON
+  exit 0
+fi
+
+cat <<'JSON'
+{"type":"result","result":"normal output done","usage":{"input_tokens":10,"output_tokens":150},"total_cost_usd":0}
+JSON
+`, { mode: 0o755 });
+
+      const prevPath = process.env.PATH || '';
+      process.env.PATH = `${tmpDir}:${prevPath}`;
+      restoreMockClaude = () => {
+        process.env.PATH = prevPath;
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      };
+    });
+
+    after(() => {
+      restoreMockClaude?.();
+    });
+
+    function sleep(ms: number): Promise<void> {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function createMockWorker(name: string): Promise<string> {
+      const { status, body } = await api(app, `/api/projects/${projectId}/agents`, {
+        method: 'POST',
+        body: { name, role: 'Mock regression worker', command_template: 'claude' },
+      });
+      assert.equal(status, 201);
+      return body.id;
+    }
+
+    async function waitForAgentStatus(
+      agentId: string,
+      predicate: (status: string) => boolean,
+      maxMs = 5000
+    ): Promise<any> {
+      const deadline = Date.now() + maxMs;
+      while (Date.now() < deadline) {
+        const { body } = await api(app, `/api/agents/${agentId}/status`);
+        if (predicate(body.status)) return body;
+        await sleep(100);
+      }
+      const { body } = await api(app, `/api/agents/${agentId}/status`);
+      return body;
+    }
+
+    async function insertAssignedIssue(agentId: string, marker: string, status = 'in_progress'): Promise<number> {
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const issueId = `issue-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const last = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(projectId) as { n: number | null };
+      const number = (last?.n || 0) + 1;
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 minutes'))
+      `).run(
+        issueId,
+        projectId,
+        number,
+        `${marker} title`,
+        `${marker} body`,
+        'test',
+        agentId,
+        1,
+        status,
+        'test'
+      );
+
+      return number;
+    }
+
+    it('低产出 run 进入 extended cooldown，连续两次后跳过自动重启，正常 run 会清空低产出状态', async () => {
+      const { isAgentInCooldown, shouldSkipAutoRestart } = await import('../src/services/process-manager');
+      const agentId = await createMockWorker(`cooldown-worker-${Date.now()}`);
+
+      let startRes = await api(app, `/api/agents/${agentId}/start`, {
+        method: 'POST',
+        body: { prompt: 'LOW_OUTPUT first low-output run' },
+      });
+      assert.equal(startRes.status, 200);
+
+      let finalState = await waitForAgentStatus(agentId, (status) => status !== 'running' && status !== 'waiting');
+      assert.equal(finalState.status, 'idle');
+      assert.equal(shouldSkipAutoRestart(agentId), false);
+
+      const originalNow = Date.now;
+      try {
+        const shiftedNow = originalNow() + 6 * 60 * 1000;
+        Date.now = () => shiftedNow;
+        assert.equal(isAgentInCooldown(agentId), true);
+      } finally {
+        Date.now = originalNow;
+      }
+
+      startRes = await api(app, `/api/agents/${agentId}/start`, {
+        method: 'POST',
+        body: { prompt: 'LOW_OUTPUT second low-output run' },
+      });
+      assert.equal(startRes.status, 200);
+
+      finalState = await waitForAgentStatus(agentId, (status) => status !== 'running' && status !== 'waiting');
+      assert.equal(finalState.status, 'idle');
+      assert.equal(shouldSkipAutoRestart(agentId), true);
+
+      startRes = await api(app, `/api/agents/${agentId}/start`, {
+        method: 'POST',
+        body: { prompt: 'NORMAL_OUTPUT reset low-output run' },
+      });
+      assert.equal(startRes.status, 200);
+
+      finalState = await waitForAgentStatus(agentId, (status) => status !== 'running' && status !== 'waiting');
+      assert.equal(finalState.status, 'idle');
+      assert.equal(shouldSkipAutoRestart(agentId), false);
+
+      const originalNowAfterReset = Date.now;
+      try {
+        const shiftedNow = originalNowAfterReset() + 6 * 60 * 1000;
+        Date.now = () => shiftedNow;
+        assert.equal(isAgentInCooldown(agentId), false);
+      } finally {
+        Date.now = originalNowAfterReset;
+      }
+    });
+
+    it('连续 2 次低产出 assistant 消息会终止 session 尾巴', async () => {
+      const agentId = await createMockWorker(`tail-worker-${Date.now()}`);
+      const startRes = await api(app, `/api/agents/${agentId}/start`, {
+        method: 'POST',
+        body: { prompt: 'TAIL_SESSION tail detection run' },
+      });
+      assert.equal(startRes.status, 200);
+
+      const finalState = await waitForAgentStatus(agentId, (status) => status === 'stopped' || status === 'idle', 7000);
+      assert.ok(finalState.status === 'stopped' || finalState.status === 'idle');
+
+      const { body: logs } = await api(app, `/api/agents/${agentId}/logs`);
+      const joined = logs.map((entry: any) => entry.content).join('\n');
+      assert.match(joined, /Session terminated: 2 consecutive low-output turns detected/);
+    });
+
+    it('API 连接连续失败两次后停止，并保持 5 分钟重试常量', async () => {
+      const agentId = await createMockWorker(`api-retry-worker-${Date.now()}`);
+      const originalSetTimeout = global.setTimeout;
+      const seenDelays: number[] = [];
+
+      (global as any).setTimeout = ((handler: (...args: any[]) => void, delay?: number, ...args: any[]) => {
+        const ms = Number(delay ?? 0);
+        seenDelays.push(ms);
+        const actualDelay = ms === 5 * 60 * 1000 ? 10 : ms;
+        return originalSetTimeout(handler as any, actualDelay, ...args);
+      }) as typeof setTimeout;
+
+      try {
+        const startRes = await api(app, `/api/agents/${agentId}/start`, {
+          method: 'POST',
+          body: { prompt: 'API_RETRY_FAIL should retry then stop' },
+        });
+        assert.equal(startRes.status, 200);
+
+        const finalState = await waitForAgentStatus(agentId, (status) => status === 'error', 5000);
+        assert.equal(finalState.status, 'error');
+      } finally {
+        (global as any).setTimeout = originalSetTimeout;
+      }
+
+      assert.ok(seenDelays.includes(5 * 60 * 1000), '应保留 5 分钟重试常量');
+
+      const { body: logs } = await api(app, `/api/agents/${agentId}/logs`);
+      const joined = logs.map((entry: any) => entry.content).join('\n');
+      assert.match(joined, /5分钟后自动重试/);
+      assert.match(joined, /API连接持续失败/);
+    });
+
+    it('pre-controller 会直接启动 idle worker，冷却期内则只 defer 不重启', async () => {
+      const { tryHandleWithoutLLM } = await import('../src/services/pre-controller');
+      const { isAgentInCooldown } = await import('../src/services/process-manager');
+
+      const directStartAgentId = await createMockWorker(`prectrl-run-${Date.now()}`);
+      const directStartIssueNumber = await insertAssignedIssue(directStartAgentId, 'PRECTRL_KEEPALIVE');
+      const handled = tryHandleWithoutLLM(projectId, directStartIssueNumber);
+      assert.equal(handled, true);
+
+      const runningState = await waitForAgentStatus(directStartAgentId, (status) => status === 'running', 2000);
+      assert.equal(runningState.status, 'running');
+
+      await api(app, `/api/agents/${directStartAgentId}/stop`, { method: 'POST' });
+      const stoppedState = await waitForAgentStatus(directStartAgentId, (status) => status !== 'running', 7000);
+      assert.notEqual(stoppedState.status, 'running');
+
+      const cooldownAgentId = await createMockWorker(`prectrl-cooldown-${Date.now()}`);
+      const lowOutputStart = await api(app, `/api/agents/${cooldownAgentId}/start`, {
+        method: 'POST',
+        body: { prompt: 'LOW_OUTPUT cooldown gate run' },
+      });
+      assert.equal(lowOutputStart.status, 200);
+      const cooldownState = await waitForAgentStatus(cooldownAgentId, (status) => status !== 'running' && status !== 'waiting');
+      assert.equal(cooldownState.status, 'idle');
+      assert.equal(isAgentInCooldown(cooldownAgentId), true);
+
+      const cooldownIssueNumber = await insertAssignedIssue(cooldownAgentId, 'PRECTRL_KEEPALIVE');
+      const deferred = tryHandleWithoutLLM(projectId, cooldownIssueNumber);
+      assert.equal(deferred, true);
+      await sleep(300);
+
+      const deferredState = await api(app, `/api/agents/${cooldownAgentId}/status`);
+      assert.equal(deferredState.body.status, 'idle');
+      assert.equal(deferredState.body.is_running, false);
     });
   });
 
@@ -4258,6 +4600,127 @@ describe('Argus API', () => {
         ['open', 'in_progress', 'done'].includes(parentAfter.status),
         `Parent status after all children done should be open/in_progress/done, got: ${parentAfter.status}`
       );
+    });
+  });
+
+  describe('Scheduler stale pending scan', () => {
+    it('finds pending parent whose children are already complete', async () => {
+      const { findStalePendingIssue } = await import('../src/services/scheduler');
+
+      const { body: project } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'stale-pending-parent', description: 'scheduler test', task_description: 'scheduler test' },
+      });
+
+      const { body: parent } = await api(app, `/api/projects/${project.id}/issues`, {
+        method: 'POST',
+        body: { title: 'Parent pending', body: 'parent', created_by: 'controller-agent', assigned_to: 'worker-agent' },
+      });
+
+      const { body: child } = await api(app, `/api/projects/${project.id}/issues`, {
+        method: 'POST',
+        body: { title: 'Child done', body: 'child', created_by: 'controller-agent', assigned_to: 'worker-agent', parent_id: parent.id },
+      });
+
+      await api(app, `/api/issues/${child.id}`, {
+        method: 'PUT',
+        body: { status: 'done', actor: 'worker-agent' },
+      });
+
+      const stale = findStalePendingIssue(project.id);
+      assert.equal(stale?.number, parent.number, 'Completed-child parent should be picked up by system scan');
+    });
+
+    it('ignores pending parent that still has active children', async () => {
+      const { findStalePendingIssue } = await import('../src/services/scheduler');
+
+      const { body: project } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'active-child-pending-parent', description: 'scheduler test', task_description: 'scheduler test' },
+      });
+
+      const { body: parent } = await api(app, `/api/projects/${project.id}/issues`, {
+        method: 'POST',
+        body: { title: 'Parent pending', body: 'parent', created_by: 'controller-agent', assigned_to: 'worker-agent' },
+      });
+
+      await api(app, `/api/projects/${project.id}/issues`, {
+        method: 'POST',
+        body: { title: 'Child active', body: 'child', created_by: 'controller-agent', assigned_to: 'worker-agent', parent_id: parent.id },
+      });
+
+      const stale = findStalePendingIssue(project.id);
+      assert.equal(stale, undefined, 'Pending parent with unfinished child should not be treated as stale');
+    });
+
+    it('finds pending blocked issue once the blocker is complete', async () => {
+      const { findStalePendingIssue } = await import('../src/services/scheduler');
+
+      const { body: project } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'resolved-blocker-pending', description: 'scheduler test', task_description: 'scheduler test' },
+      });
+
+      const { body: blocker } = await api(app, `/api/projects/${project.id}/issues`, {
+        method: 'POST',
+        body: { title: 'Blocker', body: 'blocker', created_by: 'controller-agent', assigned_to: 'worker-agent' },
+      });
+
+      const { body: blocked } = await api(app, `/api/projects/${project.id}/issues`, {
+        method: 'POST',
+        body: { title: 'Blocked pending', body: 'blocked', created_by: 'controller-agent', assigned_to: 'worker-agent' },
+      });
+
+      const relRes = await api(app, `/api/issues/${blocker.id}/relations`, {
+        method: 'POST',
+        body: { type: 'blocks', target_issue_id: blocked.id, actor: 'controller-agent' },
+      });
+      assert.equal(relRes.status, 201);
+
+      await api(app, `/api/issues/${blocked.id}`, {
+        method: 'PUT',
+        body: { status: 'pending', actor: 'controller-agent' },
+      });
+      await api(app, `/api/issues/${blocker.id}`, {
+        method: 'PUT',
+        body: { status: 'done', actor: 'worker-agent' },
+      });
+
+      const stale = findStalePendingIssue(project.id);
+      assert.equal(stale?.number, blocked.number, 'Pending issue with resolved blocker should be picked up by system scan');
+    });
+
+    it('ignores pending blocked issue while blocker is still active', async () => {
+      const { findStalePendingIssue } = await import('../src/services/scheduler');
+
+      const { body: project } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: { name: 'active-blocker-pending', description: 'scheduler test', task_description: 'scheduler test' },
+      });
+
+      const { body: blocker } = await api(app, `/api/projects/${project.id}/issues`, {
+        method: 'POST',
+        body: { title: 'Blocker', body: 'blocker', created_by: 'controller-agent', assigned_to: 'worker-agent' },
+      });
+
+      const { body: blocked } = await api(app, `/api/projects/${project.id}/issues`, {
+        method: 'POST',
+        body: { title: 'Blocked pending', body: 'blocked', created_by: 'controller-agent', assigned_to: 'worker-agent' },
+      });
+
+      const relRes = await api(app, `/api/issues/${blocker.id}/relations`, {
+        method: 'POST',
+        body: { type: 'blocks', target_issue_id: blocked.id, actor: 'controller-agent' },
+      });
+      assert.equal(relRes.status, 201);
+
+      await api(app, `/api/issues/${blocked.id}`, {
+        method: 'PUT',
+        body: { status: 'pending', actor: 'controller-agent' },
+      });
+
+      const stale = findStalePendingIssue(project.id);
+      assert.equal(stale, undefined, 'Pending issue with active blocker should not be treated as stale');
     });
   });
 

@@ -1,8 +1,10 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { execSync } from 'child_process';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { TextDecoder } from 'util';
 import { getDatabase } from '../db/database';
 import { Agent, Project, CreateAgentInput, StartAgentInput } from '../types';
 import { startAgentProcess, stopAgentProcess, isAgentRunning } from '../services/process-manager';
@@ -14,6 +16,91 @@ import { ensureAgentAccess, ensureProjectAccess } from '../services/project-perm
 import { validateParentAgentAssignment } from '../services/agent-hierarchy';
 
 const TOOL_CALL_REPORT_CHAR_LIMIT = 4000;
+const MAX_AGENT_FILE_SIZE = 1024 * 1024;
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
+function expandWorkingDirectory(dir: string): string {
+  if (dir.startsWith('~/')) {
+    return path.join(os.homedir(), dir.slice(2));
+  }
+  return dir;
+}
+
+function resolveAgentFilesystemPath(agent: Agent, requestedPath?: string): { rootDir: string; targetPath: string; relativePath: string } {
+  if (!agent.working_directory) {
+    throw new Error('WORKDIR_REQUIRED');
+  }
+
+  const rootDir = path.resolve(expandWorkingDirectory(agent.working_directory));
+  const candidate = path.resolve(rootDir, requestedPath || '.');
+  const rootPrefix = rootDir.endsWith(path.sep) ? rootDir : `${rootDir}${path.sep}`;
+  if (candidate !== rootDir && !candidate.startsWith(rootPrefix)) {
+    throw new Error('PATH_OUTSIDE_WORKDIR');
+  }
+
+  return {
+    rootDir,
+    targetPath: candidate,
+    relativePath: candidate === rootDir ? '' : path.relative(rootDir, candidate).split(path.sep).join('/'),
+  };
+}
+
+function sendAgentFilePathError(reply: FastifyReply, error: unknown) {
+  if (error instanceof Error && error.message === 'WORKDIR_REQUIRED') {
+    return reply.code(400).send({ error: 'Agent does not have a working_directory configured' });
+  }
+  if (error instanceof Error && error.message === 'PATH_OUTSIDE_WORKDIR') {
+    return reply.code(400).send({ error: 'Path is outside the working_directory' });
+  }
+  return reply.code(500).send({ error: 'Failed to resolve path' });
+}
+
+function sendAgentFileSystemError(reply: FastifyReply, error: unknown) {
+  if (!(error instanceof Error)) {
+    return reply.code(500).send({ error: 'File operation failed' });
+  }
+
+  const fsError = error as NodeJS.ErrnoException;
+  if (fsError.code === 'ENOENT') {
+    return reply.code(404).send({ error: 'File not found' });
+  }
+  if (fsError.code === 'EACCES' || fsError.code === 'EPERM') {
+    return reply.code(403).send({ error: 'File access denied' });
+  }
+  if (fsError.code === 'EISDIR') {
+    return reply.code(400).send({ error: 'Target is not a file' });
+  }
+  return reply.code(500).send({ error: 'File operation failed' });
+}
+
+function decodeTextFile(buffer: Buffer): string | null {
+  if (!buffer.length) {
+    return '';
+  }
+
+  if (buffer.includes(0)) {
+    return null;
+  }
+
+  const sampleSize = Math.min(buffer.length, 1024);
+  let controlCharCount = 0;
+  for (let i = 0; i < sampleSize; i += 1) {
+    const byte = buffer[i];
+    if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) {
+      controlCharCount += 1;
+    }
+  }
+
+  if (controlCharCount / sampleSize > 0.2) {
+    return null;
+  }
+
+  try {
+    return utf8Decoder.decode(buffer);
+  } catch {
+    return null;
+  }
+}
 
 export function registerAgentRoutes(fastify: FastifyInstance): void {
   // List agents for a project
@@ -406,6 +493,157 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(agent.project_id) as Project | undefined;
     if (!project) return reply.code(404).send({ error: 'Project not found' });
     return { prompt: buildSystemPrompt(agent, project) };
+  });
+
+  fastify.get<{ Params: { id: string }; Querystring: { path?: string; showHidden?: string } }>('/api/agents/:id/files', async (request, reply) => {
+    const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
+    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
+    if (!agent) return reply.code(404).send({ error: 'Agent not found' });
+
+    let resolvedPath;
+    try {
+      resolvedPath = resolveAgentFilesystemPath(agent, request.query.path);
+    } catch (error) {
+      return sendAgentFilePathError(reply, error);
+    }
+
+    const showHidden = request.query.showHidden === '1' || request.query.showHidden === 'true';
+
+    try {
+      const targetStat = await fs.stat(resolvedPath.targetPath);
+      if (!targetStat.isDirectory()) {
+        return reply.code(400).send({ error: 'Target path is not a directory' });
+      }
+
+      const dirents = await fs.readdir(resolvedPath.targetPath, { withFileTypes: true });
+      const visibleEntries = dirents.filter((entry) => showHidden || !entry.name.startsWith('.'));
+      const entries = (await Promise.all(visibleEntries.map(async (entry) => {
+        const entryPath = path.join(resolvedPath.targetPath, entry.name);
+        try {
+          const entryStat = await fs.stat(entryPath);
+          const relativeEntryPath = resolvedPath.relativePath
+            ? path.posix.join(resolvedPath.relativePath, entry.name)
+            : entry.name;
+          return {
+            name: entry.name,
+            path: relativeEntryPath,
+            type: entry.isDirectory() ? 'dir' : 'file',
+            size: entryStat.size,
+            modified: entryStat.mtime.toISOString(),
+          };
+        } catch {
+          return null;
+        }
+      }))).filter(Boolean) as Array<{ name: string; path: string; type: 'file' | 'dir'; size: number; modified: string }>;
+
+      entries.sort((a, b) => {
+        if (a.type !== b.type) {
+          return a.type === 'dir' ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+      return {
+        path: resolvedPath.relativePath,
+        showHidden,
+        entries,
+      };
+    } catch (error) {
+      return sendAgentFileSystemError(reply, error);
+    }
+  });
+
+  fastify.get<{ Params: { id: string }; Querystring: { path?: string } }>('/api/agents/:id/files/content', async (request, reply) => {
+    const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
+    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
+    if (!agent) return reply.code(404).send({ error: 'Agent not found' });
+    if (!request.query.path) return reply.code(400).send({ error: 'path is required' });
+
+    let resolvedPath;
+    try {
+      resolvedPath = resolveAgentFilesystemPath(agent, request.query.path);
+    } catch (error) {
+      return sendAgentFilePathError(reply, error);
+    }
+
+    try {
+      const targetStat = await fs.stat(resolvedPath.targetPath);
+      if (!targetStat.isFile()) {
+        return reply.code(400).send({ error: 'Target path is not a file' });
+      }
+      if (targetStat.size > MAX_AGENT_FILE_SIZE) {
+        return reply.code(413).send({ error: 'File exceeds the 1 MB limit' });
+      }
+
+      const buffer = await fs.readFile(resolvedPath.targetPath);
+      if (buffer.length > MAX_AGENT_FILE_SIZE) {
+        return reply.code(413).send({ error: 'File exceeds the 1 MB limit' });
+      }
+
+      const content = decodeTextFile(buffer);
+      if (content === null) {
+        return reply.code(415).send({ error: 'Cannot preview binary files' });
+      }
+
+      return reply.type('text/plain; charset=utf-8').send(content);
+    } catch (error) {
+      return sendAgentFileSystemError(reply, error);
+    }
+  });
+
+  fastify.put<{ Params: { id: string }; Body: { path?: string; content?: string } }>('/api/agents/:id/files/content', async (request, reply) => {
+    const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
+    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
+    if (!agent) return reply.code(404).send({ error: 'Agent not found' });
+
+    const filePath = typeof request.body?.path === 'string' ? request.body.path.trim() : '';
+    if (!filePath) {
+      return reply.code(400).send({ error: 'path is required' });
+    }
+
+    if (typeof request.body?.content !== 'string') {
+      return reply.code(400).send({ error: 'content must be a string' });
+    }
+
+    if (Buffer.byteLength(request.body.content, 'utf-8') > MAX_AGENT_FILE_SIZE) {
+      return reply.code(413).send({ error: 'File exceeds the 1 MB limit' });
+    }
+
+    let resolvedPath;
+    try {
+      resolvedPath = resolveAgentFilesystemPath(agent, filePath);
+    } catch (error) {
+      return sendAgentFilePathError(reply, error);
+    }
+
+    try {
+      const existing = await fs.stat(resolvedPath.targetPath).catch((statError: NodeJS.ErrnoException) => {
+        if (statError.code === 'ENOENT') {
+          return null;
+        }
+        throw statError;
+      });
+      if (existing && !existing.isFile()) {
+        return reply.code(400).send({ error: 'Target path is not a file' });
+      }
+
+      await fs.writeFile(resolvedPath.targetPath, request.body.content, 'utf-8');
+      const savedStat = await fs.stat(resolvedPath.targetPath);
+      return {
+        success: true,
+        path: resolvedPath.relativePath,
+        size: savedStat.size,
+        modified: savedStat.mtime.toISOString(),
+      };
+    } catch (error) {
+      return sendAgentFileSystemError(reply, error);
+    }
   });
 
   // Plain text terminal output (for debugging / curl)

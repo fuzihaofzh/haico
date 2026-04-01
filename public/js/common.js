@@ -151,19 +151,19 @@ function nameOf(id) {
 
 function renderLoading(text, small) {
   var cls = 'loading-spinner' + (small ? ' small' : '');
-  return '<div class="' + cls + '"><div class="spinner"></div>' + esc(text || '加载中...') + '</div>';
+  return '<div class="' + cls + '"><div class="spinner"></div>' + esc(text || 'Loading...') + '</div>';
 }
 
 function renderError(err, onRetryId) {
-  var msg = '加载失败';
+  var msg = 'Failed to load';
   if (err) {
     if (typeof err === 'string') msg = err;
-    else if (err.status === 0 || err.message === 'Failed to fetch') msg = '网络连接失败，请检查网络后重试';
-    else if (err.status >= 500) msg = '服务器错误，请稍后重试';
-    else if (err.status >= 400) msg = '请求失败（资源不存在或无权限）';
+    else if (err.status === 0 || err.message === 'Failed to fetch') msg = 'Network error, please check your connection';
+    else if (err.status >= 500) msg = 'Server error, please try again later';
+    else if (err.status >= 400) msg = 'Request failed (resource not found or no permission)';
     else if (err.message) msg = err.message;
   }
-  var retryHtml = onRetryId ? '<button class="retry-btn" onclick="' + onRetryId + '">重试</button>' : '';
+  var retryHtml = onRetryId ? '<button class="retry-btn" onclick="' + onRetryId + '">Retry</button>' : '';
   return '<div class="error-retry"><div class="error-msg">' + esc(msg) + '</div>' + retryHtml + '</div>';
 }
 
@@ -230,8 +230,8 @@ function showConfirm(message) {
     overlay.innerHTML = `<div style="background:var(--bg-secondary,#1e1e2e);border:1px solid var(--border,#333);border-radius:8px;padding:20px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
       <div style="margin-bottom:16px;font-size:14px;line-height:1.5">${esc(message)}</div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn btn-sm" id="confirm-cancel" style="padding:6px 16px">取消</button>
-        <button class="btn btn-sm" id="confirm-ok" style="padding:6px 16px;background:var(--accent);color:#fff">确定</button>
+        <button class="btn btn-sm" id="confirm-cancel" style="padding:6px 16px">Cancel</button>
+        <button class="btn btn-sm" id="confirm-ok" style="padding:6px 16px;background:var(--accent);color:#fff">OK</button>
       </div>
     </div>`;
     const close = val => { overlay.style.display = 'none'; resolve(val); };
@@ -525,7 +525,7 @@ function connectProjectEvents(projectId) {
     const el = document.getElementById('ws-status-indicator');
     if (!el) return;
     const colors = { connected: '#3fb950', connecting: '#d29922', disconnected: '#8b949e' };
-    const labels = { connected: '实时更新已连接', connecting: '正在连接...', disconnected: '实时更新已断开' };
+    const labels = { connected: 'Live updates connected', connecting: 'Connecting...', disconnected: 'Live updates disconnected' };
     el.innerHTML = `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${colors[state] || colors.disconnected};margin-right:4px"></span><span style="font-size:11px;color:var(--text-secondary)">${labels[state] || ''}</span>`;
     el.title = labels[state] || '';
   }

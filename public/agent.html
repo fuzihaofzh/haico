@@ -99,19 +99,19 @@
             <span style="font-size:12px;color:var(--text-secondary)">Max Cache Tokens:</span>
             <input type="number" id="agent-maxtokens" min="0" value="0" style="width:100px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px;text-align:center;margin:0 4px">
             <button class="btn btn-sm" onclick="saveMaxTokens()">Save</button>
-            <span style="font-size:11px;color:var(--text-secondary);opacity:0.7;margin-left:4px">0 = 使用次数控制，cache token超过此值重置session</span>
+            <span style="font-size:11px;color:var(--text-secondary);opacity:0.7;margin-left:4px">0 = run-count mode; reset session when cache tokens exceed this value</span>
           </div>
           <div>
             <span style="font-size:12px;color:var(--text-secondary)">Max Runs per Session:</span>
             <input type="number" id="agent-maxruns" min="1" value="10" style="width:60px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px;text-align:center;margin:0 4px">
             <button class="btn btn-sm" onclick="saveMaxRuns()">Save</button>
-            <span style="font-size:11px;color:var(--text-secondary);opacity:0.7;margin-left:4px">token控制优先</span>
+            <span style="font-size:11px;color:var(--text-secondary);opacity:0.7;margin-left:4px">token limit takes priority</span>
           </div>
           <div>
-            <span style="font-size:12px;color:var(--text-secondary)">Resume Timeout(秒):</span>
+            <span style="font-size:12px;color:var(--text-secondary)">Resume Timeout (s):</span>
             <input type="number" id="agent-resumetimeout" min="0" value="300" style="width:80px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px;text-align:center;margin:0 4px">
             <button class="btn btn-sm" onclick="saveResumeTimeout()">Save</button>
-            <span style="font-size:11px;color:var(--text-secondary);opacity:0.7;margin-left:4px">超时自动开新session，0=不限</span>
+            <span style="font-size:11px;color:var(--text-secondary);opacity:0.7;margin-left:4px">Auto new session on timeout; 0 = unlimited</span>
           </div>
         </div>
       </div>
@@ -138,7 +138,7 @@
     <!-- Activity Summary -->
     <div class="card mb-16" id="activity-panel" style="display:none">
       <div class="flex-between mb-16">
-        <h2>活动摘要</h2>
+        <h2>Activity Summary</h2>
         <span id="activity-count" style="font-size:12px;color:var(--text-secondary)"></span>
       </div>
       <div id="activity-list" class="activity-list"></div>
@@ -156,15 +156,60 @@
       <div id="messages-list" style="max-height:300px;overflow-y:auto"></div>
     </div>
 
-    <!-- Terminal -->
-    <div class="card">
-      <div class="flex-between mb-16">
-        <h2>Terminal Output</h2>
-        <button class="btn btn-sm" onclick="clearTerminal()">Clear</button>
+    <!-- Workspace -->
+    <div class="card workspace-card">
+      <div class="workspace-tabs" role="tablist" aria-label="Agent workspace panels">
+        <button class="workspace-tab active" type="button" data-panel="terminal" onclick="switchAgentWorkspace('terminal')">Terminal</button>
+        <button class="workspace-tab" type="button" data-panel="files" onclick="switchAgentWorkspace('files')">Files</button>
       </div>
-      <div id="terminal" class="terminal-container"></div>
-      <div id="thinking-indicator" style="display:none" class="thinking-bar">
-        <span class="thinking-spinner">✦</span> Agent is thinking...
+
+      <div id="workspace-terminal-panel" class="workspace-panel active">
+        <div class="flex-between mb-16">
+          <h2>Terminal Output</h2>
+          <button class="btn btn-sm" onclick="clearTerminal()">Clear</button>
+        </div>
+        <div id="terminal" class="terminal-container"></div>
+        <div id="thinking-indicator" style="display:none" class="thinking-bar">
+          <span class="thinking-spinner">✦</span> Agent is thinking...
+        </div>
+      </div>
+
+      <div id="workspace-files-panel" class="workspace-panel" hidden>
+        <div id="files-workdir-note" class="file-panel-note" style="display:none"></div>
+        <div id="files-shell" class="files-shell">
+          <aside id="file-browser-pane" class="file-browser-pane">
+            <div class="file-browser-toolbar">
+              <div>
+                <div class="file-pane-label">Working Directory</div>
+                <div id="file-browser-root-label" class="file-browser-root">Not configured</div>
+              </div>
+              <label class="file-hidden-toggle">
+                <input type="checkbox" id="file-show-hidden" onchange="AgentFiles.toggleHiddenFiles(this.checked)">
+                <span>Show hidden</span>
+              </label>
+            </div>
+            <div id="file-tree" class="file-tree">
+              <div class="empty-state" style="padding:24px 12px">Open the Files tab to load the directory tree.</div>
+            </div>
+          </aside>
+
+          <section class="file-editor-pane">
+            <div class="file-editor-toolbar">
+              <button class="btn btn-sm file-mobile-browse" type="button" onclick="AgentFiles.showBrowser()">Browse</button>
+              <div class="file-editor-meta">
+                <div class="file-pane-label">Current File</div>
+                <div id="file-current-path" class="file-current-path">No file selected</div>
+              </div>
+              <div class="file-editor-actions">
+                <span class="file-save-hint">Ctrl+S</span>
+                <button class="btn btn-sm btn-primary" id="file-save-btn" type="button" onclick="AgentFiles.saveCurrentFile()" disabled>Save</button>
+              </div>
+            </div>
+            <div id="file-editor-banner" class="file-editor-banner" hidden></div>
+            <div id="file-editor-status" class="file-editor-status">Select a file to preview and edit it.</div>
+            <div id="file-editor" class="file-editor-surface"></div>
+          </section>
+        </div>
       </div>
     </div>
   </div>
@@ -188,5 +233,6 @@
   <script src="/public/vendor/xterm.js"></script>
   <script src="/public/vendor/xterm-addon-fit.js"></script>
   <script src="/public/js/terminal.js"></script>
+  <script src="/public/js/agent.js"></script>
 </body>
 </html>

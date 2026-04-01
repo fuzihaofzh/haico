@@ -18,40 +18,40 @@ function parseToolActivity(content) {
     const input = JSON.parse(m[2]);
     switch (tool) {
       case 'Read':
-        detail = '读取文件 <code>' + escHtml(basename(input.file_path || '')) + '</code>';
+        detail = 'Read file <code>' + escHtml(basename(input.file_path || '')) + '</code>';
         break;
       case 'Edit':
-        detail = '编辑文件 <code>' + escHtml(basename(input.file_path || '')) + '</code>';
+        detail = 'Edit file <code>' + escHtml(basename(input.file_path || '')) + '</code>';
         break;
       case 'Write':
-        detail = '写入文件 <code>' + escHtml(basename(input.file_path || '')) + '</code>';
+        detail = 'Write file <code>' + escHtml(basename(input.file_path || '')) + '</code>';
         break;
       case 'Bash':
-        detail = '运行命令 <code>' + escHtml((input.command || '').slice(0, 60)) + '</code>';
+        detail = 'Run command <code>' + escHtml((input.command || '').slice(0, 60)) + '</code>';
         break;
       case 'Grep':
-        detail = '搜索 <code>' + escHtml((input.pattern || '').slice(0, 40)) + '</code>';
+        detail = 'Search <code>' + escHtml((input.pattern || '').slice(0, 40)) + '</code>';
         break;
       case 'Glob':
-        detail = '查找文件 <code>' + escHtml((input.pattern || '').slice(0, 40)) + '</code>';
+        detail = 'Find files <code>' + escHtml((input.pattern || '').slice(0, 40)) + '</code>';
         break;
       case 'Agent':
-        detail = '委派子任务 ' + escHtml((input.description || '').slice(0, 50));
+        detail = 'Delegate subtask ' + escHtml((input.description || '').slice(0, 50));
         break;
       case 'WebFetch':
-        detail = '获取网页 <code>' + escHtml((input.url || '').slice(0, 50)) + '</code>';
+        detail = 'Fetch URL <code>' + escHtml((input.url || '').slice(0, 50)) + '</code>';
         break;
       case 'WebSearch':
-        detail = '搜索网页 <code>' + escHtml((input.query || '').slice(0, 40)) + '</code>';
+        detail = 'Web search <code>' + escHtml((input.query || '').slice(0, 40)) + '</code>';
         break;
       case 'NotebookEdit':
-        detail = '编辑Notebook <code>' + escHtml(basename(input.notebook_path || '')) + '</code>';
+        detail = 'Edit notebook <code>' + escHtml(basename(input.notebook_path || '')) + '</code>';
         break;
       default:
-        detail = '调用工具 ' + escHtml(tool);
+        detail = 'Invoke tool ' + escHtml(tool);
     }
   } catch {
-    detail = '调用工具 ' + escHtml(tool);
+    detail = 'Invoke tool ' + escHtml(tool);
   }
   return { tool, detail };
 }
@@ -91,7 +91,7 @@ function renderActivities() {
     return;
   }
   panel.style.display = '';
-  count.textContent = activities.length + ' 条记录';
+  count.textContent = activities.length + ' activities';
 
   // Render newest first
   list.innerHTML = activities.slice().reverse().map(a => {
@@ -251,6 +251,10 @@ async function loadAgentInfo() {
     document.getElementById('agent-status').textContent = agent.status;
     document.getElementById('agent-status').className = `status-badge status-${agent.status}`;
     document.title = `Argus - ${agent.name}`;
+    window.currentAgentState = agent;
+    if (window.AgentFiles && typeof window.AgentFiles.setAgent === 'function') {
+      window.AgentFiles.setAgent(agent);
+    }
 
     document.getElementById('project-link').href = `/projects/${agent.project_id}`;
     // Load project name for breadcrumb
@@ -273,9 +277,9 @@ async function loadAgentInfo() {
       document.getElementById('agent-instructions').value = agent.custom_instructions || '';
       document.getElementById('agent-workdir').value = agent.working_directory || '';
       const maxRunsEl = document.getElementById('agent-maxruns');
-      if (maxRunsEl) maxRunsEl.value = agent.session_max_runs || 10;
+      if (maxRunsEl) maxRunsEl.value = agent.session_max_runs ?? 10;
       const maxTokensEl = document.getElementById('agent-maxtokens');
-      if (maxTokensEl) maxTokensEl.value = agent.session_max_tokens || 200000;
+      if (maxTokensEl) maxTokensEl.value = agent.session_max_tokens ?? 200000;
       const resumeTimeoutEl = document.getElementById('agent-resumetimeout');
       if (resumeTimeoutEl) resumeTimeoutEl.value = agent.session_resume_timeout ?? 300;
       window._instructionsLoaded = true;
@@ -293,8 +297,8 @@ async function quickStart() {
     const res = await fetch(`/api/agents/${agentId}/start`, {
       method: 'POST', headers: apiHeaders(), body: JSON.stringify({}),
     });
-    if (res.ok) { loadAgentInfo(); showToast('Agent已启动', 'success'); }
-    else { const err = await res.json(); showToast(err.error || '启动失败', 'error'); }
+    if (res.ok) { loadAgentInfo(); showToast('Agent started', 'success'); }
+    else { const err = await res.json(); showToast(err.error || 'Failed to start', 'error'); }
   });
 }
 
@@ -305,8 +309,15 @@ async function saveWorkdir() {
     const res = await fetch(`/api/agents/${agentId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ working_directory: val || null }),
     });
-    if (res.ok) showToast('已保存', 'success');
-    else showToast('保存失败', 'error');
+    if (res.ok) {
+      showToast('Saved', 'success');
+      loadAgentInfo();
+      if (window.AgentFiles && typeof window.AgentFiles.handleWorkingDirectoryChange === 'function') {
+        window.AgentFiles.handleWorkingDirectoryChange();
+      }
+    } else {
+      showToast('Failed to save', 'error');
+    }
   });
 }
 
@@ -318,8 +329,8 @@ async function saveMaxRuns() {
     const res = await fetch(`/api/agents/${agentId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ session_max_runs: Math.max(1, val) }),
     });
-    if (res.ok) showToast('已保存', 'success');
-    else showToast('保存失败', 'error');
+    if (res.ok) showToast('Saved', 'success');
+    else showToast('Failed to save', 'error');
   });
 }
 
@@ -331,8 +342,8 @@ async function saveMaxTokens() {
     const res = await fetch(`/api/agents/${agentId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ session_max_tokens: Math.max(0, val) }),
     });
-    if (res.ok) showToast('已保存', 'success');
-    else showToast('保存失败', 'error');
+    if (res.ok) showToast('Saved', 'success');
+    else showToast('Failed to save', 'error');
   });
 }
 
@@ -344,8 +355,8 @@ async function saveResumeTimeout() {
     const res = await fetch(`/api/agents/${agentId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ session_resume_timeout: Math.max(0, val) }),
     });
-    if (res.ok) showToast('已保存', 'success');
-    else showToast('保存失败', 'error');
+    if (res.ok) showToast('Saved', 'success');
+    else showToast('Failed to save', 'error');
   });
 }
 
@@ -360,8 +371,8 @@ async function startAgent() {
     const res = await fetch(`/api/agents/${agentId}/start`, {
       method: 'POST', headers: apiHeaders(), body: JSON.stringify(body),
     });
-    if (res.ok) { hideModal(); loadAgentInfo(); showToast('Agent已启动', 'success'); }
-    else { const err = await res.json(); showToast(err.error || '启动失败', 'error'); }
+    if (res.ok) { hideModal(); loadAgentInfo(); showToast('Agent started', 'success'); }
+    else { const err = await res.json(); showToast(err.error || 'Failed to start', 'error'); }
   });
 }
 
@@ -371,8 +382,8 @@ async function retryAgent() {
     const res = await fetch(`/api/agents/${agentId}/retry`, {
       method: 'POST', headers: apiHeaders(), body: JSON.stringify({}),
     });
-    if (res.ok) { loadAgentInfo(); showToast('Agent已重试', 'success'); }
-    else { const err = await res.json().catch(() => ({})); showToast(err.error || '重试失败', 'error'); }
+    if (res.ok) { loadAgentInfo(); showToast('Agent retried', 'success'); }
+    else { const err = await res.json().catch(() => ({})); showToast(err.error || 'Failed to retry', 'error'); }
   });
 }
 
@@ -381,7 +392,7 @@ async function stopAgent() {
   const btn = document.getElementById('btn-stop');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${agentId}/stop`, { method: 'POST', headers: apiHeaders(), body: '{}' });
-    if (res.ok) { showToast('Agent已停止', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || '停止失败', 'error'); }
+    if (res.ok) { showToast('Agent stopped', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to stop', 'error'); }
     loadAgentInfo();
   });
 }
@@ -399,8 +410,8 @@ async function saveInstructions() {
     const res = await fetch(`/api/agents/${agentId}`, {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ custom_instructions: val }),
     });
-    if (res.ok) showToast('已保存', 'success');
-    else showToast('保存失败', 'error');
+    if (res.ok) showToast('Saved', 'success');
+    else showToast('Failed to save', 'error');
   });
 }
 

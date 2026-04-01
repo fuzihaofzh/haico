@@ -66,7 +66,7 @@ function showReconnectUI(seconds) {
       return;
     }
     statusEl.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#d29922;margin-right:6px;vertical-align:middle"></span>` +
-      `${reconnectCountdown}秒后重连... <button onclick="connectWebSocket(false)" style="margin-left:8px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--header-bg);color:var(--fg);cursor:pointer;font-size:12px">立即重连</button>`;
+      `Reconnecting in ${reconnectCountdown}s... <button onclick="connectWebSocket(false)" style="margin-left:8px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--header-bg);color:var(--fg);cursor:pointer;font-size:12px">Reconnect now</button>`;
     reconnectCountdown--;
     reconnectTimer = setTimeout(updateCountdown, 1000);
   };
@@ -89,11 +89,11 @@ function connectWebSocket(newSession) {
   const url = `${proto}//${location.host}/ws/terminal/${agentId}?newSession=${newSession}&cols=${cols}&rows=${rows}`;
 
   clearReconnectTimer();
-  setStatus('连接中...', 'connecting');
+  setStatus('Connecting...', 'connecting');
   ws = new WebSocket(url);
 
   ws.onopen = () => {
-    setStatus('已连接', 'connected');
+    setStatus('Connected', 'connected');
     sendResize();
   };
 
@@ -127,15 +127,15 @@ function connectWebSocket(newSession) {
   ws.onclose = (e) => {
     // Don't auto-reconnect if intentionally closed (code 1000) or process exited
     if (e.code === 1000) {
-      setStatus('已断开', 'disconnected');
+      setStatus('Disconnected', 'disconnected');
     } else {
-      setStatus('连接断开', 'disconnected');
+      setStatus('Connection closed', 'disconnected');
       showReconnectUI(5);
     }
   };
 
   ws.onerror = () => {
-    setStatus('连接失败', 'error');
+    setStatus('Connection failed', 'error');
     showReconnectUI(5);
   };
 }
