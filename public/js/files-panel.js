@@ -166,6 +166,10 @@
       const ext = (filePath.split('.').pop() || '').toLowerCase();
       if (ext === 'pdf') return 'pdf';
       if (ext === 'html' || ext === 'htm') return 'html';
+      if (ext === 'docx') return 'docx';
+      if (ext === 'xlsx') return 'xlsx';
+      if (ext === 'pptx') return 'pptx';
+      if (ext === 'sqlite' || ext === 'db' || ext === 'sqlite3' || ext === 'db3') return 'sqlite';
       return 'text';
     }
 
@@ -388,6 +392,9 @@
       if (!editorEl) return;
       const existing = editorEl.querySelector('.files-preview-iframe');
       if (existing) existing.remove();
+      // Also remove rich previews (docx/xlsx/pptx/sqlite)
+      const richPreview = editorEl.querySelector('.files-rich-preview');
+      if (richPreview) richPreview.remove();
       // Restore Monaco editor visibility if hidden
       if (this.state.editor) {
         this.state.editor.getDomNode().style.display = '';
@@ -447,6 +454,18 @@
         return;
       }
 
+      if (mode === 'docx' || mode === 'xlsx' || mode === 'pptx') {
+        this.removePreviewIframe();
+        this.showOfficePreview(filePath, mode);
+        return;
+      }
+
+      if (mode === 'sqlite') {
+        this.removePreviewIframe();
+        this.showSqlitePreview(filePath);
+        return;
+      }
+
       try {
         this.removePreviewIframe();
         const monaco = await this.ensureMonaco();
@@ -480,6 +499,225 @@
         this.updateSaveButton();
         this.setStatus(error.message || 'Failed to load file');
         this.showBanner(error.message || 'Failed to load file', 'error');
+      }
+    }
+
+    showRichPreview(filePath, label, contentHtml) {
+      const editorEl = this.el('editorId');
+      if (!editorEl) return;
+      if (this.state.editor) this.state.editor.getDomNode().style.display = 'none';
+      const existing = editorEl.querySelector('.files-rich-preview');
+      if (existing) existing.remove();
+      const container = document.createElement('div');
+      container.className = 'files-rich-preview';
+      container.style.cssText = 'width:100%;height:100%;overflow:auto;background:#fff;color:#222;padding:16px;box-sizing:border-box;font-size:14px;';
+      container.innerHTML = contentHtml;
+      editorEl.appendChild(container);
+      this.state.previewMode = label;
+      this.updateSaveButton();
+      this.setStatus(`Preview: ${filePath}`);
+      this.showBanner(`${label} preview: ${filePath}`, '');
+      this.renderTree();
+      this.applyMobileEditorFocus(true);
+    }
+
+    removeRichPreview() {
+      const editorEl = this.el('editorId');
+      if (!editorEl) return;
+      const existing = editorEl.querySelector('.files-rich-preview');
+      if (existing) existing.remove();
+      if (this.state.editor) this.state.editor.getDomNode().style.display = '';
+    }
+
+    async loadOfficeLib(mode) {
+      if (mode === 'docx') {
+        if (!window._mammothLoaded) {
+          await this._loadScript('https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js');
+          window._mammothLoaded = true;
+        }
+      } else if (mode === 'xlsx') {
+        if (!window.XLSX) {
+          await this._loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+        }
+      }
+    }
+
+    _loadScript(url) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('Failed to load ' + url));
+        document.head.appendChild(s);
+      });
+    }
+
+    async showOfficePreview(filePath, mode) {
+      this.setStatus(`Loading ${mode.toUpperCase()} preview...`);
+      try {
+        await this.loadOfficeLib(mode);
+        const downloadUrl = `/api/agents/${this.getAgentId()}/files/download?path=${encodeURIComponent(filePath)}`;
+        const res = await fetch(downloadUrl, { headers: typeof apiHeaders === 'function' ? apiHeaders() : {} });
+        if (!res.ok) throw new Error('Failed to download file');
+        const arrayBuffer = await res.arrayBuffer();
+
+        let html = '';
+        if (mode === 'docx') {
+          const result = await mammoth.convertToHtml({ arrayBuffer });
+          html = '<div style="max-width:800px;margin:0 auto;line-height:1.6">' + result.value + '</div>';
+          if (result.messages && result.messages.length > 0) {
+            html += '<div style="margin-top:16px;padding:8px;background:#fff3cd;border-radius:4px;font-size:12px;color:#856404">' +
+              result.messages.map(m => m.message).join('<br>') + '</div>';
+          }
+        } else if (mode === 'xlsx') {
+          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+          html = '<div>';
+          // Sheet tabs
+          if (workbook.SheetNames.length > 1) {
+            html += '<div style="margin-bottom:12px;display:flex;gap:4px;flex-wrap:wrap">';
+            workbook.SheetNames.forEach((name, i) => {
+              html += '<button onclick="this.closest(\'.files-rich-preview\').querySelectorAll(\'.xlsx-sheet\').forEach((s,j)=>{s.style.display=j===' + i + '?\'block\':\'none\'});this.parentElement.querySelectorAll(\'button\').forEach((b,j)=>{b.style.background=j===' + i + '?\'#0366d6\':\'#e1e4e8\';b.style.color=j===' + i + '?\'#fff\':\'#222\'})" style="padding:4px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;' + (i === 0 ? 'background:#0366d6;color:#fff' : 'background:#e1e4e8;color:#222') + '">' + name + '</button>';
+            });
+            html += '</div>';
+          }
+          workbook.SheetNames.forEach((name, i) => {
+            const sheet = workbook.Sheets[name];
+            const sheetHtml = XLSX.utils.sheet_to_html(sheet, { editable: false });
+            html += '<div class="xlsx-sheet" style="display:' + (i === 0 ? 'block' : 'none') + ';overflow-x:auto">' + sheetHtml + '</div>';
+          });
+          html += '</div>';
+          // Style the generated tables
+          html += '<style>.files-rich-preview table{border-collapse:collapse;font-size:13px;min-width:100%}.files-rich-preview td,.files-rich-preview th{border:1px solid #d0d7de;padding:4px 8px;text-align:left;white-space:nowrap}.files-rich-preview tr:first-child td,.files-rich-preview th{background:#f6f8fa;font-weight:600}</style>';
+        } else if (mode === 'pptx') {
+          // Basic PPTX info — extract slide count from [Content_Types].xml inside the zip
+          html = await this._renderPptxPreview(arrayBuffer);
+        }
+
+        this.removeRichPreview();
+        this.removePreviewIframe();
+        this.showRichPreview(filePath, mode.toUpperCase(), html);
+      } catch (error) {
+        this.setStatus(error.message || 'Preview failed');
+        this.showBanner(error.message || 'Preview failed', 'error');
+      }
+    }
+
+    async _renderPptxPreview(arrayBuffer) {
+      // Use JSZip to extract slide info from PPTX
+      if (!window.JSZip) {
+        await this._loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js');
+      }
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const slideFiles = Object.keys(zip.files).filter(f => /^ppt\/slides\/slide\d+\.xml$/.test(f)).sort();
+      const slideCount = slideFiles.length;
+
+      let html = '<div style="max-width:800px;margin:0 auto">';
+      html += '<div style="margin-bottom:16px;font-size:16px;font-weight:600">PowerPoint Presentation — ' + slideCount + ' slide' + (slideCount !== 1 ? 's' : '') + '</div>';
+
+      // Extract text content from each slide
+      for (let i = 0; i < slideFiles.length; i++) {
+        const xmlContent = await zip.file(slideFiles[i]).async('string');
+        // Extract text between <a:t> tags
+        const textMatches = xmlContent.match(/<a:t>([^<]*)<\/a:t>/g) || [];
+        const texts = textMatches.map(m => m.replace(/<\/?a:t>/g, '')).filter(t => t.trim());
+
+        html += '<div style="border:1px solid #d0d7de;border-radius:8px;padding:16px;margin-bottom:12px;background:#f6f8fa">';
+        html += '<div style="font-size:12px;color:#656d76;margin-bottom:8px;font-weight:600">Slide ' + (i + 1) + '</div>';
+        if (texts.length > 0) {
+          html += '<div style="line-height:1.5">' + texts.map(t => '<div>' + t.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>').join('') + '</div>';
+        } else {
+          html += '<div style="color:#8b949e;font-style:italic">No text content</div>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+      return html;
+    }
+
+    async showSqlitePreview(filePath) {
+      this.setStatus('Loading SQLite preview...');
+      try {
+        const baseUrl = `/api/agents/${this.getAgentId()}/files/sqlite?path=${encodeURIComponent(filePath)}`;
+        const res = await fetch(baseUrl, { headers: typeof apiHeaders === 'function' ? apiHeaders() : {} });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Failed to load SQLite file');
+        }
+        const data = await res.json();
+        const tables = data.tables || [];
+
+        let html = '<div style="max-width:100%;margin:0 auto" id="sqlite-preview-root">';
+        html += '<div style="margin-bottom:16px;font-size:16px;font-weight:600">SQLite Database — ' + tables.length + ' table' + (tables.length !== 1 ? 's' : '') + '</div>';
+        html += '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px">';
+        tables.forEach((t, i) => {
+          html += '<button data-table="' + t.name + '" onclick="window[\'' + this.apiName + '\']._sqliteLoadTable(this)" style="padding:4px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;' + (i === 0 ? 'background:#0366d6;color:#fff' : 'background:#e1e4e8;color:#222') + '">' + t.name + ' (' + t.rowCount + ')</button>';
+        });
+        html += '</div>';
+        html += '<div id="sqlite-table-content" style="overflow-x:auto"></div>';
+        html += '</div>';
+
+        this.removeRichPreview();
+        this.removePreviewIframe();
+        this.showRichPreview(filePath, 'SQLite', html);
+
+        // Store state for table loading
+        this._sqliteFilePath = filePath;
+        // Expose for onclick
+        window[this.apiName]._sqliteLoadTable = (btn) => this._sqliteLoadTable(btn);
+
+        // Load first table automatically
+        if (tables.length > 0) {
+          const firstBtn = this.el('editorId')?.querySelector('button[data-table]');
+          if (firstBtn) this._sqliteLoadTable(firstBtn);
+        }
+      } catch (error) {
+        this.setStatus(error.message || 'SQLite preview failed');
+        this.showBanner(error.message || 'SQLite preview failed', 'error');
+      }
+    }
+
+    async _sqliteLoadTable(btn) {
+      const tableName = btn.dataset.table;
+      if (!tableName) return;
+
+      // Update tab button styles
+      const container = btn.parentElement;
+      if (container) {
+        container.querySelectorAll('button').forEach(b => {
+          b.style.background = b === btn ? '#0366d6' : '#e1e4e8';
+          b.style.color = b === btn ? '#fff' : '#222';
+        });
+      }
+
+      const contentEl = document.getElementById('sqlite-table-content');
+      if (!contentEl) return;
+      contentEl.innerHTML = '<div style="color:#656d76;padding:8px">Loading...</div>';
+
+      try {
+        const url = `/api/agents/${this.getAgentId()}/files/sqlite?path=${encodeURIComponent(this._sqliteFilePath)}&table=${encodeURIComponent(tableName)}&limit=200`;
+        const res = await fetch(url, { headers: typeof apiHeaders === 'function' ? apiHeaders() : {} });
+        if (!res.ok) throw new Error('Failed to load table');
+        const data = await res.json();
+
+        let html = '<div style="font-size:12px;color:#656d76;margin-bottom:8px">' + data.totalRows + ' rows total (showing ' + data.rows.length + ')</div>';
+        html += '<table style="border-collapse:collapse;font-size:13px;min-width:100%"><thead><tr>';
+        data.columns.forEach(col => {
+          html += '<th style="border:1px solid #d0d7de;padding:4px 8px;background:#f6f8fa;font-weight:600;white-space:nowrap">' + col.name + '<span style="color:#8b949e;font-weight:400;margin-left:4px;font-size:11px">' + col.type + '</span></th>';
+        });
+        html += '</tr></thead><tbody>';
+        data.rows.forEach(row => {
+          html += '<tr>';
+          data.columns.forEach(col => {
+            const val = row[col.name];
+            const display = val === null ? '<span style="color:#8b949e">NULL</span>' : String(val).length > 200 ? String(val).slice(0, 200) + '…' : String(val).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            html += '<td style="border:1px solid #d0d7de;padding:4px 8px;white-space:nowrap;max-width:400px;overflow:hidden;text-overflow:ellipsis">' + display + '</td>';
+          });
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        contentEl.innerHTML = html;
+      } catch (error) {
+        contentEl.innerHTML = '<div style="color:#f85149;padding:8px">' + (error.message || 'Failed to load table') + '</div>';
       }
     }
 

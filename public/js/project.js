@@ -1888,79 +1888,92 @@ function renderStarAgentGraph(container, graphContext) {
 
 function renderHierarchyAgentGraph(container, graphContext) {
   const byId = getAgentMap();
-  const controller = getControllerAgent();
-  const levelMap = new Map();
   const visited = new Set();
-  const syntheticLinks = [];
+  const childrenMap = new Map(); // parentId -> [agent]
 
-  function walk(agent, depth) {
-    if (!agent || visited.has(agent.id)) return;
-    visited.add(agent.id);
-    if (!levelMap.has(depth)) levelMap.set(depth, []);
-    levelMap.get(depth).push(agent);
-
-    const children = agentsData.filter((candidate) => getGraphParentId(candidate) === agent.id);
-    children.forEach((child) => {
-      if (!child.parent_agent_id) {
-        syntheticLinks.push(child.id);
-      }
-      walk(child, depth + 1);
-    });
-  }
-
-  const roots = [];
-  if (controller) {
-    roots.push(controller);
-  }
+  // Build children map using only explicit parent_agent_id
   agentsData.forEach((agent) => {
-    if (agent.is_controller) return;
-    const parentId = getGraphParentId(agent);
-    if (!parentId || !byId.has(parentId)) {
-      roots.push(agent);
+    const pid = agent.parent_agent_id;
+    if (pid && byId.has(pid)) {
+      if (!childrenMap.has(pid)) childrenMap.set(pid, []);
+      childrenMap.get(pid).push(agent);
     }
   });
 
+  // Identify roots: agents with no explicit parent or whose parent doesn't exist
+  const roots = agentsData.filter((agent) => {
+    const pid = agent.parent_agent_id;
+    return !pid || !byId.has(pid);
+  });
+
+  // Build subtree sizes for proper horizontal spacing
+  const subtreeSize = new Map();
+  function calcSize(agent) {
+    if (subtreeSize.has(agent.id)) return subtreeSize.get(agent.id);
+    const children = childrenMap.get(agent.id) || [];
+    const size = children.length === 0 ? 1 : children.reduce((sum, c) => sum + calcSize(c), 0);
+    subtreeSize.set(agent.id, size);
+    return size;
+  }
+  roots.forEach((r) => calcSize(r));
+
+  // Walk tree to assign depth levels
+  const depthMap = new Map();
+  function walk(agent, depth) {
+    if (!agent || visited.has(agent.id)) return;
+    visited.add(agent.id);
+    depthMap.set(agent.id, depth);
+    (childrenMap.get(agent.id) || []).forEach((child) => walk(child, depth + 1));
+  }
   roots.forEach((root) => walk(root, 0));
+  // Safety: visit any unvisited agents as roots
   agentsData.forEach((agent) => {
     if (!visited.has(agent.id)) walk(agent, 0);
   });
 
-  const levels = Array.from(levelMap.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([, items]) => items);
-
+  const maxDepth = Math.max(0, ...Array.from(depthMap.values()));
   const W = Math.min(Math.max(container.clientWidth || 760, 640), 960);
   const levelGap = 112;
   const topPadding = 56;
-  const H = Math.max(280, topPadding + Math.max(levels.length - 1, 1) * levelGap + 96);
+  const H = Math.max(280, topPadding + maxDepth * levelGap + 96);
   const nodeRadius = 28;
   const positions = new Map();
 
-  levels.forEach((level, depth) => {
-    const spacing = W / (level.length + 1);
+  // Position nodes: center children under their parent using subtree sizes
+  const totalLeaves = roots.reduce((sum, r) => sum + (subtreeSize.get(r.id) || 1), 0);
+  const leafWidth = W / (totalLeaves + 1);
+
+  let leafCounter = 0;
+  function positionSubtree(agent, depth) {
+    const children = childrenMap.get(agent.id) || [];
     const y = topPadding + depth * levelGap;
-    level.forEach((agent, index) => {
-      positions.set(agent.id, {
-        x: spacing * (index + 1),
-        y,
-      });
-    });
-  });
+    if (children.length === 0) {
+      leafCounter++;
+      positions.set(agent.id, { x: leafCounter * leafWidth, y });
+    } else {
+      children.forEach((child) => positionSubtree(child, depth + 1));
+      // Center parent over its children
+      const childPositions = children.map((c) => positions.get(c.id)).filter(Boolean);
+      const minX = Math.min(...childPositions.map((p) => p.x));
+      const maxX = Math.max(...childPositions.map((p) => p.x));
+      positions.set(agent.id, { x: (minX + maxX) / 2, y });
+    }
+  }
+  roots.forEach((root) => positionSubtree(root, 0));
 
   let svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;margin:0 auto">';
 
+  // Draw edges using only explicit parent_agent_id
   agentsData.forEach((agent) => {
-    const parentId = getGraphParentId(agent);
-    if (!parentId) return;
-    const parentPos = positions.get(parentId);
+    const pid = agent.parent_agent_id;
+    if (!pid || !byId.has(pid)) return;
+    const parentPos = positions.get(pid);
     const childPos = positions.get(agent.id);
     if (!parentPos || !childPos) return;
 
     const dispatched = graphContext.dispatchedAgents.has(agent.id);
-    const synthetic = !agent.parent_agent_id;
     svg += '<line x1="' + parentPos.x + '" y1="' + (parentPos.y + nodeRadius) + '" x2="' + childPos.x + '" y2="' + (childPos.y - nodeRadius) + '" stroke="' + (dispatched ? 'var(--accent)' : 'var(--border)') + '" stroke-width="' + (dispatched ? 2.2 : 1.2) + '"' +
-      (synthetic ? ' stroke-dasharray="6,4"' : '') +
-      ' opacity="' + (dispatched ? 0.95 : synthetic ? 0.45 : 0.7) + '"/>';
+      ' opacity="' + (dispatched ? 0.95 : 0.7) + '"/>';
 
     if (dispatched) {
       const mx = (parentPos.x + childPos.x) / 2;
@@ -1969,6 +1982,7 @@ function renderHierarchyAgentGraph(container, graphContext) {
     }
   });
 
+  // Draw nodes
   agentsData.forEach((agent) => {
     const position = positions.get(agent.id);
     if (!position) return;
@@ -1977,7 +1991,7 @@ function renderHierarchyAgentGraph(container, graphContext) {
       ? '<animate attributeName="r" values="' + nodeRadius + ';' + (nodeRadius + 4) + ';' + nodeRadius + '" dur="2s" repeatCount="indefinite"/>'
       : '';
     const assignedCount = (window._dashboardIssues || []).filter((issue) => issue.assigned_to === agent.id && ['open', 'in_progress', 'pending'].includes(issue.status)).length;
-    const childCount = getDirectChildAgents(agent.id).length;
+    const childCount = (childrenMap.get(agent.id) || []).length;
     const dispatched = graphContext.dispatchedAgents.has(agent.id);
     const reason = graphContext.actionReasonByAgent.get(agent.id);
     const statusLabel = agent.paused ? 'paused' : agent.status;
@@ -1993,13 +2007,14 @@ function renderHierarchyAgentGraph(container, graphContext) {
 
   svg += '</svg>';
 
-  const syntheticNote = syntheticLinks.length > 0
-    ? 'Agents without a parent are shown as direct controller children with dashed links.'
-    : 'Links in the graph follow the configured direct parent-child hierarchy.';
+  const hasOrphans = roots.some((r) => !r.is_controller);
+  const note = hasOrphans
+    ? 'Top-level agents (no parent) are shown as independent roots.'
+    : 'Links in the graph follow the configured parent-child hierarchy.';
 
   return {
     title: 'Agent Collaboration · Tree',
-    note: syntheticNote,
+    note,
     svg,
   };
 }

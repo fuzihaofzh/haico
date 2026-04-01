@@ -607,6 +607,9 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     '.pdf': 'application/pdf',
     '.html': 'text/html; charset=utf-8',
     '.htm': 'text/html; charset=utf-8',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   };
 
   fastify.get<{ Params: { id: string }; Querystring: { path?: string } }>('/api/agents/:id/files/serve', async (request, reply) => {
@@ -636,7 +639,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       const ext = path.extname(resolvedPath.targetPath).toLowerCase();
       const contentType = SERVE_CONTENT_TYPES[ext];
       if (!contentType) {
-        return reply.code(415).send({ error: 'Only PDF and HTML files can be served for preview' });
+        return reply.code(415).send({ error: 'This file type cannot be served for preview' });
       }
 
       const buffer = await fs.readFile(resolvedPath.targetPath);
@@ -802,6 +805,82 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
         .header('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`)
         .type(contentType)
         .send(buffer);
+    } catch (error) {
+      return sendAgentFileSystemError(reply, error);
+    }
+  });
+
+  // SQLite file preview — returns table list and sample data
+  const SQLITE_EXTENSIONS = new Set(['.sqlite', '.db', '.sqlite3', '.db3']);
+  const MAX_SQLITE_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+
+  fastify.get<{ Params: { id: string }; Querystring: { path?: string; table?: string; limit?: string; offset?: string } }>('/api/agents/:id/files/sqlite', async (request, reply) => {
+    const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
+    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
+    if (!agent) return reply.code(404).send({ error: 'Agent not found' });
+    if (!request.query.path) return reply.code(400).send({ error: 'path is required' });
+
+    let resolvedPath;
+    try {
+      resolvedPath = resolveAgentFilesystemPath(agent, request.query.path);
+    } catch (error) {
+      return sendAgentFilePathError(reply, error);
+    }
+
+    const ext = path.extname(resolvedPath.targetPath).toLowerCase();
+    if (!SQLITE_EXTENSIONS.has(ext)) {
+      return reply.code(415).send({ error: 'Not a SQLite file' });
+    }
+
+    try {
+      const targetStat = await fs.stat(resolvedPath.targetPath);
+      if (!targetStat.isFile()) {
+        return reply.code(400).send({ error: 'Target path is not a file' });
+      }
+      if (targetStat.size > MAX_SQLITE_FILE_SIZE) {
+        return reply.code(413).send({ error: 'SQLite file exceeds 50 MB limit' });
+      }
+
+      const Database = (await import('better-sqlite3')).default;
+      const sqliteDb = new Database(resolvedPath.targetPath, { readonly: true, fileMustExist: true });
+
+      try {
+        const tables = sqliteDb.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[];
+        const tableName = request.query.table;
+
+        if (!tableName) {
+          // Return table list with row counts
+          const tableInfo = tables.map((t) => {
+            const countRow = sqliteDb.prepare(`SELECT COUNT(*) as count FROM "${t.name}"`).get() as { count: number };
+            return { name: t.name, rowCount: countRow.count };
+          });
+          return { tables: tableInfo, path: resolvedPath.relativePath, size: targetStat.size };
+        }
+
+        // Return data for a specific table
+        if (!tables.some((t) => t.name === tableName)) {
+          return reply.code(404).send({ error: `Table "${tableName}" not found` });
+        }
+
+        const limit = Math.min(parseInt(request.query.limit || '100', 10), 500);
+        const offset = Math.max(parseInt(request.query.offset || '0', 10), 0);
+        const columns = sqliteDb.prepare(`PRAGMA table_info("${tableName}")`).all() as { name: string; type: string }[];
+        const rows = sqliteDb.prepare(`SELECT * FROM "${tableName}" LIMIT ? OFFSET ?`).all(limit, offset);
+        const countRow = sqliteDb.prepare(`SELECT COUNT(*) as count FROM "${tableName}"`).get() as { count: number };
+
+        return {
+          table: tableName,
+          columns: columns.map((c) => ({ name: c.name, type: c.type })),
+          rows,
+          totalRows: countRow.count,
+          limit,
+          offset,
+        };
+      } finally {
+        sqliteDb.close();
+      }
     } catch (error) {
       return sendAgentFileSystemError(reply, error);
     }
