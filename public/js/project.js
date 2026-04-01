@@ -569,11 +569,13 @@ async function loadAgents() {
     }
   }
 
-  list.innerHTML = agentsData.map(a => {
+  // Render a single agent list item
+  function renderAgentItem(a, depth) {
+    const indent = depth * 20;
     const tag = a.is_controller ? ' <span style="color:var(--accent);font-size:11px">[controller]</span>' : '';
     const parentAgent = getDisplayParentAgent(a);
     const childAgents = getDirectChildAgents(a.id);
-    const hierarchyMeta = [
+    const hierarchyMeta = depth > 0 ? '' : [
       parentAgent ? `Parent ${esc(parentAgent.name)}` : null,
       childAgents.length > 0 ? `${childAgents.length} direct reports` : null,
     ].filter(Boolean).join(' · ');
@@ -605,7 +607,7 @@ async function loadAgents() {
     const selected = currentAgentId === a.id ? 'background:var(--selected-bg);' : '';
     const pausedStyle = a.paused ? 'opacity:0.55;' : '';
     return `
-    <li class="agent-item" style="cursor:pointer;${selected}${pausedStyle}" onclick="viewAgent('${a.id}')">
+    <li class="agent-item" style="cursor:pointer;padding-left:${indent}px;${selected}${pausedStyle}" onclick="viewAgent('${a.id}')">
       <div style="flex-shrink:0;margin-right:8px">${avatarSvg(a.name, 32)}</div>
       <div class="agent-info">
         <div class="agent-name">${spinner}${esc(a.name)}${tag}</div>
@@ -628,7 +630,35 @@ async function loadAgents() {
         ${actions}
       </div>
     </li>`;
-  }).join('');
+  }
+
+  if (hasHierarchyLayout()) {
+    // Tree rendering: recursively render agents by parent-child hierarchy
+    const rendered = new Set();
+    function renderAgentTree(parentId, depth) {
+      let html = '';
+      const children = agentsData.filter(a => (a.parent_agent_id || null) === parentId);
+      for (const a of children) {
+        if (rendered.has(a.id)) continue;
+        rendered.add(a.id);
+        html += renderAgentItem(a, depth);
+        html += renderAgentTree(a.id, depth + 1);
+      }
+      return html;
+    }
+    let treeHtml = renderAgentTree(null, 0);
+    // Render any orphaned agents (parent_agent_id points to non-existent agent)
+    for (const a of agentsData) {
+      if (!rendered.has(a.id)) {
+        rendered.add(a.id);
+        treeHtml += renderAgentItem(a, 0);
+      }
+    }
+    list.innerHTML = treeHtml;
+  } else {
+    // Flat rendering (no hierarchy)
+    list.innerHTML = agentsData.map(a => renderAgentItem(a, 0)).join('');
+  }
 
   // Render agent collaboration graph
   // Cache active issues for graph node task counts
