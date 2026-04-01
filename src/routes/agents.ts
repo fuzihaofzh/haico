@@ -355,8 +355,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
 
-    // Set status to 'stopped' before killing so close handler preserves it
-    db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
+    // Set status to idle before killing so close handler preserves it
+    db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
 
     const stopped = stopAgentProcess(agent.id);
     if (!stopped) {
@@ -373,10 +373,10 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       db.prepare("UPDATE agents SET pid = NULL WHERE id = ?").run(agent.id);
     }
 
-    // Broadcast stopped status immediately for UI feedback
+    // Broadcast idle status immediately for UI feedback
     broadcastToProject(agent.project_id, {
       type: 'agent_status', projectId: agent.project_id,
-      data: { agentId: agent.id, status: 'stopped' },
+      data: { agentId: agent.id, status: 'idle' },
     });
 
     return { success: true };
@@ -399,11 +399,11 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       stopAgentProcess(agent.id);
     }
 
-    db.prepare("UPDATE agents SET paused = 1, status = 'stopped' WHERE id = ?").run(agent.id);
+    db.prepare("UPDATE agents SET paused = 1, status = 'idle' WHERE id = ?").run(agent.id);
 
     broadcastToProject(agent.project_id, {
       type: 'agent_status', projectId: agent.project_id,
-      data: { agentId: agent.id, status: 'stopped', paused: true },
+      data: { agentId: agent.id, status: 'idle', paused: true },
     });
 
     return { success: true };

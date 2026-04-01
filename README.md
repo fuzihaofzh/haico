@@ -1,178 +1,287 @@
+<div align="center">
+
 # Agentopia
 
-[![npm](https://img.shields.io/npm/v/agentopia)](https://www.npmjs.com/package/agentopia)
-[![GitHub](https://img.shields.io/github/license/fuzihaofzh/agentopia)](https://github.com/fuzihaofzh/agentopia)
+### The Multi-Agent Collaboration Platform
 
-A multi-agent collaboration platform that orchestrates autonomous AI agents to work together on complex tasks through a shared issue tracker, knowledge base, and real-time web dashboard.
+**Orchestrate teams of autonomous AI agents that communicate, coordinate, and conquer complex tasks together.**
 
-**GitHub**: https://github.com/fuzihaofzh/agentopia
+[![npm version](https://img.shields.io/npm/v/agentopia?color=cb3837&logo=npm)](https://www.npmjs.com/package/agentopia)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/fuzihaofzh/agentopia/pulls)
 
-## Features
+[Quick Start](#-quick-start) · [Features](#-features) · [How It Works](#-how-it-works) · [API Reference](#-api-reference) · [Contributing](#-contributing)
 
-- **Multi-Agent Orchestration** — Manage hierarchical teams of AI agents with controller/worker roles and parent-child relationships
-- **Issue Tracker** — GitHub-style issue management with priorities, labels, assignments, dependencies, and sub-issues
-- **Two Orchestration Engines** — Native (direct controller execution) and LangGraph (agentic reasoning with tool use)
-- **Session Management** — Persistent agent sessions with token budgets, auto-resumption, and cooldown to prevent waste
-- **Knowledge Base** — Shared knowledge store with importance levels; high-importance entries are auto-injected into agent prompts
-- **Agent Memories** — Per-agent and project-scoped persistent memories that survive across sessions
-- **Direct Messaging** — Agents can send messages to each other for coordination
-- **Process Management** — Spawning, monitoring, and lifecycle management with watchdog detection for stuck agents
-- **Interactive Terminal** — Real-time terminal access to agent processes via xterm.js and WebSocket
-- **Web Dashboard** — Full UI for managing projects, agents, issues, files, and monitoring execution
-- **File Management** — Upload, download, and preview files (including PDF and HTML) within projects
-- **Multi-User Auth** — User registration, login, role-based access control (admin/member), and project-level permissions
-- **Cost Tracking** — Token usage tracking with tail-request avoidance to prevent unnecessary API spend
-- **Scheduling** — Cron-based scheduling for recurring agent tasks
+</div>
 
-## Architecture
+---
+
+## The Problem
+
+You have a complex project. You spin up an AI agent. It works alone, gets confused, loses context, burns tokens going in circles. **One agent isn't enough.**
+
+## The Solution
+
+Agentopia creates a **shared workspace** where multiple AI agents operate as a team — with a controller that decomposes tasks, workers that execute them, and a built-in issue tracker that keeps everyone in sync. Think of it as **GitHub Issues + Agent Orchestration** in one platform.
 
 ```
-┌─────────────────────────────────────────────┐
-│                Web Dashboard                │
-│  (Projects, Agents, Issues, Terminal, Files) │
-└──────────────────┬──────────────────────────┘
-                   │ HTTP / WebSocket
-┌──────────────────▼──────────────────────────┐
-│              Fastify Server                  │
-│  ┌─────────┐ ┌──────────┐ ┌──────────────┐  │
-│  │  Routes  │ │   Auth   │ │  WebSocket   │  │
-│  └────┬────┘ └──────────┘ └──────────────┘  │
-│       │                                      │
-│  ┌────▼────────────────────────────────────┐ │
-│  │            Services                      │ │
-│  │  Orchestrator · Controller · Scheduler   │ │
-│  │  ProcessManager · Terminal · Hierarchy   │ │
-│  └────┬────────────────────────────────────┘ │
-│       │                                      │
-│  ┌────▼────┐                                 │
-│  │ SQLite  │                                 │
-│  └─────────┘                                 │
-└──────────────────────────────────────────────┘
-         │
-         ▼  spawns & manages
-   ┌───────────┐ ┌───────────┐ ┌───────────┐
-   │  Agent 1  │ │  Agent 2  │ │  Agent N  │
-   │ (Claude)  │ │ (Codex)   │ │  (...)    │
-   └───────────┘ └───────────┘ └───────────┘
+                    ┌──────────────┐
+                    │  Controller  │  Decomposes tasks, assigns work
+                    │    Agent     │  monitors progress
+                    └──────┬───────┘
+                           │ creates & assigns issues
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+        ┌──────────┐ ┌──────────┐ ┌──────────┐
+        │ Worker 1 │ │ Worker 2 │ │ Worker N │
+        │ (Claude) │ │ (Codex)  │ │  (Any)   │
+        └──────────┘ └──────────┘ └──────────┘
+              │            │            │
+              └────────────┴────────────┘
+                    Shared Issue Tracker
+                    Knowledge Base & Memories
+                    Real-time Web Dashboard
 ```
 
-**Tech Stack**: Node.js, TypeScript, Fastify, SQLite (better-sqlite3), LangChain/LangGraph, xterm.js, WebSocket
+---
+
+## Why Agentopia?
+
+| | Single Agent | Agentopia |
+|---|---|---|
+| **Task Complexity** | Gets lost on multi-step projects | Controller decomposes, workers execute in parallel |
+| **Context Window** | One agent carries everything | Each agent focuses on its assigned scope |
+| **Cost Control** | Burns tokens on tangents | Token budgets, tail-request detection, auto-cooldown |
+| **Coordination** | N/A | Issue tracker, knowledge base, direct messaging |
+| **Visibility** | Black box | Real-time terminal, issue timeline, cost dashboard |
+| **Persistence** | Session dies, context lost | Agent memories survive across sessions |
+
+---
+
+## Key Features
+
+**Orchestration**
+- Hierarchical agent teams with controller/worker roles and parent-child relationships
+- Two orchestration engines: **Native** (direct) and **LangGraph** (agentic reasoning with tool use)
+- Cron-based scheduling for recurring agent tasks
+
+**Collaboration**
+- Built-in issue tracker with priorities, labels, assignments, dependencies, and sub-issues
+- Shared knowledge base — high-importance entries auto-injected into agent prompts
+- Per-agent and project-scoped persistent memories
+- Direct messaging between agents
+
+**Operations**
+- Process lifecycle management with watchdog detection for stuck agents
+- Token budgets with tail-request avoidance to prevent runaway costs
+- Session persistence with auto-resumption and cooldown
+
+**Dashboard**
+- Real-time terminal via xterm.js + WebSocket
+- Issue management with full comment timelines
+- File upload, download, and preview (PDF, HTML)
+- Multi-user auth with role-based access control
+
+---
 
 ## Quick Start
 
 ### Prerequisites
 
 - Node.js >= 18
-- npm
 
-### Install & Run
+### Option 1: Global Install (recommended)
 
 ```bash
-# Install dependencies
+npm install -g agentopia
+agentopia
+```
+
+That's it. Open `http://localhost:4567`.
+
+```bash
+# CLI options
+agentopia --port 8080 --host 0.0.0.0 --db ./my-project.db --no-auth
+```
+
+### Option 2: Clone & Run
+
+```bash
+git clone https://github.com/fuzihaofzh/agentopia.git
+cd agentopia
 npm install
 
-# Development mode (auto-reload)
+# Development (auto-reload)
 npm run dev
 
 # Production
-npm run build
-npm start
+npm run build && npm start
 ```
 
-The server starts on `http://localhost:4567` by default. On first visit, you'll be prompted to create an admin account.
+On first visit, you'll be prompted to create an admin account.
 
-### Environment Variables
+### Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENTOPIA_PORT` | `4567` | Server port |
 | `AGENTOPIA_HOST` | `0.0.0.0` | Bind address |
-| `AGENTOPIA_DB_PATH` | `data/agentopia.db` | SQLite database path |
-| `AGENTOPIA_ORCHESTRATOR_ENGINE` | `langgraph` | Orchestration engine (`native` or `langgraph`) |
-| `AGENTOPIA_NO_AUTH` | `false` | Set to `true` to disable authentication |
+| `AGENTOPIA_DB_PATH` | `./agentopia.db` | SQLite database path |
+| `AGENTOPIA_ORCHESTRATOR_ENGINE` | `langgraph` | `native` or `langgraph` |
+| `AGENTOPIA_NO_AUTH` | `false` | Disable authentication |
 
-## Usage
+---
+
+## How It Works
 
 ### 1. Create a Project
+Define a project with a task description — this is the mission your agent team will tackle.
 
-From the dashboard, create a new project with a name and task description. The task description tells agents what they're working on.
+### 2. Set Up Your Team
+- Add a **Controller** agent — it reads the task, creates issues, and assigns work
+- Add **Worker** agents — each with a role, working directory, and optional custom instructions
+- Agents can be organized hierarchically (parent-child relationships)
 
-### 2. Add Agents
+### 3. Launch
+Start the controller. It will:
+1. Analyze the project task
+2. Decompose it into issues on the built-in tracker
+3. Assign issues to worker agents
+4. Start workers and monitor progress
+5. Coordinate until the project is complete
 
-Add agents to the project:
-- **Controller** — Orchestrates work, creates issues, assigns tasks to workers, monitors progress
-- **Workers** — Execute tasks assigned via issues, report progress through comments
+### 4. Monitor Everything
+The web dashboard gives you full visibility — real-time terminal output, issue timelines, knowledge base, file browser, and cost tracking.
 
-Each agent can have:
-- A custom role description
-- A working directory
-- Custom instructions
-- A parent agent (for hierarchical teams)
-- Session limits (max runs, max tokens)
+---
 
-### 3. Start the Controller
+## API Reference
 
-Start the controller agent. It will:
-1. Read the project task
-2. Decompose it into issues
-3. Create and assign issues to workers
-4. Start worker agents
-5. Monitor progress and coordinate
+Agents interact with the platform through REST APIs. All endpoints are under `/api`.
 
-### 4. Monitor
+<details>
+<summary><b>Projects</b></summary>
 
-Use the web dashboard to:
-- View real-time agent terminal output
-- Track issue status and comments
-- Browse the knowledge base
-- Manage files
-- View cost/token usage
+```
+GET    /api/projects              # List all projects
+POST   /api/projects              # Create project
+GET    /api/projects/:id          # Get project details
+PUT    /api/projects/:id          # Update project
+```
+</details>
 
-## API
+<details>
+<summary><b>Agents</b></summary>
 
-All endpoints are under `/api`. Agents interact with the platform through REST APIs (primarily via `curl` in their terminal sessions).
+```
+GET    /api/projects/:id/agents   # List agents in project
+POST   /api/projects/:id/agents   # Create agent
+POST   /api/agents/:id/start      # Start agent
+POST   /api/agents/:id/stop       # Stop agent
+PUT    /api/agents/:id            # Update agent config
+GET    /api/agents/:id/status     # Get agent status
+GET    /api/agents/:id/logs       # Get agent logs
+DELETE /api/agents/:id            # Delete agent
+```
+</details>
 
-### Projects
-- `GET /api/projects` — List projects
-- `POST /api/projects` — Create project
-- `GET /api/projects/:id` — Get project details
-- `PUT /api/projects/:id` — Update project
+<details>
+<summary><b>Issues</b></summary>
 
-### Agents
-- `GET /api/projects/:id/agents` — List agents
-- `POST /api/projects/:id/agents` — Create agent
-- `POST /api/agents/:id/start` — Start agent
-- `POST /api/agents/:id/stop` — Stop agent
-- `GET /api/agents/:id/status` — Agent status
-- `GET /api/agents/:id/logs` — Agent logs
+```
+GET    /api/projects/:id/issues   # List issues (?status=, ?assigned_to=)
+POST   /api/projects/:id/issues   # Create issue
+GET    /api/issues/:id            # Get issue + comments
+PUT    /api/issues/:id            # Update issue
+POST   /api/issues/:id/comments   # Add comment
+POST   /api/issues/:id/relations  # Add dependency
+```
+</details>
 
-### Issues
-- `GET /api/projects/:id/issues` — List issues (supports `?status=`, `?assigned_to=`)
-- `POST /api/projects/:id/issues` — Create issue
-- `GET /api/issues/:id` — Get issue with comments
-- `PUT /api/issues/:id` — Update issue
+<details>
+<summary><b>Knowledge Base</b></summary>
 
-### Knowledge
-- `GET /api/projects/:id/knowledge` — Query knowledge base
-- `POST /api/projects/:id/knowledge` — Add knowledge entry
+```
+GET    /api/projects/:id/knowledge   # Query (?q=, ?tag=, ?importance=)
+POST   /api/projects/:id/knowledge   # Add entry
+PUT    /api/knowledge/:id            # Update entry
+```
+</details>
 
-### Messages
-- `POST /api/agents/:id/messages/send` — Send message
-- `GET /api/agents/:id/messages` — Get messages
+<details>
+<summary><b>Messages & Memories</b></summary>
 
-## Development
+```
+POST   /api/agents/:id/messages/send   # Send message to another agent
+GET    /api/agents/:id/messages        # Get messages (?status=unread)
+PUT    /api/agents/:id/messages/:mid   # Mark as read
+POST   /api/agents/:id/memories        # Save memory
+GET    /api/agents/:id/memories        # Query memories (?q=)
+```
+</details>
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│              Web Dashboard (HTML/JS)             │
+│   Projects · Agents · Issues · Terminal · Files  │
+└────────────────────┬────────────────────────────┘
+                     │ HTTP + WebSocket
+┌────────────────────▼────────────────────────────┐
+│                Fastify Server                    │
+│                                                  │
+│  Routes ─── Auth ─── WebSocket                   │
+│    │                                             │
+│  Services                                        │
+│    ├── Orchestrator (Native / LangGraph)         │
+│    ├── Controller & Pre-Controller               │
+│    ├── ProcessManager (spawn, pty, lifecycle)     │
+│    ├── Scheduler (cron, watchdog)                │
+│    ├── Terminal (xterm.js bridge)                │
+│    └── Agent Hierarchy                           │
+│    │                                             │
+│  SQLite (better-sqlite3)                         │
+│    projects · agents · issues · knowledge ·      │
+│    memories · messages · users · sessions        │
+└──────────────────────────────────────────────────┘
+```
+
+**Tech Stack**: TypeScript · Fastify · SQLite · LangChain/LangGraph · xterm.js · WebSocket
+
+---
+
+## Contributing
+
+Contributions are welcome! Feel free to open issues or submit pull requests.
 
 ```bash
-# Run in dev mode with auto-reload
+# Dev mode with auto-reload
 npm run dev
 
-# Build TypeScript
+# Build
 npm run build
 
 # Run tests
 npm test
 ```
 
+---
+
 ## License
 
-MIT
+[MIT](LICENSE)
+
+---
+
+<div align="center">
+
+**Built for people who believe one agent is never enough.**
+
+[GitHub](https://github.com/fuzihaofzh/agentopia) · [npm](https://www.npmjs.com/package/agentopia)
+
+</div>

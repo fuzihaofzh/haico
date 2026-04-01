@@ -42,25 +42,7 @@ let shuttingDown = false;
 const agentFinalResultTime = new Map<string, number>();
 const FINAL_RESULT_KILL_DELAY_MS = 2 * 60 * 1000; // 2 minutes after Final Result → force kill
 
-// Track when agent last finished — used to prevent rapid restarts that produce low-output tail requests
-const agentLastFinishTime = new Map<string, number>();
-const RESTART_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes cooldown after finish before auto-restart
-
-// Track consecutive low-output runs per agent — auto-extend cooldown to avoid tail requests
-const agentLastOutputTokens = new Map<string, number>();
-const agentConsecutiveLowOutput = new Map<string, number>();
-const LOW_OUTPUT_THRESHOLD = 100; // output tokens below this = "low output"
-const EXTENDED_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes cooldown after consecutive low-output runs
-const MAX_CONSECUTIVE_LOW_OUTPUT = 2; // after 2+ consecutive low-output runs, block auto-restart entirely
-
-// Track whether agent completed all its assigned issues during the current/last run.
-// Set by markAgentIssuesCompleted() called from issue routes; cleared on next meaningful run.
-const agentCompletedAllIssues = new Set<string>();
-
-// Intra-session low-output detection: track consecutive small assistant messages
-// with no tool calls within a single run. When an agent produces multiple such
-// messages, it's doing useless "confirmation" tail rounds that waste tokens.
-const agentIntraSessionLowStreak = new Map<string, number>();
+const RESTART_COOLDOWN_MS = 0; // no cooldown — restart immediately when issues are assigned
 const INTRA_LOW_OUTPUT_KILL_THRESHOLD = 2; // 2 consecutive low-output assistant turns → terminate
 const INTRA_LOW_OUTPUT_CHAR_LIMIT = 200;   // assistant text below this = "low output"
 const TOOL_INPUT_LOG_CHAR_LIMIT = 4000;    // large enough for expandable UI without storing unbounded payloads
@@ -121,8 +103,7 @@ export function classifyAgentExitStatus(input: {
   sawClosedStdinSessionError: boolean;
   sawCompletionSignal: boolean;
   hadFinalResult: boolean;
-}): 'idle' | 'error' | 'stopped' {
-  if (input.currentStatus === 'stopped') return 'stopped';
+}): 'idle' | 'error' {
   if (input.hadFinalResult) return 'idle';
   if (input.exitCode !== 0 || input.sawClosedStdinSessionError) return 'error';
   if (!input.requiresCompletionSignal) return 'idle';
@@ -409,25 +390,8 @@ export function startAgentProcess(
           }
         }
 
-        // Intra-session tail detection: track consecutive low-output assistant turns
-        // that have no tool calls (pure "confirmation" text with little substance)
-        if (!hasToolUse && totalTextLen < INTRA_LOW_OUTPUT_CHAR_LIMIT) {
-          const streak = (agentIntraSessionLowStreak.get(agent.id) || 0) + 1;
-          agentIntraSessionLowStreak.set(agent.id, streak);
-          // More aggressive threshold when agent already completed all its issues
-          const killThreshold = agentCompletedAllIssues.has(agent.id) ? 1 : INTRA_LOW_OUTPUT_KILL_THRESHOLD;
-          if (streak >= killThreshold && isAgentRunning(agent.id)) {
-            logger.info(`Agent ${agent.id} hit ${streak} consecutive low-output assistant turns (< ${INTRA_LOW_OUTPUT_CHAR_LIMIT} chars, no tools, issuesDone=${agentCompletedAllIssues.has(agent.id)}), terminating session tail`);
-            logAndBroadcast(`\n[Agentopia] Session terminated: ${streak} consecutive low-output turns detected (tail request avoidance)\n`, 'stderr');
-            agentIntraSessionLowStreak.delete(agent.id);
-            // Set 'stopped' so close handler won't mark as error, preserving session for reuse
-            db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
-            stopAgentProcess(agent.id);
-          }
-        } else {
-          // Substantial output or tool use — reset streak
-          agentIntraSessionLowStreak.delete(agent.id);
-        }
+        // No intra-session output policing — as long as an agent has assigned
+        // issues, it should be allowed to run regardless of output length.
       } else if (!handled && obj.type === 'user' && obj.tool_use_result !== undefined) {
         handled = true;
         const raw = obj.tool_use_result;
@@ -439,8 +403,6 @@ export function startAgentProcess(
         // Mark that this agent has produced its final result — watchdog will force-kill
         // if the process doesn't exit within FINAL_RESULT_KILL_DELAY_MS (child curl stuck etc.)
         agentFinalResultTime.set(agent.id, Date.now());
-        // Track output tokens for low-output detection (tail request avoidance)
-        agentLastOutputTokens.set(agent.id, obj.usage?.output_tokens || 0);
         if (obj.result) {
           logAndBroadcast('\n--- Final Result ---\n' + obj.result + '\n', 'stdout');
         }
@@ -516,7 +478,6 @@ export function startAgentProcess(
     childCpuSnapshots.delete(agent.id);
     const hadFinalResult = agentFinalResultTime.has(agent.id);
     agentFinalResultTime.delete(agent.id);
-    agentIntraSessionLowStreak.delete(agent.id);
     cleanupPromptFile(promptFile);
 
     // Skip DB writes if database is already closed (during shutdown)
@@ -535,10 +496,12 @@ export function startAgentProcess(
     const wasApiConnectError = agentLastErrorWasApiConnect.get(agent.id) || false;
     agentLastErrorWasApiConnect.delete(agent.id);
 
-    // If agent was explicitly stopped, preserve 'stopped' status
     const currentAgent = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as { status: string } | undefined;
-    const status = classifyAgentExitStatus({
-      currentStatus: currentAgent?.status,
+    // If already set to idle (e.g. by tail-kill), keep it
+    if (currentAgent?.status === 'idle') {
+      // skip classifyAgentExitStatus — already handled
+    }
+    const status = currentAgent?.status === 'idle' ? 'idle' : classifyAgentExitStatus({
       exitCode: code,
       requiresCompletionSignal,
       sawClosedStdinSessionError,
@@ -625,18 +588,6 @@ export function startAgentProcess(
       // Success — reset error counts and record finish time for cooldown
       agentErrorCount.delete(agent.id);
       agentApiConnectErrorCount.delete(agent.id);
-      agentLastFinishTime.set(agent.id, Date.now());
-
-      // Track consecutive low-output runs to avoid tail request waste
-      const lastOutput = agentLastOutputTokens.get(agent.id) || 0;
-      agentLastOutputTokens.delete(agent.id);
-      if (lastOutput > 0 && lastOutput < LOW_OUTPUT_THRESHOLD) {
-        const count = (agentConsecutiveLowOutput.get(agent.id) || 0) + 1;
-        agentConsecutiveLowOutput.set(agent.id, count);
-        logger.info(`Agent ${agent.id} low-output run (${lastOutput} tokens), consecutive count: ${count}`);
-      } else {
-        agentConsecutiveLowOutput.delete(agent.id);
-      }
 
       db.prepare(`
         UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now') WHERE id = ?
@@ -664,7 +615,6 @@ export function startAgentProcess(
     lastActivityTime.delete(agent.id);
     childCpuSnapshots.delete(agent.id);
     agentFinalResultTime.delete(agent.id);
-    agentIntraSessionLowStreak.delete(agent.id);
     cleanupPromptFile(promptFile);
 
     if (shuttingDown || !isDatabaseOpen()) {
@@ -833,56 +783,13 @@ export function resetAgentActivity(agentId: string): void {
   lastActivityTime.set(agentId, Date.now());
 }
 
-export { DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS, RESTART_COOLDOWN_MS, MAX_CONSECUTIVE_LOW_OUTPUT };
+export { DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS, RESTART_COOLDOWN_MS };
 
 /** Returns true if the agent recently finished and should not be auto-restarted yet.
  *  Uses extended cooldown (10 min) if the last run had very low output tokens,
- *  indicating a "tail request" that didn't produce useful work. */
-export function isAgentInCooldown(agentId: string): boolean {
-  const t = agentLastFinishTime.get(agentId);
-  if (!t) return false;
-  const elapsed = Date.now() - t;
-  const consecutiveLow = agentConsecutiveLowOutput.get(agentId) || 0;
-  const cooldown = consecutiveLow > 0 ? EXTENDED_COOLDOWN_MS : RESTART_COOLDOWN_MS;
-  return elapsed < cooldown;
-}
-
-/**
- * Called from issue routes when a running agent marks all its assigned issues as done/closed.
- * Signals that the agent's work is complete — subsequent low-output turns are likely tail requests.
- */
-export function markAgentIssuesCompleted(agentId: string): void {
-  agentCompletedAllIssues.add(agentId);
-  logger.info(`Agent ${agentId} marked as having completed all assigned issues`);
-}
-
-/**
- * Returns true if the agent should NOT be auto-restarted by scheduler/pre-controller.
- * Blocks restart when:
- * 1. Agent had 2+ consecutive low-output runs (clearly just doing tail confirmations)
- * 2. Agent completed all issues AND had a low-output last run (work is done)
- * The flag is cleared when new issues are assigned (checked externally).
- */
-export function shouldSkipAutoRestart(agentId: string): boolean {
-  const consecutiveLow = agentConsecutiveLowOutput.get(agentId) || 0;
-  if (consecutiveLow >= MAX_CONSECUTIVE_LOW_OUTPUT) {
-    logger.info(`Skipping auto-restart for agent ${agentId}: ${consecutiveLow} consecutive low-output runs`);
-    return true;
-  }
-  if (agentCompletedAllIssues.has(agentId) && consecutiveLow > 0) {
-    logger.info(`Skipping auto-restart for agent ${agentId}: completed all issues + low-output last run`);
-    return true;
-  }
+ *  Currently disabled — agents restart immediately when they have assigned issues. */
+export function isAgentInCooldown(_agentId: string): boolean {
   return false;
-}
-
-/**
- * Reset the auto-restart skip state for an agent.
- * Called when new issues are assigned or agent state changes meaningfully.
- */
-export function resetAutoRestartSkip(agentId: string): void {
-  agentConsecutiveLowOutput.delete(agentId);
-  agentCompletedAllIssues.delete(agentId);
 }
 
 /**

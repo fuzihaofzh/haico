@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
-import { startAgentProcess, isAgentRunning, markAgentIssuesCompleted, resetAutoRestartSkip } from '../services/process-manager';
+import { startAgentProcess, isAgentRunning } from '../services/process-manager';
 import { buildSystemPrompt } from '../services/system-prompt';
 import { triggerControllerAgent } from '../services/controller';
 import { tryHandleWithoutLLM } from '../services/pre-controller';
@@ -243,11 +243,6 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         data: { issue: created },
       });
 
-      // Reset auto-restart skip when new issue is assigned to an agent
-      if (assigned_to && assigned_to !== 'user' && assigned_to !== 'all') {
-        resetAutoRestartSkip(assigned_to);
-      }
-
       // Auto-start assigned agent when user creates issue
       if (created_by === 'user' && assigned_to && assigned_to !== 'user' && assigned_to !== 'all') {
         const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(assigned_to) as Agent | undefined;
@@ -384,10 +379,6 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         const agentRow = assigned_to ? db.prepare('SELECT name FROM agents WHERE id = ?').get(assigned_to) as { name: string } | undefined : null;
         const assigneeName = agentRow ? agentRow.name : (assigned_to || 'nobody');
         eventStmt.run(uuidv4(), request.params.id, actorId, `assigned to ${assigneeName}`, 'assignment', JSON.stringify({ from: existing.assigned_to, to: assigned_to }));
-        // Reset auto-restart skip when new work is assigned to an agent
-        if (assigned_to && assigned_to !== 'user' && assigned_to !== 'all') {
-          resetAutoRestartSkip(assigned_to);
-        }
       }
       if (labels !== undefined && labels !== existing.labels) {
         eventStmt.run(uuidv4(), request.params.id, actorId, `changed labels`, 'label_change', JSON.stringify({ from: existing.labels, to: labels }));
@@ -416,19 +407,6 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         type: 'issue_updated', projectId: updated.project_id,
         data: { issue: updated },
       });
-
-      // Tail request avoidance: when a running agent marks an issue done/closed,
-      // check if it has any remaining open/in_progress issues. If none remain,
-      // signal that its task is complete so intra-session low-output detection
-      // can use a more aggressive threshold (kill after 1 low-output turn).
-      if ((status === 'done' || status === 'closed') && actorId !== 'user' && isAgentRunning(actorId)) {
-        const remainingIssues = db.prepare(
-          "SELECT 1 FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') LIMIT 1"
-        ).get(updated.project_id, actorId);
-        if (!remainingIssues) {
-          markAgentIssuesCompleted(actorId);
-        }
-      }
 
       // When child issue completed, check siblings and update parent
       if ((status === 'done' || status === 'closed') && updated.parent_id) {

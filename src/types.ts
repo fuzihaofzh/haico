@@ -37,7 +37,7 @@ export interface Agent {
   session_max_tokens: number;
   session_resume_timeout: number;
   command_template: string | null;
-  status: 'idle' | 'running' | 'waiting' | 'error' | 'stopped';
+  status: 'idle' | 'running' | 'waiting' | 'error';
   paused: boolean;
   pid: number | null;
   last_prompt: string | null;

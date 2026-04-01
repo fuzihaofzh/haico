@@ -1,6 +1,6 @@
 {
   "name": "agentopia",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Multi-Agent Collaboration Platform",
   "repository": {
     "type": "git",
@@ -8,6 +8,9 @@
   },
   "homepage": "https://github.com/fuzihaofzh/agentopia",
   "license": "MIT",
+  "bin": {
+    "agentopia": "bin/agentopia.js"
+  },
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -25,10 +28,7 @@
     "fastify": "^5.2.0",
     "marked": "^17.0.5",
     "node-cron": "^3.0.3",
-    "node-pty": "^1.1.0",
-    "uuid": "^11.1.0",
-    "xterm": "^5.3.0",
-    "xterm-addon-fit": "^0.8.0"
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
@@ -40,5 +40,8 @@
     "nodemon": "^3.1.14",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
   }
 }

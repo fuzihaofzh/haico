@@ -3,7 +3,7 @@ import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
 import { triggerControllerAgent } from './controller';
 import { tryHandleWithoutLLM } from './pre-controller';
-import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, isAgentInCooldown, shouldSkipAutoRestart, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
+import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, isAgentInCooldown, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
 import { buildSystemPrompt } from './system-prompt';
 import { config } from '../config';
@@ -100,7 +100,6 @@ function startIssueScan(): void {
           // Cooldown: skip agents that just finished to avoid low-output tail restarts
           if (isAgentInCooldown(worker.id)) continue;
           // Skip agents with consecutive low-output runs (tail request avoidance)
-          if (shouldSkipAutoRestart(worker.id)) continue;
           try {
             // Build prompt same as /api/agents/:id/start
             const parts: string[] = [];
@@ -204,17 +203,8 @@ function startWatchdog(): void {
               "INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'stderr')"
             ).run(agent.id, '', `[Agentopia] Watchdog: process force-killed — Final Result received ${ageMin} min ago but child process stuck`);
             clearCpuSnapshot(agent.id);
-            db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
+            db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
             stopAgentProcess(agent.id);
-            const t1 = setTimeout(() => {
-              pendingWatchdogTimers.delete(t1);
-              if (!isDatabaseOpen()) return;
-              const current = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as any;
-              if (current?.status === 'stopped') {
-                db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
-              }
-            }, 10000);
-            pendingWatchdogTimers.add(t1);
             continue;
           }
 
@@ -246,24 +236,8 @@ function startWatchdog(): void {
             db.prepare(
               "INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'stderr')"
             ).run(agent.id, '', `[Agentopia] Watchdog: process killed after ${idleMin} minutes with no output`);
-            // Set to 'idle' before killing. The close handler will see status != 'running'
-            // (since we set idle here) and will keep it as idle (code 0 → idle, code != 0
-            // but status already idle → close handler reads current status and respects
-            // 'stopped'; for 'idle' it would set error). So we use 'stopped' to prevent
-            // error, then reset to idle after stop completes.
-            db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
+            db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
             stopAgentProcess(agent.id);
-            // After close handler fires (preserving 'stopped'), reset to idle so agent
-            // can be re-dispatched by issue scan
-            const t2 = setTimeout(() => {
-              pendingWatchdogTimers.delete(t2);
-              if (!isDatabaseOpen()) return;
-              const current = db.prepare('SELECT status FROM agents WHERE id = ?').get(agent.id) as any;
-              if (current?.status === 'stopped') {
-                db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
-              }
-            }, 10000);
-            pendingWatchdogTimers.add(t2);
           }
         } else {
           // DB says running but process is gone — orphaned state (e.g., Agentopia restarted)

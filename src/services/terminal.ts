@@ -1,4 +1,4 @@
-import * as pty from 'node-pty';
+
 import path from 'path';
 import os from 'os';
 import { getDatabase } from '../db/database';
@@ -6,8 +6,11 @@ import { Agent } from '../types';
 import { config } from '../config';
 import logger from '../logger';
 
+let pty: typeof import('node-pty') | null = null;
+try { pty = require('node-pty'); } catch { logger.warn('node-pty not available'); }
+
 export interface PtySession {
-  pty: pty.IPty;
+  pty: import('node-pty').IPty;
   agentId: string;
   createdAt: number;
   outputBuffer: string;
@@ -82,6 +85,10 @@ export function getOrCreatePtySession(
   cols: number = 120,
   rows: number = 30
 ): PtySession {
+  if (!pty) {
+    throw new Error('Interactive terminal not available (node-pty not installed)');
+  }
+
   if (!newSession && ptySessions.has(agentId)) {
     return ptySessions.get(agentId)!;
   }
@@ -140,7 +147,7 @@ export function getOrCreatePtySession(
   };
 
   const finalArgs = [...baseArgs, ...sessionArgs];
-  let ptyProcess: pty.IPty;
+  let ptyProcess: import('node-pty').IPty;
 
   if (needsShellExecution(commandTemplate)) {
     const escapeArg = (arg: string): string => "'" + arg.replace(/'/g, "'\\''") + "'";
@@ -170,7 +177,7 @@ export function getOrCreatePtySession(
 
   ptySessions.set(agentId, session);
 
-  ptyProcess.onExit(({ exitCode }) => {
+  ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
     logger.info(`PTY for agent ${agentId} exited with code ${exitCode}`);
     ptySessions.delete(agentId);
   });
