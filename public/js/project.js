@@ -6,6 +6,8 @@ let agentOutputPollTimer = null;
 let agentOutputPollingAgentId = null;
 let agentOutputRefreshInFlight = false;
 let projectMembersData = [];
+let projectFilesAgentId = '';
+let projectFilesPanel = null;
 const AGENT_OUTPUT_POLL_MS = 2000;
 
 const PROJECT_ACCESS_META = {
@@ -174,6 +176,10 @@ function applyProjectManageState() {
   if (overviewReadonlyHint) {
     overviewReadonlyHint.style.display = canManage ? 'none' : '';
     overviewReadonlyHint.textContent = canManage ? '' : 'Shared members can view the project overview, but project settings and sharing are read-only.';
+  }
+
+  if (projectFilesPanel) {
+    projectFilesPanel.setWriteEnabled(canManage);
   }
 }
 
@@ -629,6 +635,7 @@ async function loadAgents() {
     .then(results => { window._dashboardIssues = results.flatMap(d => d.issues || []); renderAgentGraph(); })
     .catch(() => renderAgentGraph());
 
+  syncProjectFilesAgents();
   loadOrchestrationRuns();
 }
 
@@ -1478,8 +1485,9 @@ function switchTab(tab) {
   document.getElementById('tab-activity').style.display = tab === 'activity' ? '' : 'none';
   document.getElementById('tab-git').style.display = tab === 'git' ? '' : 'none';
   document.getElementById('tab-knowledge').style.display = tab === 'knowledge' ? '' : 'none';
+  document.getElementById('tab-files').style.display = tab === 'files' ? '' : 'none';
   // Update breadcrumb section
-  const sectionNames = { overview: '', agents: 'Agents', issues: 'Issues', activity: 'Activity', git: 'Git', knowledge: 'Knowledge' };
+  const sectionNames = { overview: '', agents: 'Agents', issues: 'Issues', activity: 'Activity', git: 'Git', knowledge: 'Knowledge', files: 'Files' };
   const sectionEl = document.getElementById('breadcrumb-section');
   if (sectionEl) {
     sectionEl.textContent = sectionNames[tab] ? ' / ' + sectionNames[tab] : '';
@@ -1492,7 +1500,92 @@ function switchTab(tab) {
   if (tab === 'activity') loadActivity();
   if (tab === 'git') loadGitTab();
   if (tab === 'knowledge') loadKnowledge();
+  if (tab === 'files') loadProjectFilesTab();
 }
+
+function ensureProjectFilesPanel() {
+  if (projectFilesPanel || !window.ArgusFilesPanel) return;
+  projectFilesPanel = window.ArgusFilesPanel.create({
+    publicApiName: 'ProjectFiles',
+    shellId: 'project-files-shell',
+    treeId: 'project-file-tree',
+    rootLabelId: 'project-files-root-label',
+    noteId: 'project-files-note',
+    currentPathId: 'project-file-current-path',
+    saveButtonId: 'project-file-save-btn',
+    bannerId: 'project-file-editor-banner',
+    statusId: 'project-file-editor-status',
+    editorId: 'project-file-editor',
+    showHiddenId: 'project-file-show-hidden',
+    canWrite: canManageProject(),
+    isVisible: () => {
+      const tab = document.getElementById('tab-files');
+      return !!tab && tab.style.display !== 'none';
+    },
+  });
+  window.ProjectFiles = projectFilesPanel;
+}
+
+function getProjectFilesAgent() {
+  return agentsData.find((agent) => agent.id === projectFilesAgentId) || null;
+}
+
+function syncProjectFilesAgents() {
+  ensureProjectFilesPanel();
+  const select = document.getElementById('project-files-agent');
+  if (!select) return;
+
+  if (!agentsData.length) {
+    select.innerHTML = '<option value="">No agents available</option>';
+    select.disabled = true;
+    projectFilesAgentId = '';
+    if (projectFilesPanel) projectFilesPanel.setAgent(null);
+    return;
+  }
+
+  const previousAgentId = projectFilesAgentId;
+  const options = agentsData.map((agent) => {
+    const suffix = agent.is_controller ? ' [controller]' : '';
+    return `<option value="${agent.id}">${esc(agent.name)}${suffix}</option>`;
+  }).join('');
+
+  select.innerHTML = `<option value="">Select an agent</option>${options}`;
+  select.disabled = false;
+
+  let nextAgentId = previousAgentId;
+  if (!nextAgentId || !agentsData.some((agent) => agent.id === nextAgentId)) {
+    const preferredAgent = agentsData.find((agent) => agent.id === currentAgentId)
+      || agentsData.find((agent) => !!agent.working_directory)
+      || agentsData[0];
+    nextAgentId = preferredAgent?.id || '';
+  }
+
+  projectFilesAgentId = nextAgentId;
+  select.value = nextAgentId || '';
+  if (projectFilesPanel) {
+    projectFilesPanel.setWriteEnabled(canManageProject());
+    projectFilesPanel.setAgent(getProjectFilesAgent());
+  }
+}
+
+function handleProjectFilesAgentChange(agentId) {
+  projectFilesAgentId = agentId || '';
+  if (projectFilesPanel) {
+    projectFilesPanel.setAgent(getProjectFilesAgent());
+    projectFilesPanel.activate();
+  }
+}
+
+function loadProjectFilesTab() {
+  ensureProjectFilesPanel();
+  syncProjectFilesAgents();
+  if (projectFilesPanel) {
+    projectFilesPanel.setWriteEnabled(canManageProject());
+    projectFilesPanel.activate();
+  }
+}
+
+window.handleProjectFilesAgentChange = handleProjectFilesAgentChange;
 
 async function loadActivity() {
   const container = document.getElementById('activity-list');
@@ -2281,6 +2374,6 @@ _projectEvents.on('comment_added', function() {
 
 // Handle hash navigation (e.g., #issues or #agents from dashboard)
 const hash = window.location.hash.replace('#', '');
-if (['overview', 'agents', 'issues', 'activity', 'git'].includes(hash)) {
+if (['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files'].includes(hash)) {
   setTimeout(() => switchTab(hash), 500);
 }

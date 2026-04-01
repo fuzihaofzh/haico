@@ -160,7 +160,6 @@
     <div class="card workspace-card">
       <div class="workspace-tabs" role="tablist" aria-label="Agent workspace panels">
         <button class="workspace-tab active" type="button" data-panel="terminal" onclick="switchAgentWorkspace('terminal')">Terminal</button>
-        <button class="workspace-tab" type="button" data-panel="files" onclick="switchAgentWorkspace('files')">Files</button>
       </div>
 
       <div id="workspace-terminal-panel" class="workspace-panel active">
@@ -171,44 +170,6 @@
         <div id="terminal" class="terminal-container"></div>
         <div id="thinking-indicator" style="display:none" class="thinking-bar">
           <span class="thinking-spinner">✦</span> Agent is thinking...
-        </div>
-      </div>
-
-      <div id="workspace-files-panel" class="workspace-panel" hidden>
-        <div id="files-workdir-note" class="file-panel-note" style="display:none"></div>
-        <div id="files-shell" class="files-shell">
-          <aside id="file-browser-pane" class="file-browser-pane">
-            <div class="file-browser-toolbar">
-              <div>
-                <div class="file-pane-label">Working Directory</div>
-                <div id="file-browser-root-label" class="file-browser-root">Not configured</div>
-              </div>
-              <label class="file-hidden-toggle">
-                <input type="checkbox" id="file-show-hidden" onchange="AgentFiles.toggleHiddenFiles(this.checked)">
-                <span>Show hidden</span>
-              </label>
-            </div>
-            <div id="file-tree" class="file-tree">
-              <div class="empty-state" style="padding:24px 12px">Open the Files tab to load the directory tree.</div>
-            </div>
-          </aside>
-
-          <section class="file-editor-pane">
-            <div class="file-editor-toolbar">
-              <button class="btn btn-sm file-mobile-browse" type="button" onclick="AgentFiles.showBrowser()">Browse</button>
-              <div class="file-editor-meta">
-                <div class="file-pane-label">Current File</div>
-                <div id="file-current-path" class="file-current-path">No file selected</div>
-              </div>
-              <div class="file-editor-actions">
-                <span class="file-save-hint">Ctrl+S</span>
-                <button class="btn btn-sm btn-primary" id="file-save-btn" type="button" onclick="AgentFiles.saveCurrentFile()" disabled>Save</button>
-              </div>
-            </div>
-            <div id="file-editor-banner" class="file-editor-banner" hidden></div>
-            <div id="file-editor-status" class="file-editor-status">Select a file to preview and edit it.</div>
-            <div id="file-editor" class="file-editor-surface"></div>
-          </section>
         </div>
       </div>
     </div>

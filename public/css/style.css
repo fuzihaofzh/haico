@@ -449,6 +449,26 @@ header h1 span { color: var(--accent); }
   font-size: 11px;
 }
 
+.file-browser-toolbar-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.file-toolbar-group {
+  min-width: 0;
+}
+
+.files-agent-select {
+  margin-top: 4px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  width: 100%;
+}
+
 .file-tree {
   flex: 1;
   overflow: auto;
@@ -593,6 +613,15 @@ header h1 span { color: var(--accent); }
   .files-shell {
     grid-template-columns: 1fr;
     min-height: 0;
+  }
+
+  .file-browser-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .file-hidden-toggle {
+    width: 100%;
   }
 
   .file-mobile-browse {

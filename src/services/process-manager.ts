@@ -85,6 +85,28 @@ function cleanupPromptFile(fp: string): void {
   }
 }
 
+function detachChildProcessIo(child: ChildProcess | undefined): void {
+  if (!child) return;
+
+  for (const stream of [child.stdin, child.stdout, child.stderr]) {
+    if (!stream) continue;
+    try {
+      if (typeof (stream as any).unref === 'function') {
+        (stream as any).unref();
+      }
+    } catch {}
+    try {
+      if (!(stream as any).destroyed && typeof stream.destroy === 'function') {
+        stream.destroy();
+      }
+    } catch {}
+  }
+
+  try {
+    child.unref();
+  } catch {}
+}
+
 export type OnAgentFinishCallback = (agent: Agent, exitCode: number | null) => void;
 let onAgentFinish: OnAgentFinishCallback | null = null;
 
@@ -773,12 +795,14 @@ export function stopAgentProcess(agentId: string): boolean {
     if (runningProcesses.has(agentId)) {
       logger.info(`stopAgentProcess: sending SIGKILL to agent ${agentId} (pid=${child.pid})`);
       child.kill('SIGKILL');
+      detachChildProcessIo(child);
       // Force cleanup after 3 more seconds — grandchild processes may hold
       // stdio pipes open, preventing the 'close' event from ever firing.
       const cleanupTimer = setTimeout(() => {
         pendingStopTimers.delete(cleanupTimer);
         if (runningProcesses.has(agentId)) {
           logger.info(`Force cleanup: agent ${agentId} close event not fired after SIGKILL, cleaning up`);
+          detachChildProcessIo(child);
           runningProcesses.delete(agentId);
           lastActivityTime.delete(agentId);
         }
@@ -929,6 +953,7 @@ export function stopAllProcesses(): Promise<void> {
             try { process.kill(dpid, 'SIGKILL'); } catch {}
           }
           child.kill('SIGKILL');
+          detachChildProcessIo(child);
         }
       }
     }, 3000);
@@ -937,6 +962,7 @@ export function stopAllProcesses(): Promise<void> {
     forceCleanupTimer = setTimeout(() => {
       for (const agentId of agentIds) {
         if (runningProcesses.has(agentId)) {
+          detachChildProcessIo(runningProcesses.get(agentId));
           logger.info(`Force cleanup: agent ${agentId} close event not fired during stopAll, cleaning up`);
           runningProcesses.delete(agentId);
           lastActivityTime.delete(agentId);
