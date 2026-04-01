@@ -115,6 +115,7 @@
       this.state.selectedFilePath = '';
       this.state.originalContent = '';
       this.state.dirty = false;
+      this.removePreviewIframe();
       this.updateCurrentFileLabel();
       this.updateSaveButton();
       this.setStatus(this.state.agent ? 'Select a file to preview and edit it.' : 'Select an agent to browse files.');
@@ -161,10 +162,17 @@
       label.textContent = this.state.selectedFilePath ? `${this.state.selectedFilePath}${this.state.dirty ? ' *' : ''}` : 'No file selected';
     }
 
+    getPreviewMode(filePath) {
+      const ext = (filePath.split('.').pop() || '').toLowerCase();
+      if (ext === 'pdf') return 'pdf';
+      if (ext === 'html' || ext === 'htm') return 'html';
+      return 'text';
+    }
+
     updateSaveButton() {
       const button = this.el('saveButtonId');
       if (!button) return;
-      button.disabled = this.state.saving || !this.state.canWrite || !this.state.selectedFilePath || !this.state.agent?.working_directory || !this.state.editor;
+      button.disabled = this.state.saving || !this.state.canWrite || !this.state.selectedFilePath || !this.state.agent?.working_directory || !this.state.editor || this.state.previewMode;
     }
 
     ensureEditorContainerReady() {
@@ -373,18 +381,72 @@
       shell.classList.toggle('mobile-editor-focus', shouldFocus && this.isNarrowViewport());
     }
 
+    removePreviewIframe() {
+      const editorEl = this.el('editorId');
+      if (!editorEl) return;
+      const existing = editorEl.querySelector('.files-preview-iframe');
+      if (existing) existing.remove();
+      // Restore Monaco editor visibility if hidden
+      if (this.state.editor) {
+        this.state.editor.getDomNode().style.display = '';
+      }
+      this.state.previewMode = null;
+    }
+
+    showPreviewIframe(filePath, mode) {
+      const editorEl = this.el('editorId');
+      if (!editorEl) return;
+
+      // Hide Monaco editor if it exists
+      if (this.state.editor) {
+        this.state.editor.getDomNode().style.display = 'none';
+      }
+
+      // Remove any existing iframe
+      const existing = editorEl.querySelector('.files-preview-iframe');
+      if (existing) existing.remove();
+
+      const src = `/api/agents/${this.getAgentId()}/files/serve?path=${encodeURIComponent(filePath)}`;
+      const iframe = document.createElement('iframe');
+      iframe.className = 'files-preview-iframe';
+      iframe.style.cssText = 'width:100%;height:100%;border:none;background:#fff;';
+      iframe.src = src;
+      if (mode === 'html') {
+        iframe.sandbox = 'allow-same-origin';
+      }
+      editorEl.appendChild(iframe);
+      this.state.previewMode = mode;
+    }
+
     async openFile(filePath) {
       if (!this.state.agent?.working_directory || !this.getAgentId()) return;
 
       this.state.selectedFilePath = filePath;
       this.state.dirty = false;
+      this.state.previewMode = null;
       this.updateCurrentFileLabel();
       this.updateSaveButton();
       this.setStatus(`Loading ${filePath}...`);
       this.hideBanner();
       this.renderTree();
 
+      const mode = this.getPreviewMode(filePath);
+
+      if (mode === 'pdf' || mode === 'html') {
+        // Preview mode: use iframe instead of Monaco
+        this.removePreviewIframe();
+        this.showPreviewIframe(filePath, mode);
+        this.updateSaveButton();
+        const label = mode === 'pdf' ? 'PDF' : 'HTML';
+        this.setStatus(`Preview: ${filePath}`);
+        this.showBanner(`${label} preview: ${filePath}`, '');
+        this.renderTree();
+        this.applyMobileEditorFocus(true);
+        return;
+      }
+
       try {
+        this.removePreviewIframe();
         const monaco = await this.ensureMonaco();
         this.createEditor(monaco);
 

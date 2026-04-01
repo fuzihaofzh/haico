@@ -595,6 +595,57 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     }
   });
 
+  // Serve files directly with correct Content-Type (for PDF/HTML preview in iframe)
+  const MAX_SERVE_FILE_SIZE = 10 * 1024 * 1024; // 10 MB for binary previews
+  const SERVE_CONTENT_TYPES: Record<string, string> = {
+    '.pdf': 'application/pdf',
+    '.html': 'text/html; charset=utf-8',
+    '.htm': 'text/html; charset=utf-8',
+  };
+
+  fastify.get<{ Params: { id: string }; Querystring: { path?: string } }>('/api/agents/:id/files/serve', async (request, reply) => {
+    const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
+    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
+    if (!agent) return reply.code(404).send({ error: 'Agent not found' });
+    if (!request.query.path) return reply.code(400).send({ error: 'path is required' });
+
+    let resolvedPath;
+    try {
+      resolvedPath = resolveAgentFilesystemPath(agent, request.query.path);
+    } catch (error) {
+      return sendAgentFilePathError(reply, error);
+    }
+
+    try {
+      const targetStat = await fs.stat(resolvedPath.targetPath);
+      if (!targetStat.isFile()) {
+        return reply.code(400).send({ error: 'Target path is not a file' });
+      }
+      if (targetStat.size > MAX_SERVE_FILE_SIZE) {
+        return reply.code(413).send({ error: 'File exceeds the 10 MB limit' });
+      }
+
+      const ext = path.extname(resolvedPath.targetPath).toLowerCase();
+      const contentType = SERVE_CONTENT_TYPES[ext];
+      if (!contentType) {
+        return reply.code(415).send({ error: 'Only PDF and HTML files can be served for preview' });
+      }
+
+      const buffer = await fs.readFile(resolvedPath.targetPath);
+
+      // For HTML files, add CSP to prevent script execution
+      if (ext === '.html' || ext === '.htm') {
+        reply.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:");
+      }
+
+      return reply.type(contentType).send(buffer);
+    } catch (error) {
+      return sendAgentFileSystemError(reply, error);
+    }
+  });
+
   fastify.put<{ Params: { id: string }; Body: { path?: string; content?: string } }>('/api/agents/:id/files/content', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id, true);

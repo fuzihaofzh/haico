@@ -118,5 +118,8 @@ export async function destroyApp(fastify: FastifyInstance): Promise<void> {
   clearAllPtyCleanupTimers();
   killAllPtySessions();
   await fastify.close();
+  // Unref the underlying HTTP server so it doesn't keep the event loop alive
+  // after close (Fastify's close() stops listening but the handle remains ref'd)
+  fastify.server.unref();
   closeDatabase();
 }

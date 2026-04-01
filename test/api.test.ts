@@ -1885,6 +1885,8 @@ describe('Argus API', () => {
       fs.writeFileSync(path.join(tmpDir, '.hidden.txt'), 'hidden');
       fs.writeFileSync(path.join(tmpDir, 'nested', 'child.ts'), 'export const value = 1;\n');
       fs.writeFileSync(path.join(tmpDir, 'binary.bin'), Buffer.from([0, 1, 2, 3]));
+      fs.writeFileSync(path.join(tmpDir, 'test.html'), '<html><body><h1>Hello</h1></body></html>');
+      fs.writeFileSync(path.join(tmpDir, 'test.pdf'), '%PDF-1.4 fake pdf content');
 
       const fileAgent = await api(app, `/api/projects/${projectId}/agents`, {
         method: 'POST',
@@ -1958,6 +1960,43 @@ describe('Argus API', () => {
       assert.equal(update.status, 200);
       assert.equal(update.body.path, 'visible.txt');
       assert.equal(fs.readFileSync(path.join(tmpDir, 'visible.txt'), 'utf-8'), 'updated content\n');
+    });
+
+    it('serves HTML files with correct content-type and CSP header', async () => {
+      const res = await inject(app, { url: `/api/agents/${fileAgentId}/files/serve?path=${encodeURIComponent('test.html')}` });
+      assert.equal(res.statusCode, 200);
+      assert.ok(String(res.headers['content-type']).includes('text/html'));
+      assert.ok(String(res.headers['content-security-policy']).includes("default-src 'none'"));
+      assert.ok(res.body.includes('<h1>Hello</h1>'));
+    });
+
+    it('serves PDF files with correct content-type', async () => {
+      const res = await inject(app, { url: `/api/agents/${fileAgentId}/files/serve?path=${encodeURIComponent('test.pdf')}` });
+      assert.equal(res.statusCode, 200);
+      assert.ok(String(res.headers['content-type']).includes('application/pdf'));
+      assert.ok(res.body.includes('%PDF'));
+    });
+
+    it('rejects non-PDF/HTML files from serve endpoint', async () => {
+      const { status, body } = await api(app, `/api/agents/${fileAgentId}/files/serve?path=${encodeURIComponent('visible.txt')}`);
+      assert.equal(status, 415);
+      assert.ok(body.error.includes('Only PDF and HTML'));
+    });
+
+    it('rejects path traversal on serve endpoint', async () => {
+      const { status, body } = await api(app, `/api/agents/${fileAgentId}/files/serve?path=${encodeURIComponent('../etc/passwd.html')}`);
+      assert.equal(status, 400);
+      assert.equal(body.error, 'Path is outside the working_directory');
+    });
+
+    it('serve endpoint requires path parameter', async () => {
+      const { status } = await api(app, `/api/agents/${fileAgentId}/files/serve`);
+      assert.equal(status, 400);
+    });
+
+    it('serve endpoint returns 404 for nonexistent file', async () => {
+      const { status } = await api(app, `/api/agents/${fileAgentId}/files/serve?path=${encodeURIComponent('nonexistent.pdf')}`);
+      assert.equal(status, 404);
     });
   });
 
