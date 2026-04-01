@@ -1915,7 +1915,7 @@ describe('Argus API', () => {
       assert.equal(body.path, '');
       assert.equal(body.showHidden, false);
       assert.ok(Array.isArray(body.entries));
-      assert.deepEqual(body.entries.map((entry: any) => entry.name), ['nested', 'binary.bin', 'visible.txt']);
+      assert.deepEqual(body.entries.map((entry: any) => entry.name), ['nested', 'binary.bin', 'test.html', 'test.pdf', 'visible.txt']);
       assert.equal(body.entries[0].type, 'dir');
       assert.equal(typeof body.entries[1].size, 'number');
       assert.ok(body.entries[1].modified);
