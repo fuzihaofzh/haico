@@ -1998,6 +1998,256 @@ describe('Argus API', () => {
       const { status } = await api(app, `/api/agents/${fileAgentId}/files/serve?path=${encodeURIComponent('nonexistent.pdf')}`);
       assert.equal(status, 404);
     });
+
+    // ─── File Upload Tests ───
+
+    it('uploads a text file to valid path', async () => {
+      const boundary = '----TestBoundary' + Date.now();
+      const fileContent = 'uploaded file content';
+      const body = [
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="file"; filename="uploaded.txt"',
+        'Content-Type: text/plain',
+        '',
+        fileContent,
+        `--${boundary}--`,
+      ].join('\r\n');
+
+      const res = await inject(app, {
+        method: 'POST',
+        url: `/api/agents/${fileAgentId}/files/upload`,
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      });
+      assert.equal(res.statusCode, 200);
+      const result = JSON.parse(res.body);
+      assert.equal(result.success, true);
+      assert.equal(result.name, 'uploaded.txt');
+      assert.equal(result.path, 'uploaded.txt');
+      assert.equal(typeof result.size, 'number');
+      // Verify the file was actually written
+      const written = fs.readFileSync(path.join(tmpDir, 'uploaded.txt'), 'utf-8');
+      assert.equal(written, fileContent);
+    });
+
+    it('uploads a file to a subdirectory via path field', async () => {
+      const boundary = '----TestBoundary' + Date.now();
+      const body = [
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="path"',
+        '',
+        'nested',
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="file"; filename="sub-upload.txt"',
+        'Content-Type: text/plain',
+        '',
+        'sub dir content',
+        `--${boundary}--`,
+      ].join('\r\n');
+
+      const res = await inject(app, {
+        method: 'POST',
+        url: `/api/agents/${fileAgentId}/files/upload`,
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      });
+      assert.equal(res.statusCode, 200);
+      const result = JSON.parse(res.body);
+      assert.equal(result.success, true);
+      assert.equal(result.path, 'nested/sub-upload.txt');
+      assert.ok(fs.existsSync(path.join(tmpDir, 'nested', 'sub-upload.txt')));
+    });
+
+    it('rejects upload with path traversal attack', async () => {
+      const boundary = '----TestBoundary' + Date.now();
+      const body = [
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="path"',
+        '',
+        '../../etc',
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="file"; filename="passwd"',
+        'Content-Type: text/plain',
+        '',
+        'malicious content',
+        `--${boundary}--`,
+      ].join('\r\n');
+
+      const res = await inject(app, {
+        method: 'POST',
+        url: `/api/agents/${fileAgentId}/files/upload`,
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      });
+      assert.equal(res.statusCode, 400);
+      const result = JSON.parse(res.body);
+      assert.equal(result.error, 'Path is outside the working_directory');
+    });
+
+    it('returns 400 when no file is provided in upload', async () => {
+      const boundary = '----TestBoundary' + Date.now();
+      const body = [
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="path"',
+        '',
+        '',
+        `--${boundary}--`,
+      ].join('\r\n');
+
+      const res = await inject(app, {
+        method: 'POST',
+        url: `/api/agents/${fileAgentId}/files/upload`,
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      });
+      assert.equal(res.statusCode, 400);
+      const result = JSON.parse(res.body);
+      assert.equal(result.error, 'No files uploaded');
+    });
+
+    it('upload creates parent directories automatically', async () => {
+      const boundary = '----TestBoundary' + Date.now();
+      const body = [
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="path"',
+        '',
+        'new-dir/sub-dir',
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="file"; filename="deep.txt"',
+        'Content-Type: text/plain',
+        '',
+        'deep content',
+        `--${boundary}--`,
+      ].join('\r\n');
+
+      const res = await inject(app, {
+        method: 'POST',
+        url: `/api/agents/${fileAgentId}/files/upload`,
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      });
+      assert.equal(res.statusCode, 200);
+      const result = JSON.parse(res.body);
+      assert.equal(result.success, true);
+      assert.equal(result.path, 'new-dir/sub-dir/deep.txt');
+      assert.ok(fs.existsSync(path.join(tmpDir, 'new-dir', 'sub-dir', 'deep.txt')));
+    });
+
+    it('rejects upload for agent without working_directory', async () => {
+      const boundary = '----TestBoundary' + Date.now();
+      const body = [
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="file"; filename="test.txt"',
+        'Content-Type: text/plain',
+        '',
+        'content',
+        `--${boundary}--`,
+      ].join('\r\n');
+
+      const res = await inject(app, {
+        method: 'POST',
+        url: `/api/agents/${noWorkdirAgentId}/files/upload`,
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      });
+      assert.equal(res.statusCode, 400);
+      const result = JSON.parse(res.body);
+      assert.equal(result.error, 'Agent does not have a working_directory configured');
+    });
+
+    // ─── File Download Tests ───
+
+    it('downloads an existing text file with correct headers', async () => {
+      const res = await inject(app, {
+        url: `/api/agents/${fileAgentId}/files/download?path=${encodeURIComponent('visible.txt')}`,
+      });
+      assert.equal(res.statusCode, 200);
+      assert.ok(String(res.headers['content-disposition']).includes('attachment'));
+      assert.ok(String(res.headers['content-disposition']).includes('visible.txt'));
+      assert.ok(String(res.headers['content-type']).includes('text/plain'));
+    });
+
+    it('downloads a binary file with correct content-type', async () => {
+      const res = await inject(app, {
+        url: `/api/agents/${fileAgentId}/files/download?path=${encodeURIComponent('binary.bin')}`,
+      });
+      assert.equal(res.statusCode, 200);
+      assert.ok(String(res.headers['content-disposition']).includes('attachment'));
+      assert.ok(String(res.headers['content-disposition']).includes('binary.bin'));
+      // .bin should fall back to application/octet-stream
+      assert.ok(String(res.headers['content-type']).includes('application/octet-stream'));
+    });
+
+    it('downloads a PDF file with application/pdf content-type', async () => {
+      const res = await inject(app, {
+        url: `/api/agents/${fileAgentId}/files/download?path=${encodeURIComponent('test.pdf')}`,
+      });
+      assert.equal(res.statusCode, 200);
+      assert.ok(String(res.headers['content-type']).includes('application/pdf'));
+      assert.ok(String(res.headers['content-disposition']).includes('attachment'));
+    });
+
+    it('returns 404 when downloading a nonexistent file', async () => {
+      const { status, body } = await api(app, `/api/agents/${fileAgentId}/files/download?path=${encodeURIComponent('nonexistent.txt')}`);
+      assert.equal(status, 404);
+    });
+
+    it('rejects download path traversal attack', async () => {
+      const { status, body } = await api(app, `/api/agents/${fileAgentId}/files/download?path=${encodeURIComponent('../../etc/passwd')}`);
+      assert.equal(status, 400);
+      assert.equal(body.error, 'Path is outside the working_directory');
+    });
+
+    it('download requires path parameter', async () => {
+      const { status } = await api(app, `/api/agents/${fileAgentId}/files/download`);
+      assert.equal(status, 400);
+    });
+
+    it('rejects download for agent without working_directory', async () => {
+      const { status, body } = await api(app, `/api/agents/${noWorkdirAgentId}/files/download?path=test.txt`);
+      assert.equal(status, 400);
+      assert.equal(body.error, 'Agent does not have a working_directory configured');
+    });
+
+    // ─── Integration: Upload then verify in file tree and download ───
+
+    it('uploaded file appears in file listing', async () => {
+      // Upload a unique file
+      const boundary = '----TestBoundary' + Date.now();
+      const body = [
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="file"; filename="integration-test.txt"',
+        'Content-Type: text/plain',
+        '',
+        'integration test content',
+        `--${boundary}--`,
+      ].join('\r\n');
+
+      const uploadRes = await inject(app, {
+        method: 'POST',
+        url: `/api/agents/${fileAgentId}/files/upload`,
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      });
+      assert.equal(uploadRes.statusCode, 200);
+
+      // Verify file appears in listing
+      const { status, body: listBody } = await api(app, `/api/agents/${fileAgentId}/files`);
+      assert.equal(status, 200);
+      const fileNames = listBody.entries.map((e: any) => e.name);
+      assert.ok(fileNames.includes('integration-test.txt'), `Expected integration-test.txt in file list, got: ${fileNames}`);
+    });
+
+    it('downloaded file content matches original', async () => {
+      const originalContent = 'exact content for roundtrip test\nwith multiple lines';
+      fs.writeFileSync(path.join(tmpDir, 'roundtrip.txt'), originalContent);
+
+      const res = await inject(app, {
+        url: `/api/agents/${fileAgentId}/files/download?path=${encodeURIComponent('roundtrip.txt')}`,
+      });
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body, originalContent);
+    });
   });
 
   // ─── Issue Delete (open issue) ───

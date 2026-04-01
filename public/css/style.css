@@ -526,6 +526,33 @@ header h1 span { color: var(--accent); }
   white-space: nowrap;
 }
 
+.file-tree-action-btn {
+  background: none;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  padding: 1px 4px;
+}
+
+.file-tree-item:hover .file-tree-action-btn {
+  opacity: 1;
+}
+
+.file-tree-action-btn:hover {
+  background: var(--selected-bg, #eee);
+  color: var(--accent, #0969da);
+}
+
+.file-upload-btn {
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
 .file-tree-meta {
   color: var(--text-secondary);
   flex: 0 0 auto;

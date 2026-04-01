@@ -697,6 +697,110 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     }
   });
 
+  // File upload (multipart/form-data)
+  fastify.post<{ Params: { id: string } }>('/api/agents/:id/files/upload', async (request, reply) => {
+    const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+    if (!access) return;
+    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
+    if (!agent) return reply.code(404).send({ error: 'Agent not found' });
+
+    const parts = request.parts();
+    let targetDir = '';
+    const uploaded: Array<{ success: true; path: string; name: string; size: number }> = [];
+
+    for await (const part of parts) {
+      if (part.type === 'field' && part.fieldname === 'path') {
+        targetDir = String(part.value || '');
+      } else if (part.type === 'file' && part.fieldname === 'file') {
+        const fileName = part.filename;
+        if (!fileName) {
+          await part.toBuffer(); // consume the stream
+          continue;
+        }
+
+        let resolvedPath;
+        try {
+          const filePath = targetDir ? path.posix.join(targetDir, fileName) : fileName;
+          resolvedPath = resolveAgentFilesystemPath(agent, filePath);
+        } catch (error) {
+          await part.toBuffer(); // consume the stream
+          return sendAgentFilePathError(reply, error);
+        }
+
+        try {
+          // Ensure parent directory exists
+          await fs.mkdir(path.dirname(resolvedPath.targetPath), { recursive: true });
+          const buffer = await part.toBuffer();
+          await fs.writeFile(resolvedPath.targetPath, buffer);
+          const savedStat = await fs.stat(resolvedPath.targetPath);
+          uploaded.push({
+            success: true,
+            path: resolvedPath.relativePath,
+            name: fileName,
+            size: savedStat.size,
+          });
+        } catch (error) {
+          return sendAgentFileSystemError(reply, error);
+        }
+      }
+    }
+
+    if (uploaded.length === 0) {
+      return reply.code(400).send({ error: 'No files uploaded' });
+    }
+    if (uploaded.length === 1) {
+      return uploaded[0];
+    }
+    return { success: true, files: uploaded };
+  });
+
+  // File download
+  const MIME_TYPES: Record<string, string> = {
+    '.html': 'text/html', '.htm': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
+    '.json': 'application/json', '.xml': 'application/xml', '.svg': 'image/svg+xml',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+    '.webp': 'image/webp', '.ico': 'image/x-icon', '.pdf': 'application/pdf',
+    '.zip': 'application/zip', '.gz': 'application/gzip', '.tar': 'application/x-tar',
+    '.txt': 'text/plain', '.md': 'text/plain', '.csv': 'text/csv',
+    '.mp3': 'audio/mpeg', '.mp4': 'video/mp4', '.woff': 'font/woff', '.woff2': 'font/woff2',
+  };
+
+  fastify.get<{ Params: { id: string }; Querystring: { path?: string } }>('/api/agents/:id/files/download', async (request, reply) => {
+    const db = getDatabase();
+    const access = ensureAgentAccess(db, request, reply, request.params.id);
+    if (!access) return;
+    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as Agent | undefined;
+    if (!agent) return reply.code(404).send({ error: 'Agent not found' });
+    if (!request.query.path) return reply.code(400).send({ error: 'path is required' });
+
+    let resolvedPath;
+    try {
+      resolvedPath = resolveAgentFilesystemPath(agent, request.query.path);
+    } catch (error) {
+      return sendAgentFilePathError(reply, error);
+    }
+
+    try {
+      const targetStat = await fs.stat(resolvedPath.targetPath);
+      if (!targetStat.isFile()) {
+        return reply.code(400).send({ error: 'Target path is not a file' });
+      }
+
+      const ext = path.extname(resolvedPath.targetPath).toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+      const fileName = path.basename(resolvedPath.targetPath);
+
+      const buffer = await fs.readFile(resolvedPath.targetPath);
+      return reply
+        .header('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`)
+        .type(contentType)
+        .send(buffer);
+    } catch (error) {
+      return sendAgentFileSystemError(reply, error);
+    }
+  });
+
   // Plain text terminal output (for debugging / curl)
   fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/agents/:id/terminal', async (request, reply) => {
     const db = getDatabase();

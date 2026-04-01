@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import fastifyWebsocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
+import fastifyMultipart from '@fastify/multipart';
 import path from 'path';
 import { config } from './config';
 import { getDatabase, closeDatabase, isDatabaseOpen } from './db/database';
@@ -37,6 +38,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
 
   const fastify = Fastify({ logger: opts.logger ?? true });
 
+  await fastify.register(fastifyMultipart, { limits: { fileSize: 50 * 1024 * 1024 } });
   await fastify.register(fastifyWebsocket);
   await fastify.register(fastifyStatic, {
     root: path.join(__dirname, '..', 'public'),

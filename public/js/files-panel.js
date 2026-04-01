@@ -314,12 +314,14 @@
           const indent = depth * 18;
           const encodedPath = encodeURIComponent(entry.path);
           const caret = isDir ? (isExpanded ? 'v' : '>') : '-';
+          const downloadBtn = isDir ? '' : `<button class="file-tree-action-btn" title="Download" onclick="event.stopPropagation();${this.apiName}.downloadFile('${encodedPath}')">&#8615;</button>`;
           const meta = isDir ? '' : `<span class="file-tree-meta">${this.formatBytes(entry.size)}</span>`;
           rows.push(`
             <div class="file-tree-item${isSelected ? ' active' : ''}${isLoading ? ' loading' : ''}" onclick="${this.apiName}.handleTreeClick('${encodedPath}')">
               <span class="file-tree-spacer" style="width:${indent}px"></span>
               <span class="file-tree-caret">${caret}</span>
               <span class="file-tree-name">${esc(entry.name)}</span>
+              ${downloadBtn}
               ${meta}
             </div>
           `);
@@ -612,6 +614,76 @@
       if (!this.isNarrowViewport()) {
         this.applyMobileEditorFocus(false);
       }
+    }
+
+    downloadFile(encodedPath) {
+      const filePath = decodeURIComponent(encodedPath);
+      if (!this.getAgentId()) return;
+      const a = document.createElement('a');
+      a.href = `/api/agents/${this.getAgentId()}/files/download?path=${encodeURIComponent(filePath)}`;
+      a.download = filePath.split('/').pop() || filePath;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    triggerUpload() {
+      if (!this.getAgentId() || !this.state.agent?.working_directory) {
+        this.showBanner('Select an agent with a working directory first', 'error');
+        return;
+      }
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.style.display = 'none';
+      input.addEventListener('change', () => {
+        if (input.files && input.files.length > 0) {
+          this.uploadFiles(input.files);
+        }
+        document.body.removeChild(input);
+      });
+      document.body.appendChild(input);
+      input.click();
+    }
+
+    async uploadFiles(files) {
+      if (!this.getAgentId()) return;
+      const currentDir = this.getCurrentBrowseDir();
+
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('path', currentDir);
+        formData.append('file', file);
+
+        try {
+          const res = await fetch(`/api/agents/${this.getAgentId()}/files/upload`, {
+            method: 'POST',
+            // No Content-Type header — let browser set multipart boundary
+            body: formData,
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Upload failed');
+          }
+        } catch (error) {
+          this.showBanner(`Failed to upload ${file.name}: ${error.message}`, 'error');
+          if (typeof showToast === 'function') showToast(`Upload failed: ${file.name}`, 'error');
+          return;
+        }
+      }
+
+      this.showBanner(`Uploaded ${files.length} file(s)`, 'success');
+      if (typeof showToast === 'function') showToast(`Uploaded ${files.length} file(s)`, 'success');
+      await this.loadDirectory(currentDir);
+    }
+
+    getCurrentBrowseDir() {
+      // Return the deepest expanded directory, or '' for root
+      const expanded = Array.from(this.state.expandedDirs).filter(d => d !== '');
+      if (expanded.length === 0) return '';
+      // Return the longest path (deepest dir)
+      expanded.sort((a, b) => b.length - a.length);
+      return expanded[0];
     }
 
     handleSaveShortcut(event) {
