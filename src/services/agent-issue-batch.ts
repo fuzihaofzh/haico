@@ -45,7 +45,7 @@ export function buildAssignedIssuesPrompt(
   const currentLabel = options?.currentLabel ?? `Current batch (${batch.currentBatch.length}/${batch.activeIssues.length} assigned issue(s))`;
   const queuedLabel = options?.queuedLabel ?? `Queued for later (${batch.queuedIssues.length} more assigned issue(s))`;
   const stopInstruction = options?.stopInstruction
-    ?? 'Only work on the current batch in this run. When the current batch is complete, stop; Argus will restart you for the next batch if more assigned issues remain.';
+    ?? 'Only work on the current batch in this run. When the current batch is complete, stop; Agentopia will restart you for the next batch if more assigned issues remain.';
 
   const parts: string[] = [];
   parts.push(currentLabel + ':\n' + batch.currentBatch.map((issue) => formatCurrentIssue(issue, bodyCharLimit)).join('\n'));

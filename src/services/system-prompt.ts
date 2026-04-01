@@ -10,10 +10,10 @@ export function buildSystemPrompt(agent: Agent, project: Project): string {
   const base = BASE_URL();
   const effectiveCommand = (agent.command_template || project.command_template || config.defaultCommandTemplate || '').trim().toLowerCase();
 
-  const header = `# Argus Multi-Agent Platform — System Instructions
+  const header = `# Agentopia Multi-Agent Platform — System Instructions
 
 You are agent "${agent.name}" in project "${project.name}".
-You are running inside Argus, a multi-agent collaboration platform. Multiple agents work together on a shared project. You coordinate through an issue tracker (like GitHub Issues) where everyone can see all issues and comments.
+You are running inside Agentopia, a multi-agent collaboration platform. Multiple agents work together on a shared project. You coordinate through an issue tracker (like GitHub Issues) where everyone can see all issues and comments.
 
 ## Your Identity
 - **Agent ID**: ${agent.id}

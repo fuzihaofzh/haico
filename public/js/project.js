@@ -348,7 +348,7 @@ async function loadProject() {
   document.getElementById('project-title').textContent = projectData.name;
   document.getElementById('project-status').textContent = projectData.status;
   document.getElementById('project-status').className = `status-badge status-${projectData.status}`;
-  document.title = `Argus - ${projectData.name}`;
+  document.title = `Agentopia - ${projectData.name}`;
   renderProjectAccessSummary();
   applyProjectManageState();
 
@@ -564,7 +564,7 @@ async function loadAgents() {
       const key = a.id + ':' + (a.finished_at || '');
       if (!window._notifiedErrors.has(key)) {
         window._notifiedErrors.add(key);
-        new Notification('Argus: Agent Error', { body: `${a.name} failed. ${(errorLogs[a.id] || '').slice(0, 100)}`, tag: 'argus-error-' + a.id });
+        new Notification('Agentopia: Agent Error', { body: `${a.name} failed. ${(errorLogs[a.id] || '').slice(0, 100)}`, tag: 'agentopia-error-' + a.id });
       }
     }
   }
@@ -1537,8 +1537,8 @@ function switchTab(tab) {
 }
 
 function ensureProjectFilesPanel() {
-  if (projectFilesPanel || !window.ArgusFilesPanel) return;
-  projectFilesPanel = window.ArgusFilesPanel.create({
+  if (projectFilesPanel || !window.AgentopiaFilesPanel) return;
+  projectFilesPanel = window.AgentopiaFilesPanel.create({
     publicApiName: 'ProjectFiles',
     shellId: 'project-files-shell',
     treeId: 'project-file-tree',
@@ -2389,7 +2389,7 @@ loadProject();
 loadAgents();
 loadDashboard();
 loadCostChart();
-window.addEventListener('argus:user-ready', () => { renderProjectAccessSummary(); });
+window.addEventListener('agentopia:user-ready', () => { renderProjectAccessSummary(); });
 
 // Slow fallback polling (WS handles real-time)
 setInterval(loadAgents, 30000);

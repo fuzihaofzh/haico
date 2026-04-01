@@ -6,10 +6,10 @@ import { FastifyInstance } from 'fastify';
 
 // Use isolated test DB
 const TEST_DB = path.join(__dirname, 'test.db');
-process.env.ARGUS_DB_PATH = TEST_DB;
-process.env.ARGUS_PORT = '0'; // won't matter, we use inject
+process.env.AGENTOPIA_DB_PATH = TEST_DB;
+process.env.AGENTOPIA_PORT = '0'; // won't matter, we use inject
 
-const authConfigDir = path.join(require('os').homedir(), '.argus');
+const authConfigDir = path.join(require('os').homedir(), '.agentopia');
 const authConfigPath = path.join(authConfigDir, 'config.json');
 
 // Helper: use Fastify inject (in-process, no real network needed)
@@ -36,7 +36,7 @@ async function api(app: FastifyInstance, url: string, opts: { method?: string; b
 
 let app: FastifyInstance;
 
-describe('Argus API', () => {
+describe('Agentopia API', () => {
   before(async () => {
     // Clean slate
     for (const f of [TEST_DB, TEST_DB + '-wal', TEST_DB + '-shm', authConfigPath]) {
@@ -132,12 +132,12 @@ describe('Argus API', () => {
       assert.equal(loginRes.statusCode, 200);
       const setCookie = loginRes.headers['set-cookie'] as string;
       assert.ok(setCookie, 'Should set a cookie');
-      assert.ok(setCookie.includes('argus-auth='), 'Cookie should be argus-auth');
+      assert.ok(setCookie.includes('agentopia-auth='), 'Cookie should be agentopia-auth');
       assert.ok(setCookie.includes('HttpOnly'), 'Cookie should be HttpOnly');
       assert.ok(setCookie.includes('SameSite=Lax'), 'Cookie should have SameSite');
       assert.ok(!setCookie.includes('Max-Age'), 'Cookie should NOT have Max-Age (session cookie)');
 
-      const match = setCookie.match(/argus-auth=([^;]+)/);
+      const match = setCookie.match(/agentopia-auth=([^;]+)/);
       assert.ok(match, 'Should extract token');
       sessionToken = match![1];
 
@@ -157,7 +157,7 @@ describe('Argus API', () => {
     it('POST /api/auth/change-password rejects wrong current password', async () => {
       const { status } = await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'wrongpass', password: 'newpass1234' },
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(status, 401);
     });
@@ -165,7 +165,7 @@ describe('Argus API', () => {
     it('POST /api/auth/change-password rejects short new password', async () => {
       const { status } = await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'test1234', password: 'ab' },
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(status, 400);
     });
@@ -173,7 +173,7 @@ describe('Argus API', () => {
     it('POST /api/auth/change-password works with correct current password', async () => {
       const { status, body } = await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'test1234', password: 'newpass1234' },
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.ok, true);
@@ -196,10 +196,10 @@ describe('Argus API', () => {
         payload: { password: 'newpass1234' },
         headers: { 'content-type': 'application/json' },
       });
-      const cookie2 = (loginRes2.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+      const cookie2 = (loginRes2.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
       await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'newpass1234', password: 'test1234' },
-        headers: { cookie: `argus-auth=${cookie2}` },
+        headers: { cookie: `agentopia-auth=${cookie2}` },
       });
 
       // Refresh sessionToken for subsequent tests
@@ -208,13 +208,13 @@ describe('Argus API', () => {
         payload: { password: 'test1234' },
         headers: { 'content-type': 'application/json' },
       });
-      sessionToken = (refreshRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+      sessionToken = (refreshRes.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
     });
 
     it('GET /change-password returns HTML', async () => {
       const res = await inject(app, {
         url: '/change-password',
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes('Change'));
@@ -232,19 +232,19 @@ describe('Argus API', () => {
         payload: { password: 'test1234' },
         headers: { 'content-type': 'application/json' },
       });
-      const oldToken = (loginRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+      const oldToken = (loginRes.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
 
       // Change password
       const changeRes = await app.inject({
         method: 'POST', url: '/api/auth/change-password',
         payload: { current: 'test1234', password: 'changed1234' },
-        headers: { 'content-type': 'application/json', cookie: `argus-auth=${oldToken}` },
+        headers: { 'content-type': 'application/json', cookie: `agentopia-auth=${oldToken}` },
       });
       assert.equal(changeRes.statusCode, 200);
 
       // Old token should be invalid (passwordHash changed)
       // Use page route to test cookie-based auth redirect
-      const oldRes = await inject(app, { url: '/change-password', headers: { cookie: `argus-auth=${oldToken}` } });
+      const oldRes = await inject(app, { url: '/change-password', headers: { cookie: `agentopia-auth=${oldToken}` } });
       assert.equal(oldRes.statusCode, 302, 'Old token should be invalidated after password change (redirects to /login)');
 
       // Restore password for remaining tests
@@ -253,11 +253,11 @@ describe('Argus API', () => {
         payload: { password: 'changed1234' },
         headers: { 'content-type': 'application/json' },
       });
-      const newToken = (newLogin.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+      const newToken = (newLogin.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
       await app.inject({
         method: 'POST', url: '/api/auth/change-password',
         payload: { current: 'changed1234', password: 'test1234' },
-        headers: { 'content-type': 'application/json', cookie: `argus-auth=${newToken}` },
+        headers: { 'content-type': 'application/json', cookie: `agentopia-auth=${newToken}` },
       });
 
       // Refresh sessionToken for subsequent tests
@@ -266,12 +266,12 @@ describe('Argus API', () => {
         payload: { password: 'test1234' },
         headers: { 'content-type': 'application/json' },
       });
-      sessionToken = (refreshRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+      sessionToken = (refreshRes.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
     });
 
     it('invalid cookie token is rejected', async () => {
       // Use page route to test cookie-based auth redirect
-      const res = await inject(app, { url: '/change-password', headers: { cookie: 'argus-auth=invalid-token-value' } });
+      const res = await inject(app, { url: '/change-password', headers: { cookie: 'agentopia-auth=invalid-token-value' } });
       assert.equal(res.statusCode, 302, 'Invalid token should be rejected (redirects to /login)');
     });
 
@@ -344,7 +344,7 @@ describe('Argus API', () => {
 
     it('GET /api/auth/me returns current user', async () => {
       const { status, body } = await api(app, '/api/auth/me', {
-        headers: { cookie: `argus-auth=${adminToken}` },
+        headers: { cookie: `agentopia-auth=${adminToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.username, 'testadmin');
@@ -367,7 +367,7 @@ describe('Argus API', () => {
 
     it('GET /api/auth/users lists users (admin only)', async () => {
       const { status, body } = await api(app, '/api/auth/users', {
-        headers: { cookie: `argus-auth=${adminToken}` },
+        headers: { cookie: `agentopia-auth=${adminToken}` },
       });
       assert.equal(status, 200);
       assert.ok(Array.isArray(body.users));
@@ -376,7 +376,7 @@ describe('Argus API', () => {
 
     it('GET /api/auth/users returns 403 for non-admin', async () => {
       const { status } = await api(app, '/api/auth/users', {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(status, 403);
     });
@@ -384,7 +384,7 @@ describe('Argus API', () => {
     it('PUT /api/auth/users/:id updates role (admin only)', async () => {
       const { status, body } = await api(app, `/api/auth/users/${memberUserId}`, {
         method: 'PUT',
-        headers: { cookie: `argus-auth=${adminToken}` },
+        headers: { cookie: `agentopia-auth=${adminToken}` },
         body: { role: 'admin' },
       });
       assert.equal(status, 200);
@@ -394,7 +394,7 @@ describe('Argus API', () => {
     it('DELETE /api/auth/users/:id deletes user (admin only)', async () => {
       const { status } = await api(app, `/api/auth/users/${memberUserId}`, {
         method: 'DELETE',
-        headers: { cookie: `argus-auth=${adminToken}` },
+        headers: { cookie: `agentopia-auth=${adminToken}` },
       });
       assert.equal(status, 200);
     });
@@ -402,7 +402,7 @@ describe('Argus API', () => {
     it('DELETE /api/auth/users/:id rejects deleting self', async () => {
       const { status } = await api(app, `/api/auth/users/${adminUserId}`, {
         method: 'DELETE',
-        headers: { cookie: `argus-auth=${adminToken}` },
+        headers: { cookie: `agentopia-auth=${adminToken}` },
       });
       assert.equal(status, 400);
     });
@@ -432,7 +432,7 @@ describe('Argus API', () => {
 
     it('GET /api/auth/me returns legacy admin from single-password cookie', async () => {
       const { status, body } = await api(app, '/api/auth/me', {
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.id, 'legacy');
@@ -442,7 +442,7 @@ describe('Argus API', () => {
 
     it('legacy single-password admin can list users', async () => {
       const { status, body } = await api(app, '/api/auth/users', {
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(Array.isArray(body.users));
@@ -458,13 +458,13 @@ describe('Argus API', () => {
       const adminToken = adminLogin.body.token;
 
       const adminUsers = await api(app, '/api/auth/users', {
-        headers: { cookie: `argus-auth=${adminToken}` },
+        headers: { cookie: `agentopia-auth=${adminToken}` },
       });
       assert.equal(adminUsers.status, 200);
       assert.ok(Array.isArray(adminUsers.body.users));
 
       const memberUsers = await api(app, '/api/auth/users', {
-        headers: { cookie: `argus-auth=${fallbackMemberToken}` },
+        headers: { cookie: `agentopia-auth=${fallbackMemberToken}` },
       });
       assert.equal(memberUsers.status, 403);
       assert.equal(memberUsers.body.error, 'Admin access required');
@@ -473,7 +473,7 @@ describe('Argus API', () => {
     it('legacy single-password admin can update another user role', async () => {
       const { status, body } = await api(app, `/api/auth/users/${fallbackMemberId}`, {
         method: 'PUT',
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
         body: { role: 'admin' },
       });
       assert.equal(status, 200);
@@ -484,13 +484,13 @@ describe('Argus API', () => {
     it('legacy single-password admin can delete another user', async () => {
       const { status, body } = await api(app, `/api/auth/users/${fallbackMemberId}`, {
         method: 'DELETE',
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.ok, true);
 
       const users = await api(app, '/api/auth/users', {
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(users.status, 200);
       assert.ok(!users.body.users.some((user: any) => user.id === fallbackMemberId));
@@ -595,7 +595,7 @@ describe('Argus API', () => {
 
       const created = await api(app, '/api/projects', {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: {
           name: `shared-project-${suffix}`,
           description: 'permission summary test',
@@ -612,13 +612,13 @@ describe('Argus API', () => {
 
       const shareRes = await api(app, `/api/projects/${sharedProjectId}/members`, {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: { username: memberUsername },
       });
       assert.equal(shareRes.status, 201);
 
       const ownerList = await api(app, '/api/projects', {
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
       });
       assert.equal(ownerList.status, 200);
       const ownerProject = ownerList.body.find((project: any) => project.id === sharedProjectId);
@@ -629,7 +629,7 @@ describe('Argus API', () => {
       assert.equal(ownerProject.member_count, 2);
 
       const memberList = await api(app, '/api/projects', {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(memberList.status, 200);
       const memberProject = memberList.body.find((project: any) => project.id === sharedProjectId);
@@ -640,7 +640,7 @@ describe('Argus API', () => {
       assert.equal(memberProject.member_count, 2);
 
       const memberDetail = await api(app, `/api/projects/${sharedProjectId}`, {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(memberDetail.status, 200);
       assert.equal(memberDetail.body.permission_level, 'member');
@@ -693,7 +693,7 @@ describe('Argus API', () => {
 
       const sharedProject = await api(app, '/api/projects', {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: {
           name: `perm-shared-${suffix}`,
           description: 'shared project',
@@ -706,7 +706,7 @@ describe('Argus API', () => {
 
       const hiddenProject = await api(app, '/api/projects', {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: {
           name: `perm-hidden-${suffix}`,
           description: 'hidden project',
@@ -719,14 +719,14 @@ describe('Argus API', () => {
 
       const shareRes = await api(app, `/api/projects/${sharedProjectId}/members`, {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: { username: memberUsername },
       });
       assert.equal(shareRes.status, 201);
 
       const sharedAgent = await api(app, `/api/projects/${sharedProjectId}/agents`, {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: { name: 'perm-shared-worker', role: 'shared worker' },
       });
       assert.equal(sharedAgent.status, 201);
@@ -734,7 +734,7 @@ describe('Argus API', () => {
 
       const hiddenAgent = await api(app, `/api/projects/${hiddenProjectId}/agents`, {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: { name: 'perm-hidden-worker', role: 'hidden worker' },
       });
       assert.equal(hiddenAgent.status, 201);
@@ -742,7 +742,7 @@ describe('Argus API', () => {
 
       const knowledgeRes = await api(app, `/api/projects/${sharedProjectId}/knowledge`, {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: { title: 'Boundary knowledge', content: 'visible to shared member', importance: 'high' },
       });
       assert.equal(knowledgeRes.status, 201);
@@ -750,7 +750,7 @@ describe('Argus API', () => {
 
       const memoryRes = await api(app, `/api/agents/${sharedAgentId}/memories`, {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: { content: 'shared project memory', scope: 'project', tags: 'perm' },
       });
       assert.equal(memoryRes.status, 201);
@@ -758,7 +758,7 @@ describe('Argus API', () => {
 
       const messageRes = await api(app, `/api/agents/${sharedAgentId}/messages/send`, {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: { to: sharedAgentId, subject: 'Boundary ping', body: 'read-only member can see this inbox' },
       });
       assert.equal(messageRes.status, 201);
@@ -766,7 +766,7 @@ describe('Argus API', () => {
 
       const sharedIssue = await api(app, `/api/projects/${sharedProjectId}/issues`, {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: {
           title: 'Boundary shared issue',
           body: 'boundary-visible-token',
@@ -779,7 +779,7 @@ describe('Argus API', () => {
 
       const hiddenIssue = await api(app, `/api/projects/${hiddenProjectId}/issues`, {
         method: 'POST',
-        headers: { cookie: `argus-auth=${ownerToken}` },
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
         body: {
           title: 'Boundary hidden issue',
           body: 'boundary-visible-token',
@@ -793,98 +793,98 @@ describe('Argus API', () => {
 
     it('shared member can read shared project resources but cannot perform write actions', async () => {
       const sharedAgent = await api(app, `/api/agents/${sharedAgentId}`, {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(sharedAgent.status, 200);
 
       const sharedKnowledge = await api(app, `/api/knowledge/${sharedKnowledgeId}`, {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(sharedKnowledge.status, 200);
 
       const sharedMemories = await api(app, `/api/agents/${sharedAgentId}/memories`, {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(sharedMemories.status, 200);
       assert.ok(sharedMemories.body.memories.some((memory: any) => memory.id === sharedMemoryId));
 
       const sharedInbox = await api(app, `/api/agents/${sharedAgentId}/messages`, {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(sharedInbox.status, 200);
       assert.ok(sharedInbox.body.messages.some((message: any) => message.id === sharedMessageId));
 
       const markRead = await api(app, `/api/agents/${sharedAgentId}/messages/${sharedMessageId}`, {
         method: 'PUT',
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(markRead.status, 403);
 
       const updateKnowledge = await api(app, `/api/knowledge/${sharedKnowledgeId}`, {
         method: 'PUT',
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
         body: { title: 'member cannot edit' },
       });
       assert.equal(updateKnowledge.status, 403);
 
       const deleteMemory = await api(app, `/api/agents/${sharedAgentId}/memories/${sharedMemoryId}`, {
         method: 'DELETE',
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(deleteMemory.status, 403);
     });
 
     it('non-member cannot access shared project resources by project id or direct entity id', async () => {
       const projectDetail = await api(app, `/api/projects/${sharedProjectId}`, {
-        headers: { cookie: `argus-auth=${outsiderToken}` },
+        headers: { cookie: `agentopia-auth=${outsiderToken}` },
       });
       assert.equal(projectDetail.status, 403);
 
       const agentDetail = await api(app, `/api/agents/${sharedAgentId}`, {
-        headers: { cookie: `argus-auth=${outsiderToken}` },
+        headers: { cookie: `agentopia-auth=${outsiderToken}` },
       });
       assert.equal(agentDetail.status, 403);
 
       const knowledgeDetail = await api(app, `/api/knowledge/${sharedKnowledgeId}`, {
-        headers: { cookie: `argus-auth=${outsiderToken}` },
+        headers: { cookie: `agentopia-auth=${outsiderToken}` },
       });
       assert.equal(knowledgeDetail.status, 403);
 
       const memoryList = await api(app, `/api/agents/${sharedAgentId}/memories`, {
-        headers: { cookie: `argus-auth=${outsiderToken}` },
+        headers: { cookie: `agentopia-auth=${outsiderToken}` },
       });
       assert.equal(memoryList.status, 403);
 
       const inbox = await api(app, `/api/agents/${sharedAgentId}/messages`, {
-        headers: { cookie: `argus-auth=${outsiderToken}` },
+        headers: { cookie: `agentopia-auth=${outsiderToken}` },
       });
       assert.equal(inbox.status, 403);
     });
 
     it('dashboard, notifications, my-issues and inbox search only include accessible projects', async () => {
       const dashboard = await api(app, '/api/dashboard/summary', {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(dashboard.status, 200);
       assert.ok(sharedProjectId in dashboard.body.last_activity, 'shared project should remain visible');
       assert.ok(!(hiddenProjectId in dashboard.body.last_activity), 'hidden project should be filtered out');
 
       const search = await api(app, '/api/inbox/search?q=boundary-visible-token', {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(search.status, 200);
       assert.ok(search.body.some((issue: any) => issue.id === sharedSearchIssueId));
       assert.ok(!search.body.some((issue: any) => issue.id === hiddenSearchIssueId));
 
       const notifications = await api(app, '/api/notifications', {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(notifications.status, 200);
       assert.ok(notifications.body.user_issues.some((issue: any) => issue.id === sharedSearchIssueId));
       assert.ok(!notifications.body.user_issues.some((issue: any) => issue.id === hiddenSearchIssueId));
 
       const myIssues = await api(app, '/api/my-issues', {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(myIssues.status, 200);
       assert.ok(myIssues.body.some((issue: any) => issue.id === sharedSearchIssueId));
@@ -893,7 +893,7 @@ describe('Argus API', () => {
 
     it('direct agent resources from hidden projects stay filtered for shared members', async () => {
       const hiddenAgent = await api(app, `/api/agents/${hiddenAgentId}`, {
-        headers: { cookie: `argus-auth=${memberToken}` },
+        headers: { cookie: `agentopia-auth=${memberToken}` },
       });
       assert.equal(hiddenAgent.status, 403);
     });
@@ -1879,7 +1879,7 @@ describe('Argus API', () => {
     let tmpDir: string;
 
     before(async () => {
-      tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'argus-files-'));
+      tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'agentopia-files-'));
       fs.mkdirSync(path.join(tmpDir, 'nested'));
       fs.writeFileSync(path.join(tmpDir, 'visible.txt'), 'hello from file api');
       fs.writeFileSync(path.join(tmpDir, '.hidden.txt'), 'hidden');
@@ -2004,7 +2004,7 @@ describe('Argus API', () => {
     it('uploads a text file to valid path', async () => {
       const boundary = '----TestBoundary' + Date.now();
       const fileContent = 'uploaded file content';
-      const body = [
+      const payload = [
         `--${boundary}`,
         'Content-Disposition: form-data; name="file"; filename="uploaded.txt"',
         'Content-Type: text/plain',
@@ -2013,11 +2013,11 @@ describe('Argus API', () => {
         `--${boundary}--`,
       ].join('\r\n');
 
-      const res = await inject(app, {
+      const res = await app.inject({
         method: 'POST',
         url: `/api/agents/${fileAgentId}/files/upload`,
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-        body,
+        payload,
       });
       assert.equal(res.statusCode, 200);
       const result = JSON.parse(res.body);
@@ -2032,7 +2032,7 @@ describe('Argus API', () => {
 
     it('uploads a file to a subdirectory via path field', async () => {
       const boundary = '----TestBoundary' + Date.now();
-      const body = [
+      const payload = [
         `--${boundary}`,
         'Content-Disposition: form-data; name="path"',
         '',
@@ -2045,11 +2045,11 @@ describe('Argus API', () => {
         `--${boundary}--`,
       ].join('\r\n');
 
-      const res = await inject(app, {
+      const res = await app.inject({
         method: 'POST',
         url: `/api/agents/${fileAgentId}/files/upload`,
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-        body,
+        payload,
       });
       assert.equal(res.statusCode, 200);
       const result = JSON.parse(res.body);
@@ -2060,7 +2060,7 @@ describe('Argus API', () => {
 
     it('rejects upload with path traversal attack', async () => {
       const boundary = '----TestBoundary' + Date.now();
-      const body = [
+      const payload = [
         `--${boundary}`,
         'Content-Disposition: form-data; name="path"',
         '',
@@ -2073,11 +2073,11 @@ describe('Argus API', () => {
         `--${boundary}--`,
       ].join('\r\n');
 
-      const res = await inject(app, {
+      const res = await app.inject({
         method: 'POST',
         url: `/api/agents/${fileAgentId}/files/upload`,
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-        body,
+        payload,
       });
       assert.equal(res.statusCode, 400);
       const result = JSON.parse(res.body);
@@ -2086,7 +2086,7 @@ describe('Argus API', () => {
 
     it('returns 400 when no file is provided in upload', async () => {
       const boundary = '----TestBoundary' + Date.now();
-      const body = [
+      const payload = [
         `--${boundary}`,
         'Content-Disposition: form-data; name="path"',
         '',
@@ -2094,11 +2094,11 @@ describe('Argus API', () => {
         `--${boundary}--`,
       ].join('\r\n');
 
-      const res = await inject(app, {
+      const res = await app.inject({
         method: 'POST',
         url: `/api/agents/${fileAgentId}/files/upload`,
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-        body,
+        payload,
       });
       assert.equal(res.statusCode, 400);
       const result = JSON.parse(res.body);
@@ -2107,7 +2107,7 @@ describe('Argus API', () => {
 
     it('upload creates parent directories automatically', async () => {
       const boundary = '----TestBoundary' + Date.now();
-      const body = [
+      const payload = [
         `--${boundary}`,
         'Content-Disposition: form-data; name="path"',
         '',
@@ -2120,11 +2120,11 @@ describe('Argus API', () => {
         `--${boundary}--`,
       ].join('\r\n');
 
-      const res = await inject(app, {
+      const res = await app.inject({
         method: 'POST',
         url: `/api/agents/${fileAgentId}/files/upload`,
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-        body,
+        payload,
       });
       assert.equal(res.statusCode, 200);
       const result = JSON.parse(res.body);
@@ -2135,7 +2135,7 @@ describe('Argus API', () => {
 
     it('rejects upload for agent without working_directory', async () => {
       const boundary = '----TestBoundary' + Date.now();
-      const body = [
+      const payload = [
         `--${boundary}`,
         'Content-Disposition: form-data; name="file"; filename="test.txt"',
         'Content-Type: text/plain',
@@ -2144,11 +2144,11 @@ describe('Argus API', () => {
         `--${boundary}--`,
       ].join('\r\n');
 
-      const res = await inject(app, {
+      const res = await app.inject({
         method: 'POST',
         url: `/api/agents/${noWorkdirAgentId}/files/upload`,
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-        body,
+        payload,
       });
       assert.equal(res.statusCode, 400);
       const result = JSON.parse(res.body);
@@ -2214,7 +2214,7 @@ describe('Argus API', () => {
     it('uploaded file appears in file listing', async () => {
       // Upload a unique file
       const boundary = '----TestBoundary' + Date.now();
-      const body = [
+      const payload = [
         `--${boundary}`,
         'Content-Disposition: form-data; name="file"; filename="integration-test.txt"',
         'Content-Type: text/plain',
@@ -2223,11 +2223,11 @@ describe('Argus API', () => {
         `--${boundary}--`,
       ].join('\r\n');
 
-      const uploadRes = await inject(app, {
+      const uploadRes = await app.inject({
         method: 'POST',
         url: `/api/agents/${fileAgentId}/files/upload`,
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-        body,
+        payload,
       });
       assert.equal(uploadRes.statusCode, 200);
 
@@ -2400,7 +2400,7 @@ describe('Argus API', () => {
   describe('Dashboard Summary', () => {
     it('GET /api/dashboard/summary returns aggregate stats (with auth)', async () => {
       const { status, body } = await api(app, '/api/dashboard/summary', {
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(typeof body.agents === 'object');
@@ -2421,7 +2421,7 @@ describe('Argus API', () => {
 
     it('GET /api/dashboard/usage-by-project returns data (with auth)', async () => {
       const { status, body } = await api(app, '/api/dashboard/usage-by-project?period=day', {
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(typeof body === 'object' && body !== null, 'usage-by-project should return an object');
@@ -2582,7 +2582,7 @@ describe('Argus API', () => {
 
     it('dashboard aggregates also use de-duplicated totals', async () => {
       const usage = await api(app, '/api/dashboard/usage-by-project?period=day', {
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(usage.status, 200);
       const projectEntry = usage.body.projects.find((project: any) => project.id === dedupeProjectId);
@@ -2610,7 +2610,7 @@ describe('Argus API', () => {
       const expectedTotal = Array.from(latestByRun.values()).reduce((sum, value) => sum + value, 0);
 
       const summaryAfter = await api(app, '/api/dashboard/summary', {
-        headers: { cookie: `argus-auth=${sessionToken}` },
+        headers: { cookie: `agentopia-auth=${sessionToken}` },
       });
       assert.equal(summaryAfter.status, 200);
       assert.equal(summaryAfter.body.total_cost_usd, expectedTotal);
@@ -2805,7 +2805,7 @@ describe('Argus API', () => {
 
   describe('Breadcrumb Navigation', () => {
     it('issue.html has breadcrumb with Issues link', async () => {
-      const res = await inject(app, { url: '/issues/nonexistent', headers: { cookie: `argus-auth=${sessionToken}` } });
+      const res = await inject(app, { url: '/issues/nonexistent', headers: { cookie: `agentopia-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes('id="issues-link"'), 'Should have issues-link element');
       assert.ok(res.body.includes('id="project-link"'), 'Should have project-link element');
@@ -2813,14 +2813,14 @@ describe('Argus API', () => {
     });
 
     it('project.html has breadcrumb with section span', async () => {
-      const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `argus-auth=${sessionToken}` } });
+      const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `agentopia-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes('id="breadcrumb-section"'), 'Should have breadcrumb-section element');
       assert.ok(res.body.includes('id="project-name"'), 'Should have project-name element');
     });
 
     it('project.html exposes the Files tab alongside the existing project tabs', async () => {
-      const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `argus-auth=${sessionToken}` } });
+      const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `agentopia-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes("switchTab('git')"), 'Should have Git tab');
       assert.ok(res.body.includes("switchTab('overview')"), 'Should have Overview tab');
@@ -2832,7 +2832,7 @@ describe('Argus API', () => {
     });
 
     it('agent.html no longer renders the embedded Files workspace tab', async () => {
-      const res = await inject(app, { url: `/agents/${workerId}`, headers: { cookie: `argus-auth=${sessionToken}` } });
+      const res = await inject(app, { url: `/agents/${workerId}`, headers: { cookie: `agentopia-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(!res.body.includes('data-panel="files"'), 'Agent page should not render the old Files workspace tab');
       assert.ok(!res.body.includes('workspace-files-panel'), 'Agent page should not render the old Files workspace panel');
@@ -3250,12 +3250,12 @@ describe('Argus API', () => {
     let restoreMockClaude: (() => void) | null = null;
 
     before(() => {
-      const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'argus-mock-claude-'));
+      const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'agentopia-mock-claude-'));
       const binPath = path.join(tmpDir, 'claude');
       fs.writeFileSync(binPath, `#!/bin/sh
 set -eu
 
-prompt="\${ARGUS_PROMPT:-}"
+prompt="\${AGENTOPIA_PROMPT:-}"
 
 contains() {
   printf '%s' "$prompt" | grep -q "$1"
@@ -3531,7 +3531,7 @@ JSON
     it('GET /login returns HTML', async () => {
       const res = await inject(app, { url: '/login' });
       assert.equal(res.statusCode, 200);
-      assert.ok(res.body.includes('Argus'));
+      assert.ok(res.body.includes('Agentopia'));
     });
   });
 
@@ -3621,13 +3621,13 @@ JSON
         headers: { 'content-type': 'application/json' },
       });
       assert.equal(loginRes.statusCode, 200);
-      const token = (loginRes.headers['set-cookie'] as string).match(/argus-auth=([^;]+)/)![1];
+      const token = (loginRes.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
 
       // Authenticated request should succeed, never redirect to /setup
       const res = await app.inject({
         method: 'GET',
         url: '/api/dashboard/summary',
-        headers: { cookie: `argus-auth=${token}` },
+        headers: { cookie: `agentopia-auth=${token}` },
       });
       assert.equal(res.statusCode, 200, 'Authenticated request should succeed');
       if (res.headers.location) {
@@ -3639,7 +3639,7 @@ JSON
     it('unauthenticated request redirects to /login, not /setup (password was set)', async () => {
       // When password is set, unauthenticated page requests should redirect to /login, not /setup
       // Use page route to test cookie-based auth redirect
-      const res = await inject(app, { url: '/change-password', headers: { cookie: 'argus-auth=invalid' } });
+      const res = await inject(app, { url: '/change-password', headers: { cookie: 'agentopia-auth=invalid' } });
       assert.equal(res.statusCode, 302, 'Should redirect unauthenticated request');
       assert.equal(res.headers.location, '/login', 'Should redirect to /login, not /setup');
     });
@@ -3668,7 +3668,7 @@ JSON
 
     it('login works with DB-based auth (not affected by file system state)', async () => {
       // Auth config is now in DB, not file — login should always work
-      // regardless of the state of the legacy ~/.argus/config.json file
+      // regardless of the state of the legacy ~/.agentopia/config.json file
       const { status, body } = await api(app, '/api/auth', {
         method: 'POST', body: { password: 'test1234' },
       });
@@ -4891,6 +4891,180 @@ JSON
       assert.ok(managerPrompt.includes('hier-leaf') && managerPrompt.includes('hier-sibling'));
       assert.ok(leafPrompt.includes('你的直接上级是 hier-manager'));
       assert.ok(leafPrompt.includes('只能通过消息与直接上级或直接下属沟通'));
+    });
+  });
+
+  describe('Agent侧边栏树状展示验证 (#571)', () => {
+    let treeProjectId: string;
+    let treeControllerId: string;
+    let treeManagerId: string;
+    let treeLeafId: string;
+    let treeLeaf2Id: string;
+    let flatProjectId: string;
+    let flatControllerId: string;
+    let flatWorkerId: string;
+
+    before(async () => {
+      // Create project with hierarchy
+      const { body: proj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: {
+          name: 'tree-sidebar-test',
+          description: 'Sidebar tree display test',
+          task_description: 'Test tree rendering in sidebar',
+          command_template: 'echo',
+        },
+      });
+      treeProjectId = proj.id;
+      await api(app, `/api/projects/${treeProjectId}`, { method: 'PUT', body: { status: 'paused' } });
+
+      const { body: agents } = await api(app, `/api/projects/${treeProjectId}/agents`);
+      treeControllerId = agents.find((a: any) => a.is_controller)?.id;
+
+      const mgr = await api(app, `/api/projects/${treeProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'tree-manager', role: 'manager', parent_agent_id: treeControllerId },
+      });
+      treeManagerId = mgr.body.id;
+
+      const leaf = await api(app, `/api/projects/${treeProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'tree-leaf', role: 'leaf worker', parent_agent_id: treeManagerId },
+      });
+      treeLeafId = leaf.body.id;
+
+      const leaf2 = await api(app, `/api/projects/${treeProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'tree-leaf2', role: 'leaf worker 2', parent_agent_id: treeManagerId },
+      });
+      treeLeaf2Id = leaf2.body.id;
+
+      // Create flat project (no hierarchy)
+      const { body: flatProj } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: {
+          name: 'flat-sidebar-test',
+          description: 'Flat sidebar test',
+          task_description: 'Test flat rendering in sidebar',
+          command_template: 'echo',
+        },
+      });
+      flatProjectId = flatProj.id;
+      await api(app, `/api/projects/${flatProjectId}`, { method: 'PUT', body: { status: 'paused' } });
+
+      const { body: flatAgents } = await api(app, `/api/projects/${flatProjectId}/agents`);
+      flatControllerId = flatAgents.find((a: any) => a.is_controller)?.id;
+
+      const worker = await api(app, `/api/projects/${flatProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'flat-worker', role: 'worker' },
+      });
+      flatWorkerId = worker.body.id;
+    });
+
+    it('hierarchical project returns agents with correct parent_agent_id chain', async () => {
+      const { status, body } = await api(app, `/api/projects/${treeProjectId}/agents`);
+      assert.equal(status, 200);
+
+      const controller = body.find((a: any) => a.id === treeControllerId);
+      const manager = body.find((a: any) => a.id === treeManagerId);
+      const leaf = body.find((a: any) => a.id === treeLeafId);
+      const leaf2 = body.find((a: any) => a.id === treeLeaf2Id);
+
+      // Controller has no parent
+      assert.equal(controller.parent_agent_id, null);
+      // Manager's parent is controller
+      assert.equal(manager.parent_agent_id, treeControllerId);
+      // Leaves' parent is manager (3-level hierarchy)
+      assert.equal(leaf.parent_agent_id, treeManagerId);
+      assert.equal(leaf2.parent_agent_id, treeManagerId);
+    });
+
+    it('flat project agents have no parent_agent_id', async () => {
+      const { status, body } = await api(app, `/api/projects/${flatProjectId}/agents`);
+      assert.equal(status, 200);
+
+      for (const agent of body) {
+        assert.equal(agent.parent_agent_id, null, `agent ${agent.name} should have no parent`);
+      }
+    });
+
+    it('GET /api/agents/:id returns correct detail for hierarchical agent', async () => {
+      const { status, body } = await api(app, `/api/agents/${treeLeafId}`);
+      assert.equal(status, 200);
+      assert.equal(body.name, 'tree-leaf');
+      assert.equal(body.parent_agent_id, treeManagerId);
+    });
+
+    it('agent pause/unpause works on hierarchical agents', async () => {
+      // Pause leaf agent
+      const pause = await api(app, `/api/agents/${treeLeafId}`, {
+        method: 'PUT',
+        body: { paused: true },
+      });
+      assert.equal(pause.status, 200);
+      assert.equal(pause.body.paused, 1);
+
+      // Unpause leaf agent
+      const unpause = await api(app, `/api/agents/${treeLeafId}`, {
+        method: 'PUT',
+        body: { paused: false },
+      });
+      assert.equal(unpause.status, 200);
+      assert.equal(unpause.body.paused, 0);
+    });
+
+    it('agent update preserves parent_agent_id', async () => {
+      const { status, body } = await api(app, `/api/agents/${treeLeafId}`, {
+        method: 'PUT',
+        body: { role: 'updated leaf role' },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.parent_agent_id, treeManagerId);
+      assert.equal(body.role, 'updated leaf role');
+    });
+
+    it('can reassign parent within same project', async () => {
+      // Move leaf2 directly under controller
+      const { status, body } = await api(app, `/api/agents/${treeLeaf2Id}`, {
+        method: 'PUT',
+        body: { parent_agent_id: treeControllerId },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.parent_agent_id, treeControllerId);
+
+      // Verify the tree structure changed
+      const { body: agents } = await api(app, `/api/projects/${treeProjectId}/agents`);
+      const movedLeaf = agents.find((a: any) => a.id === treeLeaf2Id);
+      assert.equal(movedLeaf.parent_agent_id, treeControllerId);
+
+      // Restore original parent
+      await api(app, `/api/agents/${treeLeaf2Id}`, {
+        method: 'PUT',
+        body: { parent_agent_id: treeManagerId },
+      });
+    });
+
+    it('delete child agent does not affect parent or siblings', async () => {
+      // Create a temporary child to delete
+      const tmp = await api(app, `/api/projects/${treeProjectId}/agents`, {
+        method: 'POST',
+        body: { name: 'tree-temp', role: 'temp', parent_agent_id: treeManagerId },
+      });
+      assert.equal(tmp.status, 201);
+
+      // Delete it
+      const del = await api(app, `/api/agents/${tmp.body.id}`, { method: 'DELETE' });
+      assert.equal(del.status, 200);
+
+      // Verify parent and siblings unaffected
+      const { body: agents } = await api(app, `/api/projects/${treeProjectId}/agents`);
+      const manager = agents.find((a: any) => a.id === treeManagerId);
+      const leaf = agents.find((a: any) => a.id === treeLeafId);
+      assert.ok(manager, 'manager should still exist');
+      assert.ok(leaf, 'sibling leaf should still exist');
+      assert.equal(manager.parent_agent_id, treeControllerId);
+      assert.equal(leaf.parent_agent_id, treeManagerId);
     });
   });
 

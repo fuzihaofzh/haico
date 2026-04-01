@@ -182,6 +182,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       session_resume_timeout,
       command_template,
       parent_agent_id,
+      paused,
     } = request.body as any;
 
     let validatedParentId: string | null | undefined;
@@ -225,6 +226,11 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     if (validatedParentId !== undefined) {
       fields.push('parent_agent_id = ?');
       params.push(validatedParentId);
+    }
+
+    if (paused !== undefined) {
+      fields.push('paused = ?');
+      params.push(paused ? 1 : 0);
     }
 
     params.push(request.params.id);
@@ -358,7 +364,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       if (agent.pid) {
         // Guard: never kill our own process or parent (PID reuse after restart)
         if (agent.pid === process.pid || agent.pid === process.ppid) {
-          fastify.log.error(`Refusing to kill PID ${agent.pid} — it is the Argus server itself (pid=${process.pid}, ppid=${process.ppid})`);
+          fastify.log.error(`Refusing to kill PID ${agent.pid} — it is the Agentopia server itself (pid=${process.pid}, ppid=${process.ppid})`);
         } else {
           fastify.log.warn(`Killing stale PID ${agent.pid} for agent "${agent.name}" (not in memory map)`);
           try { process.kill(agent.pid, 'SIGTERM'); } catch {}

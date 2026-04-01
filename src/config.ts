@@ -5,10 +5,10 @@ function normalizeOrchestratorEngine(value: string | undefined): 'native' | 'lan
 }
 
 export const config = {
-  port: parseInt(process.env.ARGUS_PORT || '4567', 10),
-  host: process.env.ARGUS_HOST || '0.0.0.0',
-  dbPath: process.env.ARGUS_DB_PATH || path.join(__dirname, '..', 'data', 'argus.db'),
+  port: parseInt(process.env.AGENTOPIA_PORT || '4567', 10),
+  host: process.env.AGENTOPIA_HOST || '0.0.0.0',
+  dbPath: process.env.AGENTOPIA_DB_PATH || path.join(__dirname, '..', 'data', 'agentopia.db'),
   defaultCommandTemplate: 'cld',
-  defaultOrchestratorEngine: normalizeOrchestratorEngine(process.env.ARGUS_ORCHESTRATOR_ENGINE),
+  defaultOrchestratorEngine: normalizeOrchestratorEngine(process.env.AGENTOPIA_ORCHESTRATOR_ENGINE),
   logRetentionDays: 30,
 };

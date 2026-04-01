@@ -250,7 +250,7 @@ async function loadAgentInfo() {
     document.getElementById('agent-started').textContent = formatLocalDateTime(agent.started_at);
     document.getElementById('agent-status').textContent = agent.status;
     document.getElementById('agent-status').className = `status-badge status-${agent.status}`;
-    document.title = `Argus - ${agent.name}`;
+    document.title = `Agentopia - ${agent.name}`;
     window.currentAgentState = agent;
     if (window.AgentFiles && typeof window.AgentFiles.setAgent === 'function') {
       window.AgentFiles.setAgent(agent);

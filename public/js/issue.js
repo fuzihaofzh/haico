@@ -33,7 +33,7 @@ async function loadIssue() {
   document.getElementById('issues-link').href = `/projects/${data.project_id}#issues`;
   if (projectRes.status === 'fulfilled' && projectRes.value.ok) { const p = await projectRes.value.json(); document.getElementById('project-link').textContent = p.name; }
   document.getElementById('issue-title-breadcrumb').textContent = `#${data.number} ${data.title}`;
-  document.title = `#${data.number} ${data.title} - Argus`;
+  document.title = `#${data.number} ${data.title} - Agentopia`;
 
   IssueRenderer.render(issueData, agentsData, document.getElementById('issue-page'), {
     reload: loadIssue,

@@ -9,7 +9,7 @@ import { broadcastToAgent, broadcastToProject } from './websocket';
 import logger from '../logger';
 
 const runningProcesses = new Map<string, ChildProcess>();
-const PROMPT_DIR = path.join(os.tmpdir(), 'argus-prompts');
+const PROMPT_DIR = path.join(os.tmpdir(), 'agentopia-prompts');
 
 // Track last activity (output) time per agent — used by watchdog to detect stuck agents
 const lastActivityTime = new Map<string, number>();
@@ -268,18 +268,18 @@ export function startAgentProcess(
   }
 
   // Use a login bash shell when available so agent wrappers like `cld`/`spc`
-  // resolve consistently even when Argus itself was started with a minimal PATH.
+  // resolve consistently even when Agentopia itself was started with a minimal PATH.
   const shellPath = fs.existsSync('/bin/bash') ? '/bin/bash' : '/bin/sh';
   const shellArgs = shellPath.endsWith('bash') ? ['-lc', 'exec ' + command] : ['-c', 'exec ' + command];
   const childEnv = {
     ...process.env,
     no_proxy: [process.env.no_proxy, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
     NO_PROXY: [process.env.NO_PROXY, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
-    ARGUS_PROMPT: fullPrompt,
-    ARGUS_PROMPT_FILE: promptFile,
-    ARGUS_SESSION_ID: sessionId,
-    ARGUS_AGENT_ID: agent.id,
-    ARGUS_RUN_ID: runId,
+    AGENTOPIA_PROMPT: fullPrompt,
+    AGENTOPIA_PROMPT_FILE: promptFile,
+    AGENTOPIA_SESSION_ID: sessionId,
+    AGENTOPIA_AGENT_ID: agent.id,
+    AGENTOPIA_RUN_ID: runId,
   } as NodeJS.ProcessEnv;
 
   // nvm aborts shell init when npm_config_prefix is preset, which prevents
@@ -418,7 +418,7 @@ export function startAgentProcess(
           const killThreshold = agentCompletedAllIssues.has(agent.id) ? 1 : INTRA_LOW_OUTPUT_KILL_THRESHOLD;
           if (streak >= killThreshold && isAgentRunning(agent.id)) {
             logger.info(`Agent ${agent.id} hit ${streak} consecutive low-output assistant turns (< ${INTRA_LOW_OUTPUT_CHAR_LIMIT} chars, no tools, issuesDone=${agentCompletedAllIssues.has(agent.id)}), terminating session tail`);
-            logAndBroadcast(`\n[Argus] Session terminated: ${streak} consecutive low-output turns detected (tail request avoidance)\n`, 'stderr');
+            logAndBroadcast(`\n[Agentopia] Session terminated: ${streak} consecutive low-output turns detected (tail request avoidance)\n`, 'stderr');
             agentIntraSessionLowStreak.delete(agent.id);
             // Set 'stopped' so close handler won't mark as error, preserving session for reuse
             db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
@@ -551,12 +551,12 @@ export function startAgentProcess(
     }
     if (code === 0 && requiresCompletionSignal && !sawClosedStdinSessionError && !sawCompletionSignal && !hadFinalResult) {
       logger.info(`Agent ${agent.id} exited with code 0 but without a completion signal; marking run as error`);
-      logAndBroadcast('Argus: agent exited without emitting a completion event; marking this run as error\n', 'stderr');
+      logAndBroadcast('Agentopia: agent exited without emitting a completion event; marking this run as error\n', 'stderr');
     }
 
     if (status === 'error' && existingSessionId && !sawStdout && RESUME_MISSING_FILE_RE.test(stderrSample)) {
       logger.info(`Agent ${agent.id} resume failed with missing file, retrying with a fresh session`);
-      logAndBroadcast('Argus: 旧 session 恢复失败，自动改为新 session 重试...\n', 'stderr');
+      logAndBroadcast('Agentopia: 旧 session 恢复失败，自动改为新 session 重试...\n', 'stderr');
       db.prepare("UPDATE agents SET session_id = NULL, status = 'idle', pid = NULL WHERE id = ?").run(agent.id);
       const freshAgent = { ...agent, session_id: null };
       startAgentProcess(freshAgent, prompt, commandTemplate, systemPrompt);
@@ -573,7 +573,7 @@ export function startAgentProcess(
           // First API connection failure: auto-retry after 5 minutes to avoid wasting tokens
           const retryDelayMs = 5 * 60 * 1000; // 5 minutes
           logger.info(`Agent ${agent.id} API connection failed (attempt ${apiErrCount}), auto-retrying in 5 minutes`);
-          logAndBroadcast('Argus: API连接失败，5分钟后自动重试...\n', 'stderr');
+          logAndBroadcast('Agentopia: API连接失败，5分钟后自动重试...\n', 'stderr');
           // Set status to 'waiting' during retry delay — visible in UI, prevents scheduler re-trigger
           db.prepare(`
             UPDATE agents SET status = 'waiting', pid = NULL, finished_at = datetime('now') WHERE id = ?
@@ -596,7 +596,7 @@ export function startAgentProcess(
         } else {
           // Second+ API connection failure: give up, report error
           logger.info(`Agent ${agent.id} API connection failed ${apiErrCount} times, giving up`);
-          logAndBroadcast('Argus: API连接持续失败，请检查网络/API配置后手动重启agent\n', 'stderr');
+          logAndBroadcast('Agentopia: API连接持续失败，请检查网络/API配置后手动重启agent\n', 'stderr');
           agentApiConnectErrorCount.delete(agent.id);
           // Fall through to normal error handling below
         }
@@ -950,7 +950,7 @@ export function stopAllProcesses(): Promise<void> {
           logger.info(`Force killing agent ${agentId} (pid=${child.pid}) and ${descendants.length} descendants: [${descendants.join(',')}]`);
           for (const dpid of descendants) {
             if (dpid === process.pid || dpid === process.ppid) {
-              logger.error(`stopAllProcesses: refusing to kill PID ${dpid} — it is the Argus server (pid=${process.pid}, ppid=${process.ppid})`);
+              logger.error(`stopAllProcesses: refusing to kill PID ${dpid} — it is the Agentopia server (pid=${process.pid}, ppid=${process.ppid})`);
               continue;
             }
             try { process.kill(dpid, 'SIGKILL'); } catch {}

@@ -695,7 +695,7 @@
     }
   }
 
-  window.ArgusFilesPanel = {
+  window.AgentopiaFilesPanel = {
     create(options) {
       return new FilesPanel(options);
     },

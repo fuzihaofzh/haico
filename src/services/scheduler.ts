@@ -202,7 +202,7 @@ function startWatchdog(): void {
             logger.warn(`Watchdog: agent "${agent.name}" produced Final Result ${ageMin} min ago but process still running, force-killing`);
             db.prepare(
               "INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'stderr')"
-            ).run(agent.id, '', `[Argus] Watchdog: process force-killed — Final Result received ${ageMin} min ago but child process stuck`);
+            ).run(agent.id, '', `[Agentopia] Watchdog: process force-killed — Final Result received ${ageMin} min ago but child process stuck`);
             clearCpuSnapshot(agent.id);
             db.prepare("UPDATE agents SET status = 'stopped' WHERE id = ?").run(agent.id);
             stopAgentProcess(agent.id);
@@ -245,7 +245,7 @@ function startWatchdog(): void {
             logger.warn(`Watchdog: agent "${agent.name}" has no output for ${idleMin} min, killing (pid=${agent.pid})`);
             db.prepare(
               "INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'stderr')"
-            ).run(agent.id, '', `[Argus] Watchdog: process killed after ${idleMin} minutes with no output`);
+            ).run(agent.id, '', `[Agentopia] Watchdog: process killed after ${idleMin} minutes with no output`);
             // Set to 'idle' before killing. The close handler will see status != 'running'
             // (since we set idle here) and will keep it as idle (code 0 → idle, code != 0
             // but status already idle → close handler reads current status and respects
@@ -266,7 +266,7 @@ function startWatchdog(): void {
             pendingWatchdogTimers.add(t2);
           }
         } else {
-          // DB says running but process is gone — orphaned state (e.g., Argus restarted)
+          // DB says running but process is gone — orphaned state (e.g., Agentopia restarted)
           const startedAt = agent.started_at
             ? new Date(agent.started_at + (agent.started_at.includes('Z') ? '' : 'Z')).getTime()
             : 0;

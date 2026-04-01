@@ -6,13 +6,13 @@ async function initUserMenu() {
   try {
     const res = await fetch('/api/auth/me', { cache: 'no-cache' });
     if (!res.ok) {
-      console.warn('[Argus] initUserMenu: /api/auth/me returned', res.status, '— avatar will not show');
+      console.warn('[Agentopia] initUserMenu: /api/auth/me returned', res.status, '— avatar will not show');
       return;
     }
     _currentUser = await res.json();
-    window.dispatchEvent(new CustomEvent('argus:user-ready', { detail: _currentUser }));
+    window.dispatchEvent(new CustomEvent('agentopia:user-ready', { detail: _currentUser }));
   } catch (e) {
-    console.warn('[Argus] initUserMenu: fetch failed —', e.message || e);
+    console.warn('[Agentopia] initUserMenu: fetch failed —', e.message || e);
     return;
   }
 
@@ -335,7 +335,7 @@ const themes = {
 
 function applyTheme(name) {
   // Backward compat: 'nord' was renamed to 'nord-dark'
-  if (name === 'nord') { name = 'nord-dark'; localStorage.setItem('argus-theme', name); }
+  if (name === 'nord') { name = 'nord-dark'; localStorage.setItem('agentopia-theme', name); }
   const t = themes[name] || themes['github-dark'];
   const r = document.documentElement;
   r.style.setProperty('--bg', t.bg);
@@ -352,7 +352,7 @@ function applyTheme(name) {
 }
 
 function changeTheme(name) {
-  localStorage.setItem('argus-theme', name);
+  localStorage.setItem('agentopia-theme', name);
   applyTheme(name);
 }
 
@@ -446,7 +446,7 @@ function _playDingSound(ctx) {
 
 function playNotificationSound() {
   // Check setting
-  if (localStorage.getItem('argus-notification-sound') === 'off') return;
+  if (localStorage.getItem('agentopia-notification-sound') === 'off') return;
 
   // Throttle: no more than once per 5 seconds
   var now = Date.now();
@@ -473,9 +473,9 @@ function playNotificationSound() {
 }
 
 function toggleNotificationSound() {
-  const current = localStorage.getItem('argus-notification-sound') !== 'off';
+  const current = localStorage.getItem('agentopia-notification-sound') !== 'off';
   const newVal = current ? 'off' : 'on';
-  localStorage.setItem('argus-notification-sound', newVal);
+  localStorage.setItem('agentopia-notification-sound', newVal);
   // Update all toggles on the page
   document.querySelectorAll('.notif-sound-toggle').forEach(function(el) {
     el.classList.toggle('on', newVal === 'on');
@@ -484,7 +484,7 @@ function toggleNotificationSound() {
 
 // Init notification sound toggles on page load
 document.addEventListener('DOMContentLoaded', function() {
-  const isOn = localStorage.getItem('argus-notification-sound') !== 'off';
+  const isOn = localStorage.getItem('agentopia-notification-sound') !== 'off';
   document.querySelectorAll('.notif-sound-toggle').forEach(function(el) {
     el.classList.toggle('on', isOn);
   });
@@ -492,7 +492,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Init theme
 (function() {
-  const saved = localStorage.getItem('argus-theme') || 'solarized-light';
+  const saved = localStorage.getItem('agentopia-theme') || 'solarized-light';
   applyTheme(saved);
   const sel = document.getElementById('theme-select');
   if (sel) sel.value = saved;

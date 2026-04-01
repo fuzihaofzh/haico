@@ -1,7 +1,7 @@
 const Database = require('better-sqlite3');
 const { v4: uuidv4 } = require('uuid');
 
-const db = new Database('/misc/projdata11/info_fil/zhfu/lin/argus/data/argus.db');
+const db = new Database('/misc/projdata11/info_fil/zhfu/lin/argus/data/agentopia.db');
 
 const AGENT_ID = 'db9e98bf-91b1-4bdd-97ea-ca56cd3c9f48';
 const PROJECT_ID = 'ebf157ab-5cc9-49d2-9ff2-508652b7632c';

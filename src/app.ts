@@ -96,12 +96,12 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   await fastify.listen({ port, host });
 
   // If port 0 was requested, the OS assigned a random port. Update config.port
-  // and process.env.ARGUS_PORT so that system prompts and spawned agents get
+  // and process.env.AGENTOPIA_PORT so that system prompts and spawned agents get
   // the real port.
   const addr = fastify.server.address();
   if (addr && typeof addr === 'object' && addr.port) {
     config.port = addr.port;
-    process.env.ARGUS_PORT = String(addr.port);
+    process.env.AGENTOPIA_PORT = String(addr.port);
   }
 
   return fastify;

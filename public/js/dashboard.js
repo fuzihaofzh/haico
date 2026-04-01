@@ -701,7 +701,7 @@ loadDashboard();
 setInterval(() => { loadDashboardSummary(); loadNotifications(); }, 10000);
 setInterval(loadProjects, 30000);
 setInterval(loadUsageByProject, 60000);
-window.addEventListener('argus:user-ready', () => { loadProjects(); });
+window.addEventListener('agentopia:user-ready', () => { loadProjects(); });
 
 // ─── Floating Issue Panel ───
 

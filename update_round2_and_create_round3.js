@@ -1,6 +1,6 @@
 const Database = require('better-sqlite3');
 const { v4: uuidv4 } = require('uuid');
-const db = new Database('data/argus.db');
+const db = new Database('data/agentopia.db');
 
 const now = new Date().toISOString();
 
