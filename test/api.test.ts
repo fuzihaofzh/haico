@@ -1977,10 +1977,10 @@ describe('Agentopia API', () => {
       assert.ok(res.body.includes('%PDF'));
     });
 
-    it('rejects non-PDF/HTML files from serve endpoint', async () => {
+    it('rejects non-previewable files from serve endpoint', async () => {
       const { status, body } = await api(app, `/api/agents/${fileAgentId}/files/serve?path=${encodeURIComponent('visible.txt')}`);
       assert.equal(status, 415);
-      assert.ok(body.error.includes('Only PDF and HTML'));
+      assert.ok(body.error.includes('cannot be served for preview'));
     });
 
     it('rejects path traversal on serve endpoint', async () => {
@@ -3539,9 +3539,10 @@ JSON
     const publicDir = path.join(__dirname, '..', 'public');
     const jsDir = path.join(publicDir, 'js');
     const publicRoot = path.join(__dirname, '..');
+    const vendorFiles = new Set(['mammoth.browser.min.js', 'xlsx.full.min.js', 'jszip.min.js']);
     const filesToScan = [
       ...fs.readdirSync(publicDir).filter((name) => name.endsWith('.html')).map((name) => path.join(publicDir, name)),
-      ...fs.readdirSync(jsDir).filter((name) => name.endsWith('.js')).map((name) => path.join(jsDir, name)),
+      ...fs.readdirSync(jsDir).filter((name) => name.endsWith('.js') && !vendorFiles.has(name)).map((name) => path.join(jsDir, name)),
     ];
     const hanRegex = /\p{Script=Han}/u;
 
