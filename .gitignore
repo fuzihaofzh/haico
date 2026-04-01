@@ -13,3 +13,5 @@ data/*.db-shm
 env.ini
 .tmp/
 project_id
+send_message_and_update_issue.js
+update_round2_and_create_round3.js
