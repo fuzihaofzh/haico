@@ -1,0 +1,7 @@
+src/
+test/
+.tmp/
+*.db
+*.db-*
+node_modules/
+.git/

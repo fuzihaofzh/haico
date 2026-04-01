@@ -1,7 +1,13 @@
 {
-  "name": "argus",
+  "name": "agentopia",
   "version": "1.0.0",
   "description": "Multi-Agent Collaboration Platform",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuzihaofzh/agentopia.git"
+  },
+  "homepage": "https://github.com/fuzihaofzh/agentopia",
+  "license": "MIT",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
