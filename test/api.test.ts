@@ -5002,7 +5002,7 @@ JSON
         method: 'POST',
       });
       assert.equal(pause.status, 200);
-      assert.ok(pause.body.message);
+      assert.equal(pause.body.success, true);
 
       // Verify agent is paused
       const statusAfterPause = await api(app, `/api/agents/${treeLeafId}/status`);
@@ -5013,7 +5013,7 @@ JSON
         method: 'POST',
       });
       assert.equal(unpause.status, 200);
-      assert.ok(unpause.body.message);
+      assert.equal(unpause.body.success, true);
 
       // Verify agent is unpaused
       const statusAfterUnpause = await api(app, `/api/agents/${treeLeafId}/status`);
