@@ -3,7 +3,7 @@ dist/
 data/*.db
 data/*.db-wal
 data/*.db-shm
-/argus.db
+*.db
 *.db-wal
 *.db-shm
 .nfs*
@@ -11,3 +11,5 @@ data/*.db-shm
 .env.local
 *.log
 env.ini
+.tmp/
+project_id
