@@ -4997,21 +4997,27 @@ JSON
     });
 
     it('agent pause/unpause works on hierarchical agents', async () => {
-      // Pause leaf agent
-      const pause = await api(app, `/api/agents/${treeLeafId}`, {
-        method: 'PUT',
-        body: { paused: true },
+      // Pause leaf agent using dedicated pause endpoint
+      const pause = await api(app, `/api/agents/${treeLeafId}/pause`, {
+        method: 'POST',
       });
       assert.equal(pause.status, 200);
-      assert.equal(pause.body.paused, 1);
+      assert.ok(pause.body.message);
 
-      // Unpause leaf agent
-      const unpause = await api(app, `/api/agents/${treeLeafId}`, {
-        method: 'PUT',
-        body: { paused: false },
+      // Verify agent is paused
+      const statusAfterPause = await api(app, `/api/agents/${treeLeafId}/status`);
+      assert.equal(statusAfterPause.body.paused, true);
+
+      // Unpause leaf agent using dedicated unpause endpoint
+      const unpause = await api(app, `/api/agents/${treeLeafId}/unpause`, {
+        method: 'POST',
       });
       assert.equal(unpause.status, 200);
-      assert.equal(unpause.body.paused, 0);
+      assert.ok(unpause.body.message);
+
+      // Verify agent is unpaused
+      const statusAfterUnpause = await api(app, `/api/agents/${treeLeafId}/status`);
+      assert.equal(statusAfterUnpause.body.paused, false);
     });
 
     it('agent update preserves parent_agent_id', async () => {
