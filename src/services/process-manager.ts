@@ -380,11 +380,14 @@ export function startAgentProcess(
           const cacheRead = obj.usage.cached_input_tokens || 0;
           // Codex doesn't report cache_creation separately; estimate as input - cached
           const cacheCreation = Math.max(0, input - cacheRead);
+          // Try to extract real cost from Codex event (may be at top-level or nested in usage)
+          const costUsd = obj.cost_usd || obj.total_cost_usd || obj.usage?.cost_usd || obj.usage?.cost || 0;
           const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-          logAndBroadcast(`\n--- [${now}] Tokens: ${input} in, ${output} out, ${cacheRead} cache ---\n`, 'stdout');
+          const costLabel = costUsd > 0 ? ` | Cost: $${costUsd.toFixed(4)}` : '';
+          logAndBroadcast(`\n--- [${now}] Tokens: ${input} in, ${output} out, ${cacheRead} cache${costLabel} ---\n`, 'stdout');
           try {
             db.prepare("INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'cost')")
-              .run(agent.id, runId, JSON.stringify({ cost_usd: 0, input_tokens: input, output_tokens: output, cache_read: cacheRead, cache_creation: cacheCreation }));
+              .run(agent.id, runId, JSON.stringify({ cost_usd: costUsd, input_tokens: input, output_tokens: output, cache_read: cacheRead, cache_creation: cacheCreation }));
           } catch {}
         } else if (obj.type === 'turn.started') {
           handled = true; // silently consume

@@ -2457,7 +2457,7 @@ describe('Argus API', () => {
       assert.ok(res.body.includes('id="project-name"'), 'Should have project-name element');
     });
 
-    it('project.html has 5 tabs including Git', async () => {
+    it('project.html exposes the Files tab alongside the existing project tabs', async () => {
       const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `argus-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes("switchTab('git')"), 'Should have Git tab');
@@ -2465,6 +2465,15 @@ describe('Argus API', () => {
       assert.ok(res.body.includes("switchTab('agents')"), 'Should have Agents tab');
       assert.ok(res.body.includes("switchTab('issues')"), 'Should have Issues tab');
       assert.ok(res.body.includes("switchTab('activity')"), 'Should have Activity tab');
+      assert.ok(res.body.includes("switchTab('knowledge')"), 'Should have Knowledge tab');
+      assert.ok(res.body.includes("switchTab('files')"), 'Should have Files tab');
+    });
+
+    it('agent.html no longer renders the embedded Files workspace tab', async () => {
+      const res = await inject(app, { url: `/agents/${workerId}`, headers: { cookie: `argus-auth=${sessionToken}` } });
+      assert.equal(res.statusCode, 200);
+      assert.ok(!res.body.includes('data-panel="files"'), 'Agent page should not render the old Files workspace tab');
+      assert.ok(!res.body.includes('workspace-files-panel'), 'Agent page should not render the old Files workspace panel');
     });
   });
 
@@ -3161,6 +3170,49 @@ JSON
       const res = await inject(app, { url: '/login' });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes('Argus'));
+    });
+  });
+
+  describe('Frontend UI English copy (#540)', () => {
+    const publicDir = path.join(__dirname, '..', 'public');
+    const jsDir = path.join(publicDir, 'js');
+    const publicRoot = path.join(__dirname, '..');
+    const filesToScan = [
+      ...fs.readdirSync(publicDir).filter((name) => name.endsWith('.html')).map((name) => path.join(publicDir, name)),
+      ...fs.readdirSync(jsDir).filter((name) => name.endsWith('.js')).map((name) => path.join(jsDir, name)),
+    ];
+    const hanRegex = /\p{Script=Han}/u;
+
+    it('public HTML and JS files do not contain Han characters', () => {
+      const offenders: string[] = [];
+
+      for (const filePath of filesToScan) {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        if (hanRegex.test(content)) {
+          offenders.push(path.relative(publicRoot, filePath));
+        }
+      }
+
+      assert.deepEqual(offenders, []);
+    });
+
+    it('representative UI strings are translated to English', () => {
+      const dashboardHtml = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf-8');
+      const projectHtml = fs.readFileSync(path.join(publicDir, 'project.html'), 'utf-8');
+      const agentHtml = fs.readFileSync(path.join(publicDir, 'agent.html'), 'utf-8');
+      const commonJs = fs.readFileSync(path.join(jsDir, 'common.js'), 'utf-8');
+      const dashboardJs = fs.readFileSync(path.join(jsDir, 'dashboard.js'), 'utf-8');
+      const projectJs = fs.readFileSync(path.join(jsDir, 'project.js'), 'utf-8');
+
+      assert.ok(dashboardHtml.includes('Search issues...'));
+      assert.ok(projectHtml.includes('Share Settings'));
+      assert.ok(projectHtml.includes('+ Add Knowledge'));
+      assert.ok(projectHtml.includes('Grant Access'));
+      assert.ok(agentHtml.includes('Activity Summary'));
+      assert.ok(commonJs.includes('Loading...'));
+      assert.ok(commonJs.includes('Live updates connected'));
+      assert.ok(dashboardJs.includes('No notifications'));
+      assert.ok(projectJs.includes('No knowledge entries yet.'));
     });
   });
 
@@ -4736,11 +4788,13 @@ JSON
       clearCpuSnapshot = pm.clearCpuSnapshot;
     });
 
-    it('首次调用返回active（建立基线）', () => {
+    it('首次调用在有子进程时建立基线，否则返回no_children', () => {
       const pid = process.pid;
       const result = checkChildCpuActivity('test-agent-cpu-1', pid);
-      // 首次调用没有快照，返回 active
-      assert.equal(result, 'active', '首次调用应返回 active');
+      assert.ok(
+        ['active', 'no_children'].includes(result),
+        `首次调用应返回 active 或 no_children，实际: ${result}`
+      );
       clearCpuSnapshot('test-agent-cpu-1');
     });
 

@@ -369,9 +369,10 @@ async function loadProject() {
 
   // Load cost
   fetch(`/api/projects/${projectId}/costs`, { headers: apiHeaders() }).then(r => r.ok ? r.json() : null).then(c => {
-    if (c && c.total_cost_usd > 0) {
+    if (c && (c.total_cost_usd > 0 || c.total_input_tokens > 0 || c.total_output_tokens > 0)) {
       document.getElementById('project-cost').style.display = '';
-      document.getElementById('project-cost-value').textContent = `$${c.total_cost_usd.toFixed(4)} (${c.total_input_tokens} in / ${c.total_output_tokens} out)`;
+      const costText = c.total_cost_usd > 0 ? `$${c.total_cost_usd.toFixed(4)}` : 'Cost unavailable';
+      document.getElementById('project-cost-value').textContent = `${costText} (${c.total_input_tokens} in / ${c.total_output_tokens} out)`;
     }
   }).catch(() => {});
 
@@ -816,7 +817,7 @@ async function loadAgentCost(agentId) {
     const data = await res.json();
     if (data.total_runs === 0) { container.innerHTML = ''; return; }
 
-    const fmtCost = v => v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
+    const fmtCostAgent = v => v > 0 ? (v < 0.01 ? '<$0.01' : '$' + v.toFixed(2)) : 'N/A';
     const fmtTokens = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
     const avgCost = data.total_runs > 0 ? data.total_cost_usd / data.total_runs : 0;
 
@@ -824,11 +825,11 @@ async function loadAgentCost(agentId) {
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:12px">
         <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
           <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:2px">Total Cost</div>
-          <div style="font-size:16px;font-weight:600;color:var(--accent)">${fmtCost(data.total_cost_usd)}</div>
+          <div style="font-size:16px;font-weight:600;color:var(--accent)">${fmtCostAgent(data.total_cost_usd)}</div>
         </div>
         <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
           <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:2px">Avg/Run</div>
-          <div style="font-size:16px;font-weight:600">${fmtCost(avgCost)}</div>
+          <div style="font-size:16px;font-weight:600">${fmtCostAgent(avgCost)}</div>
         </div>
         <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
           <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:2px">Runs</div>
@@ -1019,7 +1020,8 @@ async function loadRunHistory(agentId) {
     const runs = data.runs || [];
     if (!runs.length) { container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">No runs yet.</span>'; return; }
 
-    const fmtCost = v => v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
+    const fmtCost = v => v > 0 ? (v < 0.01 ? '<$0.01' : '$' + v.toFixed(2)) : '';
+    const fmtTokens = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
     const fmtDur = ms => {
       if (!ms) return '-';
       if (ms < 60000) return Math.round(ms / 1000) + 's';
@@ -1029,6 +1031,7 @@ async function loadRunHistory(agentId) {
     container.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">${runs.map((r, idx) => {
       const statusColor = r.status === 'error' ? 'var(--error)' : 'var(--success)';
       const statusIcon = r.status === 'error' ? '✕' : '✓';
+      const costLabel = r.cost_usd > 0 ? fmtCost(r.cost_usd) : (r.input_tokens > 0 || r.output_tokens > 0 ? fmtTokens(r.input_tokens) + '↑' + fmtTokens(r.output_tokens) + '↓' : '-');
       return `<div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer" onclick="viewRunReport('${agentId}','${r.run_id}')">
         <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
           <div style="display:flex;align-items:center;gap:8px">
@@ -1037,7 +1040,7 @@ async function loadRunHistory(agentId) {
           </div>
           <div style="display:flex;gap:12px;color:var(--text-secondary);font-size:11px">
             <span title="Tools">\u{1F527} ${r.tool_call_count}</span>
-            <span title="Cost">${fmtCost(r.cost_usd)}</span>
+            <span title="${r.cost_usd > 0 ? 'Cost' : 'Tokens'}">${costLabel}</span>
             <span title="Duration">${fmtDur(r.duration_ms)}</span>
           </div>
         </div>
@@ -1058,7 +1061,7 @@ async function viewRunReport(agentId, runId) {
     if (!res.ok) { container.innerHTML = renderError({ status: res.status }, 'viewRunReport(\'' + agentId + '\',\'' + runId + '\')'); return; }
     const r = await res.json();
 
-    const fmtCost = v => v < 0.01 ? '<$0.01' : '$' + v.toFixed(4);
+    const fmtCost = v => v > 0 ? (v < 0.01 ? '<$0.01' : '$' + v.toFixed(4)) : 'N/A';
     const fmtTokens = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : String(v);
     const fmtDur = ms => {
       if (!ms) return '-';
@@ -1726,7 +1729,8 @@ async function loadDashboard() {
     const paused = agents.filter(a => a.paused).length;
     const openIssues = (issueCounts.open || 0) + (issueCounts.in_progress || 0);
     const doneIssues = (issueCounts.done || 0) + (issueCounts.closed || 0);
-    const fmtCost = v => !v ? '$0' : v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
+    const fmtCostOverview = v => !v ? '$0' : v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
+    const fmtTokensOverview = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
 
     // Update issue count for tab display (fixes #97: count shows 0 until clicking Issues tab)
     issueCount = issueCounts.total || 0;
@@ -1739,12 +1743,16 @@ async function loadDashboard() {
         ${sub ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${sub}</div>` : ''}
       </div>`;
 
+    // Show cost or token usage if cost is unavailable
+    const costValue = cost?.total_cost_usd > 0 ? fmtCostOverview(cost.total_cost_usd) : (cost?.total_input_tokens > 0 ? fmtTokensOverview(cost.total_input_tokens) + '↑' + fmtTokensOverview(cost.total_output_tokens) + '↓' : '$0');
+    const costLabel = cost?.total_cost_usd > 0 ? 'Total Cost' : (cost?.total_input_tokens > 0 ? 'Token Usage' : 'Total Cost');
+
     el.innerHTML =
       card('Agents', `${running}/${agents.length}`, running > 0 ? 'var(--success)' : 'var(--fg)',
         `${errors > 0 ? `<span style="color:var(--error)">${errors} error</span>` : ''}${paused > 0 ? ` <span style="color:var(--warning)">${paused} paused</span>` : ''}`) +
       card('Open Issues', openIssues, openIssues > 0 ? 'var(--warning)' : 'var(--fg)',
         `${doneIssues} completed`) +
-      card('Total Cost', fmtCost(cost?.total_cost_usd), 'var(--accent)',
+      card(costLabel, costValue, 'var(--accent)',
         cost ? `${cost.total_runs || 0} runs` : '') +
       card('Issues Progress', issues.length > 0 ? Math.round(doneIssues / issues.length * 100) + '%' : '-', 'var(--fg)',
         `${doneIssues}/${issues.length} total`);
@@ -2143,27 +2151,35 @@ async function loadCostChart() {
 function renderAgentCostComparison(byAgent, colorMap) {
   const el = document.getElementById('cost-agent-comparison');
   if (!el) return;
-  const entries = Object.entries(byAgent).filter(([, v]) => v.cost > 0).sort((a, b) => b[1].cost - a[1].cost);
+  const entries = Object.entries(byAgent).filter(([, v]) => v.cost > 0 || v.input_tokens > 0 || v.output_tokens > 0).sort((a, b) => b[1].cost - a[1].cost);
   if (entries.length === 0) { el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary)">No data</div>'; return; }
 
   const totalCost = entries.reduce((s, [, v]) => s + v.cost, 0);
-  const maxCost = entries[0][1].cost;
+  const hasCost = totalCost > 0;
+  // When no USD cost available (e.g. Codex), fall back to total tokens for bar sizing
+  const totalTokens = entries.reduce((s, [, v]) => s + (v.input_tokens || 0) + (v.output_tokens || 0), 0);
+  const metric = hasCost ? (v) => v.cost : (v) => (v.input_tokens || 0) + (v.output_tokens || 0);
+  const maxMetric = Math.max(...entries.map(([, v]) => metric(v)), 1);
+  const totalMetric = hasCost ? totalCost : totalTokens;
+  const fmtTokensComp = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
 
   // Horizontal bar chart + percentage
   el.innerHTML = entries.map(([name, v], idx) => {
-    const pct = totalCost > 0 ? (v.cost / totalCost * 100).toFixed(1) : '0';
-    const barWidth = maxCost > 0 ? (v.cost / maxCost * 100).toFixed(1) : '0';
+    const val = metric(v);
+    const pct = totalMetric > 0 ? (val / totalMetric * 100).toFixed(1) : '0';
+    const barWidth = maxMetric > 0 ? (val / maxMetric * 100).toFixed(1) : '0';
     const color = (colorMap && colorMap[name]) || _agentColors[idx % _agentColors.length];
+    const label = hasCost ? ('$' + (v.cost < 0.01 ? v.cost.toFixed(4) : v.cost.toFixed(2))) : (fmtTokensComp((v.input_tokens||0)+(v.output_tokens||0)) + ' tokens');
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <div style="width:120px;font-size:11px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(name)}">${esc(name)}</div>
       <div style="flex:1;height:18px;background:var(--bg);border:1px solid var(--border);border-radius:3px;overflow:hidden">
         <div style="height:100%;width:${barWidth}%;background:${color};opacity:0.8;border-radius:3px;transition:width 0.3s"></div>
       </div>
-      <div style="width:80px;font-size:11px;color:var(--text-secondary);text-align:right">$${v.cost < 0.01 ? v.cost.toFixed(4) : v.cost.toFixed(2)}</div>
+      <div style="width:80px;font-size:11px;color:var(--text-secondary);text-align:right">${label}</div>
       <div style="width:40px;font-size:10px;color:var(--text-secondary);text-align:right">${pct}%</div>
     </div>`;
   }).join('') +
-  `<div style="margin-top:8px;font-size:12px;color:var(--fg);font-weight:600">Total: $${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}</div>`;
+  `<div style="margin-top:8px;font-size:12px;color:var(--fg);font-weight:600">Total: ${hasCost ? '$' + (totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)) : fmtTokensComp(totalTokens) + ' tokens'}</div>`;
 }
 
 function renderStackedBarChart(agents, totalSeries, width, height, colorMap) {

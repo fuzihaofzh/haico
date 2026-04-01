@@ -310,7 +310,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     let totalCost = 0;
     let totalInput = 0;
     let totalOutput = 0;
-    const byAgent: Record<string, { cost: number; runs: number }> = {};
+    const byAgent: Record<string, { cost: number; runs: number; input_tokens: number; output_tokens: number }> = {};
     const runs: Array<{ run_id: string; agent_name: string; cost_usd: number; input_tokens: number; output_tokens: number; timestamp: string }> = [];
     const timeSeries: Record<string, { cost: number; runs: number }> = {};
     const timeSeriesByAgent: Record<string, Record<string, { cost: number; runs: number }>> = {};
@@ -326,9 +326,11 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
         totalInput += inputTokens;
         totalOutput += outputTokens;
 
-        if (!byAgent[c.agent_name]) byAgent[c.agent_name] = { cost: 0, runs: 0 };
+        if (!byAgent[c.agent_name]) byAgent[c.agent_name] = { cost: 0, runs: 0, input_tokens: 0, output_tokens: 0 };
         byAgent[c.agent_name].cost += costUsd;
         byAgent[c.agent_name].runs++;
+        byAgent[c.agent_name].input_tokens += inputTokens;
+        byAgent[c.agent_name].output_tokens += outputTokens;
 
         runs.push({
           run_id: c.run_id,
