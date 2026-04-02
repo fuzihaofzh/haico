@@ -136,25 +136,28 @@
       <div id="agent-board-list"></div>
     </div>
 
-    <!-- Activity Stream + Projects side by side -->
-    <div style="display:flex;gap:16px;margin-bottom:16px">
-      <!-- Activity Stream -->
-      <div id="activity-stream-panel" class="card" style="display:none;flex:1;min-width:0;padding:16px;max-height:500px;overflow:hidden;flex-direction:column">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0">
+    <!-- Projects Grid (full width) -->
+    <div style="margin-bottom:16px">
+      <div id="projects" class="grid">
+        <div class="empty-state">Loading projects...</div>
+      </div>
+    </div>
+
+    <!-- Activity Stream (full width, collapsible) -->
+    <div id="activity-stream-panel" class="card" style="display:none;margin-bottom:16px;padding:16px;max-height:400px;overflow:hidden;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:8px">
           <strong style="font-size:14px">Activity Stream</strong>
+          <span id="activity-stream-count" style="font-size:11px;color:var(--text-secondary)"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
           <select id="activity-project-filter" onchange="loadActivityStream()" style="font-size:12px;background:var(--bg-secondary);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:2px 6px">
             <option value="">All Projects</option>
           </select>
-        </div>
-        <div id="activity-stream-list" style="overflow-y:auto;flex:1"></div>
-      </div>
-
-      <!-- Projects Grid -->
-      <div style="flex:2;min-width:0">
-        <div id="projects" class="grid">
-          <div class="empty-state">Loading projects...</div>
+          <button class="btn btn-sm" onclick="toggleActivityStream()" id="activity-toggle-btn" style="font-size:11px;padding:2px 8px">Collapse</button>
         </div>
       </div>
+      <div id="activity-stream-list" style="overflow-y:auto;flex:1"></div>
     </div>
 
     <!-- Cost Alert Banner -->

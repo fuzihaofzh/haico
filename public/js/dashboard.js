@@ -875,6 +875,9 @@ async function loadActivityStream() {
     const list = document.getElementById('activity-stream-list');
     if (!panel || !list) return;
 
+    var countEl = document.getElementById('activity-stream-count');
+    if (countEl) countEl.textContent = events.length > 0 ? '(' + events.length + ')' : '';
+
     if (events.length === 0) {
       panel.style.display = 'none';
       return;
@@ -953,6 +956,17 @@ function populateActivityProjectFilter() {
     options += '<option value="' + id + '"' + (id === current ? ' selected' : '') + '>' + esc(p.name) + '</option>';
   }
   filter.innerHTML = options;
+}
+
+let _activityStreamCollapsed = false;
+function toggleActivityStream() {
+  _activityStreamCollapsed = !_activityStreamCollapsed;
+  var list = document.getElementById('activity-stream-list');
+  var btn = document.getElementById('activity-toggle-btn');
+  if (list) list.style.display = _activityStreamCollapsed ? 'none' : '';
+  if (btn) btn.textContent = _activityStreamCollapsed ? 'Expand' : 'Collapse';
+  var panel = document.getElementById('activity-stream-panel');
+  if (panel) panel.style.maxHeight = _activityStreamCollapsed ? 'none' : '400px';
 }
 
 // ─── Agent Status Board (#618) ───
