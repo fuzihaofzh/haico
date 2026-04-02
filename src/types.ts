@@ -17,7 +17,7 @@ export interface ProjectMember {
   id: string;
   project_id: string;
   user_id: string;
-  role: 'owner' | 'member';
+  role: 'owner' | 'editor' | 'member';
   created_at: string;
 }
 

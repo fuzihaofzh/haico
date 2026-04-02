@@ -122,7 +122,18 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid);
     if (!project) return reply.code(404).send({ error: 'Project not found' });
 
-    const parentValidation = validateParentAgentAssignment(db, request.params.pid, parent_agent_id);
+    // Auto-assign parent to controller if not specified and not creating a controller
+    let effectiveParentId = parent_agent_id;
+    if (!effectiveParentId && !is_controller) {
+      const controller = db.prepare(
+        'SELECT id FROM agents WHERE project_id = ? AND is_controller = 1 LIMIT 1'
+      ).get(request.params.pid) as { id: string } | undefined;
+      if (controller) {
+        effectiveParentId = controller.id;
+      }
+    }
+
+    const parentValidation = validateParentAgentAssignment(db, request.params.pid, effectiveParentId);
     if (parentValidation.error) {
       return reply.code(400).send({ error: parentValidation.error });
     }
@@ -548,7 +559,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
         if (a.type !== b.type) {
           return a.type === 'dir' ? -1 : 1;
         }
-        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+        // Newest first
+        return new Date(b.modified).getTime() - new Date(a.modified).getTime();
       });
 
       return {

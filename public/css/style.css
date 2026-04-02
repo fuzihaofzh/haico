@@ -253,6 +253,11 @@ header h1 span { color: var(--accent); }
   color: var(--success);
   border-color: rgba(133, 153, 0, 0.28);
 }
+.permission-success {
+  background: rgba(133, 153, 0, 0.16);
+  color: var(--success);
+  border-color: rgba(133, 153, 0, 0.28);
+}
 .permission-shared {
   background: rgba(38, 139, 210, 0.12);
   color: var(--accent);
@@ -469,83 +474,179 @@ header h1 span { color: var(--accent); }
   width: 100%;
 }
 
+/* ── VS Code-style File Tree ── */
 .file-tree {
   flex: 1;
   overflow: auto;
-  padding: 10px 8px 12px;
+  padding: 2px 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
 }
 
-.file-tree-item {
+.ft-row {
   align-items: center;
-  border-radius: 6px;
   color: var(--fg);
   cursor: pointer;
   display: flex;
-  gap: 8px;
-  margin-bottom: 2px;
-  padding: 5px 8px;
+  height: 22px;
+  padding: 0 8px 0 0;
+  position: relative;
 }
 
-.file-tree-item:hover {
-  background: var(--selected-bg);
+.ft-row:hover {
+  background: var(--selected-bg, rgba(90,93,110,.1));
 }
 
-.file-tree-item.active {
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+.ft-row.selected {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+}
+
+.ft-row.selected .ft-label {
   color: var(--accent);
 }
 
-.file-tree-item.loading {
-  color: var(--text-secondary);
+.ft-row.loading {
+  opacity: 0.6;
 }
 
-.file-tree-spacer {
-  flex: 0 0 auto;
+/* Indent guide — vertical line per depth level */
+.ft-indent-guide {
+  flex: 0 0 16px;
+  height: 100%;
+  position: relative;
+}
+.ft-indent-guide::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border, rgba(90,93,110,.18));
+}
+.ft-row:hover .ft-indent-guide::before {
+  background: var(--text-secondary, rgba(90,93,110,.35));
 }
 
-.file-tree-caret,
-.file-tree-icon {
-  color: var(--text-secondary);
-  flex: 0 0 auto;
-  font-size: 12px;
+/* Chevron */
+.ft-chevron.codicon {
+  flex: 0 0 16px;
+  font-size: 12px !important;
   text-align: center;
-  width: 12px;
+  color: var(--text-secondary) !important;
+  transition: transform .12s ease;
+  width: 16px;
+  height: 16px;
+  line-height: 16px;
 }
 
-.file-tree-item.active .file-tree-caret,
-.file-tree-item.active .file-tree-icon {
-  color: inherit;
+.ft-chevron-placeholder {
+  flex: 0 0 16px;
 }
 
-.file-tree-name {
+/* File/folder icon — !important needed to override codicon's
+   `.codicon[class*='codicon-']` which has higher specificity */
+.ft-icon.codicon {
+  flex: 0 0 16px;
+  font-size: 14px !important;
+  text-align: center;
+  margin-right: 4px;
+  width: 16px;
+  height: 16px;
+  line-height: 16px;
+}
+
+/* Icon colors by file type */
+.ft-icon.ft-icon-folder       { color: #dcb67a !important; }
+.ft-icon.ft-icon-folder-open  { color: #dcb67a !important; }
+.ft-icon.ft-icon-js           { color: #e8d44d !important; }
+.ft-icon.ft-icon-ts           { color: #3178c6 !important; }
+.ft-icon.ft-icon-py           { color: #3572a5 !important; }
+.ft-icon.ft-icon-rb           { color: #cc342d !important; }
+.ft-icon.ft-icon-go           { color: #00add8 !important; }
+.ft-icon.ft-icon-rs           { color: #dea584 !important; }
+.ft-icon.ft-icon-java         { color: #b07219 !important; }
+.ft-icon.ft-icon-c            { color: #555555 !important; }
+.ft-icon.ft-icon-cs           { color: #68217a !important; }
+.ft-icon.ft-icon-php          { color: #4f5d95 !important; }
+.ft-icon.ft-icon-html         { color: #e34c26 !important; }
+.ft-icon.ft-icon-css          { color: #563d7c !important; }
+.ft-icon.ft-icon-json         { color: #e8d44d !important; }
+.ft-icon.ft-icon-xml          { color: #e37933 !important; }
+.ft-icon.ft-icon-yaml         { color: #cb171e !important; }
+.ft-icon.ft-icon-md           { color: #519aba !important; }
+.ft-icon.ft-icon-txt          { color: var(--text-secondary) !important; }
+.ft-icon.ft-icon-sh           { color: #89e051 !important; }
+.ft-icon.ft-icon-pdf          { color: #e34c26 !important; }
+.ft-icon.ft-icon-img          { color: #a074c4 !important; }
+.ft-icon.ft-icon-zip          { color: #e8d44d !important; }
+.ft-icon.ft-icon-bin          { color: #8b949e !important; }
+.ft-icon.ft-icon-db           { color: #336791 !important; }
+.ft-icon.ft-icon-doc          { color: #2b579a !important; }
+.ft-icon.ft-icon-xls          { color: #217346 !important; }
+.ft-icon.ft-icon-ppt          { color: #d04423 !important; }
+.ft-icon.ft-icon-lock         { color: #8b949e !important; }
+.ft-icon.ft-icon-docker       { color: #2496ed !important; }
+.ft-icon.ft-icon-git          { color: #f05033 !important; }
+.ft-icon.ft-icon-env          { color: #ecd53f !important; }
+.ft-icon.ft-icon-npm          { color: #cb3837 !important; }
+.ft-icon.ft-icon-default      { color: var(--text-secondary) !important; }
+
+/* Label */
+.ft-label {
   flex: 1;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 22px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.file-tree-action-btn {
+/* Action button (download) */
+.ft-action-btn {
+  align-items: center;
   background: none;
-  border: 1px solid var(--border-color, #ddd);
-  border-radius: 4px;
+  border: none;
+  border-radius: 3px;
   color: var(--text-secondary);
   cursor: pointer;
+  display: flex;
   flex: 0 0 auto;
-  font-size: 13px;
-  line-height: 1;
+  font-size: 14px;
+  height: 18px;
+  justify-content: center;
   opacity: 0;
-  padding: 1px 4px;
+  padding: 0;
+  width: 20px;
+}
+.ft-row:hover .ft-action-btn {
+  opacity: 1;
+}
+.ft-action-btn:hover {
+  background: var(--selected-bg, rgba(90,93,110,.15));
+  color: var(--accent, #0969da);
 }
 
-.file-tree-item:hover .file-tree-action-btn {
+/* File size meta */
+.ft-meta {
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+  font-size: 11px;
+  margin-right: 4px;
+  opacity: 0;
+}
+.ft-row:hover .ft-meta {
   opacity: 1;
 }
 
-.file-tree-action-btn:hover {
-  background: var(--selected-bg, #eee);
-  color: var(--accent, #0969da);
+/* Loading spinner */
+@keyframes ft-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.ft-spin {
+  animation: ft-spin 1s linear infinite;
 }
 
 .file-upload-btn {
@@ -553,11 +654,9 @@ header h1 span { color: var(--accent); }
   white-space: nowrap;
 }
 
-.file-tree-meta {
-  color: var(--text-secondary);
-  flex: 0 0 auto;
-  font-size: 10px;
-}
+/* Legacy class kept for compatibility */
+.file-tree-item { display: none; }
+.file-tree-meta { display: none; }
 
 .file-editor-pane {
   display: flex;

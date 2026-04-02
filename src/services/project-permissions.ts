@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { getRequestUser, isLocalhostBypassRequest } from '../middleware/auth';
 import { Project, User } from '../types';
 
-export type ProjectPermissionLevel = 'none' | 'member' | 'owner' | 'admin' | 'bypass';
+export type ProjectPermissionLevel = 'none' | 'member' | 'editor' | 'owner' | 'admin' | 'bypass';
 
 export interface ProjectPermission {
   exists: boolean;
@@ -65,12 +65,12 @@ export function getProjectPermission(
   ).get(projectId, user!.id) as { role: string } | undefined;
 
   if (membership) {
-    const isOwner = membership.role === 'owner';
+    const canManage = membership.role === 'owner' || membership.role === 'editor';
     return {
       exists: true,
       allowed: true,
-      canManage: isOwner,
-      level: isOwner ? 'owner' : 'member',
+      canManage,
+      level: membership.role as ProjectPermissionLevel,
     };
   }
 

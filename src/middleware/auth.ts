@@ -577,17 +577,22 @@ export function setupAuth(app: FastifyInstance): void {
       'INSERT INTO users (id, username, email, password_hash, password_salt, display_name, role) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(userId, body.username, body.email || '', hash, salt, body.display_name || body.username, role);
 
-    // Auto-login: create session
-    const sessionToken = randomBytes(32).toString('hex');
-    const now = Date.now();
-    const expiresAt = now + 30 * 24 * 60 * 60 * 1000; // 30 days
-    db.prepare('INSERT INTO sessions (token, user_id, csrf_token, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
-      .run(sessionToken, userId, randomBytes(16).toString('hex'), now, expiresAt);
-
-    reply.header('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Path=/; SameSite=Lax`);
-
     const user = db.prepare('SELECT id, username, email, display_name, role, created_at FROM users WHERE id = ?').get(userId);
-    return reply.status(201).send({ ok: true, user, token: sessionToken });
+
+    // Only auto-login if the caller is not already authenticated (self-registration)
+    // If an admin is creating a user via the admin panel, don't overwrite their session
+    const callerUser = getRequestUser(request);
+    if (!callerUser) {
+      const sessionToken = randomBytes(32).toString('hex');
+      const now = Date.now();
+      const expiresAt = now + 30 * 24 * 60 * 60 * 1000; // 30 days
+      db.prepare('INSERT INTO sessions (token, user_id, csrf_token, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
+        .run(sessionToken, userId, randomBytes(16).toString('hex'), now, expiresAt);
+      reply.header('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Path=/; SameSite=Lax`);
+      return reply.status(201).send({ ok: true, user, token: sessionToken });
+    }
+
+    return reply.status(201).send({ ok: true, user });
   });
 
   // Login with username + password (multi-user)

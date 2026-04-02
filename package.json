@@ -1,6 +1,6 @@
 {
   "name": "agentopia",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "description": "Multi-Agent Collaboration Platform",
   "repository": {
     "type": "git",
@@ -17,7 +17,7 @@
     "start": "node dist/index.js",
     "dev": "tsx watch --exclude '*.db' --exclude '*.db-*' --exclude 'test/**' src/index.ts",
     "test": "npm run build && npx tsx test/api.test.ts",
-    "postinstall": "node -e \"const fs=require('fs'),p=require('path');[['mammoth/mammoth.browser.min.js','mammoth.browser.min.js'],['xlsx/dist/xlsx.full.min.js','xlsx.full.min.js'],['jszip/dist/jszip.min.js','jszip.min.js']].forEach(([s,d])=>{try{fs.copyFileSync(p.join('node_modules',s),p.join('public','js',d))}catch(e){}})\""
+    "postinstall": "node -e \"const fs=require('fs'),p=require('path');[['docx-preview/dist/docx-preview.min.js','js/docx-preview.min.js'],['xlsx/dist/xlsx.full.min.js','js/xlsx.full.min.js'],['jszip/dist/jszip.min.js','js/jszip.min.js'],['@vscode/codicons/dist/codicon.css','css/codicon.css'],['@vscode/codicons/dist/codicon.ttf','css/codicon.ttf']].forEach(([s,d])=>{try{fs.copyFileSync(p.join('node_modules',s),p.join('public',d))}catch(e){}})\""
   },
   "dependencies": {
     "@fastify/multipart": "^9.4.0",
@@ -25,10 +25,11 @@
     "@fastify/websocket": "^11.0.1",
     "@langchain/core": "^1.1.35",
     "@langchain/langgraph": "^1.2.5",
+    "@vscode/codicons": "^0.0.45",
     "better-sqlite3": "^11.7.0",
+    "docx-preview": "^0.3.7",
     "fastify": "^5.2.0",
     "jszip": "^3.10.1",
-    "mammoth": "^1.12.0",
     "marked": "^17.0.5",
     "node-cron": "^3.0.3",
     "uuid": "^11.1.0",

@@ -318,32 +318,48 @@
           const isExpanded = isDir && this.state.expandedDirs.has(entry.path);
           const isLoading = isDir && this.state.loadingDirs.has(entry.path);
           const isSelected = this.state.selectedFilePath === entry.path;
-          const indent = depth * 18;
           const encodedPath = encodeURIComponent(entry.path);
-          const caret = isDir ? (isExpanded ? 'v' : '>') : '-';
-          const downloadBtn = isDir ? '' : `<button class="file-tree-action-btn" title="Download" onclick="event.stopPropagation();${this.apiName}.downloadFile('${encodedPath}')">&#8615;</button>`;
-          const meta = isDir ? '' : `<span class="file-tree-meta">${this.formatBytes(entry.size)}</span>`;
-          rows.push(`
-            <div class="file-tree-item${isSelected ? ' active' : ''}${isLoading ? ' loading' : ''}" onclick="${this.apiName}.handleTreeClick('${encodedPath}')">
-              <span class="file-tree-spacer" style="width:${indent}px"></span>
-              <span class="file-tree-caret">${caret}</span>
-              <span class="file-tree-name">${esc(entry.name)}</span>
-              ${downloadBtn}
-              ${meta}
-            </div>
-          `);
+
+          // Indent guides
+          let guides = '';
+          for (let i = 0; i < depth; i++) {
+            guides += '<span class="ft-indent-guide"></span>';
+          }
+
+          // Chevron (dirs only)
+          const chevron = isDir
+            ? `<span class="ft-chevron codicon codicon-chevron-${isExpanded ? 'down' : 'right'}"></span>`
+            : '<span class="ft-chevron-placeholder"></span>';
+
+          // Icon
+          const iconClass = isDir
+            ? (isExpanded ? 'codicon-folder-opened ft-icon-folder-open' : 'codicon-folder ft-icon-folder')
+            : this._fileIconClass(entry.name);
+          const icon = `<span class="ft-icon codicon ${iconClass}"></span>`;
+
+          const downloadBtn = isDir ? '' : `<button class="ft-action-btn" title="Download" onclick="event.stopPropagation();${this.apiName}.downloadFile('${encodedPath}')"><span class="codicon codicon-cloud-download"></span></button>`;
+          const meta = isDir ? '' : `<span class="ft-meta">${this.formatBytes(entry.size)}</span>`;
+
+          rows.push(
+            `<div class="ft-row${isSelected ? ' selected' : ''}${isLoading ? ' loading' : ''}" onclick="${this.apiName}.handleTreeClick('${encodedPath}')" data-path="${encodedPath}">`
+            + guides + chevron + icon
+            + `<span class="ft-label">${esc(entry.name)}</span>`
+            + meta + downloadBtn
+            + '</div>'
+          );
 
           if (isDir && isExpanded) {
             if (this.state.treeCache.has(entry.path)) {
               pushEntries(entry.path, depth + 1);
             } else if (isLoading) {
-              rows.push(`
-                <div class="file-tree-item loading">
-                  <span class="file-tree-spacer" style="width:${(depth + 1) * 18}px"></span>
-                  <span class="file-tree-caret">.</span>
-                  <span class="file-tree-name">Loading...</span>
-                </div>
-              `);
+              rows.push(
+                `<div class="ft-row loading">`
+                + guides + '<span class="ft-indent-guide"></span>'
+                + '<span class="ft-chevron-placeholder"></span>'
+                + `<span class="ft-icon codicon codicon-loading ft-spin"></span>`
+                + `<span class="ft-label" style="color:var(--text-secondary)">Loading…</span>`
+                + '</div>'
+              );
             }
           }
         });
@@ -534,30 +550,33 @@
 
     async loadOfficeLib(mode) {
       if (mode === 'docx') {
-        if (!window.mammoth) {
-          await this._loadScript('/public/js/mammoth.browser.min.js');
-          // Wait for the global to become available
-          await this._waitForGlobal('mammoth');
+        if (!window.JSZip) {
+          await this._loadUmdScript('/public/js/jszip.min.js', 'JSZip');
+        }
+        if (!window.docx) {
+          await this._loadUmdScript('/public/js/docx-preview.min.js', 'docx');
         }
       } else if (mode === 'xlsx') {
         if (!window.XLSX) {
-          await this._loadScript('/public/js/xlsx.full.min.js');
-          await this._waitForGlobal('XLSX');
+          await this._loadUmdScript('/public/js/xlsx.full.min.js', 'XLSX');
         }
       }
     }
 
-    _waitForGlobal(name, timeout = 5000) {
-      return new Promise((resolve, reject) => {
-        if (window[name]) return resolve();
-        const start = Date.now();
-        const check = () => {
-          if (window[name]) return resolve();
-          if (Date.now() - start > timeout) return reject(new Error(`${name} failed to load`));
-          setTimeout(check, 50);
-        };
-        check();
-      });
+    // Fetch script text and execute in a clean scope that forces the UMD
+    // browser branch, regardless of what globals exist (exports, module, define).
+    async _loadUmdScript(url, globalName) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+      const code = await res.text();
+      // Execute with exports/module/define shadowed to undefined so UMD
+      // falls through to the browser global assignment.
+      (new Function('exports', 'module', 'define', 'require', code))(
+        undefined, undefined, undefined, undefined
+      );
+      if (!window[globalName]) {
+        throw new Error(`${globalName} failed to load (script executed but global not set)`);
+      }
     }
 
     _loadScript(url) {
@@ -581,13 +600,31 @@
 
         let html = '';
         if (mode === 'docx') {
-          if (!window.mammoth) throw new Error('mammoth library not available');
-          const result = await window.mammoth.convertToHtml({ arrayBuffer });
-          html = '<div style="max-width:800px;margin:0 auto;line-height:1.6">' + result.value + '</div>';
-          if (result.messages && result.messages.length > 0) {
-            html += '<div style="margin-top:16px;padding:8px;background:#fff3cd;border-radius:4px;font-size:12px;color:#856404">' +
-              result.messages.map(m => m.message).join('<br>') + '</div>';
-          }
+          // Use docx-preview for faithful Word rendering
+          this.removeRichPreview();
+          this.removePreviewIframe();
+          const container = document.createElement('div');
+          container.className = 'files-rich-preview';
+          container.style.cssText = 'overflow:auto;height:100%;';
+          const editorEl = this.el('editorId');
+          if (this.state.editor) this.state.editor.getDomNode().style.display = 'none';
+          editorEl.appendChild(container);
+          await window.docx.renderAsync(arrayBuffer, container, null, {
+            className: 'docx',
+            inWrapper: true,
+            ignoreWidth: false,
+            ignoreHeight: false,
+            breakPages: true,
+            ignoreLastRenderedPageBreak: false,
+            renderHeaders: true,
+            renderFooters: true,
+            renderFootnotes: true,
+          });
+          this.setStatus(`Preview: ${filePath}`);
+          this.showBanner(`DOCX preview: ${filePath}`, '');
+          this.renderTree();
+          this.applyMobileEditorFocus(true);
+          return;
         } else if (mode === 'xlsx') {
           const workbook = XLSX.read(arrayBuffer, { type: 'array' });
           html = '<div>';
@@ -828,6 +865,89 @@
         this.state.saving = false;
         this.updateSaveButton();
       }
+    }
+
+    _fileIconClass(name) {
+      const ext = (name.includes('.') ? name.split('.').pop() : '').toLowerCase();
+      const map = {
+        js: 'codicon-file-code ft-icon-js',
+        mjs: 'codicon-file-code ft-icon-js',
+        cjs: 'codicon-file-code ft-icon-js',
+        ts: 'codicon-file-code ft-icon-ts',
+        tsx: 'codicon-file-code ft-icon-ts',
+        jsx: 'codicon-file-code ft-icon-js',
+        py: 'codicon-file-code ft-icon-py',
+        rb: 'codicon-file-code ft-icon-rb',
+        go: 'codicon-file-code ft-icon-go',
+        rs: 'codicon-file-code ft-icon-rs',
+        java: 'codicon-file-code ft-icon-java',
+        c: 'codicon-file-code ft-icon-c',
+        cpp: 'codicon-file-code ft-icon-c',
+        h: 'codicon-file-code ft-icon-c',
+        cs: 'codicon-file-code ft-icon-cs',
+        php: 'codicon-file-code ft-icon-php',
+        html: 'codicon-file-code ft-icon-html',
+        htm: 'codicon-file-code ft-icon-html',
+        css: 'codicon-file-code ft-icon-css',
+        scss: 'codicon-file-code ft-icon-css',
+        less: 'codicon-file-code ft-icon-css',
+        json: 'codicon-file-code ft-icon-json',
+        xml: 'codicon-file-code ft-icon-xml',
+        yaml: 'codicon-file-code ft-icon-yaml',
+        yml: 'codicon-file-code ft-icon-yaml',
+        toml: 'codicon-file-code ft-icon-yaml',
+        md: 'codicon-markdown ft-icon-md',
+        txt: 'codicon-file-text ft-icon-txt',
+        log: 'codicon-file-text ft-icon-txt',
+        csv: 'codicon-file-text ft-icon-txt',
+        sh: 'codicon-terminal ft-icon-sh',
+        bash: 'codicon-terminal ft-icon-sh',
+        zsh: 'codicon-terminal ft-icon-sh',
+        bat: 'codicon-terminal ft-icon-sh',
+        pdf: 'codicon-file-pdf ft-icon-pdf',
+        png: 'codicon-file-media ft-icon-img',
+        jpg: 'codicon-file-media ft-icon-img',
+        jpeg: 'codicon-file-media ft-icon-img',
+        gif: 'codicon-file-media ft-icon-img',
+        svg: 'codicon-file-media ft-icon-img',
+        webp: 'codicon-file-media ft-icon-img',
+        ico: 'codicon-file-media ft-icon-img',
+        mp4: 'codicon-file-media ft-icon-img',
+        mp3: 'codicon-file-media ft-icon-img',
+        zip: 'codicon-file-zip ft-icon-zip',
+        gz: 'codicon-file-zip ft-icon-zip',
+        tar: 'codicon-file-zip ft-icon-zip',
+        rar: 'codicon-file-zip ft-icon-zip',
+        '7z': 'codicon-file-zip ft-icon-zip',
+        exe: 'codicon-file-binary ft-icon-bin',
+        bin: 'codicon-file-binary ft-icon-bin',
+        dll: 'codicon-file-binary ft-icon-bin',
+        so: 'codicon-file-binary ft-icon-bin',
+        o: 'codicon-file-binary ft-icon-bin',
+        db: 'codicon-database ft-icon-db',
+        sqlite: 'codicon-database ft-icon-db',
+        sql: 'codicon-database ft-icon-db',
+        docx: 'codicon-book ft-icon-doc',
+        doc: 'codicon-book ft-icon-doc',
+        xlsx: 'codicon-file-text ft-icon-xls',
+        xls: 'codicon-file-text ft-icon-xls',
+        pptx: 'codicon-file-text ft-icon-ppt',
+        ppt: 'codicon-file-text ft-icon-ppt',
+        lock: 'codicon-lock ft-icon-lock',
+      };
+      // Special filenames
+      const nameMap = {
+        'Dockerfile': 'codicon-file-code ft-icon-docker',
+        'docker-compose.yml': 'codicon-file-code ft-icon-docker',
+        '.gitignore': 'codicon-file-code ft-icon-git',
+        '.env': 'codicon-file-code ft-icon-env',
+        'package.json': 'codicon-file-code ft-icon-npm',
+        'tsconfig.json': 'codicon-file-code ft-icon-ts',
+        'Makefile': 'codicon-terminal ft-icon-sh',
+        'LICENSE': 'codicon-file-text ft-icon-txt',
+        'README.md': 'codicon-file-text ft-icon-md',
+      };
+      return nameMap[name] || map[ext] || 'codicon-file ft-icon-default';
     }
 
     toggleDirectory(entry) {

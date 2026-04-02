@@ -855,9 +855,8 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       if (!user_id && !username) {
         return reply.code(400).send({ error: 'user_id or username is required' });
       }
-      if (role && role !== 'member') {
-        return reply.code(400).send({ error: 'Only member role is supported' });
-      }
+      const validRoles = ['member', 'editor', 'owner'];
+      const assignRole = role && validRoles.includes(role) ? role : 'member';
 
       const project = db.prepare('SELECT owner_id FROM projects WHERE id = ?').get(request.params.id) as { owner_id: string | null } | undefined;
       if (!project) return reply.code(404).send({ error: 'Project not found' });
@@ -881,11 +880,11 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       }
 
       if (existingMember) {
-        db.prepare("UPDATE project_members SET role = 'member' WHERE id = ?").run(existingMember.id);
+        db.prepare("UPDATE project_members SET role = ? WHERE id = ?").run(assignRole, existingMember.id);
       } else {
         db.prepare(
-          "INSERT INTO project_members (id, project_id, user_id, role) VALUES (?, ?, ?, 'member')"
-        ).run(uuidv4(), request.params.id, targetUser.id);
+          "INSERT INTO project_members (id, project_id, user_id, role) VALUES (?, ?, ?, ?)"
+        ).run(uuidv4(), request.params.id, targetUser.id, assignRole);
       }
 
       const member = db.prepare(
@@ -924,6 +923,45 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
       db.prepare('DELETE FROM project_members WHERE id = ?').run(existingMember.id);
       return { success: true };
+    }
+  );
+
+  // Update member role
+  fastify.patch<{ Params: { id: string; userId: string }; Body: { role: string } }>(
+    '/api/projects/:id/members/:userId',
+    async (request, reply) => {
+      const db = getDatabase();
+      const access = ensureProjectAccess(db, request, reply, request.params.id, true);
+      if (!access) return;
+
+      const { role } = request.body as any;
+      const validRoles = ['member', 'editor', 'owner'];
+      if (!role || !validRoles.includes(role)) {
+        return reply.code(400).send({ error: 'role must be one of: member, editor, owner' });
+      }
+
+      const project = db.prepare('SELECT owner_id FROM projects WHERE id = ?').get(request.params.id) as { owner_id: string | null } | undefined;
+      if (!project) return reply.code(404).send({ error: 'Project not found' });
+      if (project.owner_id === request.params.userId) {
+        return reply.code(400).send({ error: 'Cannot change project owner role' });
+      }
+
+      const existingMember = db.prepare(
+        'SELECT * FROM project_members WHERE project_id = ? AND user_id = ?'
+      ).get(request.params.id, request.params.userId) as ProjectMember | undefined;
+      if (!existingMember) {
+        return reply.code(404).send({ error: 'Project member not found' });
+      }
+
+      db.prepare('UPDATE project_members SET role = ? WHERE id = ?').run(role, existingMember.id);
+
+      const member = db.prepare(
+        `SELECT pm.*, u.username, u.display_name, u.role as user_role
+         FROM project_members pm JOIN users u ON u.id = pm.user_id
+         WHERE pm.id = ?`
+      ).get(existingMember.id);
+
+      return member;
     }
   );
 

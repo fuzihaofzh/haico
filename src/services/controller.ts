@@ -254,7 +254,7 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
     }
   }
 
-  if (!skipActivityCheck) {
+  if (!skipActivityCheck && controller.status !== 'error') {
     const lastAt = lastTriggerAtMs.get(project.id);
     if (lastAt && now - lastAt < TRIGGER_DEBOUNCE_MS) {
       logger.info(

@@ -151,7 +151,7 @@ export function initializeDatabase(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      role TEXT DEFAULT 'member' CHECK(role IN ('owner', 'member')),
+      role TEXT DEFAULT 'member' CHECK(role IN ('owner', 'editor', 'member')),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(project_id, user_id)
     );
@@ -303,6 +303,21 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: added parent_agent_id column to agents table');
   }
 
+  // Migration: fix orphan agents — non-controller agents with no parent should be assigned to their project's controller
+  {
+    const orphanFixed = db.prepare(`
+      UPDATE agents SET parent_agent_id = (
+        SELECT c.id FROM agents c WHERE c.project_id = agents.project_id AND c.is_controller = 1 LIMIT 1
+      )
+      WHERE parent_agent_id IS NULL
+        AND is_controller = 0
+        AND EXISTS (SELECT 1 FROM agents c WHERE c.project_id = agents.project_id AND c.is_controller = 1)
+    `).run();
+    if (orphanFixed.changes > 0) {
+      logger.info(`Migration: assigned ${orphanFixed.changes} orphan agent(s) to their project controller`);
+    }
+  }
+
   // Migration: add orchestrator_engine column to projects if missing
   const projectCols = db.prepare("PRAGMA table_info(projects)").all() as any[];
   if (!projectCols.find((c: any) => c.name === 'orchestrator_engine')) {
@@ -319,13 +334,39 @@ export function initializeDatabase(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      role TEXT DEFAULT 'member' CHECK(role IN ('owner', 'member')),
+      role TEXT DEFAULT 'member' CHECK(role IN ('owner', 'editor', 'member')),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(project_id, user_id)
     );
     CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id);
     CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
   `);
+
+  // Migration: add 'editor' to project_members role CHECK constraint
+  // SQLite can't ALTER CHECK constraints, so recreate the table if needed
+  try {
+    // Test if 'editor' is accepted — if not, the old CHECK constraint is in place
+    db.exec("INSERT INTO project_members (id, project_id, user_id, role) VALUES ('__test_editor__', '__none__', '__none__', 'editor')");
+    db.exec("DELETE FROM project_members WHERE id = '__test_editor__'");
+  } catch {
+    // Old CHECK constraint rejects 'editor' — recreate table
+    db.exec(`
+      CREATE TABLE project_members_new (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT DEFAULT 'member' CHECK(role IN ('owner', 'editor', 'member')),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(project_id, user_id)
+      );
+      INSERT INTO project_members_new SELECT * FROM project_members;
+      DROP TABLE project_members;
+      ALTER TABLE project_members_new RENAME TO project_members;
+      CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id);
+      CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
+    `);
+    logger.info('Migration: updated project_members role constraint to include editor');
+  }
 
   // Migration: normalize invalid orchestrator_engine values
   const normalizedEngines = db.prepare(

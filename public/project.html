@@ -6,6 +6,7 @@
   <title>Agentopia - Project</title>
   <link rel="stylesheet" href="/public/css/style.css">
   <link rel="stylesheet" href="/public/css/issues.css">
+  <link rel="stylesheet" href="/public/css/codicon.css">
 </head>
 <body>
   <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
@@ -323,6 +324,11 @@
             <label for="project-share-username">Add Member</label>
             <input type="text" id="project-share-username" placeholder="Enter username, e.g. alice" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();addProjectMember()}">
           </div>
+          <select id="project-share-role" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:13px;">
+            <option value="member">Read Only</option>
+            <option value="editor" selected>Editor</option>
+            <option value="owner">Owner</option>
+          </select>
           <button class="btn btn-primary" id="btn-add-member" onclick="addProjectMember()">Grant Access</button>
         </div>
       </div>
@@ -384,7 +390,7 @@
         <select id="agent-parent">
           <option value="">No parent (top-level agent)</option>
         </select>
-        <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Optional direct parent. The hierarchy graph follows this parent-child relation.</div>
+        <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Direct parent agent. Defaults to the controller if one exists. The hierarchy graph follows this parent-child relation.</div>
       </div>
       <div class="form-group">
         <label>Tool Path</label>

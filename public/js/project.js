@@ -35,6 +35,12 @@ const PROJECT_ACCESS_META = {
     summary: 'Debug mode',
     detail: 'legacy / localhost bypass, for debugging only and not a normal user role.',
   },
+  editor: {
+    badge: 'EDITOR',
+    tone: 'success',
+    summary: 'Editor',
+    detail: 'You can view and manage this project, but cannot change ownership or delete the project.',
+  },
   none: {
     badge: 'UNKNOWN',
     tone: 'shared',
@@ -240,32 +246,53 @@ function renderProjectMembers() {
   }
 
   const canManage = !!projectData?.can_manage;
+  const isProjectOwner = (uid) => projectData?.owner?.id === uid;
+
   list.innerHTML = members.map((member) => {
-    const isOwner = member.role === 'owner';
+    const ownerFlag = isProjectOwner(member.user_id);
     const displayName = displayProjectUser(member);
     const encodedDisplayName = encodeURIComponent(displayName);
     const username = member.username ? `@${member.username}` : member.user_id;
-    const membershipLabel = isOwner ? 'Project Owner' : 'Shared Member';
     const accountRole = member.user_role === 'admin' ? 'Global Admin' : 'Member';
-    const removeButton = isOwner
-      ? '<span class="project-member-static">Owner cannot be removed</span>'
+
+    const roleBadgeMap = {
+      owner: { badge: 'OWNER', tone: 'owner' },
+      editor: { badge: 'EDITOR', tone: 'success' },
+      member: { badge: 'READ ONLY', tone: 'shared' },
+    };
+    const rb = roleBadgeMap[member.role] || roleBadgeMap.member;
+
+    // Role selector (only for non-project-owner members, when current user canManage)
+    let roleControl;
+    if (ownerFlag) {
+      roleControl = '<span class="project-member-static">Project Owner</span>';
+    } else if (canManage) {
+      roleControl = `<select class="member-role-select" onchange="updateMemberRole('${member.user_id}', this.value)" style="padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">
+        <option value="member"${member.role === 'member' ? ' selected' : ''}>Read Only</option>
+        <option value="editor"${member.role === 'editor' ? ' selected' : ''}>Editor</option>
+        <option value="owner"${member.role === 'owner' ? ' selected' : ''}>Owner</option>
+      </select>`;
+    } else {
+      roleControl = `<span class="project-member-static">${rb.badge}</span>`;
+    }
+
+    const removeButton = ownerFlag
+      ? ''
       : canManage
         ? `<button class="btn btn-sm" onclick="removeProjectMember('${member.user_id}', '${encodedDisplayName}')" style="color:var(--error)">Remove</button>`
-        : '<span class="project-member-static">Read only</span>';
+        : '';
+
     return `
       <div class="project-member-item">
         <div class="project-member-main">
           <div class="project-member-name-row">
             <strong>${esc(displayName)}</strong>
-            ${renderPermissionBadge({
-              badge: isOwner ? 'OWNER' : 'MEMBER',
-              tone: isOwner ? 'owner' : 'shared',
-              summary: membershipLabel,
-            })}
+            ${renderPermissionBadge({ badge: rb.badge, tone: rb.tone, summary: rb.badge })}
           </div>
           <div class="project-member-meta">${esc(username)} · ${esc(accountRole)}</div>
         </div>
-        <div class="project-member-actions">
+        <div class="project-member-actions" style="display:flex;align-items:center;gap:8px;">
+          ${roleControl}
           ${removeButton}
         </div>
       </div>
@@ -432,18 +459,20 @@ async function addProjectMember() {
   if (!projectData?.can_manage) { showToast('Insufficient permission to manage sharing', 'error'); return; }
 
   const input = document.getElementById('project-share-username');
+  const roleSelect = document.getElementById('project-share-role');
   const username = input?.value?.trim();
   if (!username) {
     showToast('Please enter a username', 'error');
     return;
   }
+  const role = roleSelect?.value || 'member';
 
   const button = document.getElementById('btn-add-member');
   await withLoading(button, async () => {
     const res = await fetch(`/api/projects/${projectId}/members`, {
       method: 'POST',
       headers: apiHeaders(),
-      body: JSON.stringify({ username }),
+      body: JSON.stringify({ username, role }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -456,6 +485,29 @@ async function addProjectMember() {
     await loadProject();
     await loadProjectMembers();
   });
+}
+
+async function updateMemberRole(userId, newRole) {
+  if (!requireProjectManageAccess('Insufficient permission to manage sharing')) return;
+  try {
+    const res = await fetch(`/api/projects/${projectId}/members/${userId}`, {
+      method: 'PATCH',
+      headers: apiHeaders(),
+      body: JSON.stringify({ role: newRole }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to update role', 'error');
+      await loadProjectMembers();
+      return;
+    }
+    const roleLabels = { member: 'Read Only', editor: 'Editor', owner: 'Owner' };
+    showToast(`Role updated to ${roleLabels[newRole] || newRole}`, 'success');
+    await loadProjectMembers();
+  } catch (e) {
+    showToast('Failed to update role', 'error');
+    await loadProjectMembers();
+  }
 }
 
 async function removeProjectMember(userId, encodedDisplayName) {
@@ -1241,7 +1293,8 @@ function showCreateAgentModal() {
   document.getElementById('agent-name').value = '';
   document.getElementById('agent-role').value = '';
   document.getElementById('agent-workdir').value = '';
-  syncParentAgentSelect('agent-parent', null, '', false);
+  const controller = getControllerAgent();
+  syncParentAgentSelect('agent-parent', null, controller ? controller.id : '', false);
   document.getElementById('agent-cmdtpl').value = '';
   document.getElementById('createAgentModal').classList.add('active');
 }
@@ -1854,15 +1907,17 @@ function renderStarAgentGraph(container, graphContext) {
     const wx = cx + orbitRadius * Math.cos(angle);
     const wy = cy + orbitRadius * Math.sin(angle);
     const color = getAgentGraphStatusColor(worker);
-    const pulse = worker.status === 'running' ? '<animate attributeName="r" values="' + nodeRadius + ';' + (nodeRadius + 4) + ';' + nodeRadius + '" dur="2s" repeatCount="indefinite"/>' : '';
+    const nw = Math.max(70, worker.name.length * 7.5 + 20);
+    const nh = 40;
+    const pulse = worker.status === 'running' ? '<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/>' : '';
     const assignedCount = (window._dashboardIssues || []).filter((issue) => issue.assigned_to === worker.id && ['open', 'in_progress', 'pending'].includes(issue.status)).length;
     const dispatched = graphContext.dispatchedAgents.has(worker.id);
     const dispatchHint = dispatched ? ' · dispatched' : '';
     const reason = graphContext.actionReasonByAgent.get(worker.id);
 
     svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + worker.id + '\")">' +
-      '<circle cx="' + wx + '" cy="' + wy + '" r="' + nodeRadius + '" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (worker.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</circle>' +
-      '<text x="' + wx + '" y="' + (wy - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(worker.name.length > 10 ? worker.name.slice(0, 9) + '…' : worker.name) + '</text>' +
+      '<rect x="' + (wx - nw / 2) + '" y="' + (wy - nh / 2) + '" width="' + nw + '" height="' + nh + '" rx="8" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (worker.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</rect>' +
+      '<text x="' + wx + '" y="' + (wy - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(worker.name) + '</text>' +
       '<text x="' + wx + '" y="' + (wy + 12) + '" text-anchor="middle" fill="' + (dispatched ? 'var(--accent)' : color) + '" font-size="9">' + (worker.paused ? 'paused' : worker.status) + (assignedCount > 0 ? (' · ' + assignedCount + ' tasks') : '') + dispatchHint + '</text>' +
       (reason ? ('<title>' + esc(reason) + '</title>') : '') +
     '</g>';
@@ -1870,13 +1925,15 @@ function renderStarAgentGraph(container, graphContext) {
 
   if (controller) {
     const color = getAgentGraphStatusColor(controller);
-    const pulse = controller.status === 'running' ? '<animate attributeName="r" values="34;38;34" dur="2s" repeatCount="indefinite"/>' : '';
+    const cnw = Math.max(80, controller.name.length * 7.5 + 24);
+    const cnh = 52;
+    const pulse = controller.status === 'running' ? '<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/>' : '';
     const decision = graphContext.latestRun?.decision || '';
     svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + controller.id + '\")">' +
-      '<circle cx="' + cx + '" cy="' + cy + '" r="34" fill="' + color + '22" stroke="' + color + '" stroke-width="2.5">' + pulse + '</circle>' +
-      '<text x="' + cx + '" y="' + (cy - 4) + '" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="700">' + esc(controller.name.length > 12 ? controller.name.slice(0, 11) + '…' : controller.name) + '</text>' +
-      '<text x="' + cx + '" y="' + (cy + 10) + '" text-anchor="middle" fill="' + color + '" font-size="9">' + controller.status + '</text>' +
-      '<text x="' + cx + '" y="' + (cy + 21) + '" text-anchor="middle" fill="var(--accent)" font-size="8">controller' + (decision ? (' · ' + decision) : '') + '</text>' +
+      '<rect x="' + (cx - cnw / 2) + '" y="' + (cy - cnh / 2) + '" width="' + cnw + '" height="' + cnh + '" rx="8" fill="' + color + '22" stroke="' + color + '" stroke-width="2.5">' + pulse + '</rect>' +
+      '<text x="' + cx + '" y="' + (cy - 6) + '" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="700">' + esc(controller.name) + '</text>' +
+      '<text x="' + cx + '" y="' + (cy + 8) + '" text-anchor="middle" fill="' + color + '" font-size="9">' + controller.status + '</text>' +
+      '<text x="' + cx + '" y="' + (cy + 19) + '" text-anchor="middle" fill="var(--accent)" font-size="8">controller' + (decision ? (' · ' + decision) : '') + '</text>' +
     '</g>';
   }
 
@@ -1938,7 +1995,7 @@ function renderHierarchyAgentGraph(container, graphContext) {
   const levelGap = 112;
   const topPadding = 56;
   const H = Math.max(280, topPadding + maxDepth * levelGap + 96);
-  const nodeRadius = 28;
+  const nodeH = 40;
   const positions = new Map();
 
   // Position nodes: center children under their parent using subtree sizes
@@ -1974,7 +2031,7 @@ function renderHierarchyAgentGraph(container, graphContext) {
     if (!parentPos || !childPos) return;
 
     const dispatched = graphContext.dispatchedAgents.has(agent.id);
-    svg += '<line x1="' + parentPos.x + '" y1="' + (parentPos.y + nodeRadius) + '" x2="' + childPos.x + '" y2="' + (childPos.y - nodeRadius) + '" stroke="' + (dispatched ? 'var(--accent)' : 'var(--border)') + '" stroke-width="' + (dispatched ? 2.2 : 1.2) + '"' +
+    svg += '<line x1="' + parentPos.x + '" y1="' + (parentPos.y + nodeH / 2) + '" x2="' + childPos.x + '" y2="' + (childPos.y - nodeH / 2) + '" stroke="' + (dispatched ? 'var(--accent)' : 'var(--border)') + '" stroke-width="' + (dispatched ? 2.2 : 1.2) + '"' +
       ' opacity="' + (dispatched ? 0.95 : 0.7) + '"/>';
 
     if (dispatched) {
@@ -1989,8 +2046,9 @@ function renderHierarchyAgentGraph(container, graphContext) {
     const position = positions.get(agent.id);
     if (!position) return;
     const color = getAgentGraphStatusColor(agent);
+    const nw = Math.max(70, agent.name.length * 7.5 + 20);
     const pulse = agent.status === 'running'
-      ? '<animate attributeName="r" values="' + nodeRadius + ';' + (nodeRadius + 4) + ';' + nodeRadius + '" dur="2s" repeatCount="indefinite"/>'
+      ? '<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/>'
       : '';
     const assignedCount = (window._dashboardIssues || []).filter((issue) => issue.assigned_to === agent.id && ['open', 'in_progress', 'pending'].includes(issue.status)).length;
     const childCount = (childrenMap.get(agent.id) || []).length;
@@ -2000,8 +2058,8 @@ function renderHierarchyAgentGraph(container, graphContext) {
     const metaParts = [statusLabel, assignedCount > 0 ? assignedCount + ' tasks' : null, childCount > 0 ? childCount + ' child' : null].filter(Boolean).join(' · ');
 
     svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + agent.id + '\")">' +
-      '<circle cx="' + position.x + '" cy="' + position.y + '" r="' + nodeRadius + '" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (agent.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</circle>' +
-      '<text x="' + position.x + '" y="' + (position.y - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(agent.name.length > 11 ? agent.name.slice(0, 10) + '…' : agent.name) + '</text>' +
+      '<rect x="' + (position.x - nw / 2) + '" y="' + (position.y - nodeH / 2) + '" width="' + nw + '" height="' + nodeH + '" rx="8" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (agent.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</rect>' +
+      '<text x="' + position.x + '" y="' + (position.y - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(agent.name) + '</text>' +
       '<text x="' + position.x + '" y="' + (position.y + 12) + '" text-anchor="middle" fill="' + (dispatched ? 'var(--accent)' : color) + '" font-size="8.5">' + esc(metaParts || statusLabel) + '</text>' +
       '<title>' + esc([agent.name, reason].filter(Boolean).join(' · ')) + '</title>' +
     '</g>';
@@ -2429,6 +2487,174 @@ function renderWorkflowGraph(container, data) {
   }
 
   const agents = data.agents;
+  const hasHierarchy = agents.some(function(a) { return !!a.parent_agent_id; });
+
+  if (hasHierarchy) {
+    renderWorkflowGraphHierarchy(container, data);
+  } else {
+    renderWorkflowGraphStar(container, data);
+  }
+}
+
+function renderWorkflowGraphHierarchy(container, data) {
+  const agents = data.agents;
+  const byId = {};
+  agents.forEach(function(a) { byId[a.id] = a; });
+
+  // Build children map
+  var childrenMap = {};
+  agents.forEach(function(a) {
+    var pid = a.parent_agent_id;
+    if (pid && byId[pid]) {
+      if (!childrenMap[pid]) childrenMap[pid] = [];
+      childrenMap[pid].push(a);
+    }
+  });
+
+  // Identify roots
+  var roots = agents.filter(function(a) {
+    return !a.parent_agent_id || !byId[a.parent_agent_id];
+  });
+
+  // Build subtree sizes
+  var subtreeSize = {};
+  function calcSize(agent) {
+    if (subtreeSize[agent.id] !== undefined) return subtreeSize[agent.id];
+    var children = childrenMap[agent.id] || [];
+    var size = children.length === 0 ? 1 : children.reduce(function(sum, c) { return sum + calcSize(c); }, 0);
+    subtreeSize[agent.id] = size;
+    return size;
+  }
+  roots.forEach(function(r) { calcSize(r); });
+
+  // Walk tree to assign depth levels
+  var visited = {};
+  var depthMap = {};
+  function walk(agent, depth) {
+    if (!agent || visited[agent.id]) return;
+    visited[agent.id] = true;
+    depthMap[agent.id] = depth;
+    (childrenMap[agent.id] || []).forEach(function(child) { walk(child, depth + 1); });
+  }
+  roots.forEach(function(root) { walk(root, 0); });
+  agents.forEach(function(agent) {
+    if (!visited[agent.id]) walk(agent, 0);
+  });
+
+  var maxDepth = 0;
+  agents.forEach(function(a) {
+    if ((depthMap[a.id] || 0) > maxDepth) maxDepth = depthMap[a.id];
+  });
+
+  var W = Math.min(Math.max(container.clientWidth || 760, 640), 960);
+  var levelGap = 112;
+  var topPadding = 56;
+  var H = Math.max(280, topPadding + maxDepth * levelGap + 96);
+  var nodeH = 40;
+  var positions = {};
+
+  // Position nodes using subtree sizes
+  var totalLeaves = roots.reduce(function(sum, r) { return sum + (subtreeSize[r.id] || 1); }, 0);
+  var leafWidth = W / (totalLeaves + 1);
+  var leafCounter = 0;
+
+  function positionSubtree(agent, depth) {
+    var children = childrenMap[agent.id] || [];
+    var y = topPadding + depth * levelGap;
+    if (children.length === 0) {
+      leafCounter++;
+      positions[agent.id] = { x: leafCounter * leafWidth, y: y };
+    } else {
+      children.forEach(function(child) { positionSubtree(child, depth + 1); });
+      var childPositions = children.map(function(c) { return positions[c.id]; }).filter(Boolean);
+      var minX = Math.min.apply(null, childPositions.map(function(p) { return p.x; }));
+      var maxX = Math.max.apply(null, childPositions.map(function(p) { return p.x; }));
+      positions[agent.id] = { x: (minX + maxX) / 2, y: y };
+    }
+  }
+  roots.forEach(function(root) { positionSubtree(root, 0); });
+
+  var svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;margin:0 auto">';
+
+  // Draw hierarchy edges (parent -> child)
+  agents.forEach(function(agent) {
+    var pid = agent.parent_agent_id;
+    if (!pid || !byId[pid]) return;
+    var parentPos = positions[pid];
+    var childPos = positions[agent.id];
+    if (!parentPos || !childPos) return;
+    svg += '<line x1="' + parentPos.x + '" y1="' + (parentPos.y + nodeH / 2) + '" x2="' + childPos.x + '" y2="' + (childPos.y - nodeH / 2) + '" stroke="var(--border)" stroke-width="1.2" opacity="0.7"/>';
+  });
+
+  // Draw message edges
+  if (data.recent_messages && data.recent_messages.length > 0) {
+    var msgEdges = {};
+    data.recent_messages.forEach(function(m) {
+      var key = m.from_agent_id + '->' + m.to_agent_id;
+      msgEdges[key] = (msgEdges[key] || 0) + 1;
+    });
+    Object.keys(msgEdges).forEach(function(key) {
+      var parts = key.split('->');
+      var from = positions[parts[0]];
+      var to = positions[parts[1]];
+      if (from && to) {
+        svg += '<line x1="' + from.x + '" y1="' + from.y + '" x2="' + to.x + '" y2="' + to.y + '" stroke="var(--accent)" stroke-width="1.5" opacity="0.4" stroke-dasharray="6,3"/>';
+        var dx = to.x - from.x;
+        var dy = to.y - from.y;
+        var len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 0) {
+          var mx = from.x + dx * 0.65;
+          var my = from.y + dy * 0.65;
+          svg += '<circle cx="' + mx + '" cy="' + my + '" r="3" fill="var(--accent)" opacity="0.6"/>';
+        }
+      }
+    });
+  }
+
+  // Draw nodes
+  agents.forEach(function(agent) {
+    var pos = positions[agent.id];
+    if (!pos) return;
+    var color = getWorkflowStatusColor(agent);
+    var nw = Math.max(70, agent.name.length * 7.5 + 20);
+    var pulse = agent.status === 'running'
+      ? '<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/>'
+      : '';
+    var issues = agent.current_issues || [];
+    var issueCount = issues.length;
+    var topIssue = issues[0];
+    var statusLabel = agent.paused ? 'paused' : agent.status;
+    var metaParts = [statusLabel, issueCount > 0 ? issueCount + ' issues' : null].filter(Boolean).join(' \u00b7 ');
+
+    svg += '<g style="cursor:pointer" onclick="viewAgent(\'' + agent.id + '\')">';
+    svg += '<rect x="' + (pos.x - nw / 2) + '" y="' + (pos.y - nodeH / 2) + '" width="' + nw + '" height="' + nodeH + '" rx="8" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (agent.is_controller ? '2.8' : '2') + '"' + (agent.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</rect>';
+    svg += '<text x="' + pos.x + '" y="' + (pos.y - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(agent.name) + '</text>';
+    svg += '<text x="' + pos.x + '" y="' + (pos.y + 12) + '" text-anchor="middle" fill="' + color + '" font-size="8.5">' + esc(metaParts) + '</text>';
+    if (topIssue) {
+      svg += '<text x="' + pos.x + '" y="' + (pos.y + nodeH / 2 + 12) + '" text-anchor="middle" fill="var(--accent)" font-size="8">#' + topIssue.number + (issueCount > 1 ? ' +' + (issueCount - 1) : '') + '</text>';
+    }
+    svg += '</g>';
+  });
+
+  // Pending approvals indicator
+  if (data.pending_approvals && data.pending_approvals.length > 0) {
+    svg += '<text x="' + (W - 10) + '" y="20" text-anchor="end" fill="var(--warning)" font-size="11" font-weight="600">\u26a0 ' + data.pending_approvals.length + ' pending approval(s)</text>';
+  }
+
+  svg += '</svg>';
+
+  // Summary line
+  var summary = '<div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">';
+  summary += agents.length + ' agents \u00b7 ' + data.total_active_issues + ' active issues';
+  if (data.recent_messages && data.recent_messages.length > 0) {
+    summary += ' \u00b7 ' + data.recent_messages.length + ' recent messages';
+  }
+  summary += '</div>';
+  container.innerHTML = svg + summary;
+}
+
+function renderWorkflowGraphStar(container, data) {
+  const agents = data.agents;
   const W = Math.min(container.clientWidth || 700, 800);
   const H = 320;
   const cx = W / 2;
@@ -2436,18 +2662,20 @@ function renderWorkflowGraph(container, data) {
   const controller = agents.find(function(a) { return a.is_controller; });
   const workers = agents.filter(function(a) { return !a.is_controller; });
   const orbitRadius = Math.min(W / 2 - 80, H / 2 - 60);
-  const nodeRadius = 36;
+  const nodeH = 40;
 
   var svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;margin:0 auto">';
 
+  // Position map for message edges
+  var posMap = {};
+  if (controller) posMap[controller.id] = { x: cx, y: cy };
+  workers.forEach(function(w, i) {
+    var angle = (2 * Math.PI * i / workers.length) - Math.PI / 2;
+    posMap[w.id] = { x: cx + orbitRadius * Math.cos(angle), y: cy + orbitRadius * Math.sin(angle) };
+  });
+
   // Draw message edges
   if (data.recent_messages && data.recent_messages.length > 0) {
-    var posMap = {};
-    if (controller) posMap[controller.id] = { x: cx, y: cy };
-    workers.forEach(function(w, i) {
-      var angle = (2 * Math.PI * i / workers.length) - Math.PI / 2;
-      posMap[w.id] = { x: cx + orbitRadius * Math.cos(angle), y: cy + orbitRadius * Math.sin(angle) };
-    });
     var msgEdges = {};
     data.recent_messages.forEach(function(m) {
       var key = m.from_agent_id + '->' + m.to_agent_id;
@@ -2459,7 +2687,6 @@ function renderWorkflowGraph(container, data) {
       var to = posMap[parts[1]];
       if (from && to) {
         svg += '<line x1="' + from.x + '" y1="' + from.y + '" x2="' + to.x + '" y2="' + to.y + '" stroke="var(--accent)" stroke-width="1.5" opacity="0.4" stroke-dasharray="6,3"/>';
-        // Arrow
         var dx = to.x - from.x;
         var dy = to.y - from.y;
         var len = Math.sqrt(dx * dx + dy * dy);
@@ -2482,7 +2709,7 @@ function renderWorkflowGraph(container, data) {
     });
   }
 
-  // Draw worker nodes with issue badges
+  // Draw worker nodes
   workers.forEach(function(worker, index) {
     var angle = (2 * Math.PI * index / workers.length) - Math.PI / 2;
     var wx = cx + orbitRadius * Math.cos(angle);
@@ -2490,15 +2717,19 @@ function renderWorkflowGraph(container, data) {
     var color = getWorkflowStatusColor(worker);
     var issues = worker.current_issues || [];
     var issueCount = issues.length;
-    var pulse = worker.status === 'running' ? '<animate attributeName="r" values="' + nodeRadius + ';' + (nodeRadius + 4) + ';' + nodeRadius + '" dur="2s" repeatCount="indefinite"/>' : '';
+    var nw = Math.max(70, worker.name.length * 7.5 + 20);
+    var pulse = worker.status === 'running'
+      ? '<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/>'
+      : '';
     var topIssue = issues[0];
+    var statusLabel = worker.paused ? 'paused' : worker.status;
 
     svg += '<g style="cursor:pointer" onclick="viewAgent(\'' + worker.id + '\')">';
-    svg += '<circle cx="' + wx + '" cy="' + wy + '" r="' + nodeRadius + '" fill="' + color + '22" stroke="' + color + '" stroke-width="2"' + (worker.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</circle>';
-    svg += '<text x="' + wx + '" y="' + (wy - 6) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(worker.name.length > 10 ? worker.name.slice(0, 9) + '\u2026' : worker.name) + '</text>';
-    svg += '<text x="' + wx + '" y="' + (wy + 7) + '" text-anchor="middle" fill="' + color + '" font-size="9">' + (worker.paused ? 'paused' : worker.status) + '</text>';
+    svg += '<rect x="' + (wx - nw / 2) + '" y="' + (wy - nodeH / 2) + '" width="' + nw + '" height="' + nodeH + '" rx="8" fill="' + color + '22" stroke="' + color + '" stroke-width="2"' + (worker.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</rect>';
+    svg += '<text x="' + wx + '" y="' + (wy - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(worker.name) + '</text>';
+    svg += '<text x="' + wx + '" y="' + (wy + 12) + '" text-anchor="middle" fill="' + color + '" font-size="9">' + statusLabel + '</text>';
     if (topIssue) {
-      svg += '<text x="' + wx + '" y="' + (wy + 19) + '" text-anchor="middle" fill="var(--accent)" font-size="8">#' + topIssue.number + (issueCount > 1 ? ' +' + (issueCount - 1) : '') + '</text>';
+      svg += '<text x="' + wx + '" y="' + (wy + nodeH / 2 + 12) + '" text-anchor="middle" fill="var(--accent)" font-size="8">#' + topIssue.number + (issueCount > 1 ? ' +' + (issueCount - 1) : '') + '</text>';
     }
     svg += '</g>';
   });
@@ -2506,13 +2737,14 @@ function renderWorkflowGraph(container, data) {
   // Draw controller node
   if (controller) {
     var cColor = getWorkflowStatusColor(controller);
-    var cIssues = controller.current_issues || [];
-    var cPulse = controller.status === 'running' ? '<animate attributeName="r" values="38;42;38" dur="2s" repeatCount="indefinite"/>' : '';
+    var cNw = Math.max(70, controller.name.length * 7.5 + 20);
+    var cPulse = controller.status === 'running'
+      ? '<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/>'
+      : '';
     svg += '<g style="cursor:pointer" onclick="viewAgent(\'' + controller.id + '\')">';
-    svg += '<circle cx="' + cx + '" cy="' + cy + '" r="38" fill="' + cColor + '22" stroke="' + cColor + '" stroke-width="2.5">' + cPulse + '</circle>';
-    svg += '<text x="' + cx + '" y="' + (cy - 6) + '" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="700">' + esc(controller.name.length > 12 ? controller.name.slice(0, 11) + '\u2026' : controller.name) + '</text>';
-    svg += '<text x="' + cx + '" y="' + (cy + 8) + '" text-anchor="middle" fill="' + cColor + '" font-size="9">' + controller.status + '</text>';
-    svg += '<text x="' + cx + '" y="' + (cy + 20) + '" text-anchor="middle" fill="var(--accent)" font-size="8">controller</text>';
+    svg += '<rect x="' + (cx - cNw / 2) + '" y="' + (cy - nodeH / 2) + '" width="' + cNw + '" height="' + nodeH + '" rx="8" fill="' + cColor + '22" stroke="' + cColor + '" stroke-width="2.5">' + cPulse + '</rect>';
+    svg += '<text x="' + cx + '" y="' + (cy - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="700">' + esc(controller.name) + '</text>';
+    svg += '<text x="' + cx + '" y="' + (cy + 12) + '" text-anchor="middle" fill="' + cColor + '" font-size="9">' + controller.status + '</text>';
     svg += '</g>';
   }
 

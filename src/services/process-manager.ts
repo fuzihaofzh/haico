@@ -145,10 +145,10 @@ export function startAgentProcess(
     }
   }
 
-  // If time check didn't trigger reset, fall back to token/run-count strategy
-  if (!shouldReset) {
-    if (maxTokens > 0 && agent.session_id) {
-      // Query the latest cost record for this agent to get cache token usage
+  // If time check didn't trigger reset, check token usage and run count independently
+  if (!shouldReset && agent.session_id) {
+    // Check cache token usage
+    if (maxTokens > 0) {
       const latestCost = db.prepare(
         "SELECT content FROM conversation_logs WHERE agent_id = ? AND stream = 'cost' ORDER BY id DESC LIMIT 1"
       ).get(agent.id) as { content: string } | undefined;
@@ -159,12 +159,15 @@ export function startAgentProcess(
           cacheTokens = (data.cache_read || 0) + (data.cache_creation || 0);
         } catch {}
       }
-      shouldReset = cacheTokens >= maxTokens;
-      if (shouldReset) {
+      if (cacheTokens >= maxTokens) {
+        shouldReset = true;
         logger.info(`Agent ${agent.id} cache tokens (${cacheTokens}) >= max (${maxTokens}), resetting session`);
       }
-    } else {
-      shouldReset = runCount > maxRuns;
+    }
+    // Check run count (independent of token check)
+    if (!shouldReset && runCount > maxRuns) {
+      shouldReset = true;
+      logger.info(`Agent ${agent.id} run count (${runCount}) > max (${maxRuns}), resetting session`);
     }
   }
   const existingSessionId = shouldReset ? null : agent.session_id;
@@ -569,21 +572,12 @@ export function startAgentProcess(
         agentApiConnectErrorCount.delete(agent.id);
       }
 
-      // P1: Track consecutive errors — only clear session after MAX_CONSECUTIVE_ERRORS
-      const errorCount = (agentErrorCount.get(agent.id) || 0) + 1;
-      agentErrorCount.set(agent.id, errorCount);
-
-      if (errorCount >= MAX_CONSECUTIVE_ERRORS) {
-        logger.info(`Agent ${agent.id} hit ${errorCount} consecutive errors, clearing session`);
-        db.prepare(`
-          UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now'), session_id = NULL WHERE id = ?
-        `).run(status, agent.id);
-        agentErrorCount.delete(agent.id);
-      } else {
-        logger.info(`Agent ${agent.id} error (${errorCount}/${MAX_CONSECUTIVE_ERRORS}), preserving session for reuse`);
-        db.prepare(`
-          UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now') WHERE id = ?
-        `).run(status, agent.id);
+      // Clear session on error — avoid resuming a broken session repeatedly
+      logger.info(`Agent ${agent.id} error, clearing session for fresh start on next run`);
+      db.prepare(`
+        UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now'), session_id = NULL WHERE id = ?
+      `).run(status, agent.id);
+      {
       }
     } else {
       // Success — reset error counts and record finish time for cooldown
