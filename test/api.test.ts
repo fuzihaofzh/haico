@@ -1155,10 +1155,10 @@ describe('Agentopia API', () => {
       assert.equal(status, 200);
       assert.equal(body.success, true);
 
-      // Verify agent is paused and stopped
+      // Verify agent is paused and idle (stopped state removed)
       const { body: agent } = await api(app, `/api/agents/${workerId}`);
       assert.equal(agent.paused, 1);
-      assert.equal(agent.status, 'stopped');
+      assert.equal(agent.status, 'idle');
     });
 
     it('pause already paused agent returns 409', async () => {
@@ -3361,73 +3361,34 @@ JSON
       return number;
     }
 
-    it('低产出 run 进入 extended cooldown，连续两次后跳过自动重启，正常 run 会清空低产出状态', async () => {
-      const { isAgentInCooldown, shouldSkipAutoRestart } = await import('../src/services/process-manager');
+    it('低产出 run 不触发 cooldown，agent 运行完毕后恢复 idle（cooldown 和低产出跟踪已移除）', async () => {
+      const { isAgentInCooldown } = await import('../src/services/process-manager');
       const agentId = await createMockWorker(`cooldown-worker-${Date.now()}`);
 
-      let startRes = await api(app, `/api/agents/${agentId}/start`, {
+      const startRes = await api(app, `/api/agents/${agentId}/start`, {
         method: 'POST',
         body: { prompt: 'LOW_OUTPUT first low-output run' },
       });
       assert.equal(startRes.status, 200);
 
-      let finalState = await waitForAgentStatus(agentId, (status) => status !== 'running' && status !== 'waiting');
+      const finalState = await waitForAgentStatus(agentId, (status) => status !== 'running' && status !== 'waiting');
       assert.equal(finalState.status, 'idle');
-      assert.equal(shouldSkipAutoRestart(agentId), false);
-
-      const originalNow = Date.now;
-      try {
-        const shiftedNow = originalNow() + 6 * 60 * 1000;
-        Date.now = () => shiftedNow;
-        assert.equal(isAgentInCooldown(agentId), true);
-      } finally {
-        Date.now = originalNow;
-      }
-
-      startRes = await api(app, `/api/agents/${agentId}/start`, {
-        method: 'POST',
-        body: { prompt: 'LOW_OUTPUT second low-output run' },
-      });
-      assert.equal(startRes.status, 200);
-
-      finalState = await waitForAgentStatus(agentId, (status) => status !== 'running' && status !== 'waiting');
-      assert.equal(finalState.status, 'idle');
-      assert.equal(shouldSkipAutoRestart(agentId), true);
-
-      startRes = await api(app, `/api/agents/${agentId}/start`, {
-        method: 'POST',
-        body: { prompt: 'NORMAL_OUTPUT reset low-output run' },
-      });
-      assert.equal(startRes.status, 200);
-
-      finalState = await waitForAgentStatus(agentId, (status) => status !== 'running' && status !== 'waiting');
-      assert.equal(finalState.status, 'idle');
-      assert.equal(shouldSkipAutoRestart(agentId), false);
-
-      const originalNowAfterReset = Date.now;
-      try {
-        const shiftedNow = originalNowAfterReset() + 6 * 60 * 1000;
-        Date.now = () => shiftedNow;
-        assert.equal(isAgentInCooldown(agentId), false);
-      } finally {
-        Date.now = originalNowAfterReset;
-      }
+      // Cooldown is disabled — always returns false
+      assert.equal(isAgentInCooldown(agentId), false);
     });
 
-    it('连续 2 次低产出 assistant 消息会终止 session 尾巴', async () => {
+    it('低产出 session 尾巴检测已移除，agent 正常完成后变为 idle', async () => {
+      // Tail-kill (intra-session consecutive low-output detection) was removed in refactor.
+      // Agents now simply run to completion and return to idle.
       const agentId = await createMockWorker(`tail-worker-${Date.now()}`);
       const startRes = await api(app, `/api/agents/${agentId}/start`, {
         method: 'POST',
-        body: { prompt: 'TAIL_SESSION tail detection run' },
+        body: { prompt: 'LOW_OUTPUT run completes normally' },
       });
       assert.equal(startRes.status, 200);
 
-      const finalState = await waitForAgentStatus(agentId, (status) => status === 'stopped' || status === 'idle', 7000);
-      assert.ok(finalState.status === 'stopped' || finalState.status === 'idle');
-
-      const { body: logs } = await api(app, `/api/agents/${agentId}/logs`);
-      const joined = logs.map((entry: any) => entry.content).join('\n');
-      assert.match(joined, /Session terminated: 2 consecutive low-output turns detected/);
+      const finalState = await waitForAgentStatus(agentId, (status) => status === 'idle', 7000);
+      assert.equal(finalState.status, 'idle');
     });
 
     it('API 连接连续失败两次后停止，并保持 5 分钟重试常量', async () => {
@@ -3463,7 +3424,7 @@ JSON
       assert.match(joined, /API连接持续失败/);
     });
 
-    it('pre-controller 会直接启动 idle worker，冷却期内则只 defer 不重启', async () => {
+    it('pre-controller 会直接启动 idle worker（cooldown 已移除，低产出不再阻塞重启）', async () => {
       const { tryHandleWithoutLLM } = await import('../src/services/pre-controller');
       const { isAgentInCooldown } = await import('../src/services/process-manager');
 
@@ -3479,6 +3440,7 @@ JSON
       const stoppedState = await waitForAgentStatus(directStartAgentId, (status) => status !== 'running', 7000);
       assert.notEqual(stoppedState.status, 'running');
 
+      // Cooldown is disabled — isAgentInCooldown always returns false after refactor
       const cooldownAgentId = await createMockWorker(`prectrl-cooldown-${Date.now()}`);
       const lowOutputStart = await api(app, `/api/agents/${cooldownAgentId}/start`, {
         method: 'POST',
@@ -3487,16 +3449,13 @@ JSON
       assert.equal(lowOutputStart.status, 200);
       const cooldownState = await waitForAgentStatus(cooldownAgentId, (status) => status !== 'running' && status !== 'waiting');
       assert.equal(cooldownState.status, 'idle');
-      assert.equal(isAgentInCooldown(cooldownAgentId), true);
+      // Cooldown always disabled
+      assert.equal(isAgentInCooldown(cooldownAgentId), false);
 
+      // Since no cooldown, pre-controller should still start agent directly
       const cooldownIssueNumber = await insertAssignedIssue(cooldownAgentId, 'PRECTRL_KEEPALIVE');
-      const deferred = tryHandleWithoutLLM(projectId, cooldownIssueNumber);
-      assert.equal(deferred, true);
-      await sleep(300);
-
-      const deferredState = await api(app, `/api/agents/${cooldownAgentId}/status`);
-      assert.equal(deferredState.body.status, 'idle');
-      assert.equal(deferredState.body.is_running, false);
+      const handled2 = tryHandleWithoutLLM(projectId, cooldownIssueNumber);
+      assert.equal(handled2, true);
     });
   });
 
@@ -4072,7 +4031,7 @@ JSON
       await api(app, `/api/projects/${stopTestProjectId}`, { method: 'DELETE' });
     });
 
-    it('status is exactly "stopped" after stop (not idle or error)', async () => {
+    it('status is "idle" after stop (stopped state removed, agents return to idle)', async () => {
       // Start a long-running process (tail -f /dev/null never exits)
       const { status: startStatus, body: startBody } = await api(app, `/api/agents/${stopTestAgentId}/start`, {
         method: 'POST', body: { prompt: 'run forever' },
@@ -4092,7 +4051,7 @@ JSON
       // Wait for close handler
       await new Promise(r => setTimeout(r, 2000));
       const { body: stoppedState } = await api(app, `/api/agents/${stopTestAgentId}/status`);
-      assert.equal(stoppedState.status, 'stopped', 'status must be "stopped", not idle or error');
+      assert.equal(stoppedState.status, 'idle', 'status must be "idle" after stop');
     });
 
     it('process PID is no longer alive after stop (exec prefix ensures SIGTERM kills child)', async () => {
@@ -4120,10 +4079,10 @@ JSON
       assert.ok(pidDeadAfterStop, `PID ${pid} should be dead after stop (exec prefix ensures SIGTERM propagates)`);
     });
 
-    it('stopped agent can be restarted', async () => {
-      // Verify currently stopped
+    it('idle agent can be restarted after stop', async () => {
+      // Verify currently idle (stopped state removed)
       const { body: preState } = await api(app, `/api/agents/${stopTestAgentId}/status`);
-      assert.equal(preState.status, 'stopped', 'agent should still be stopped from previous test');
+      assert.equal(preState.status, 'idle', 'agent should be idle after stop');
 
       // Restart
       const { status: restartStatus, body: restartBody } = await api(app, `/api/agents/${stopTestAgentId}/start`, {
@@ -4141,22 +4100,22 @@ JSON
       await new Promise(r => setTimeout(r, 1500));
     });
 
-    it('close handler does not overwrite stopped status to idle/error', async () => {
+    it('close handler sets agent to idle after stop', async () => {
       // Start agent
       await api(app, `/api/agents/${stopTestAgentId}/start`, {
         method: 'POST', body: { prompt: 'close handler test' },
       });
       await new Promise(r => setTimeout(r, 400));
 
-      // Stop: sets DB status='stopped' BEFORE killing process
+      // Stop agent
       await api(app, `/api/agents/${stopTestAgentId}/stop`, { method: 'POST' });
 
       // Wait past close handler execution
       await new Promise(r => setTimeout(r, 2500));
 
       const { body: finalState } = await api(app, `/api/agents/${stopTestAgentId}/status`);
-      assert.equal(finalState.status, 'stopped',
-        'close handler must not overwrite stopped→idle or stopped→error');
+      assert.equal(finalState.status, 'idle',
+        'close handler should set agent to idle after stop');
     });
   });
 
@@ -5537,16 +5496,18 @@ JSON
       assert.equal(status, 'idle');
     });
 
-    it('preserves explicit stopped status', () => {
+    it('stopped state removed — classifyAgentExitStatus returns idle or error', () => {
+      // The 'stopped' state was removed in refactor; the function now only returns idle/error.
+      // An exit with code 1 and closed stdin session error → 'error'
       const status = classifyAgentExitStatus({
-        currentStatus: 'stopped',
+        currentStatus: 'idle',
         exitCode: 1,
         requiresCompletionSignal: true,
         sawClosedStdinSessionError: true,
         sawCompletionSignal: false,
         hadFinalResult: false,
       });
-      assert.equal(status, 'stopped');
+      assert.equal(status, 'error');
     });
   });
 });

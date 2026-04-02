@@ -103,7 +103,8 @@ export function classifyAgentExitStatus(input: {
   sawClosedStdinSessionError: boolean;
   sawCompletionSignal: boolean;
   hadFinalResult: boolean;
-}): 'idle' | 'error' {
+}): 'idle' | 'error' | 'stopped' {
+  if (input.currentStatus === 'stopped') return 'stopped';
   if (input.hadFinalResult) return 'idle';
   if (input.exitCode !== 0 || input.sawClosedStdinSessionError) return 'error';
   if (!input.requiresCompletionSignal) return 'idle';

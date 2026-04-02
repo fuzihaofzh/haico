@@ -223,6 +223,8 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
           const d = new Date(date);
           d.setDate(d.getDate() - d.getDay());
           key = d.toISOString().slice(0, 10);
+        } else if (period === 'month') {
+          key = date.slice(0, 7);
         } else {
           key = date;
         }
@@ -247,6 +249,156 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
         timeBuckets.map(t => [t, buckets[t]])
       ),
     };
+  });
+
+  // Dashboard activity stream — global timeline across all projects
+  fastify.get<{ Querystring: { limit?: string; project_id?: string } }>('/api/dashboard/activity-stream', async (request) => {
+    const db = getDatabase();
+    const { user, localhostBypass } = getProjectRequestContext(request);
+    const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+    const limit = Math.min(parseInt(request.query.limit || '50', 10), 200);
+    const filterProjectId = request.query.project_id;
+
+    if (projectIds.length === 0) return [];
+
+    const ids = filterProjectId && projectIds.includes(filterProjectId) ? [filterProjectId] : projectIds;
+    const placeholders = buildSqlPlaceholders(ids);
+
+    const issues = db.prepare(
+      `SELECT 'issue_created' as event_type, i.id as object_id, i.number, i.title, i.status, i.created_by as actor, i.created_at as time, p.id as project_id, p.name as project_name
+       FROM issues i JOIN projects p ON i.project_id = p.id
+       WHERE i.project_id IN (${placeholders})
+       ORDER BY i.created_at DESC LIMIT ?`
+    ).all(...ids, limit) as any[];
+
+    const statusChanges = db.prepare(
+      `SELECT 'issue_status_change' as event_type, i.id as object_id, i.number, i.title, i.status, i.updated_at as time, p.id as project_id, p.name as project_name
+       FROM issues i JOIN projects p ON i.project_id = p.id
+       WHERE i.project_id IN (${placeholders}) AND i.updated_at != i.created_at
+       ORDER BY i.updated_at DESC LIMIT ?`
+    ).all(...ids, limit) as any[];
+
+    const comments = db.prepare(
+      `SELECT 'comment' as event_type, c.id as object_id, c.body, c.author_id as actor, c.created_at as time, i.number as issue_number, i.title as issue_title, i.id as issue_id, p.id as project_id, p.name as project_name
+       FROM issue_comments c JOIN issues i ON c.issue_id = i.id JOIN projects p ON i.project_id = p.id
+       WHERE i.project_id IN (${placeholders})
+       ORDER BY c.created_at DESC LIMIT ?`
+    ).all(...ids, limit) as any[];
+
+    const agentEvents = db.prepare(
+      `SELECT CASE WHEN a.status = 'running' THEN 'agent_started' ELSE 'agent_stopped' END as event_type,
+              a.id as object_id, a.name as agent_name, a.status as agent_status,
+              COALESCE(a.started_at, a.finished_at) as time,
+              p.id as project_id, p.name as project_name
+       FROM agents a JOIN projects p ON a.project_id = p.id
+       WHERE a.project_id IN (${placeholders}) AND (a.started_at IS NOT NULL OR a.finished_at IS NOT NULL)
+       ORDER BY COALESCE(a.started_at, a.finished_at) DESC LIMIT ?`
+    ).all(...ids, limit) as any[];
+
+    const approvals = db.prepare(
+      `SELECT CASE WHEN ar.status = 'pending' THEN 'approval_created' ELSE 'approval_decided' END as event_type,
+              ar.id as object_id, ar.title, ar.status as approval_status, ar.risk_level, ar.agent_name,
+              COALESCE(ar.decided_at, ar.created_at) as time,
+              p.id as project_id, p.name as project_name
+       FROM approval_requests ar JOIN projects p ON ar.project_id = p.id
+       WHERE ar.project_id IN (${placeholders})
+       ORDER BY COALESCE(ar.decided_at, ar.created_at) DESC LIMIT ?`
+    ).all(...ids, limit) as any[];
+
+    const all = [...issues, ...statusChanges, ...comments, ...agentEvents, ...approvals]
+      .sort((a: any, b: any) => (b.time || '') > (a.time || '') ? 1 : -1)
+      .slice(0, limit);
+
+    return all;
+  });
+
+  // Dashboard agents overview — all agents across all projects
+  fastify.get<{ Querystring: { status?: string } }>('/api/dashboard/agents', async (request) => {
+    const db = getDatabase();
+    const { user, localhostBypass } = getProjectRequestContext(request);
+    const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+    const statusFilter = request.query.status;
+
+    if (projectIds.length === 0) return [];
+
+    const placeholders = buildSqlPlaceholders(projectIds);
+    let query = `SELECT a.id, a.name, a.role, a.status, a.is_controller, a.started_at, a.finished_at, a.paused,
+                        p.id as project_id, p.name as project_name
+                 FROM agents a JOIN projects p ON a.project_id = p.id
+                 WHERE a.project_id IN (${placeholders})`;
+    const params: any[] = [...projectIds];
+
+    if (statusFilter) {
+      query += ` AND a.status = ?`;
+      params.push(statusFilter);
+    }
+
+    query += ` ORDER BY CASE a.status WHEN 'running' THEN 0 WHEN 'error' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END, a.name`;
+
+    const agents = db.prepare(query).all(...params) as any[];
+
+    // Attach current issue for each agent
+    const agentIds = agents.map((a: any) => a.id);
+    if (agentIds.length > 0) {
+      const issueMap: Record<string, any> = {};
+      const issuePlaceholders = buildSqlPlaceholders(agentIds);
+      const currentIssues = db.prepare(
+        `SELECT assigned_to, number, title FROM issues
+         WHERE assigned_to IN (${issuePlaceholders}) AND status = 'in_progress'
+         ORDER BY updated_at DESC`
+      ).all(...agentIds) as any[];
+      for (const issue of currentIssues) {
+        if (!issueMap[issue.assigned_to]) {
+          issueMap[issue.assigned_to] = { number: issue.number, title: issue.title };
+        }
+      }
+      for (const agent of agents) {
+        (agent as any).current_issue = issueMap[agent.id] || null;
+      }
+    }
+
+    return agents;
+  });
+
+  // Dashboard today's cost — for cost alert
+  fastify.get('/api/dashboard/today-cost', async (request) => {
+    const db = getDatabase();
+    const { user, localhostBypass } = getProjectRequestContext(request);
+    const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+
+    if (projectIds.length === 0) return { today_cost_usd: 0, by_project: {} };
+
+    const placeholders = buildSqlPlaceholders(projectIds);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const rows = db.prepare(
+      `SELECT c.content, p.id as project_id, p.name as project_name
+       FROM conversation_logs c
+       INNER JOIN (
+         SELECT MAX(cl.id) as max_id
+         FROM conversation_logs cl
+         JOIN agents a ON cl.agent_id = a.id
+         WHERE cl.stream = 'cost' AND a.project_id IN (${placeholders}) AND cl.created_at >= ?
+         GROUP BY cl.run_id
+       ) latest ON c.id = latest.max_id
+       JOIN agents a ON c.agent_id = a.id
+       JOIN projects p ON a.project_id = p.id`
+    ).all(...projectIds, today + ' 00:00:00') as any[];
+
+    let todayCost = 0;
+    const byProject: Record<string, { name: string; cost: number }> = {};
+
+    for (const row of rows) {
+      try {
+        const data = JSON.parse(row.content);
+        const cost = data.cost_usd || 0;
+        todayCost += cost;
+        if (!byProject[row.project_id]) byProject[row.project_id] = { name: row.project_name, cost: 0 };
+        byProject[row.project_id].cost += cost;
+      } catch {}
+    }
+
+    return { today_cost_usd: todayCost, by_project: byProject };
   });
 
   // Generate project metadata from user description using AI

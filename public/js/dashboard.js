@@ -354,6 +354,7 @@ async function loadProjects() {
     }
     const projects = await res.json();
     _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
+    populateActivityProjectFilter();
     if (!projects.length) {
       container.innerHTML = '<div class="empty-state">No projects yet. Create one to get started.</div>';
       return;
@@ -701,17 +702,18 @@ async function loadUsageByProject() {
   }
 }
 
-// Initial load: summary + notifications + projects + usage chart in parallel
+// Initial load: summary + notifications + projects + usage chart + new panels in parallel
 async function loadDashboard() {
-  await Promise.all([loadDashboardSummary(), loadNotifications(), loadProjects(), loadUsageByProject()]);
+  await Promise.all([loadDashboardSummary(), loadNotifications(), loadProjects(), loadUsageByProject(), loadAgentBoard(), loadActivityStream(), checkCostAlert()]);
+  populateActivityProjectFilter();
 }
 
 loadDashboard();
 // Polling: 10s for lightweight data, 30s for full project list, 60s for usage chart
-setInterval(() => { loadDashboardSummary(); loadNotifications(); }, 10000);
-setInterval(loadProjects, 30000);
-setInterval(loadUsageByProject, 60000);
-window.addEventListener('agentopia:user-ready', () => { loadProjects(); });
+setInterval(() => { loadDashboardSummary(); loadNotifications(); loadActivityStream(); }, 10000);
+setInterval(() => { loadProjects(); loadAgentBoard(); }, 30000);
+setInterval(() => { loadUsageByProject(); checkCostAlert(); }, 60000);
+window.addEventListener('agentopia:user-ready', () => { loadProjects(); populateActivityProjectFilter(); });
 
 // ─── Floating Issue Panel ───
 
@@ -855,6 +857,209 @@ async function dashboardDecideApproval(approvalId, decision) {
   }
 }
 
+// ─── Activity Stream (#618) ───
+
+let _activityStreamData = [];
+
+async function loadActivityStream() {
+  try {
+    const filter = document.getElementById('activity-project-filter');
+    const projectId = filter ? filter.value : '';
+    const url = '/api/dashboard/activity-stream?limit=50' + (projectId ? '&project_id=' + projectId : '');
+    const res = await fetch(url, { headers: apiHeaders() });
+    if (!res.ok) return;
+    const events = await res.json();
+    _activityStreamData = events;
+
+    const panel = document.getElementById('activity-stream-panel');
+    const list = document.getElementById('activity-stream-list');
+    if (!panel || !list) return;
+
+    if (events.length === 0) {
+      panel.style.display = 'none';
+      return;
+    }
+    panel.style.display = 'flex';
+
+    list.innerHTML = events.map(function(ev) {
+      let icon = '', label = '', detail = '', link = '';
+
+      switch (ev.event_type) {
+        case 'issue_created':
+          icon = '<span style="color:var(--success)">&#9679;</span>';
+          label = 'New Issue';
+          detail = '<a href="/projects/' + ev.project_id + '/issues/' + ev.number + '" onclick="event.stopPropagation()">#' + ev.number + '</a> ' + esc(ev.title);
+          break;
+        case 'issue_status_change':
+          icon = '<span style="color:var(--accent)">&#8635;</span>';
+          label = ev.status;
+          detail = '<a href="/projects/' + ev.project_id + '/issues/' + ev.number + '" onclick="event.stopPropagation()">#' + ev.number + '</a> ' + esc(ev.title);
+          break;
+        case 'comment':
+          icon = '<span style="color:var(--text-secondary)">&#9998;</span>';
+          label = 'Comment';
+          var preview = (ev.body || '').slice(0, 50) + ((ev.body || '').length > 50 ? '...' : '');
+          detail = '<a href="/projects/' + ev.project_id + '/issues/' + ev.issue_number + '" onclick="event.stopPropagation()">#' + ev.issue_number + '</a> ' + esc(preview);
+          break;
+        case 'agent_started':
+          icon = '<span style="color:var(--success)">&#9654;</span>';
+          label = 'Agent Started';
+          detail = '<a href="/projects/' + ev.project_id + '/agents/' + ev.object_id + '">' + esc(ev.agent_name) + '</a>';
+          break;
+        case 'agent_stopped':
+          icon = '<span style="color:var(--text-secondary)">&#9632;</span>';
+          label = 'Agent Stopped';
+          detail = '<a href="/projects/' + ev.project_id + '/agents/' + ev.object_id + '">' + esc(ev.agent_name) + '</a>';
+          break;
+        case 'approval_created':
+          icon = '<span style="color:var(--warning)">&#9888;</span>';
+          label = 'Approval Needed';
+          detail = esc(ev.title);
+          break;
+        case 'approval_decided':
+          icon = '<span style="color:var(--success)">&#10003;</span>';
+          label = 'Approval ' + (ev.approval_status || '');
+          detail = esc(ev.title);
+          break;
+        default:
+          icon = '<span style="color:var(--text-secondary)">&#183;</span>';
+          label = ev.event_type;
+          detail = '';
+      }
+
+      return '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:flex-start">' +
+        '<div style="flex-shrink:0;width:16px;text-align:center;line-height:18px">' + icon + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="display:flex;justify-content:space-between;gap:8px">' +
+            '<span style="color:var(--text-secondary);font-size:10px;white-space:nowrap">[' + esc(ev.project_name || '') + ']</span>' +
+            '<span style="color:var(--text-secondary);font-size:10px;white-space:nowrap">' + timeAgo(ev.time) + '</span>' +
+          '</div>' +
+          '<div><span class="status-badge status-' + (label.toLowerCase().replace(/\s+/g,'-')) + '" style="font-size:10px;padding:1px 4px;margin-right:4px">' + esc(label) + '</span>' + detail + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch (e) {
+    console.error('Failed to load activity stream', e);
+  }
+}
+
+function populateActivityProjectFilter() {
+  var filter = document.getElementById('activity-project-filter');
+  if (!filter) return;
+  var current = filter.value;
+  var options = '<option value="">All Projects</option>';
+  for (var id in _dashboardProjectsById) {
+    var p = _dashboardProjectsById[id];
+    options += '<option value="' + id + '"' + (id === current ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+  }
+  filter.innerHTML = options;
+}
+
+// ─── Agent Status Board (#618) ───
+
+let _agentBoardFilter = 'all';
+let _agentBoardData = [];
+
+async function loadAgentBoard() {
+  try {
+    const statusParam = _agentBoardFilter !== 'all' ? '?status=' + _agentBoardFilter : '';
+    const res = await fetch('/api/dashboard/agents' + statusParam, { headers: apiHeaders() });
+    if (!res.ok) return;
+    const agents = await res.json();
+    _agentBoardData = agents;
+
+    const panel = document.getElementById('agent-board-panel');
+    const list = document.getElementById('agent-board-list');
+    if (!panel || !list) return;
+
+    if (agents.length === 0 && _agentBoardFilter === 'all') {
+      panel.style.display = 'none';
+      return;
+    }
+    panel.style.display = '';
+
+    if (agents.length === 0) {
+      list.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:12px">No agents with status: ' + esc(_agentBoardFilter) + '</div>';
+      return;
+    }
+
+    list.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px">' +
+      agents.map(function(agent) {
+        var statusColors = { running: 'var(--success)', error: 'var(--error)', waiting: 'var(--warning)', idle: 'var(--text-secondary)' };
+        var statusIcons = { running: '&#9654;', error: '&#9888;', waiting: '&#8987;', idle: '&#9679;' };
+        var color = statusColors[agent.status] || 'var(--text-secondary)';
+        var icon = statusIcons[agent.status] || '&#9679;';
+        var issueInfo = agent.current_issue
+          ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#' + agent.current_issue.number + ' ' + esc(agent.current_issue.title) + '</div>'
+          : '';
+        var controllerBadge = agent.is_controller ? '<span style="font-size:9px;background:var(--accent);color:#fff;padding:0 4px;border-radius:3px;margin-left:4px">CTRL</span>' : '';
+        var pausedBadge = agent.paused ? '<span style="font-size:9px;background:var(--warning);color:#000;padding:0 4px;border-radius:3px;margin-left:4px">PAUSED</span>' : '';
+
+        return '<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:10px 12px;display:flex;align-items:flex-start;gap:8px">' +
+          '<div style="color:' + color + ';font-size:14px;flex-shrink:0;line-height:18px">' + icon + '</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="display:flex;align-items:center;gap:4px">' +
+              '<a href="/projects/' + agent.project_id + '/agents/' + agent.id + '" style="font-weight:600;font-size:13px;color:var(--fg);text-decoration:none">' + esc(agent.name) + '</a>' +
+              controllerBadge + pausedBadge +
+            '</div>' +
+            '<div style="font-size:11px;color:var(--text-secondary)">' +
+              '<a href="/projects/' + agent.project_id + '" style="color:var(--link)">' + esc(agent.project_name) + '</a>' +
+              ' · <span style="color:' + color + '">' + agent.status + '</span>' +
+            '</div>' +
+            issueInfo +
+          '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  } catch (e) {
+    console.error('Failed to load agent board', e);
+  }
+}
+
+function filterAgentBoard(status) {
+  _agentBoardFilter = status;
+  document.querySelectorAll('.agent-filter-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.status === status);
+  });
+  loadAgentBoard();
+}
+
+// ─── Cost Alert (#618) ───
+
+let _costAlertDismissed = false;
+const COST_ALERT_THRESHOLD = parseFloat(localStorage.getItem('agentopia-cost-threshold') || '10');
+
+async function checkCostAlert() {
+  if (_costAlertDismissed) return;
+  try {
+    const res = await fetch('/api/dashboard/today-cost', { headers: apiHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const banner = document.getElementById('cost-alert-banner');
+    const text = document.getElementById('cost-alert-text');
+    if (!banner || !text) return;
+
+    if (data.today_cost_usd > COST_ALERT_THRESHOLD) {
+      var projectBreakdown = Object.values(data.by_project).map(function(p) {
+        return esc(p.name) + ': $' + p.cost.toFixed(2);
+      }).join(', ');
+      text.textContent = "Today's spending: $" + data.today_cost_usd.toFixed(2) + ' (threshold: $' + COST_ALERT_THRESHOLD.toFixed(2) + ')' + (projectBreakdown ? ' — ' + projectBreakdown : '');
+      banner.style.display = '';
+    } else {
+      banner.style.display = 'none';
+    }
+  } catch (e) {
+    console.error('Failed to check cost alert', e);
+  }
+}
+
+function dismissCostAlert() {
+  _costAlertDismissed = true;
+  var banner = document.getElementById('cost-alert-banner');
+  if (banner) banner.style.display = 'none';
+}
+
 // Listen for events from all projects and refresh dashboard on changes
 (async function setupDashboardWS() {
   try {
@@ -867,6 +1072,8 @@ async function dashboardDecideApproval(approvalId, decision) {
         loadDashboardSummary();
         loadNotifications();
         loadProjects();
+        loadActivityStream();
+        loadAgentBoard();
       });
     }
   } catch {}

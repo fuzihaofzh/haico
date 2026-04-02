@@ -122,8 +122,52 @@
       <div class="notifications-body" id="notifications-body"></div>
     </div>
 
-    <div id="projects" class="grid">
-      <div class="empty-state">Loading projects...</div>
+    <!-- Agent Status Board -->
+    <div id="agent-board-panel" class="card" style="display:none;margin-bottom:16px;padding:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <strong style="font-size:14px">Agent Status Board</strong>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-sm agent-filter-btn active" data-status="all" onclick="filterAgentBoard('all')">All</button>
+          <button class="btn btn-sm agent-filter-btn" data-status="running" onclick="filterAgentBoard('running')">Running</button>
+          <button class="btn btn-sm agent-filter-btn" data-status="idle" onclick="filterAgentBoard('idle')">Idle</button>
+          <button class="btn btn-sm agent-filter-btn" data-status="error" onclick="filterAgentBoard('error')">Error</button>
+        </div>
+      </div>
+      <div id="agent-board-list"></div>
+    </div>
+
+    <!-- Activity Stream + Projects side by side -->
+    <div style="display:flex;gap:16px;margin-bottom:16px">
+      <!-- Activity Stream -->
+      <div id="activity-stream-panel" class="card" style="display:none;flex:1;min-width:0;padding:16px;max-height:500px;overflow:hidden;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0">
+          <strong style="font-size:14px">Activity Stream</strong>
+          <select id="activity-project-filter" onchange="loadActivityStream()" style="font-size:12px;background:var(--bg-secondary);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:2px 6px">
+            <option value="">All Projects</option>
+          </select>
+        </div>
+        <div id="activity-stream-list" style="overflow-y:auto;flex:1"></div>
+      </div>
+
+      <!-- Projects Grid -->
+      <div style="flex:2;min-width:0">
+        <div id="projects" class="grid">
+          <div class="empty-state">Loading projects...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cost Alert Banner -->
+    <div id="cost-alert-banner" style="display:none;margin-bottom:16px">
+      <div class="card" style="border-left:3px solid var(--error);padding:12px 16px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <strong style="font-size:13px;color:var(--error)">Cost Alert</strong>
+            <span id="cost-alert-text" style="font-size:12px;margin-left:8px;color:var(--text-secondary)"></span>
+          </div>
+          <button class="btn btn-sm" onclick="dismissCostAlert()" style="font-size:11px">Dismiss</button>
+        </div>
+      </div>
     </div>
 
     <!-- Usage by Project Chart -->
@@ -134,6 +178,7 @@
           <button class="btn btn-sm usage-period-btn" data-period="hour" onclick="switchUsagePeriod('hour')">Hour</button>
           <button class="btn btn-sm usage-period-btn active" data-period="day" onclick="switchUsagePeriod('day')">Day</button>
           <button class="btn btn-sm usage-period-btn" data-period="week" onclick="switchUsagePeriod('week')">Week</button>
+          <button class="btn btn-sm usage-period-btn" data-period="month" onclick="switchUsagePeriod('month')">Month</button>
         </div>
       </div>
       <div id="usage-by-project-chart"></div>

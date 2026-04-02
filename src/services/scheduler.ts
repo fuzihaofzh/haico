@@ -85,10 +85,11 @@ function startIssueScan(): void {
 
         if (!hasOpenIssues && !stalePendingIssue) continue;
 
-        // Directly start idle workers that have assigned open/in_progress issues
+        // Directly start idle/error workers that have assigned open/in_progress issues
+        // Error agents are auto-retried — crashes and transient failures are common
         const idleWorkersWithIssues = db.prepare(`
           SELECT a.* FROM agents a
-          WHERE a.project_id = ? AND a.is_controller = 0 AND a.status = 'idle' AND a.paused = 0
+          WHERE a.project_id = ? AND a.is_controller = 0 AND a.status IN ('idle', 'error') AND a.paused = 0
           AND EXISTS (
             SELECT 1 FROM issues i
             WHERE i.project_id = ? AND i.assigned_to = a.id AND i.status IN ('open', 'in_progress')
@@ -97,9 +98,24 @@ function startIssueScan(): void {
 
         for (const worker of idleWorkersWithIssues) {
           if (isAgentRunning(worker.id)) continue;
-          // Cooldown: skip agents that just finished to avoid low-output tail restarts
           if (isAgentInCooldown(worker.id)) continue;
-          // Skip agents with consecutive low-output runs (tail request avoidance)
+          // Error circuit breaker: if agent errored 3+ times in last 10 minutes,
+          // back off for 1 hour from the last error before retrying
+          if (worker.status === 'error') {
+            const recentErrors = db.prepare(
+              "SELECT COUNT(*) as cnt FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' AND created_at > datetime('now', '-10 minutes')"
+            ).get(worker.id) as any;
+            if (recentErrors.cnt >= 3) {
+              const lastError = db.prepare(
+                "SELECT created_at FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' ORDER BY created_at DESC LIMIT 1"
+              ).get(worker.id) as any;
+              const lastErrorAge = lastError ? Date.now() - new Date(lastError.created_at + 'Z').getTime() : Infinity;
+              if (lastErrorAge < 60 * 60 * 1000) {
+                logger.info(`Skipping auto-restart for errored agent "${worker.name}": ${recentErrors.cnt} errors in last 10 min, backing off until 1h after last error`);
+                continue;
+              }
+            }
+          }
           try {
             // Build prompt same as /api/agents/:id/start
             const parts: string[] = [];
@@ -148,7 +164,7 @@ function startIssueScan(): void {
           SELECT i.number FROM issues i
           JOIN agents a ON i.assigned_to = a.id
           WHERE i.project_id = ? AND i.status = 'in_progress'
-            AND a.status = 'idle' AND a.paused = 0 AND a.is_controller = 0
+            AND a.status IN ('idle', 'error') AND a.paused = 0 AND a.is_controller = 0
             AND i.updated_at < datetime('now', '-5 minutes')
           ORDER BY i.priority DESC
           LIMIT 1

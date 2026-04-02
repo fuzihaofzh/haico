@@ -177,6 +177,9 @@
       const button = this.el('saveButtonId');
       if (!button) return;
       button.disabled = this.state.saving || !this.state.canWrite || !this.state.selectedFilePath || !this.state.agent?.working_directory || !this.state.editor || this.state.previewMode;
+      button.title = this.state.previewMode
+        ? `${this.state.previewMode} files are read-only preview, cannot save`
+        : '';
     }
 
     ensureEditorContainerReady() {
@@ -779,6 +782,10 @@
     async saveCurrentFile() {
       if (!this.state.canWrite) {
         showToast('Insufficient permission to save file', 'error');
+        return;
+      }
+      if (this.state.previewMode) {
+        showToast(this.state.previewMode + ' files are read-only preview, cannot save', 'error');
         return;
       }
       if (!this.state.editor || !this.state.selectedFilePath || this.state.saving || !this.getAgentId()) return;
