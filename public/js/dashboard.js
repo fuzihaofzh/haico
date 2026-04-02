@@ -957,7 +957,7 @@ function populateActivityProjectFilter() {
 
 // ─── Agent Status Board (#618) ───
 
-let _agentBoardFilter = 'all';
+let _agentBoardFilter = 'running';
 let _agentBoardData = [];
 
 async function loadAgentBoard() {
