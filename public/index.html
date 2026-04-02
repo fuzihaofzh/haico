@@ -85,6 +85,21 @@
         <div class="stat-value" id="stat-errors" style="color:var(--error)">0</div>
         <div class="stat-label">Agent Errors</div>
       </div>
+      <div class="stat-card" id="stat-approvals-card" style="display:none">
+        <div class="stat-value" id="stat-approvals" style="color:var(--warning)">0</div>
+        <div class="stat-label">Pending Approvals</div>
+      </div>
+    </div>
+
+    <!-- Pending Approvals Banner -->
+    <div id="dashboard-approvals-panel" style="display:none;margin-bottom:16px">
+      <div class="card" style="border-left:3px solid var(--warning);padding:12px 16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <strong style="font-size:13px;color:var(--warning)">Pending Approvals</strong>
+          <span id="dashboard-approval-count" class="notif-badge" style="background:var(--warning)">0</span>
+        </div>
+        <div id="dashboard-approvals-list" style="font-size:12px"></div>
+      </div>
     </div>
 
     <!-- Inbox Panel -->

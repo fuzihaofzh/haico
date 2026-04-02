@@ -224,7 +224,7 @@ export function clearAllPtyCleanupTimers(): void {
 }
 
 export interface ProjectEvent {
-  type: 'agent_status' | 'issue_created' | 'issue_updated' | 'comment_added' | 'agent_message';
+  type: 'agent_status' | 'issue_created' | 'issue_updated' | 'comment_added' | 'agent_message' | 'approval_created' | 'approval_decided';
   projectId: string;
   data: Record<string, any>;
 }

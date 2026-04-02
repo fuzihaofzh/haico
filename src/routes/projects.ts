@@ -153,9 +153,15 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
       lastActivityMap[row.id] = times.length ? times.sort().pop()! : null;
     }
 
+    // Pending approval count
+    const approvalCount = db.prepare(
+      `SELECT COUNT(*) as count FROM approval_requests WHERE project_id IN (${placeholders}) AND status = 'pending'`
+    ).get(...projectIds) as any;
+
     return {
       agents: { total: agentStats.total || 0, running: agentStats.running || 0, error_count: agentStats.error_count || 0 },
       issues: { total: issueStats.total || 0, open: issueStats.open_count || 0 },
+      pending_approvals: approvalCount?.count || 0,
       total_cost_usd: totalCost,
       total_input_tokens: totalInputTokens,
       total_output_tokens: totalOutputTokens,

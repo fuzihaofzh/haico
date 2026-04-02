@@ -236,6 +236,23 @@ export function initializeDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_logs_agent ON conversation_logs(agent_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);
     CREATE INDEX IF NOT EXISTS idx_orch_runs_project_created ON orchestration_runs(project_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS approval_requests (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      risk_level TEXT DEFAULT 'medium' CHECK(risk_level IN ('low', 'medium', 'high', 'critical')),
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+      decided_by TEXT,
+      decision_note TEXT DEFAULT '',
+      decided_at DATETIME,
+      created_at DATETIME DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_approval_project ON approval_requests(project_id, status);
+    CREATE INDEX IF NOT EXISTS idx_approval_agent ON approval_requests(agent_id);
   `);
 
   // Migration: add paused column if missing

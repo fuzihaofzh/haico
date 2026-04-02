@@ -98,6 +98,7 @@
       <div class="tab" onclick="switchTab('git')">Git</div>
       <div class="tab" onclick="switchTab('knowledge')">Knowledge</div>
       <div class="tab" onclick="switchTab('files')">Files</div>
+      <div class="tab" onclick="switchTab('workflow')">Workflow</div>
     </div>
 
     <!-- Overview Tab -->
@@ -226,6 +227,32 @@
       </div>
       <div id="knowledge-list" class="card">
         <div class="empty-state">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Workflow Tab -->
+    <div id="tab-workflow" style="display:none">
+      <div style="display:grid;grid-template-columns:1fr;gap:16px">
+        <!-- Workflow Graph -->
+        <div id="workflow-graph-container" class="card" style="padding:16px">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">Real-time Workflow</div>
+          <div id="workflow-graph-svg"></div>
+        </div>
+        <!-- Pending Approvals -->
+        <div id="workflow-approvals-container" class="card" style="padding:16px;display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--warning)">Pending Approvals</div>
+            <span id="workflow-approval-count" class="notif-badge" style="display:none">0</span>
+          </div>
+          <div id="workflow-approvals-list"></div>
+        </div>
+        <!-- Activity Timeline -->
+        <div class="card" style="padding:16px">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:10px">Activity Timeline</div>
+          <div id="workflow-activity-timeline">
+            <div class="empty-state">Loading activity...</div>
+          </div>
+        </div>
       </div>
     </div>
 

@@ -86,8 +86,18 @@ async function loadDashboardSummary() {
       errCard.style.display = 'none';
     }
 
+    // Pending approvals stat
+    const approvalCard = document.getElementById('stat-approvals-card');
+    if (data.pending_approvals > 0) {
+      document.getElementById('stat-approvals').textContent = data.pending_approvals;
+      if (approvalCard) approvalCard.style.display = '';
+    } else {
+      if (approvalCard) approvalCard.style.display = 'none';
+    }
+
     document.getElementById('dashboard-stats').style.display = '';
     _lastActivityMap = data.last_activity || {};
+    loadDashboardApprovals();
   } catch (e) {
     console.error('Failed to load dashboard summary', e);
   }
@@ -751,6 +761,97 @@ async function loadIssuePanel(issueId) {
     });
   } catch (e) {
     document.getElementById('issueDetailContent').innerHTML = renderError(e, 'loadIssuePanel(\'' + issueId + '\')');
+  }
+}
+
+// ─── Dashboard Approvals (#616) ───
+
+async function loadDashboardApprovals() {
+  const panel = document.getElementById('dashboard-approvals-panel');
+  const listEl = document.getElementById('dashboard-approvals-list');
+  const countEl = document.getElementById('dashboard-approval-count');
+  if (!panel || !listEl) return;
+
+  try {
+    const res = await fetch('/api/approvals/pending-count', { headers: apiHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data.count === 0) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    panel.style.display = '';
+    if (countEl) countEl.textContent = data.count;
+
+    // Load actual approvals from all projects
+    const projectsRes = await fetch('/api/projects', { headers: apiHeaders() });
+    if (!projectsRes.ok) return;
+    const projects = await projectsRes.json();
+
+    let allApprovals = [];
+    for (const p of projects) {
+      try {
+        const aRes = await fetch('/api/projects/' + p.id + '/approvals?status=pending&limit=10', { headers: apiHeaders() });
+        if (aRes.ok) {
+          const items = await aRes.json();
+          items.forEach(function(item) { item._project_name = p.name; item._project_id = p.id; });
+          allApprovals = allApprovals.concat(items);
+        }
+      } catch {}
+    }
+
+    if (allApprovals.length === 0) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    listEl.innerHTML = allApprovals.map(function(a) {
+      const riskColors = { low: 'var(--success)', medium: 'var(--warning)', high: 'var(--error)', critical: 'var(--error)' };
+      const riskColor = riskColors[a.risk_level] || 'var(--warning)';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">' +
+        '<div>' +
+          '<strong>' + esc(a.title) + '</strong>' +
+          '<div style="font-size:11px;color:var(--text-secondary)">' +
+            '<a href="/projects/' + a._project_id + '#workflow" style="color:var(--link)">' + esc(a._project_name) + '</a>' +
+            ' \u00b7 Agent: ' + esc(a.agent_name || 'unknown') +
+            ' \u00b7 Risk: <span style="color:' + riskColor + '">' + a.risk_level + '</span>' +
+            ' \u00b7 ' + timeAgo(a.created_at) +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:4px;flex-shrink:0">' +
+          '<button class="btn btn-sm btn-primary" onclick="dashboardDecideApproval(\'' + a.id + '\', \'approved\')">Approve</button>' +
+          '<button class="btn btn-sm" onclick="dashboardDecideApproval(\'' + a.id + '\', \'rejected\')" style="color:var(--error)">Reject</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch (e) {
+    console.error('Failed to load approvals', e);
+    if (panel) panel.style.display = 'none';
+  }
+}
+
+async function dashboardDecideApproval(approvalId, decision) {
+  let note = '';
+  if (decision === 'rejected') {
+    note = prompt('Reason for rejection (optional):') || '';
+  }
+  try {
+    const res = await fetch('/api/approvals/' + approvalId, {
+      method: 'PUT',
+      headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: decision, decision_note: note, decided_by: 'user' })
+    });
+    if (res.ok) {
+      showToast('Approval ' + decision, 'success');
+      loadDashboardSummary();
+    } else {
+      const err = await res.json();
+      showToast(err.error || 'Failed', 'error');
+    }
+  } catch (e) {
+    showToast('Failed to submit decision', 'error');
   }
 }
 

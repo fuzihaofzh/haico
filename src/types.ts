@@ -104,6 +104,21 @@ export interface StartAgentInput {
   prompt: string;
 }
 
+export interface ApprovalRequest {
+  id: string;
+  project_id: string;
+  issue_id: string | null;
+  agent_id: string;
+  title: string;
+  description: string;
+  risk_level: 'low' | 'medium' | 'high' | 'critical';
+  status: 'pending' | 'approved' | 'rejected';
+  decided_by: string | null;
+  decision_note: string;
+  decided_at: string | null;
+  created_at: string;
+}
+
 export interface User {
   id: string;
   username: string;

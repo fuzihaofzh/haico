@@ -1519,8 +1519,9 @@ function switchTab(tab) {
   document.getElementById('tab-git').style.display = tab === 'git' ? '' : 'none';
   document.getElementById('tab-knowledge').style.display = tab === 'knowledge' ? '' : 'none';
   document.getElementById('tab-files').style.display = tab === 'files' ? '' : 'none';
+  document.getElementById('tab-workflow').style.display = tab === 'workflow' ? '' : 'none';
   // Update breadcrumb section
-  const sectionNames = { overview: '', agents: 'Agents', issues: 'Issues', activity: 'Activity', git: 'Git', knowledge: 'Knowledge', files: 'Files' };
+  const sectionNames = { overview: '', agents: 'Agents', issues: 'Issues', activity: 'Activity', git: 'Git', knowledge: 'Knowledge', files: 'Files', workflow: 'Workflow' };
   const sectionEl = document.getElementById('breadcrumb-section');
   if (sectionEl) {
     sectionEl.textContent = sectionNames[tab] ? ' / ' + sectionNames[tab] : '';
@@ -1534,6 +1535,7 @@ function switchTab(tab) {
   if (tab === 'git') loadGitTab();
   if (tab === 'knowledge') loadKnowledge();
   if (tab === 'files') loadProjectFilesTab();
+  if (tab === 'workflow') loadWorkflowTab();
 }
 
 function ensureProjectFilesPanel() {
@@ -2399,6 +2401,241 @@ async function deleteKnowledge(id) {
   } catch { showToast('Failed to delete', 'error'); }
 }
 
+// ─── Workflow Tab (#615) ───
+
+let _workflowData = null;
+
+async function loadWorkflowTab() {
+  await Promise.all([loadWorkflowGraph(), loadWorkflowActivity(), loadWorkflowApprovals()]);
+}
+
+async function loadWorkflowGraph() {
+  const container = document.getElementById('workflow-graph-svg');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/projects/' + projectId + '/workflow-status', { headers: apiHeaders() });
+    if (!res.ok) throw new Error('failed');
+    _workflowData = await res.json();
+    renderWorkflowGraph(container, _workflowData);
+  } catch (e) {
+    container.innerHTML = '<div class="empty-state">Failed to load workflow status.</div>';
+  }
+}
+
+function renderWorkflowGraph(container, data) {
+  if (!data || !data.agents || data.agents.length === 0) {
+    container.innerHTML = '<div class="empty-state">No agents configured.</div>';
+    return;
+  }
+
+  const agents = data.agents;
+  const W = Math.min(container.clientWidth || 700, 800);
+  const H = 320;
+  const cx = W / 2;
+  const cy = H / 2;
+  const controller = agents.find(function(a) { return a.is_controller; });
+  const workers = agents.filter(function(a) { return !a.is_controller; });
+  const orbitRadius = Math.min(W / 2 - 80, H / 2 - 60);
+  const nodeRadius = 36;
+
+  var svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;margin:0 auto">';
+
+  // Draw message edges
+  if (data.recent_messages && data.recent_messages.length > 0) {
+    var posMap = {};
+    if (controller) posMap[controller.id] = { x: cx, y: cy };
+    workers.forEach(function(w, i) {
+      var angle = (2 * Math.PI * i / workers.length) - Math.PI / 2;
+      posMap[w.id] = { x: cx + orbitRadius * Math.cos(angle), y: cy + orbitRadius * Math.sin(angle) };
+    });
+    var msgEdges = {};
+    data.recent_messages.forEach(function(m) {
+      var key = m.from_agent_id + '->' + m.to_agent_id;
+      msgEdges[key] = (msgEdges[key] || 0) + 1;
+    });
+    Object.keys(msgEdges).forEach(function(key) {
+      var parts = key.split('->');
+      var from = posMap[parts[0]];
+      var to = posMap[parts[1]];
+      if (from && to) {
+        svg += '<line x1="' + from.x + '" y1="' + from.y + '" x2="' + to.x + '" y2="' + to.y + '" stroke="var(--accent)" stroke-width="1.5" opacity="0.4" stroke-dasharray="6,3"/>';
+        // Arrow
+        var dx = to.x - from.x;
+        var dy = to.y - from.y;
+        var len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 0) {
+          var mx = from.x + dx * 0.65;
+          var my = from.y + dy * 0.65;
+          svg += '<circle cx="' + mx + '" cy="' + my + '" r="3" fill="var(--accent)" opacity="0.6"/>';
+        }
+      }
+    });
+  }
+
+  // Draw connection lines from controller to workers
+  if (controller) {
+    workers.forEach(function(worker, index) {
+      var angle = (2 * Math.PI * index / workers.length) - Math.PI / 2;
+      var wx = cx + orbitRadius * Math.cos(angle);
+      var wy = cy + orbitRadius * Math.sin(angle);
+      svg += '<line x1="' + cx + '" y1="' + cy + '" x2="' + wx + '" y2="' + wy + '" stroke="var(--border)" stroke-width="1" opacity="0.4" stroke-dasharray="4,4"/>';
+    });
+  }
+
+  // Draw worker nodes with issue badges
+  workers.forEach(function(worker, index) {
+    var angle = (2 * Math.PI * index / workers.length) - Math.PI / 2;
+    var wx = cx + orbitRadius * Math.cos(angle);
+    var wy = cy + orbitRadius * Math.sin(angle);
+    var color = getWorkflowStatusColor(worker);
+    var issues = worker.current_issues || [];
+    var issueCount = issues.length;
+    var pulse = worker.status === 'running' ? '<animate attributeName="r" values="' + nodeRadius + ';' + (nodeRadius + 4) + ';' + nodeRadius + '" dur="2s" repeatCount="indefinite"/>' : '';
+    var topIssue = issues[0];
+
+    svg += '<g style="cursor:pointer" onclick="viewAgent(\'' + worker.id + '\')">';
+    svg += '<circle cx="' + wx + '" cy="' + wy + '" r="' + nodeRadius + '" fill="' + color + '22" stroke="' + color + '" stroke-width="2"' + (worker.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</circle>';
+    svg += '<text x="' + wx + '" y="' + (wy - 6) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(worker.name.length > 10 ? worker.name.slice(0, 9) + '\u2026' : worker.name) + '</text>';
+    svg += '<text x="' + wx + '" y="' + (wy + 7) + '" text-anchor="middle" fill="' + color + '" font-size="9">' + (worker.paused ? 'paused' : worker.status) + '</text>';
+    if (topIssue) {
+      svg += '<text x="' + wx + '" y="' + (wy + 19) + '" text-anchor="middle" fill="var(--accent)" font-size="8">#' + topIssue.number + (issueCount > 1 ? ' +' + (issueCount - 1) : '') + '</text>';
+    }
+    svg += '</g>';
+  });
+
+  // Draw controller node
+  if (controller) {
+    var cColor = getWorkflowStatusColor(controller);
+    var cIssues = controller.current_issues || [];
+    var cPulse = controller.status === 'running' ? '<animate attributeName="r" values="38;42;38" dur="2s" repeatCount="indefinite"/>' : '';
+    svg += '<g style="cursor:pointer" onclick="viewAgent(\'' + controller.id + '\')">';
+    svg += '<circle cx="' + cx + '" cy="' + cy + '" r="38" fill="' + cColor + '22" stroke="' + cColor + '" stroke-width="2.5">' + cPulse + '</circle>';
+    svg += '<text x="' + cx + '" y="' + (cy - 6) + '" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="700">' + esc(controller.name.length > 12 ? controller.name.slice(0, 11) + '\u2026' : controller.name) + '</text>';
+    svg += '<text x="' + cx + '" y="' + (cy + 8) + '" text-anchor="middle" fill="' + cColor + '" font-size="9">' + controller.status + '</text>';
+    svg += '<text x="' + cx + '" y="' + (cy + 20) + '" text-anchor="middle" fill="var(--accent)" font-size="8">controller</text>';
+    svg += '</g>';
+  }
+
+  // Pending approvals indicator
+  if (data.pending_approvals && data.pending_approvals.length > 0) {
+    svg += '<text x="' + (W - 10) + '" y="20" text-anchor="end" fill="var(--warning)" font-size="11" font-weight="600">\u26a0 ' + data.pending_approvals.length + ' pending approval(s)</text>';
+  }
+
+  svg += '</svg>';
+
+  // Summary line
+  var summary = '<div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">';
+  summary += agents.length + ' agents \u00b7 ' + data.total_active_issues + ' active issues';
+  if (data.recent_messages && data.recent_messages.length > 0) {
+    summary += ' \u00b7 ' + data.recent_messages.length + ' recent messages';
+  }
+  summary += '</div>';
+  container.innerHTML = svg + summary;
+}
+
+function getWorkflowStatusColor(agent) {
+  if (agent.status === 'running') return 'var(--warning)';
+  if (agent.status === 'error') return 'var(--error)';
+  if (agent.status === 'waiting') return 'var(--accent)';
+  return 'var(--success)';
+}
+
+async function loadWorkflowActivity() {
+  var container = document.getElementById('workflow-activity-timeline');
+  if (!container) return;
+  try {
+    var res = await fetch('/api/projects/' + projectId + '/activity?limit=30', { headers: apiHeaders() });
+    if (!res.ok) throw new Error('failed');
+    var events = await res.json();
+    if (!events.length) { container.innerHTML = '<div class="empty-state">No activity yet.</div>'; return; }
+
+    container.innerHTML = events.map(function(e) {
+      var time = timeAgo(e.time);
+      if (e.event_type === 'issue') {
+        var icon = e.status === 'open' ? '<span style="color:var(--success)">\u25cf</span>' : '<span style="color:var(--accent)">\u2713</span>';
+        return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
+          icon + '<div><strong>' + esc(nameOf(e.actor)) + '</strong> ' + (e.status === 'open' ? 'opened' : 'updated') + ' <a href="/issues/' + e.id + '" style="color:var(--link)">#' + e.number + '</a> ' + esc(e.title) + ' <span style="color:var(--text-secondary)">' + time + '</span></div></div>';
+      } else if (e.event_type === 'comment') {
+        return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
+          '<span style="color:var(--text-secondary)">\ud83d\udcac</span><div><strong>' + esc(nameOf(e.actor)) + '</strong> commented on <a href="/issues/' + e.id + '" style="color:var(--link)">#' + e.issue_number + '</a> ' + esc(e.issue_title) + ' <span style="color:var(--text-secondary)">' + time + '</span></div></div>';
+      } else if (e.event_type === 'agent_run') {
+        var statusColor = e.agent_status === 'running' ? 'var(--success)' : (e.agent_status === 'error' ? 'var(--error)' : 'var(--text-secondary)');
+        return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
+          '<span style="color:' + statusColor + '">\u26a1</span><div>Agent <strong>' + esc(e.name) + '</strong> [' + e.agent_status + '] <span style="color:var(--text-secondary)">' + time + '</span></div></div>';
+      }
+      return '';
+    }).join('');
+  } catch (e) {
+    container.innerHTML = '<div class="empty-state">Failed to load activity.</div>';
+  }
+}
+
+// ─── Approval Requests (#616) ───
+
+async function loadWorkflowApprovals() {
+  var panel = document.getElementById('workflow-approvals-container');
+  var listEl = document.getElementById('workflow-approvals-list');
+  var countEl = document.getElementById('workflow-approval-count');
+  if (!panel || !listEl) return;
+
+  try {
+    var res = await fetch('/api/projects/' + projectId + '/approvals?status=pending', { headers: apiHeaders() });
+    if (!res.ok) throw new Error('failed');
+    var approvals = await res.json();
+
+    if (approvals.length === 0) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    panel.style.display = '';
+    if (countEl) { countEl.textContent = approvals.length; countEl.style.display = ''; }
+
+    listEl.innerHTML = approvals.map(function(a) {
+      var riskColors = { low: 'var(--success)', medium: 'var(--warning)', high: 'var(--error)', critical: 'var(--error)' };
+      var riskColor = riskColors[a.risk_level] || 'var(--warning)';
+      return '<div class="approval-card" style="border:1px solid ' + riskColor + '44;border-left:3px solid ' + riskColor + ';border-radius:6px;padding:10px 12px;margin-bottom:8px;background:' + riskColor + '08">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">' +
+          '<div><strong style="font-size:13px">' + esc(a.title) + '</strong>' +
+          '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">Agent: ' + esc(a.agent_name || 'unknown') + ' \u00b7 Risk: <span style="color:' + riskColor + ';font-weight:600">' + a.risk_level + '</span> \u00b7 ' + timeAgo(a.created_at) + '</div></div>' +
+        '</div>' +
+        (a.description ? '<div style="font-size:12px;color:var(--fg);margin-bottom:8px">' + esc(a.description) + '</div>' : '') +
+        '<div style="display:flex;gap:6px">' +
+          '<button class="btn btn-sm btn-primary" onclick="decideApproval(\'' + a.id + '\', \'approved\')">Approve</button>' +
+          '<button class="btn btn-sm btn-danger" onclick="decideApproval(\'' + a.id + '\', \'rejected\')">Reject</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch (e) {
+    panel.style.display = 'none';
+  }
+}
+
+async function decideApproval(approvalId, decision) {
+  var note = '';
+  if (decision === 'rejected') {
+    note = prompt('Reason for rejection (optional):') || '';
+  }
+  try {
+    var res = await fetch('/api/approvals/' + approvalId, {
+      method: 'PUT',
+      headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: decision, decision_note: note, decided_by: 'user' })
+    });
+    if (res.ok) {
+      showToast('Approval ' + decision, 'success');
+      loadWorkflowApprovals();
+    } else {
+      var err = await res.json();
+      showToast(err.error || 'Failed', 'error');
+    }
+  } catch (e) {
+    showToast('Failed to submit decision', 'error');
+  }
+}
+
+window.decideApproval = decideApproval;
+
 // ─── Init ───
 loadProject();
 loadAgents();
@@ -2433,8 +2670,37 @@ _projectEvents.on('comment_added', function() {
   loadIssues();
 });
 
+_projectEvents.on('approval_created', function() {
+  loadWorkflowApprovals();
+});
+
+_projectEvents.on('approval_decided', function() {
+  loadWorkflowApprovals();
+});
+
+// Auto-refresh workflow tab on relevant events
+_projectEvents.on('agent_status', function() {
+  if (document.getElementById('tab-workflow') && document.getElementById('tab-workflow').style.display !== 'none') {
+    loadWorkflowGraph();
+  }
+});
+
+_projectEvents.on('issue_created', function() {
+  if (document.getElementById('tab-workflow') && document.getElementById('tab-workflow').style.display !== 'none') {
+    loadWorkflowGraph();
+    loadWorkflowActivity();
+  }
+});
+
+_projectEvents.on('issue_updated', function() {
+  if (document.getElementById('tab-workflow') && document.getElementById('tab-workflow').style.display !== 'none') {
+    loadWorkflowGraph();
+    loadWorkflowActivity();
+  }
+});
+
 // Handle hash navigation (e.g., #issues or #agents from dashboard)
 const hash = window.location.hash.replace('#', '');
-if (['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files'].includes(hash)) {
+if (['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow'].includes(hash)) {
   setTimeout(() => switchTab(hash), 500);
 }
