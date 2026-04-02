@@ -417,9 +417,16 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         const eventStmt2 = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
 
         if (siblings.total > 0 && siblings.total === siblings.completed && parentIssue) {
-          // All children done
+          // All children done — build summary with each sub-issue listed
+          const childIssues = db.prepare(
+            'SELECT number, title, status FROM issues WHERE parent_id = ? ORDER BY number ASC'
+          ).all(updated.parent_id) as Array<{ number: number; title: string; status: string }>;
+          const summaryLines = childIssues.map(
+            (c) => `- #${c.number} [${c.status}] ${c.title}`
+          ).join('\n');
+          const summaryBody = `All ${siblings.total} sub-issues completed:\n${summaryLines}`;
           eventStmt2.run(uuidv4(), updated.parent_id, 'system',
-            `All ${siblings.total} child issues are now complete.`, 'status_change',
+            summaryBody, 'status_change',
             JSON.stringify({ all_children_complete: true, child_count: siblings.total }));
 
           // If parent was created by user, assign back to user for review
