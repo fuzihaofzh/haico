@@ -297,10 +297,12 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
 
     const approvals = db.prepare(
       `SELECT CASE WHEN ar.status = 'pending' THEN 'approval_created' ELSE 'approval_decided' END as event_type,
-              ar.id as object_id, ar.title, ar.status as approval_status, ar.risk_level, ar.agent_name,
+              ar.id as object_id, ar.title, ar.status as approval_status, ar.risk_level, ag.name as agent_name,
               COALESCE(ar.decided_at, ar.created_at) as time,
               p.id as project_id, p.name as project_name
-       FROM approval_requests ar JOIN projects p ON ar.project_id = p.id
+       FROM approval_requests ar
+       JOIN projects p ON ar.project_id = p.id
+       JOIN agents ag ON ar.agent_id = ag.id
        WHERE ar.project_id IN (${placeholders})
        ORDER BY COALESCE(ar.decided_at, ar.created_at) DESC LIMIT ?`
     ).all(...ids, limit) as any[];
