@@ -46,6 +46,20 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
     prefix: '/public/',
   });
 
+  // Global request timing — log slow requests
+  fastify.addHook('onRequest', async (request) => {
+    (request as any)._startTime = Date.now();
+  });
+  fastify.addHook('onResponse', async (request, reply) => {
+    const start = (request as any)._startTime;
+    if (start) {
+      const duration = Date.now() - start;
+      if (duration > 1000) {
+        fastify.log.warn(`SLOW REQUEST: ${request.method} ${request.url} took ${duration}ms (status: ${reply.statusCode})`);
+      }
+    }
+  });
+
   setupAuth(fastify);
   registerProjectRoutes(fastify);
   registerAgentRoutes(fastify);

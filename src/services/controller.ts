@@ -309,7 +309,9 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
     }
   }
 
+  const _ct0 = Date.now();
   const snapshot = buildActivitySnapshot(project.id);
+  const _ct1 = Date.now();
   if (!skipActivityCheck) {
     const prevSnapshot = lastTriggerSnapshot.get(project.id);
     if (prevSnapshot && prevSnapshot === snapshot) {
@@ -320,6 +322,10 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
 
   const triggerTime = nowAsDbTimestamp();
   const taskPrompt = buildControllerTaskPrompt(project, triggerIssueNumber);
+  const _ct2 = Date.now();
+  if (_ct2 - _ct0 > 200) {
+    logger.warn(`SLOW triggerControllerAgent sync phase (${_ct2-_ct0}ms): snapshot=${_ct1-_ct0}ms prompt=${_ct2-_ct1}ms project="${project.name}"`);
+  }
 
   lastTriggerAtMs.set(project.id, now);
 

@@ -236,6 +236,7 @@ export function initializeDatabase(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_logs_agent ON conversation_logs(agent_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);
+    CREATE INDEX IF NOT EXISTS idx_logs_stream_run ON conversation_logs(stream, run_id, id);
     CREATE INDEX IF NOT EXISTS idx_orch_runs_project_created ON orchestration_runs(project_id, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS approval_requests (

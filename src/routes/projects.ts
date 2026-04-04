@@ -264,52 +264,55 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     const ids = filterProjectId && projectIds.includes(filterProjectId) ? [filterProjectId] : projectIds;
     const placeholders = buildSqlPlaceholders(ids);
 
-    const issues = db.prepare(
-      `SELECT 'issue_created' as event_type, i.id as object_id, i.number, i.title, i.status, i.created_by as actor, i.created_at as time, p.id as project_id, p.name as project_name
-       FROM issues i JOIN projects p ON i.project_id = p.id
-       WHERE i.project_id IN (${placeholders})
-       ORDER BY i.created_at DESC LIMIT ?`
-    ).all(...ids, limit) as any[];
-
-    const statusChanges = db.prepare(
-      `SELECT 'issue_status_change' as event_type, i.id as object_id, i.number, i.title, i.status, i.updated_at as time, p.id as project_id, p.name as project_name
-       FROM issues i JOIN projects p ON i.project_id = p.id
-       WHERE i.project_id IN (${placeholders}) AND i.updated_at != i.created_at
-       ORDER BY i.updated_at DESC LIMIT ?`
-    ).all(...ids, limit) as any[];
-
-    const comments = db.prepare(
-      `SELECT 'comment' as event_type, c.id as object_id, c.body, c.author_id as actor, c.created_at as time, i.number as issue_number, i.title as issue_title, i.id as issue_id, p.id as project_id, p.name as project_name
-       FROM issue_comments c JOIN issues i ON c.issue_id = i.id JOIN projects p ON i.project_id = p.id
-       WHERE i.project_id IN (${placeholders})
-       ORDER BY c.created_at DESC LIMIT ?`
-    ).all(...ids, limit) as any[];
-
-    const agentEvents = db.prepare(
-      `SELECT CASE WHEN a.status = 'running' THEN 'agent_started' ELSE 'agent_stopped' END as event_type,
-              a.id as object_id, a.name as agent_name, a.status as agent_status,
-              COALESCE(a.started_at, a.finished_at) as time,
-              p.id as project_id, p.name as project_name
-       FROM agents a JOIN projects p ON a.project_id = p.id
-       WHERE a.project_id IN (${placeholders}) AND (a.started_at IS NOT NULL OR a.finished_at IS NOT NULL)
-       ORDER BY COALESCE(a.started_at, a.finished_at) DESC LIMIT ?`
-    ).all(...ids, limit) as any[];
-
-    const approvals = db.prepare(
-      `SELECT CASE WHEN ar.status = 'pending' THEN 'approval_created' ELSE 'approval_decided' END as event_type,
-              ar.id as object_id, ar.title, ar.status as approval_status, ar.risk_level, ag.name as agent_name,
-              COALESCE(ar.decided_at, ar.created_at) as time,
-              p.id as project_id, p.name as project_name
-       FROM approval_requests ar
-       JOIN projects p ON ar.project_id = p.id
-       JOIN agents ag ON ar.agent_id = ag.id
-       WHERE ar.project_id IN (${placeholders})
-       ORDER BY COALESCE(ar.decided_at, ar.created_at) DESC LIMIT ?`
-    ).all(...ids, limit) as any[];
-
-    const all = [...issues, ...statusChanges, ...comments, ...agentEvents, ...approvals]
-      .sort((a: any, b: any) => (b.time || '') > (a.time || '') ? 1 : -1)
-      .slice(0, limit);
+    // Single UNION ALL query instead of 5 separate queries
+    const all = db.prepare(`
+      SELECT * FROM (
+        SELECT 'issue_created' as event_type, i.id as object_id, i.number, i.title, i.status,
+               i.created_by as actor, i.created_at as time, p.id as project_id, p.name as project_name,
+               NULL as body, NULL as issue_number, NULL as issue_title, NULL as issue_id,
+               NULL as agent_name, NULL as agent_status, NULL as approval_status, NULL as risk_level
+        FROM issues i JOIN projects p ON i.project_id = p.id
+        WHERE i.project_id IN (${placeholders})
+        ORDER BY i.created_at DESC LIMIT ?
+      )
+      UNION ALL SELECT * FROM (
+        SELECT 'issue_status_change', i.id, i.number, i.title, i.status,
+               NULL, i.updated_at, p.id, p.name,
+               NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+        FROM issues i JOIN projects p ON i.project_id = p.id
+        WHERE i.project_id IN (${placeholders}) AND i.updated_at != i.created_at
+        ORDER BY i.updated_at DESC LIMIT ?
+      )
+      UNION ALL SELECT * FROM (
+        SELECT 'comment', c.id, NULL, NULL, NULL,
+               c.author_id, c.created_at, p.id, p.name,
+               c.body, i.number, i.title, i.id, NULL, NULL, NULL, NULL
+        FROM issue_comments c JOIN issues i ON c.issue_id = i.id JOIN projects p ON i.project_id = p.id
+        WHERE i.project_id IN (${placeholders})
+        ORDER BY c.created_at DESC LIMIT ?
+      )
+      UNION ALL SELECT * FROM (
+        SELECT CASE WHEN a.status = 'running' THEN 'agent_started' ELSE 'agent_stopped' END,
+               a.id, NULL, NULL, NULL,
+               NULL, COALESCE(a.started_at, a.finished_at), p.id, p.name,
+               NULL, NULL, NULL, NULL, a.name, a.status, NULL, NULL
+        FROM agents a JOIN projects p ON a.project_id = p.id
+        WHERE a.project_id IN (${placeholders}) AND (a.started_at IS NOT NULL OR a.finished_at IS NOT NULL)
+        ORDER BY COALESCE(a.started_at, a.finished_at) DESC LIMIT ?
+      )
+      UNION ALL SELECT * FROM (
+        SELECT CASE WHEN ar.status = 'pending' THEN 'approval_created' ELSE 'approval_decided' END,
+               ar.id, NULL, ar.title, NULL,
+               NULL, COALESCE(ar.decided_at, ar.created_at), p.id, p.name,
+               NULL, NULL, NULL, NULL, ag.name, NULL, ar.status, ar.risk_level
+        FROM approval_requests ar
+        JOIN projects p ON ar.project_id = p.id
+        JOIN agents ag ON ar.agent_id = ag.id
+        WHERE ar.project_id IN (${placeholders})
+        ORDER BY COALESCE(ar.decided_at, ar.created_at) DESC LIMIT ?
+      )
+      ORDER BY time DESC LIMIT ?
+    `).all(...ids, limit, ...ids, limit, ...ids, limit, ...ids, limit, ...ids, limit, limit) as any[];
 
     return all;
   });
@@ -693,34 +696,55 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
     if (request.query.with_stats !== '1') return projects;
 
-    // Single-pass stats: avoids N+2 frontend requests per project
-    return projects.map(p => {
-      const agentStats = db.prepare(
-        "SELECT COUNT(*) as total, SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) as running, SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) as error_count FROM agents WHERE project_id = ?"
-      ).get(p.id) as any;
+    // Batch stats: single query per table instead of N queries per project
+    const pIds = projects.map((p: any) => p.id);
+    if (pIds.length === 0) return projects;
+    const ph = pIds.map(() => '?').join(',');
 
-      const issueStats = db.prepare(
-        "SELECT COUNT(*) as total, SUM(CASE WHEN status IN ('open','in_progress') THEN 1 ELSE 0 END) as open_count FROM issues WHERE project_id = ?"
-      ).get(p.id) as any;
+    const agentRows = db.prepare(
+      `SELECT project_id, COUNT(*) as total,
+              SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) as running,
+              SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) as error_count
+       FROM agents WHERE project_id IN (${ph}) GROUP BY project_id`
+    ).all(...pIds) as any[];
+    const agentMap = new Map(agentRows.map((r: any) => [r.project_id, r]));
 
-      const userIssues = db.prepare(
-        "SELECT number, title FROM issues WHERE project_id = ? AND assigned_to = 'user' AND status IN ('open','in_progress') ORDER BY priority DESC LIMIT 10"
-      ).all(p.id) as any[];
+    const issueRows = db.prepare(
+      `SELECT project_id, COUNT(*) as total,
+              SUM(CASE WHEN status IN ('open','in_progress') THEN 1 ELSE 0 END) as open_count
+       FROM issues WHERE project_id IN (${ph}) GROUP BY project_id`
+    ).all(...pIds) as any[];
+    const issueMap = new Map(issueRows.map((r: any) => [r.project_id, r]));
 
-      const controllerAgent = db.prepare(
-        "SELECT id FROM agents WHERE project_id = ? AND is_controller = 1 LIMIT 1"
-      ).get(p.id) as any;
+    const userIssueRows = db.prepare(
+      `SELECT project_id, number, title, priority FROM issues
+       WHERE project_id IN (${ph}) AND assigned_to = 'user' AND status IN ('open','in_progress')
+       ORDER BY priority DESC`
+    ).all(...pIds) as any[];
+    const userIssueMap = new Map<string, any[]>();
+    for (const r of userIssueRows) {
+      const arr = userIssueMap.get(r.project_id);
+      if (arr) { if (arr.length < 10) arr.push(r); } else userIssueMap.set(r.project_id, [r]);
+    }
 
+    const controllerRows = db.prepare(
+      `SELECT project_id, id FROM agents WHERE project_id IN (${ph}) AND is_controller = 1`
+    ).all(...pIds) as any[];
+    const controllerMap = new Map(controllerRows.map((r: any) => [r.project_id, r.id]));
+
+    return projects.map((p: any) => {
+      const as = agentMap.get(p.id);
+      const is = issueMap.get(p.id);
       return {
         ...p,
         stats: {
-          agents: agentStats.total || 0,
-          running: agentStats.running || 0,
-          agentError: agentStats.error_count || 0,
-          issues: issueStats.total || 0,
-          openIssues: issueStats.open_count || 0,
-          userIssues,
-          controllerAgentId: controllerAgent?.id || null,
+          agents: as?.total || 0,
+          running: as?.running || 0,
+          agentError: as?.error_count || 0,
+          issues: is?.total || 0,
+          openIssues: is?.open_count || 0,
+          userIssues: userIssueMap.get(p.id) || [],
+          controllerAgentId: controllerMap.get(p.id) || null,
         },
       };
     });
