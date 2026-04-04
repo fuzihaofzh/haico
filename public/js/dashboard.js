@@ -132,13 +132,19 @@ async function loadNotifications() {
     if (_knownActionIssueIds === null) {
       _knownActionIssueIds = currentIds;
     } else {
-      let hasNew = false;
+      const newItems = [];
       for (const id of currentIds) {
-        if (!_knownActionIssueIds.has(id)) { hasNew = true; break; }
+        if (!_knownActionIssueIds.has(id)) {
+          const item = actionableUnacknowledged.find(i => (i.id || i.number) === id);
+          if (item) newItems.push(item);
+        }
       }
       _knownActionIssueIds = currentIds;
-      if (hasNew && typeof playNotificationSound === 'function') {
-        playNotificationSound();
+      if (newItems.length > 0) {
+        if (typeof playNotificationSound === 'function') {
+          playNotificationSound();
+        }
+        showBrowserNotification(newItems);
       }
     }
 
@@ -246,12 +252,19 @@ function renderInboxItems(items) {
     const displayTime = item.time || issue.updated_at;
     // Avatar: show role-based avatar for latest comment author (sender), fallback to assigned agent
     const senderAuthorId = issue.latest_comment_author_id;
-    const senderRole = issue.latest_comment_author_role || issue.assigned_agent_role;
-    const senderName = issue.latest_comment_author_name || issue.assigned_agent_name;
-    const senderIsUser = !senderAuthorId || senderAuthorId === 'user';
-    const avatarHtml = senderIsUser || !senderRole
-      ? avatarSvg(senderIsUser ? 'user' : (senderName || senderAuthorId || '?'), 32)
-      : roleAvatarHtml(senderRole, 32, issue.project_color || '#4A90E2');
+    const senderRole = issue.latest_comment_author_role;
+    const senderName = issue.latest_comment_author_name;
+    const projColor = issue.project_color || '#4A90E2';
+    let avatarHtml;
+    if (senderName && senderAuthorId !== 'user') {
+      // Agent comment author with known name
+      avatarHtml = roleAvatarHtml(senderName, 32, projColor);
+    } else if (issue.assigned_agent_name && (!senderAuthorId || senderAuthorId === 'user')) {
+      // No comment or user comment — show assigned agent's letter avatar
+      avatarHtml = roleAvatarHtml(issue.assigned_agent_name, 32, projColor);
+    } else {
+      avatarHtml = avatarSvg(senderAuthorId === 'user' || !senderAuthorId ? 'user' : (senderName || senderAuthorId || '?'), 32);
+    }
     html += `<div class="mail-item${isUnread ? ' mail-unread' : ''}${isSelected ? ' mail-selected' : ''}" onclick="selectMailItem(${i})" onmouseenter="prefetchIssueDetail('${issue.id}')" data-idx="${i}">
       <span class="mail-item-dot ${isUnread ? 'unread' : 'read'}"></span>
       <div class="mail-item-avatar">${avatarHtml}</div>
@@ -304,6 +317,11 @@ function selectMailItem(idx) {
   _currentReplyIssueId = issue.id;
   detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary);font-size:12px;">Loading issue...</div>';
   loadInboxIssueDetail(issue.id, idx);
+
+  // On mobile, scroll detail pane into view
+  if (window.innerWidth <= 768) {
+    setTimeout(() => detail.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+  }
 }
 
 async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
@@ -317,9 +335,11 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
     const agentsCached = _projectAgentsCache[cached.data.project_id];
     const agents = agentsCached ? agentsCached.data : [];
     _currentReplyIssueId = cached.data.id;
+    const inboxItemCached = _renderedMailItems[expectedIdx];
     IssueRenderer.render(cached.data, agents, detail, {
       reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
       onAfterAction: function() { loadNotifications(); },
+      projectColor: (inboxItemCached && inboxItemCached.data && inboxItemCached.data.project_color) || null,
     });
 
     // Background refresh if cache is stale
@@ -381,9 +401,11 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
 
     if (_selectedMailIdx !== expectedIdx) return;
     _currentReplyIssueId = issue.id;
+    const inboxItemFresh = _renderedMailItems[expectedIdx];
     IssueRenderer.render(issue, agents, detail, {
       reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
       onAfterAction: function() { loadNotifications(); },
+      projectColor: (inboxItemFresh && inboxItemFresh.data && inboxItemFresh.data.project_color) || null,
     });
   } catch (e) {
     if (!cached) {
@@ -915,6 +937,11 @@ async function loadUsageByProject() {
   }
 }
 
+let _agentBoardFilter = 'running';
+let _agentBoardData = [];
+let _costAlertDismissed = false;
+const COST_ALERT_THRESHOLD = parseFloat(localStorage.getItem('agentopia-cost-threshold') || '10');
+
 // Initial load: summary + notifications + projects + usage chart + new panels in parallel
 async function loadDashboard() {
   await Promise.all([loadDashboardSummary(), loadNotifications(), loadProjects(), loadUsageByProject(), loadAgentBoard(), loadActivityStream(), checkCostAlert()]);
@@ -1239,9 +1266,6 @@ function toggleActivityStream() {
 
 // ─── Agent Status Board (#618) ───
 
-let _agentBoardFilter = 'running';
-let _agentBoardData = [];
-
 async function loadAgentBoard() {
   try {
     const statusParam = _agentBoardFilter !== 'all' ? '?status=' + _agentBoardFilter : '';
@@ -1308,9 +1332,6 @@ function filterAgentBoard(status) {
 
 // ─── Cost Alert (#618) ───
 
-let _costAlertDismissed = false;
-const COST_ALERT_THRESHOLD = parseFloat(localStorage.getItem('agentopia-cost-threshold') || '10');
-
 async function checkCostAlert() {
   if (_costAlertDismissed) return;
   try {
@@ -1366,4 +1387,62 @@ function scheduleWSRefresh() {
       ev.on('*', scheduleWSRefresh);
     }
   } catch {}
+})();
+
+// --- Browser Notifications (Web Notifications API) ---
+
+function showBrowserNotification(newItems) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const titles = newItems.map(i => i.title || `#${i.number}`).slice(0, 3);
+  let body = titles.join('\n');
+  if (newItems.length > 3) body += `\n...and ${newItems.length - 3} more`;
+  try {
+    new Notification('Agentopia', { body, icon: '/favicon.ico' });
+  } catch (_) { /* silent */ }
+}
+
+function requestNotificationPermission() {
+  if (!('Notification' in window)) return;
+  Notification.requestPermission().then(function () {
+    updateNotifPermissionBtn();
+  });
+}
+
+function updateNotifPermissionBtn() {
+  const btn = document.getElementById('notif-permission-btn');
+  if (!btn) return;
+  if (!('Notification' in window)) {
+    btn.style.display = 'none';
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    btn.textContent = '🔔 Notifications On';
+    btn.disabled = true;
+    btn.title = 'Browser notifications enabled';
+    btn.classList.add('notif-perm-granted');
+  } else if (Notification.permission === 'denied') {
+    btn.textContent = '🔕 Blocked';
+    btn.disabled = true;
+    btn.title = 'Browser notifications blocked — enable in browser settings';
+    btn.classList.add('notif-perm-denied');
+  } else {
+    btn.textContent = '🔔 Enable Notifications';
+    btn.disabled = false;
+    btn.title = 'Click to enable browser notifications';
+    btn.classList.remove('notif-perm-granted', 'notif-perm-denied');
+  }
+}
+
+// Inject the permission button into the inbox toolbar on load
+(function initNotifPermissionBtn() {
+  if (!('Notification' in window)) return;
+  const toolbarRight = document.querySelector('#notifications-panel .mail-toolbar-right');
+  if (!toolbarRight) return;
+  const btn = document.createElement('button');
+  btn.id = 'notif-permission-btn';
+  btn.className = 'btn btn-sm';
+  btn.style.marginRight = '4px';
+  btn.onclick = requestNotificationPermission;
+  toolbarRight.insertBefore(btn, toolbarRight.firstChild);
+  updateNotifPermissionBtn();
 })();

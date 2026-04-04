@@ -183,8 +183,8 @@ function startIssueScan(): void {
         }
 
         if (stalePendingIssue && !controllerTriggered) {
-          logger.info(`Issue scan: stale pending issue #${stalePendingIssue.number} in project "${project.name}", forcing controller review`);
-          triggerControllerAgent(project, true, stalePendingIssue.number);
+          logger.info(`Issue scan: stale pending issue #${stalePendingIssue.number} in project "${project.name}", triggering controller review`);
+          triggerControllerAgent(project, false, stalePendingIssue.number);
         }
       }
     } catch (e) {

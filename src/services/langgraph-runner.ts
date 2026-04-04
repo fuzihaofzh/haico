@@ -281,10 +281,12 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     const db = getDatabase();
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(state.project.id) as Project | undefined;
     const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY created_at').all(state.project.id) as Agent[];
-    // Exclude pending issues — they are waiting for child issues and don't need dispatch
+    // Exclude pending/done/closed issues — they don't need dispatch.
+    // When triggered by a specific issue, still filter by status to avoid dispatching
+    // workers for pending issues (which are waiting on child issues).
     const issues = state.triggerIssueNumber
       ? db.prepare(
-          "SELECT * FROM issues WHERE project_id = ? AND number = ?"
+          "SELECT * FROM issues WHERE project_id = ? AND number = ? AND status IN ('open', 'in_progress')"
         ).all(state.project.id, state.triggerIssueNumber) as Issue[]
       : db.prepare(
           "SELECT * FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"

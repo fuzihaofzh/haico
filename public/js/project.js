@@ -677,7 +677,7 @@ async function loadAgents() {
     const pausedStyle = a.paused ? 'opacity:0.55;' : '';
     return `
     <li class="agent-item" style="cursor:pointer;padding-left:${indent}px;${selected}${pausedStyle}" onclick="viewAgent('${a.id}')">
-      <div style="flex-shrink:0;margin-right:8px">${roleAvatarHtml(a.role, 32, projectData?.color)}</div>
+      <div style="flex-shrink:0;margin-right:8px">${roleAvatarHtml(a.name, 32, projectData?.color)}</div>
       <div class="agent-info">
         <div class="agent-name">${spinner}${esc(a.name)}${tag}</div>
         <div class="agent-role">${esc(a.role)}</div>
@@ -792,7 +792,7 @@ async function viewAgent(agentId) {
       <div class="card" style="padding:0">
         <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
           <div class="flex-between">
-            <h3 style="display:flex;align-items:center;gap:8px">${roleAvatarHtml(agent.role, 28, projectData?.color)} ${esc(agent.name)} ${agent.is_controller ? '<span style="color:var(--accent);font-size:12px">[controller]</span>' : ''}</h3>
+            <h3 style="display:flex;align-items:center;gap:8px">${roleAvatarHtml(agent.name, 28, projectData?.color)} ${esc(agent.name)} ${agent.is_controller ? '<span style="color:var(--accent);font-size:12px">[controller]</span>' : ''}</h3>
             <div class="flex" style="gap:6px">
               ${detailActions}
               <span class="status-badge status-${agent.status}">${agent.status}${agent.pid ? ' (PID:' + agent.pid + ')' : ''}</span>
@@ -803,13 +803,13 @@ async function viewAgent(agentId) {
 
         <div id="agent-detail-scroll" style="padding:16px 20px">
           ${readonlyNote}
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 16px;font-size:12px;color:var(--text-secondary);margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));gap:8px 16px;font-size:12px;color:var(--text-secondary);margin-bottom:16px">
             <div>Started: <span style="color:var(--fg)">${formatLocalDateTime(agent.started_at)}</span></div>
             <div>Finished: <span style="color:var(--fg)">${formatLocalDateTime(agent.finished_at)}</span></div>
             <div>Session: <code style="color:var(--fg);font-size:10px">${agent.session_id ? agent.session_id.slice(0, 8) + '...' : 'none'}</code></div>
           </div>
 
-          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:12px;margin-bottom:16px">
             <div style="padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
               <div style="${L}">Direct Parent</div>
               <div style="font-size:13px;color:var(--fg)">${parentAgent ? esc(parentAgent.name) : 'None'}</div>
@@ -955,7 +955,7 @@ async function loadAgentGitStatus(agentId) {
       ? `<span style="color:var(--warning)"> | ${(data.uncommitted_files || []).length} uncommitted files</span>` : '';
 
     container.innerHTML = `
-      <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px">
+      <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;word-break:break-word;overflow-wrap:break-word">
         <span style="font-family:monospace;background:var(--card);padding:2px 8px;border-radius:10px;border:1px solid var(--border)">${esc(data.branch)}</span>
         <span style="margin-left:8px">Last commit: ${lastCommit}</span>${uncommitted}
       </div>`;
@@ -1451,7 +1451,7 @@ async function loadIssues() {
         <div class="issue-meta">#${i.number} by ${nameOf(i.created_by)} · ${i.assigned_to ? nameOf(i.assigned_to) : 'unassigned'} · ${timeAgo(i.created_at)}</div>
       </div>
       ${i.comment_count ? `<div style="flex-shrink:0;display:flex;align-items:center;gap:4px;color:var(--text-secondary);font-size:12px" title="${i.comment_count} comments"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0113.25 12H9.06l-2.573 2.573A1.458 1.458 0 014 13.543V12H2.75A1.75 1.75 0 011 10.25zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 01.75.75v2.19l2.72-2.72a.749.749 0 01.53-.22h4.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25z"/></svg>${i.comment_count}</div>` : ''}
-      ${i.assigned_to ? `<div style="flex-shrink:0">${(() => { const _ag = agentsData.find(_a => _a.id === i.assigned_to); return _ag ? roleAvatarHtml(_ag.role, 22, projectData?.color) : avatarSvg(nameOf(i.assigned_to), 22); })()}</div>` : ''}
+      ${i.assigned_to ? `<div style="flex-shrink:0">${(() => { const _ag = agentsData.find(_a => _a.id === i.assigned_to); return _ag ? roleAvatarHtml(_ag.name, 22, projectData?.color) : avatarSvg(nameOf(i.assigned_to), 22); })()}</div>` : ''}
     </a>`;
   }).join('')}</div>`;
 
@@ -1752,9 +1752,9 @@ async function loadGitTab() {
           const uncommitted = d.has_uncommitted
             ? `<span style="color:var(--warning);margin-left:12px">${(d.uncommitted_files || []).length} uncommitted</span>`
             : '';
-          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
-            <div style="flex-shrink:0">${roleAvatarHtml(s.agent.role, 22, projectData?.color)}</div>
-            <strong style="min-width:100px">${esc(s.agent.name)}</strong>
+          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;flex-wrap:wrap">
+            <div style="flex-shrink:0">${roleAvatarHtml(s.agent.name, 22, projectData?.color)}</div>
+            <strong>${esc(s.agent.name)}</strong>
             <span style="background:var(--bg);padding:2px 8px;border-radius:10px;border:1px solid var(--border);font-family:monospace;font-size:11px">${esc(d.branch)}</span>
             <div style="flex:1">${lastCommit}</div>
             ${uncommitted}

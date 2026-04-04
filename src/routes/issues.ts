@@ -285,7 +285,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     const access = ensureIssueAccess(db, request, reply, request.params.id);
     if (!access) return;
-    const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id) as any;
+    const issue = db.prepare('SELECT i.*, p.color as project_color FROM issues i LEFT JOIN projects p ON p.id = i.project_id WHERE i.id = ?').get(request.params.id) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
 
     const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(request.params.id) as any[];
@@ -787,7 +787,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.pid);
     if (!access) return;
-    const issue = db.prepare('SELECT * FROM issues WHERE project_id = ? AND number = ?').get(request.params.pid, parseInt(request.params.num)) as any;
+    const issue = db.prepare('SELECT i.*, p.color as project_color FROM issues i LEFT JOIN projects p ON p.id = i.project_id WHERE i.project_id = ? AND i.number = ?').get(request.params.pid, parseInt(request.params.num)) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
     const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(issue.id) as any[];
     const reactions = db.prepare("SELECT * FROM reactions WHERE target_type = 'issue' AND target_id = ?").all(issue.id);

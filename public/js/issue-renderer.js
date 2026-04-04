@@ -11,6 +11,7 @@ var IssueRenderer = (function() {
     container: null,
     reload: null,
     onAfterAction: null,
+    projectColor: null,
   };
 
   function nameOf(id) {
@@ -19,6 +20,16 @@ var IssueRenderer = (function() {
     var a = _ctx.agents.find(function(x) { return x.id === id; });
     if (a) return a.name;
     return (id || '').slice(0, 8);
+  }
+
+  // Generate avatar HTML: use role-based avatar for agents, fallback to identicon
+  function authorAvatarHtml(authorId, size) {
+    var agent = _ctx.agents.find(function(x) { return x.id === authorId; });
+    if (agent && agent.role) {
+      var color = _ctx.projectColor || '#4A90E2';
+      return roleAvatarHtml(agent.name, size, color);
+    }
+    return avatarSvg(nameOf(authorId), size);
   }
 
   function renderMd(text) {
@@ -107,6 +118,7 @@ var IssueRenderer = (function() {
     _ctx.container = container;
     _ctx.reload = options.reload || function() {};
     _ctx.onAfterAction = options.onAfterAction || function() {};
+    _ctx.projectColor = options.projectColor || issue.project_color || null;
 
     var labels = issue.labels ? issue.labels.split(',').filter(function(l) { return l.trim(); }).map(function(l) { return labelHtml(l); }).join(' ') : '';
     var assignOpts = '<option value="">Unassigned</option><option value="all" ' + ('all'===issue.assigned_to?'selected':'') + '>All</option><option value="user" ' + ('user'===issue.assigned_to?'selected':'') + '>User</option>' +
@@ -124,7 +136,7 @@ var IssueRenderer = (function() {
         '</div>';
       }
       return '<div class="timeline-item">' +
-        '<div class="timeline-avatar" style="background:none;border:none">' + avatarSvg(nameOf(c.author_id), 24) + '</div>' +
+        '<div class="timeline-avatar" style="background:none;border:none">' + authorAvatarHtml(c.author_id, 24) + '</div>' +
         '<div class="timeline-comment">' +
           '<div class="timeline-comment-header" style="display:flex;justify-content:space-between;align-items:center">' +
             '<span><strong>' + esc(nameOf(c.author_id)) + '</strong> commented <span title="' + esc(entryDate) + '" style="cursor:default">' + timeAgo(c.created_at) + '</span></span>' +
@@ -166,7 +178,7 @@ var IssueRenderer = (function() {
         '<div class="issue-detail-main">' +
           '<div class="issue-body">' +
             '<div class="issue-body-header" style="display:flex;justify-content:space-between;align-items:center">' +
-              '<span style="display:flex;align-items:center;gap:6px">' + avatarSvg(nameOf(issue.created_by), 20) + ' <strong>' + esc(nameOf(issue.created_by)) + '</strong></span>' +
+              '<span style="display:flex;align-items:center;gap:6px">' + authorAvatarHtml(issue.created_by, 20) + ' <strong>' + esc(nameOf(issue.created_by)) + '</strong></span>' +
               '<button onclick="IssueRenderer.startEditBody()" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px">edit</button>' +
             '</div>' +
             '<div class="issue-body-content" id="ir-body-display">' +

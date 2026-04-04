@@ -288,7 +288,12 @@ document.addEventListener('keydown', function(e) {
 });
 
 // ─── Avatars — GitHub-style identicon based on name hash ───
-const AVATAR_COLORS = ['#e06c75','#98c379','#e5c07b','#61afef','#c678dd','#56b6c2','#be5046','#d19a66','#7ec8e3','#b5bd68','#cc6666','#8abeb7','#f0c674','#81a2be','#b294bb'];
+// Generate a unique color per agent name using HSL hue rotation (avoids hash collisions with fixed arrays)
+function agentHslColor(name) {
+  const h = hashCode(name || '?');
+  const hue = h % 360;
+  return `hsl(${hue}, 55%, 45%)`;
+}
 
 // Project color presets
 const PROJECT_COLORS = ['#4A90E2','#50C878','#9B59B6','#E67E22','#E74C3C','#1ABC9C','#E91E8A','#8D6E63','#607D8B','#F1C40F'];
@@ -324,13 +329,23 @@ function hashCode(s) {
   return Math.abs(h);
 }
 
-// Role-based avatar: circle with project color background + role emoji
-function roleAvatarHtml(role, size, bgColor) {
+// GitHub-style letter avatar: circle with hash-based color + initials
+function roleAvatarHtml(name, size, bgColor) {
   size = size || 28;
-  bgColor = bgColor || '#4A90E2';
-  const icon = getAgentRoleIcon(role);
-  const fontSize = Math.round(size * 0.5);
-  return `<span class="role-avatar" style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${bgColor};font-size:${fontSize}px;line-height:1;flex-shrink:0">${icon}</span>`;
+  // Use agent name hash to pick a unique color via HSL hue rotation
+  const agentColor = agentHslColor(name);
+  const initials = getNameInitials(name || '?');
+  const fontSize = Math.round(size * 0.4);
+  return `<span class="role-avatar" style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${agentColor};color:#fff;font-size:${fontSize}px;font-weight:600;line-height:1;flex-shrink:0;text-transform:uppercase;letter-spacing:-0.5px">${initials}</span>`;
+}
+
+function getNameInitials(name) {
+  if (!name || name === '?') return '?';
+  // Take the last segment after '-' (the role suffix) and use its first 2 letters
+  const parts = name.split(/[-_\s]+/).filter(Boolean);
+  const lastPart = parts[parts.length - 1];
+  if (!lastPart) return name.charAt(0).toUpperCase();
+  return lastPart.substring(0, 2).toUpperCase();
 }
 
 function avatarSvg(name, size) {
@@ -344,7 +359,7 @@ function avatarSvg(name, size) {
   }
   // GitHub-style 5x5 symmetric identicon
   const h = hashCode(name || '?');
-  const color = AVATAR_COLORS[h % AVATAR_COLORS.length];
+  const color = agentHslColor(name);
   // Generate 15 bits for the left half + center column of 5x5 grid (mirrored)
   let bits = h;
   let cells = '';

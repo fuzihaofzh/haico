@@ -201,7 +201,7 @@
         minimap: { enabled: false },
         readOnly: true,
         scrollBeyondLastLine: false,
-        wordWrap: 'off',
+        wordWrap: 'on',
         theme: 'vs',
       });
 

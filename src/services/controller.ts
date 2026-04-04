@@ -268,6 +268,27 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
 
   const now = Date.now();
 
+  // If triggered by a specific issue, check its status first.
+  // Pending issues with active children should NOT trigger the controller — they are
+  // waiting for child issues to complete and the system will auto-trigger when children finish.
+  if (triggerIssueNumber) {
+    const triggerIssue = db.prepare(
+      'SELECT id, status FROM issues WHERE project_id = ? AND number = ?'
+    ).get(project.id, triggerIssueNumber) as { id: string; status: string } | undefined;
+
+    if (triggerIssue && triggerIssue.status === 'pending') {
+      const activeChildren = db.prepare(
+        "SELECT COUNT(*) as cnt FROM issues WHERE parent_id = ? AND status NOT IN ('done', 'closed')"
+      ).get(triggerIssue.id) as { cnt: number };
+
+      if (activeChildren.cnt > 0) {
+        logger.info(`Skipping controller trigger: issue #${triggerIssueNumber} is pending with ${activeChildren.cnt} active children in project "${project.name}"`);
+        return;
+      }
+      // Stale pending (no active children) — let controller handle it, but don't skip activity check
+    }
+  }
+
   // Idle-period optimization: skip LLM call entirely when controller has nothing to do.
   if (!triggerIssueNumber) {
     // Check 1: any issues that need controller to assign or handle?
