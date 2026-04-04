@@ -75,11 +75,9 @@ function getProjectAccessMeta(project) {
 
 async function loadDashboardSummary() {
   try {
-    const _t = performance.now();
     const res = await fetch('/api/dashboard/summary', { headers: apiHeaders() });
     if (!res.ok) return;
     const data = await res.json();
-    const _d = performance.now() - _t; if (_d > 1000) console.warn(`[perf] loadDashboardSummary: ${Math.round(_d)}ms`);
 
     document.getElementById('stat-running').textContent = data.agents.running;
     document.getElementById('stat-open-issues').textContent = data.issues.open;
@@ -119,12 +117,9 @@ async function loadDashboardSummary() {
 
 async function loadNotifications() {
   try {
-    const _nt0 = performance.now();
     const res = await fetch('/api/notifications?scope=' + encodeURIComponent(_inboxScope), { headers: apiHeaders() });
     if (!res.ok) return;
     const data = await res.json();
-    const _nt1 = performance.now();
-    if (_nt1 - _nt0 > 1000) console.warn(`[perf] loadNotifications: ${Math.round(_nt1-_nt0)}ms`);
 
     const issues = data.user_issues || [];
     const comments = (data.recent_comments || []).slice(0, 50);
@@ -343,7 +338,6 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
 
   try {
     // Fetch issue and agents in parallel when project_id is known
-    const _t0 = performance.now();
     const issuePromise = fetch(`/api/issues/${issueId}`, { headers: apiHeaders() });
     let agentsPromise = null;
     if (knownProjectId) {
@@ -357,12 +351,9 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
       issuePromise,
       agentsPromise || Promise.resolve(null),
     ]);
-    const _t1 = performance.now();
 
     if (!issueRes.ok || _selectedMailIdx !== expectedIdx) return;
     const issue = await issueRes.json();
-    const _t2 = performance.now();
-    console.log(`[perf] loadInboxIssueDetail: fetch=${Math.round(_t1-_t0)}ms parse=${Math.round(_t2-_t1)}ms total=${Math.round(_t2-_t0)}ms id=${issueId}`);
 
     // Cache issue data
     _issueDetailCache[issueId] = { data: issue, timestamp: now };
@@ -571,9 +562,7 @@ async function acknowledgeIssue(issueId) {
 async function loadProjects() {
   const container = document.getElementById('projects');
   try {
-    const _t = performance.now();
     const res = await fetch('/api/projects?with_stats=1', { headers: apiHeaders() });
-    const _d = performance.now() - _t; if (_d > 1000) console.warn(`[perf] loadProjects: ${Math.round(_d)}ms`);
     if (!res.ok) {
       container.innerHTML = renderError(null, 'loadProjects()');
       return;
@@ -980,7 +969,7 @@ loadDashboard();
 let _pollInFlight = false;
 let _pollSlowInFlight = false;
 setInterval(async () => {
-  if (_pollInFlight) { console.warn('[perf] skipping poll cycle — previous still in-flight'); return; }
+  if (_pollInFlight) return;
   _pollInFlight = true;
   try { await Promise.all([loadDashboardSummary(), loadNotifications(), loadActivityStream()]); }
   finally { _pollInFlight = false; }
@@ -1142,12 +1131,10 @@ let _activityStreamData = [];
 
 async function loadActivityStream() {
   try {
-    const _t = performance.now();
     const filter = document.getElementById('activity-project-filter');
     const projectId = filter ? filter.value : '';
     const url = '/api/dashboard/activity-stream?limit=50' + (projectId ? '&project_id=' + projectId : '');
     const res = await fetch(url, { headers: apiHeaders() });
-    const _d = performance.now() - _t; if (_d > 1000) console.warn(`[perf] loadActivityStream: ${Math.round(_d)}ms`);
     if (!res.ok) return;
     const events = await res.json();
     _activityStreamData = events;

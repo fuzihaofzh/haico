@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
 import { startAgentProcess, isAgentRunning } from '../services/process-manager';
-import logger from '../logger';
 import { buildSystemPrompt } from '../services/system-prompt';
 import { triggerControllerAgent } from '../services/controller';
 import { tryHandleWithoutLLM } from '../services/pre-controller';
@@ -283,18 +282,14 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // Get issue detail (with comments + reactions + parent/children)
   fastify.get<{ Params: { id: string } }>('/api/issues/:id', async (request, reply) => {
-    const t0 = Date.now();
     const db = getDatabase();
     const access = ensureIssueAccess(db, request, reply, request.params.id);
     if (!access) return;
-    const t1 = Date.now();
     const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id) as any;
     if (!issue) return reply.code(404).send({ error: 'Issue not found' });
-    const t2 = Date.now();
 
     const comments = db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(request.params.id) as any[];
     const reactions = db.prepare("SELECT * FROM reactions WHERE target_type = 'issue' AND target_id = ?").all(request.params.id);
-    const t3 = Date.now();
     // Batch-fetch all comment reactions in one query (fixes N+1)
     const commentIds = comments.map(c => c.id);
     let commentReactionsMap: Record<string, any[]> = {};
@@ -334,7 +329,6 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       END
       WHERE r.from_issue_id = ? OR r.to_issue_id = ?
     `).all(request.params.id, request.params.id, request.params.id) as any[];
-    const t4 = Date.now();
 
     const issueId = request.params.id;
     const blocks = allRelations.filter(r => r.relation_type === 'blocks' && r.from_issue_id === issueId);
@@ -343,11 +337,6 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
     // is_blocked: true if any blocker is not done/closed
     const is_blocked = blocked_by.some((r: any) => !['done', 'closed'].includes(r.status));
-
-    const total = Date.now() - t0;
-    if (total > 500) {
-      logger.warn(`SLOW /api/issues/:id (${total}ms): access=${t1-t0}ms issue=${t2-t1}ms comments=${t3-t2}ms rest=${t4-t3}ms id=${issueId}`);
-    }
 
     return { ...issue, comments: commentsWithReactions, reactions, parent_number, parent_title, children, blocks, blocked_by, related_to, is_blocked };
   });
@@ -524,7 +513,6 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // ?scope=user (default): only user-related issues & comments
   // ?scope=all: all issues & comments in accessible projects
   fastify.get('/api/notifications', async (request) => {
-    const _nt0 = Date.now();
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
@@ -619,10 +607,6 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       ).all(...projectIds);
     }
 
-    const _ntTotal = Date.now() - _nt0;
-    if (_ntTotal > 500) {
-      logger.warn(`SLOW /api/notifications (${_ntTotal}ms) scope=${scope} issues=${(userIssues as any[]).length} comments=${(recentComments as any[]).length}`);
-    }
     return { user_issues: userIssues, recent_comments: recentComments };
   });
 
