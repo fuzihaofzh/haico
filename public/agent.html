@@ -146,14 +146,30 @@
 
     <!-- Messages Inbox -->
     <div class="card mb-16" id="messages-panel">
-      <div class="flex-between mb-16">
-        <h2>Messages <span id="unread-badge" style="display:none;font-size:12px;background:var(--accent);color:#fff;padding:1px 8px;border-radius:10px;margin-left:6px;font-weight:600"></span></h2>
-        <div class="flex">
-          <button class="btn btn-sm" onclick="markAllRead()">Mark all read</button>
-          <button class="btn btn-sm" onclick="showSendMessage()">Send Message</button>
+      <div class="mail-header">
+        <h2>Messages <span id="unread-badge" class="mail-unread-badge" style="display:none"></span></h2>
+        <div class="flex" style="gap:6px">
+          <button class="btn btn-sm" onclick="mailMarkAllRead()" title="Mark all read">Mark all read</button>
+          <button class="btn btn-sm btn-primary" onclick="mailCompose()">Compose</button>
         </div>
       </div>
-      <div id="messages-list" style="max-height:300px;overflow-y:auto"></div>
+      <div class="mail-layout">
+        <!-- Left: message list -->
+        <div class="mail-list-pane">
+          <div class="mail-tabs">
+            <button class="mail-tab active" data-folder="inbox" onclick="mailSwitchTab('inbox')">Inbox</button>
+            <button class="mail-tab" data-folder="sent" onclick="mailSwitchTab('sent')">Sent</button>
+          </div>
+          <div class="mail-search">
+            <input type="text" class="mail-search-input" placeholder="Search messages…" oninput="mailFilter(this.value)">
+          </div>
+          <div class="mail-list" id="mail-list"></div>
+        </div>
+        <!-- Right: message detail -->
+        <div class="mail-detail-pane" id="mail-detail">
+          <div class="mail-detail-empty">← Select a message</div>
+        </div>
+      </div>
     </div>
 
     <!-- Workspace -->

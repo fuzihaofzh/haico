@@ -707,6 +707,10 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
         "SELECT number, title FROM issues WHERE project_id = ? AND assigned_to = 'user' AND status IN ('open','in_progress') ORDER BY priority DESC LIMIT 10"
       ).all(p.id) as any[];
 
+      const controllerAgent = db.prepare(
+        "SELECT id FROM agents WHERE project_id = ? AND is_controller = 1 LIMIT 1"
+      ).get(p.id) as any;
+
       return {
         ...p,
         stats: {
@@ -716,6 +720,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
           issues: issueStats.total || 0,
           openIssues: issueStats.open_count || 0,
           userIssues,
+          controllerAgentId: controllerAgent?.id || null,
         },
       };
     });
@@ -792,7 +797,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project | undefined;
     if (!existing) return reply.code(404).send({ error: 'Project not found' });
 
-    const { name, description, task_description, command_template, orchestrator_engine, status } = request.body as any;
+    const { name, description, task_description, command_template, orchestrator_engine, status, color } = request.body as any;
 
     const orchestratorEngine = normalizeOrchestratorEngine(orchestrator_engine);
     if (orchestrator_engine !== undefined && orchestratorEngine === null) {
@@ -807,12 +812,13 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
         command_template = COALESCE(?, command_template),
         orchestrator_engine = COALESCE(?, orchestrator_engine),
         status = COALESCE(?, status),
+        color = COALESCE(?, color),
         updated_at = datetime('now')
       WHERE id = ?
     `).run(
       name ?? null, description ?? null, task_description ?? null,
       command_template ?? null, orchestratorEngine ?? null,
-      status ?? null,
+      status ?? null, color ?? null,
       request.params.id
     );
 

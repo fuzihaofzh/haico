@@ -165,6 +165,11 @@
 
 .timeline-comment-body {
   padding: 12px 16px;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+  white-space: pre-wrap;
+  overflow: hidden;
 }
 
 /* Issue body (first comment) */
@@ -172,6 +177,7 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
+  max-width: 100%;
 }
 
 .issue-body-header {
@@ -184,6 +190,10 @@
 
 .issue-body-content {
   padding: 12px 16px;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow: hidden;
 }
 
 /* Markdown rendered content */
@@ -191,6 +201,9 @@
   font-size: 14px;
   line-height: 1.6;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  overflow: hidden;
 }
 .markdown-body h1, .markdown-body h2, .markdown-body h3 {
   margin-top: 16px;
@@ -211,6 +224,10 @@
   background: var(--selected-bg);
   font-size: 0.9em;
   font-family: monospace;
+  word-break: break-all;
+}
+.markdown-body pre code {
+  word-break: normal;
 }
 .markdown-body pre {
   padding: 12px;
@@ -225,11 +242,16 @@
   border-collapse: collapse;
   width: 100%;
   margin-bottom: 12px;
+  table-layout: fixed;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .markdown-body th, .markdown-body td {
   border: 1px solid var(--border);
   padding: 6px 12px;
   text-align: left;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .markdown-body th { background: var(--selected-bg); font-weight: 600; }
 .markdown-body blockquote {
@@ -269,7 +291,14 @@
   border-top: 1px solid var(--border);
 }
 
+/* Issue detail rendered inside inbox mail-detail-pane */
+.mail-detail-pane > div:first-child { padding: 16px; }
+.mail-detail-pane .issue-detail-layout { flex-direction: row; }
+.mail-detail-pane .issue-detail-sidebar { width: 260px; flex-shrink: 0; }
+
 @media (max-width: 768px) {
   .issue-detail-layout { flex-direction: column; }
   .issue-detail-sidebar { width: 100%; }
+  .mail-detail-pane .issue-detail-layout { flex-direction: column; }
+  .mail-detail-pane .issue-detail-sidebar { width: 100%; flex-shrink: 1; }
 }

@@ -94,6 +94,28 @@ export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?:
   const unassigned = issues.filter((i) => !i.assigned_to || i.assigned_to === 'all');
   const assigned = issues.filter((i) => i.assigned_to && i.assigned_to !== 'all');
 
+  // Batch-fetch all comments for all active issues (avoids N+1 per-issue queries)
+  const allComments = db.prepare(
+    `SELECT ic.issue_id, ic.author_id, ic.body FROM issue_comments ic
+     JOIN issues i ON ic.issue_id = i.id
+     WHERE i.project_id = ? AND i.status NOT IN ('done', 'closed')
+     ORDER BY ic.created_at`
+  ).all(project.id) as Array<{ issue_id: string; author_id: string; body: string }>;
+  const commentsByIssue = new Map<string, typeof allComments>();
+  for (const c of allComments) {
+    const arr = commentsByIssue.get(c.issue_id);
+    if (arr) arr.push(c); else commentsByIssue.set(c.issue_id, [c]);
+  }
+
+  // Batch-fetch parent issue numbers (avoids per-issue parent lookup)
+  const parentIds = [...new Set(issues.filter(i => i.parent_id).map(i => i.parent_id!))];
+  const parentNumberMap = new Map<string, number>();
+  if (parentIds.length > 0) {
+    const ph = parentIds.map(() => '?').join(',');
+    const parents = db.prepare(`SELECT id, number FROM issues WHERE id IN (${ph})`).all(...parentIds) as any[];
+    for (const p of parents) parentNumberMap.set(p.id, p.number);
+  }
+
   const formatIssue = (i: Issue): string => {
     const assignee = i.assigned_to
       ? (workers.find((a: any) => a.id === i.assigned_to)?.name || (i.assigned_to === 'user' ? 'User' : i.assigned_to))
@@ -102,14 +124,12 @@ export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?:
 
     // Parent-child info
     const parentInfo = i.parent_id
-      ? ` [child of #${(db.prepare('SELECT number FROM issues WHERE id = ?').get(i.parent_id) as any)?.number || '?'}]`
+      ? ` [child of #${parentNumberMap.get(i.parent_id) || '?'}]`
       : '';
     const cc = childCountMap.get(i.id);
     const childInfo = cc ? ` [children: ${cc.completed}/${cc.total} done]` : '';
 
-    const comments = db.prepare(
-      'SELECT author_id, body, created_at FROM issue_comments WHERE issue_id = ? ORDER BY created_at'
-    ).all(i.id) as Array<{ author_id: string; body: string }>;
+    const comments = commentsByIssue.get(i.id) || [];
 
     const commentsText = comments.length > 0
       ? '\n   Comments:\n' + comments.map((c) => {
@@ -161,6 +181,23 @@ ${workers.map((a: any) => {
     return `- ${a.name} (ID: ${a.id}, Role: ${a.role})`;
   }).join('\n') || '(none yet)'}
 
+## ⚠️ 用户 Issue 处理标准流程（MUST FOLLOW）
+
+当你看到由用户创建的 issue（标记为 🔴 USER）时，**必须**按以下步骤执行：
+
+**步骤 1 — 分析并回复：** 先在该 issue 下添加一条评论，说明你理解的问题以及大致的解决计划（例如：将拆分为哪些子任务、分配给哪些 agent）。这条评论让用户知道他们的 issue 已被接收并正在处理。
+
+**步骤 2 — 创建子任务：** 根据需求类型创建子 issue（设置 \`parent_id\` 指向用户 issue），并分配给对应 agent：
+- 代码开发/Bug修复 → 分配给开发 agent（agentopia-developer）
+- 产品需求分析 → 分配给产品 agent（agentopia-product）
+- 测试验证 → 分配给测试 agent（agentopia-tester）
+- 需要调研/分析 → 分配给助手 agent（agentopia-assistant）
+然后将用户 issue 状态设为 \`pending\`。
+
+**步骤 3 — 汇总并交付用户：** 子任务全部完成后（issue 评论中出现 'All X sub-issues completed'），系统会触发你。你**必须**：(1) 先写一条详细的总结评论，说明每个子 task 完成了什么、整体结果如何；(2) 然后将父 issue 的 assigned_to 改为 user、status 改为 done。**切勿跳过总结直接 assign。**
+
+**步骤 4 — 切勿跳过步骤 1。** 即使 issue 很简单，也必须先评论再创建子任务。用户需要知道他们的 issue 被接收了。
+
 ## Rules
 1. **复用agent。** NEVER create a new agent if one with a similar role already exists. Reuse existing agents.
 2. **分配unassigned issues。** 将未分配的issue分配给合适的agent，无论agent当前是idle还是running。Agent完成当前任务后会自动处理新分配的issue。只有paused的agent不要分配。
@@ -173,6 +210,8 @@ ${workers.map((a: any) => {
 9. **需求需用户确认。** 产品agent提出的新功能需求必须先分配给"user"等待确认。Bug修复可以直接分配开发。
 10. **开发→测试流程。** 开发完成后创建测试验证issue（设parent_id关联父issue）分配给测试agent。测试通过标done，发现bug创建bug issue分配给开发。
 11. **新issue还是新session。** 启动worker时通过start API的\`force_new_session\`决定：任务相关用默认session，全新任务用\`"force_new_session": true\`。
+12. **关闭用户issue时必须回复。** 当你关闭或完成一个由用户创建的issue时，必须先添加一条简短评论，说明你做了什么（如创建了哪些子任务、分配给了谁、结论是什么）。不要默默关闭issue。
+13. **子issue全完成必须先总结再交付用户。** 当一个用户创建的 pending issue，其所有子 issue 已 done（系统评论显示 All X sub-issues completed），你**必须**：(1) 先写详细总结评论（说明每个子 task 做了什么、最终产出）；(2) 再 UPDATE 父 issue status=done, assigned_to=user。**不得先 assign 再总结。**
 
 Assignable targets: ${agents.map((a: any) => `"${a.id}" (${a.name})`).join(', ')}, "user" for human tasks, or "all" to broadcast to everyone.`;
 }

@@ -130,6 +130,7 @@ export function initializeDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
     CREATE INDEX IF NOT EXISTS idx_issues_assigned ON issues(assigned_to, status);
     CREATE INDEX IF NOT EXISTS idx_issue_comments ON issue_comments(issue_id);
+    CREATE INDEX IF NOT EXISTS idx_issue_comments_latest ON issue_comments(issue_id, event_type, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id);
     CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id);
     CREATE INDEX IF NOT EXISTS idx_reactions_target ON reactions(target_type, target_id);
@@ -327,6 +328,10 @@ export function initializeDatabase(db: Database.Database): void {
   if (!projectCols.find((c: any) => c.name === 'owner_id')) {
     db.exec("ALTER TABLE projects ADD COLUMN owner_id TEXT REFERENCES users(id) ON DELETE SET NULL");
     logger.info('Migration: added owner_id column to projects table');
+  }
+  if (!projectCols.find((c: any) => c.name === 'color')) {
+    db.exec("ALTER TABLE projects ADD COLUMN color TEXT DEFAULT '#4A90E2'");
+    logger.info('Migration: added color column to projects table');
   }
 
   db.exec(`

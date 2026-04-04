@@ -290,10 +290,47 @@ document.addEventListener('keydown', function(e) {
 // ─── Avatars — GitHub-style identicon based on name hash ───
 const AVATAR_COLORS = ['#e06c75','#98c379','#e5c07b','#61afef','#c678dd','#56b6c2','#be5046','#d19a66','#7ec8e3','#b5bd68','#cc6666','#8abeb7','#f0c674','#81a2be','#b294bb'];
 
+// Project color presets
+const PROJECT_COLORS = ['#4A90E2','#50C878','#9B59B6','#E67E22','#E74C3C','#1ABC9C','#E91E8A','#8D6E63','#607D8B','#F1C40F'];
+
+// Role → emoji icon mapping
+const ROLE_ICON_MAP = [
+  { keywords: ['controller', 'manager', 'coordinator', 'lead'], icon: '👑' },
+  { keywords: ['developer', 'dev', 'coder', 'engineer', 'programmer'], icon: '💻' },
+  { keywords: ['tester', 'qa', 'quality', 'test'], icon: '🧪' },
+  { keywords: ['product', 'pm', 'planner'], icon: '📋' },
+  { keywords: ['writer', 'docs', 'document', 'technical writer'], icon: '✏️' },
+  { keywords: ['assistant', 'helper'], icon: '🤖' },
+  { keywords: ['analyst', 'data', 'research'], icon: '📊' },
+  { keywords: ['design', 'ui', 'ux'], icon: '🎨' },
+  { keywords: ['security', 'sec'], icon: '🛡️' },
+  { keywords: ['ops', 'devops', 'infra', 'deploy'], icon: '⚙️' },
+];
+
+function getAgentRoleIcon(role) {
+  if (!role) return '👤';
+  const lower = role.toLowerCase();
+  for (const entry of ROLE_ICON_MAP) {
+    for (const kw of entry.keywords) {
+      if (lower.includes(kw)) return entry.icon;
+    }
+  }
+  return '👤';
+}
+
 function hashCode(s) {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
   return Math.abs(h);
+}
+
+// Role-based avatar: circle with project color background + role emoji
+function roleAvatarHtml(role, size, bgColor) {
+  size = size || 28;
+  bgColor = bgColor || '#4A90E2';
+  const icon = getAgentRoleIcon(role);
+  const fontSize = Math.round(size * 0.5);
+  return `<span class="role-avatar" style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${bgColor};font-size:${fontSize}px;line-height:1;flex-shrink:0">${icon}</span>`;
 }
 
 function avatarSvg(name, size) {

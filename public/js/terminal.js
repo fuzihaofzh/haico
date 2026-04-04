@@ -430,69 +430,191 @@ function toggleSystemPrompt() {
   else { el.style.display = 'none'; }
 }
 
-// ─── Messages ───
+// ─── Messages (Mail UI) ───
 
 let allAgents = [];
+let mailFolder = 'inbox';       // 'inbox' | 'sent'
+let mailMessages = [];          // current folder messages
+let mailSelectedId = null;      // currently viewed message id
+let mailFilterText = '';        // search filter
 
 async function loadMessages() {
   try {
-    const res = await fetch(`/api/agents/${agentId}/messages?limit=30`, { headers: apiHeaders() });
+    var endpoint = mailFolder === 'sent'
+      ? '/api/agents/' + agentId + '/messages/sent?limit=50'
+      : '/api/agents/' + agentId + '/messages?limit=50';
+    var res = await fetch(endpoint, { headers: apiHeaders() });
     if (!res.ok) return;
-    const data = await res.json();
-    const messages = data.messages || [];
-    const unread = messages.filter(m => m.status === 'unread').length;
+    var data = await res.json();
+    mailMessages = data.messages || [];
 
-    const badge = document.getElementById('unread-badge');
-    if (unread > 0) {
-      badge.textContent = unread;
-      badge.style.display = '';
-    } else {
-      badge.style.display = 'none';
+    // Update unread badge (always from inbox)
+    if (mailFolder === 'inbox') {
+      var unread = mailMessages.filter(function(m) { return m.status === 'unread'; }).length;
+      var badge = document.getElementById('unread-badge');
+      if (unread > 0) { badge.textContent = unread; badge.style.display = ''; }
+      else { badge.style.display = 'none'; }
     }
 
-    const container = document.getElementById('messages-list');
-    if (messages.length === 0) {
-      container.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;padding:8px">No messages</div>';
-      return;
+    mailRenderList();
+    // Re-render detail if selected message is still in list
+    if (mailSelectedId) {
+      var found = mailMessages.find(function(m) { return m.id === mailSelectedId; });
+      if (found) mailShowDetail(found, true);
     }
-    container.innerHTML = messages.map(function(m) {
-      var isUnread = m.status === 'unread';
-      var date = m.created_at ? new Date(m.created_at + (m.created_at.includes('Z') ? '' : 'Z')).toLocaleString() : '';
-      return '<div style="padding:8px 12px;border-bottom:1px solid var(--border);' + (isUnread ? 'background:var(--selected-bg);' : '') + 'cursor:pointer" onclick="toggleMessageDetail(this,\'' + m.id + '\')">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center">' +
-          '<span style="font-weight:' + (isUnread ? '600' : '400') + ';font-size:13px">' +
-            (isUnread ? '<span style="color:var(--accent);margin-right:4px">●</span>' : '') +
-            (m.from_name || m.from_agent_id.slice(0,8)) +
-            (m.subject ? ': ' + esc(m.subject) : '') +
-          '</span>' +
-          '<span style="font-size:11px;color:var(--text-secondary)">' + timeAgo(m.created_at) + '</span>' +
-        '</div>' +
-        '<div class="msg-detail" style="display:none;margin-top:8px;padding:8px;background:var(--bg);border-radius:4px;font-size:12px;white-space:pre-wrap">' + esc(m.body) + '</div>' +
-      '</div>';
-    }).join('');
   } catch(e) {}
 }
 
-function toggleMessageDetail(el, msgId) {
-  var detail = el.querySelector('.msg-detail');
-  if (!detail) return;
-  var visible = detail.style.display !== 'none';
-  detail.style.display = visible ? 'none' : '';
-  if (!visible) {
-    // Mark as read
-    fetch('/api/agents/' + agentId + '/messages/' + msgId, {
-      method: 'PUT', headers: apiHeaders()
-    }).then(function() { setTimeout(loadMessages, 500); });
+function mailRenderList() {
+  var container = document.getElementById('mail-list');
+  var filtered = mailMessages;
+  if (mailFilterText) {
+    var q = mailFilterText.toLowerCase();
+    filtered = mailMessages.filter(function(m) {
+      var name = (mailFolder === 'sent' ? (m.to_name || '') : (m.from_name || '')).toLowerCase();
+      var subj = (m.subject || '').toLowerCase();
+      return name.indexOf(q) !== -1 || subj.indexOf(q) !== -1;
+    });
+  }
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary);font-size:13px">' +
+      (mailFilterText ? 'No matching messages' : 'No messages') + '</div>';
+    return;
+  }
+  container.innerHTML = filtered.map(function(m) {
+    var isUnread = m.status === 'unread';
+    var isSel = m.id === mailSelectedId;
+    var cls = 'mail-item' + (isUnread ? ' unread' : '') + (isSel ? ' selected' : '');
+    var personName = mailFolder === 'sent'
+      ? (m.to_name || m.to_agent_id.slice(0,8))
+      : (m.from_name || m.from_agent_id.slice(0,8));
+    var subject = m.subject ? esc(m.subject) : '<i style="opacity:.5">(no subject)</i>';
+    return '<div class="' + cls + '" data-mid="' + m.id + '" onclick="mailSelect(\'' + m.id + '\')">' +
+      '<div class="mail-item-content">' +
+        '<div class="mail-item-top">' +
+          '<span class="mail-item-sender">' + esc(personName) + '</span>' +
+          '<span class="mail-item-time">' + timeAgo(m.created_at) + '</span>' +
+        '</div>' +
+        '<div class="mail-item-subject">' + subject + '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function mailSelect(msgId) {
+  var msg = mailMessages.find(function(m) { return m.id === msgId; });
+  if (!msg) return;
+  mailSelectedId = msgId;
+  // Highlight in list
+  var items = document.querySelectorAll('#mail-list .mail-item');
+  items.forEach(function(el) { el.classList.toggle('selected', el.dataset.mid === msgId); });
+  mailShowDetail(msg, false);
+  // Mark as read if unread inbox message
+  if (mailFolder === 'inbox' && msg.status === 'unread') {
+    msg.status = 'read';
+    fetch('/api/agents/' + agentId + '/messages/' + msgId, { method: 'PUT', headers: apiHeaders() })
+      .then(function() {
+        // Update badge and list item styling
+        var unread = mailMessages.filter(function(m) { return m.status === 'unread'; }).length;
+        var badge = document.getElementById('unread-badge');
+        if (unread > 0) { badge.textContent = unread; badge.style.display = ''; }
+        else { badge.style.display = 'none'; }
+        var el = document.querySelector('#mail-list .mail-item[data-mid="' + msgId + '"]');
+        if (el) el.classList.remove('unread');
+      });
   }
 }
 
-async function markAllRead() {
+function mailShowDetail(msg, preserveReply) {
+  var pane = document.getElementById('mail-detail');
+  var isSent = mailFolder === 'sent';
+  var personLabel = isSent ? 'To' : 'From';
+  var personName = isSent ? (msg.to_name || msg.to_agent_id.slice(0,8)) : (msg.from_name || msg.from_agent_id.slice(0,8));
+  var dateStr = msg.created_at ? new Date(msg.created_at + (msg.created_at.includes('Z') ? '' : 'Z')).toLocaleString() : '';
+
+  pane.innerHTML =
+    '<div class="mail-detail-content">' +
+      '<div class="mail-detail-head">' +
+        '<div class="mail-detail-subject">' + (msg.subject ? esc(msg.subject) : '<i style="opacity:.5">(no subject)</i>') + '</div>' +
+        '<div class="mail-detail-meta">' +
+          '<span>' + personLabel + ': <strong>' + esc(personName) + '</strong></span>' +
+          '<span>' + dateStr + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="mail-detail-body">' + esc(msg.body) + '</div>' +
+      (isSent ? '' :
+        '<div class="mail-detail-actions">' +
+          '<button class="btn btn-sm" onclick="mailShowReply()">Reply</button>' +
+        '</div>') +
+      '<div id="mail-reply-area"></div>' +
+    '</div>';
+}
+
+function mailShowReply() {
+  var msg = mailMessages.find(function(m) { return m.id === mailSelectedId; });
+  if (!msg) return;
+  var area = document.getElementById('mail-reply-area');
+  if (area.innerHTML) { area.innerHTML = ''; return; }
+  var reSubject = (msg.subject || '').startsWith('Re: ') ? msg.subject : 'Re: ' + (msg.subject || '');
+  area.innerHTML =
+    '<div class="mail-reply-box">' +
+      '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Reply to <strong>' + esc(msg.from_name || msg.from_agent_id.slice(0,8)) + '</strong> — ' + esc(reSubject) + '</div>' +
+      '<textarea id="mail-reply-body" placeholder="Write your reply…"></textarea>' +
+      '<div class="mail-reply-bar">' +
+        '<button class="btn btn-sm" onclick="document.getElementById(\'mail-reply-area\').innerHTML=\'\'">Cancel</button>' +
+        '<button class="btn btn-sm btn-primary" onclick="mailSendReply()">Send</button>' +
+      '</div>' +
+    '</div>';
+  document.getElementById('mail-reply-body').focus();
+}
+
+async function mailSendReply() {
+  var msg = mailMessages.find(function(m) { return m.id === mailSelectedId; });
+  if (!msg) return;
+  var body = document.getElementById('mail-reply-body').value;
+  if (!body.trim()) { showToast('Message body is required', 'error'); return; }
+  var reSubject = (msg.subject || '').startsWith('Re: ') ? msg.subject : 'Re: ' + (msg.subject || '');
+  try {
+    var res = await fetch('/api/agents/' + agentId + '/messages/send', {
+      method: 'POST', headers: apiHeaders(),
+      body: JSON.stringify({ to: msg.from_agent_id, subject: reSubject, body: body, reply_to_id: msg.id })
+    });
+    if (res.ok) {
+      showToast('Reply sent', 'success');
+      document.getElementById('mail-reply-area').innerHTML = '';
+      loadMessages();
+    } else {
+      var err = await res.json();
+      showToast(err.error || 'Failed to send', 'error');
+    }
+  } catch(e) { showToast('Network error', 'error'); }
+}
+
+function mailSwitchTab(folder) {
+  mailFolder = folder;
+  mailSelectedId = null;
+  mailFilterText = '';
+  var searchInput = document.querySelector('.mail-search-input');
+  if (searchInput) searchInput.value = '';
+  document.querySelectorAll('.mail-tab').forEach(function(t) {
+    t.classList.toggle('active', t.dataset.folder === folder);
+  });
+  document.getElementById('mail-detail').innerHTML = '<div class="mail-detail-empty">← Select a message</div>';
+  loadMessages();
+}
+
+function mailFilter(text) {
+  mailFilterText = text;
+  mailRenderList();
+}
+
+async function mailMarkAllRead() {
   await fetch('/api/agents/' + agentId + '/messages/read-all', { method: 'POST', headers: apiHeaders() });
   showToast('All messages marked as read', 'success');
   loadMessages();
 }
 
-async function showSendMessage() {
+async function mailCompose(prefillTo, prefillSubject, prefillReplyTo) {
   // Load agents if not loaded
   if (allAgents.length === 0) {
     try {
@@ -506,36 +628,45 @@ async function showSendMessage() {
   var existing = document.getElementById('send-msg-dialog');
   if (existing) { existing.remove(); return; }
   var opts = allAgents.filter(function(a) { return a.id !== agentId; }).map(function(a) {
-    return '<option value="' + a.id + '">' + esc(a.name) + '</option>';
+    var sel = prefillTo && a.id === prefillTo ? ' selected' : '';
+    return '<option value="' + a.id + '"' + sel + '>' + esc(a.name) + '</option>';
   }).join('');
 
-  var div = document.createElement('div');
-  div.id = 'send-msg-dialog';
-  div.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--header-bg);border:1px solid var(--border);border-radius:8px;padding:16px;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,0.3);min-width:350px';
-  div.innerHTML =
-    '<div style="font-weight:600;margin-bottom:12px">Send Message</div>' +
-    '<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">To</label>' +
-      '<select id="msg-to" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px">' + opts + '</select></div>' +
-    '<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">Subject</label>' +
-      '<input type="text" id="msg-subject" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px"></div>' +
-    '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--text-secondary)">Message</label>' +
-      '<textarea id="msg-body" rows="4" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px;font-family:inherit;resize:vertical"></textarea></div>' +
-    '<div style="display:flex;gap:8px;justify-content:flex-end">' +
-      '<button class="btn btn-sm" onclick="document.getElementById(\'send-msg-dialog\').remove()">Cancel</button>' +
-      '<button class="btn btn-sm btn-primary" onclick="sendMessage()">Send</button>' +
+  var overlay = document.createElement('div');
+  overlay.id = 'send-msg-dialog';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:199;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML =
+    '<div style="background:var(--header-bg);border:1px solid var(--border);border-radius:8px;padding:20px;box-shadow:0 8px 24px rgba(0,0,0,0.4);min-width:380px;max-width:90vw">' +
+      '<div style="font-weight:600;margin-bottom:12px;font-size:15px">Compose Message</div>' +
+      '<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">To</label>' +
+        '<select id="msg-to" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px">' + opts + '</select></div>' +
+      '<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">Subject</label>' +
+        '<input type="text" id="msg-subject" value="' + esc(prefillSubject || '') + '" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px"></div>' +
+      '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--text-secondary)">Message</label>' +
+        '<textarea id="msg-body" rows="5" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px;font-family:inherit;resize:vertical"></textarea></div>' +
+      (prefillReplyTo ? '<input type="hidden" id="msg-reply-to" value="' + prefillReplyTo + '">' : '') +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+        '<button class="btn btn-sm" onclick="document.getElementById(\'send-msg-dialog\').remove()">Cancel</button>' +
+        '<button class="btn btn-sm btn-primary" onclick="mailSendCompose()">Send</button>' +
+      '</div>' +
     '</div>';
-  document.body.appendChild(div);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
 }
 
-async function sendMessage() {
+async function mailSendCompose() {
   var to = document.getElementById('msg-to').value;
   var subject = document.getElementById('msg-subject').value;
   var body = document.getElementById('msg-body').value;
-  if (!to || !body) { showToast('Recipient and message are required', 'error'); return; }
+  var replyToEl = document.getElementById('msg-reply-to');
+  var replyTo = replyToEl ? replyToEl.value : undefined;
+  if (!to || !body.trim()) { showToast('Recipient and message are required', 'error'); return; }
   try {
+    var payload = { to: to, subject: subject, body: body };
+    if (replyTo) payload.reply_to_id = replyTo;
     var res = await fetch('/api/agents/' + agentId + '/messages/send', {
       method: 'POST', headers: apiHeaders(),
-      body: JSON.stringify({ to: to, subject: subject, body: body })
+      body: JSON.stringify(payload)
     });
     if (res.ok) {
       showToast('Message sent', 'success');
@@ -548,6 +679,11 @@ async function sendMessage() {
     }
   } catch(e) { showToast('Network error', 'error'); }
 }
+
+// Keep old function names as aliases for compatibility
+function showSendMessage() { mailCompose(); }
+function markAllRead() { mailMarkAllRead(); }
+function sendMessage() { mailSendCompose(); }
 
 // ─── Init ───
 

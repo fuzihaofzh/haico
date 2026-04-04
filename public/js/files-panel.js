@@ -500,7 +500,11 @@
         const language = this.detectLanguage(filePath);
         const model = this.state.editor.getModel();
         window.monaco.editor.setModelLanguage(model, language);
-        this.state.editor.updateOptions({ readOnly: !this.state.canWrite });
+        const textLanguages = ['plaintext', 'markdown'];
+        this.state.editor.updateOptions({
+          readOnly: !this.state.canWrite,
+          wordWrap: textLanguages.includes(language) ? 'on' : 'off',
+        });
         this.state.editor.setValue(content);
         this.state.originalContent = content;
         this.state.dirty = false;

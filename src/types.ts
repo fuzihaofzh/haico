@@ -9,6 +9,7 @@ export interface Project {
   orchestrator_engine: OrchestratorEngine;
   status: 'active' | 'paused' | 'completed';
   owner_id: string | null;
+  color: string;
   created_at: string;
   updated_at: string;
 }

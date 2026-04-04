@@ -2,15 +2,27 @@
 let _lastActivityMap = {};
 let _notificationsCollapsed = false;
 let _notifFilter = 'all'; // 'all' or 'action'
+let _inboxScope = 'user'; // 'user' (default: user-related only) or 'all'
+let _inboxProject = ''; // '' = all projects, or a specific project_id
 let _inboxSearchQuery = '';
 let _inboxAllItems = []; // cached items for search filtering
+let _selectedMailIdx = -1; // currently selected mail index
+let _renderedMailItems = []; // currently rendered (filtered) items
+let _currentReplyIssueId = null; // issue ID for the currently visible reply box
 let _dashboardProjectsById = {};
+
+// Inbox issue detail caches
+const _issueDetailCache = {}; // issueId -> { data, timestamp }
+const _projectAgentsCache = {}; // projectId -> { data, timestamp }
+const ISSUE_CACHE_TTL = 30000; // 30s - background refresh after this
 
 // Track known action-required issue IDs to detect new ones
 let _knownActionIssueIds = null; // null = first load (don't ring on first load)
 
 // Track locally acknowledged issue IDs so they survive inbox refresh
 let _acknowledgedIds = new Set();
+// Track in-flight acknowledge requests to prevent sync from reverting them
+let _pendingAcks = new Set();
 
 const PROJECT_ACCESS_META = {
   owner: {
@@ -105,17 +117,18 @@ async function loadDashboardSummary() {
 
 async function loadNotifications() {
   try {
-    const res = await fetch('/api/notifications', { headers: apiHeaders() });
+    const res = await fetch('/api/notifications?scope=' + encodeURIComponent(_inboxScope), { headers: apiHeaders() });
     if (!res.ok) return;
     const data = await res.json();
 
     const issues = data.user_issues || [];
     const comments = (data.recent_comments || []).slice(0, 50);
-    const unacknowledgedIssues = issues.filter(i => !i.acknowledged_at);
-    const totalCount = unacknowledgedIssues.length;
+    // Only count actionable (assigned_to=user) + unacknowledged issues for badge/notifications
+    const actionableUnacknowledged = issues.filter(i => i.is_actionable && !i.acknowledged_at);
+    const totalCount = actionableUnacknowledged.length;
 
-    // Detect new action-required issues and play notification sound
-    const currentIds = new Set(unacknowledgedIssues.map(i => i.id || i.number));
+    // Detect new action-required issues and play notification sound (only actionable)
+    const currentIds = new Set(actionableUnacknowledged.map(i => i.id || i.number));
     if (_knownActionIssueIds === null) {
       _knownActionIssueIds = currentIds;
     } else {
@@ -152,23 +165,48 @@ async function loadNotifications() {
     for (const issue of issues) {
       if (issue.acknowledged_at) {
         _acknowledgedIds.add(issue.id);
-      } else {
+      } else if (!_pendingAcks.has(issue.id)) {
+        // Only remove from local set if there's no in-flight acknowledge request
         _acknowledgedIds.delete(issue.id);
       }
     }
+    // Group comments by issue_id, keeping only the latest comment per issue
+    const latestCommentByIssue = {};
+    for (const c of comments) {
+      const existing = latestCommentByIssue[c.issue_id];
+      if (!existing || c.created_at > existing.created_at) {
+        latestCommentByIssue[c.issue_id] = c;
+      }
+    }
+
     const items = [];
     for (const issue of issues) {
       const isAcknowledged = !!issue.acknowledged_at || _acknowledgedIds.has(issue.id);
-      items.push({ type: 'issue', time: issue.updated_at, data: issue, actionRequired: !isAcknowledged });
-    }
-    for (const c of comments) {
-      items.push({ type: 'comment', time: c.created_at, data: c, actionRequired: false });
+      const latestComment = latestCommentByIssue[issue.id];
+      // Use latest comment's time/body if it's newer than the issue's updated_at
+      let displayTime = issue.updated_at;
+      let latestPreview = null;
+      if (latestComment && latestComment.created_at > issue.updated_at) {
+        displayTime = latestComment.created_at;
+        latestPreview = latestComment.body;
+      }
+      // Only actionable issues (assigned_to=user) can be action-required; created-only issues are always "read"
+      const isActionable = !!issue.is_actionable;
+      items.push({ type: 'issue', time: displayTime, data: issue, actionRequired: isActionable && !isAcknowledged, latestPreview });
     }
     // Sort: action-required first, then by time desc
     items.sort((a, b) => {
       if (a.actionRequired !== b.actionRequired) return a.actionRequired ? -1 : 1;
       return (b.time || '') > (a.time || '') ? 1 : -1;
     });
+
+    // Invalidate issue caches for issues whose updated_at changed
+    for (const issue of issues) {
+      const cached = _issueDetailCache[issue.id];
+      if (cached && cached.data.updated_at !== issue.updated_at) {
+        delete _issueDetailCache[issue.id];
+      }
+    }
 
     _inboxAllItems = items;
     renderInboxItems(items);
@@ -181,56 +219,190 @@ function renderInboxItems(items) {
   const body = document.getElementById('notifications-body');
   const query = _inboxSearchQuery.toLowerCase().trim();
 
-  let html = '';
+  // Filter items
+  const filtered = [];
   for (const item of items) {
-    // Apply filter — but keep recently-acknowledged issues visible (not red)
-    const isLocallyAcked = item.type === 'issue' && item.data && _acknowledgedIds.has(item.data.id);
-    if (_notifFilter === 'action' && !item.actionRequired && !isLocallyAcked) continue;
-
-    if (item.type === 'issue') {
-      const issue = item.data;
-      // Apply search
-      if (query && !matchesSearch(query, '#' + issue.number, issue.title, issue.body || '')) continue;
-      const isAction = item.actionRequired;
-      const isAcked = _acknowledgedIds.has(issue.id) || !!issue.acknowledged_at;
-      const ackBtnHtml = isAcked ? '' : `<button class="notif-ack-btn" onclick="event.stopPropagation();acknowledgeIssue('${issue.id}')" title="Mark read">✓</button>`;
-      html += `<div class="notif-item${isAction ? ' notif-action-required' : ''}" id="notif-issue-${issue.id}" onclick="openIssuePanel('${issue.id}')" style="cursor:pointer">
-        <span class="notif-icon" style="color:${isAction ? 'var(--warning)' : 'var(--text-secondary)'}">&#9679;</span>
-        <span class="notif-text">
-          <span style="color:var(--text-secondary);font-size:10px">[${esc(issue.project_name || '')}]</span>
-          <a href="/projects/${issue.project_id}/issues/${issue.number}" onclick="event.stopPropagation()">#${issue.number}</a>
-          ${esc(issue.title)}
-        </span>
-        ${ackBtnHtml}
-        <span class="notif-time">${timeAgo(issue.updated_at) || ''}</span>
-      </div>`;
-    } else {
-      const c = item.data;
-      if (query && !matchesSearch(query, '#' + c.issue_number, c.issue_title || '', c.body || '')) continue;
-      const preview = (c.body || '').slice(0, 60) + ((c.body || '').length > 60 ? '...' : '');
-      html += `<div class="notif-item notif-comment" onclick="openIssuePanelByProject('${c.project_id}', ${c.issue_number})" style="cursor:pointer">
-        <span class="notif-icon" style="color:var(--text-secondary)">&#9998;</span>
-        <span class="notif-text">
-          <span style="color:var(--text-secondary);font-size:10px">[${esc(c.project_name || '')}]</span>
-          <a href="/projects/${c.project_id}/issues/${c.issue_number}" onclick="event.stopPropagation()">#${c.issue_number}</a>
-          <span style="color:var(--text-secondary)">${esc(preview)}</span>
-        </span>
-        <span class="notif-time">${timeAgo(c.created_at) || ''}</span>
-      </div>`;
+    // Project filter
+    if (_inboxProject) {
+      const pid = item.data.project_id;
+      if (pid && pid !== _inboxProject) continue;
     }
+    const isLocallyAcked = item.data && _acknowledgedIds.has(item.data.id);
+    if (_notifFilter === 'action' && !item.actionRequired && !isLocallyAcked) continue;
+    const issue = item.data;
+    if (query && !matchesSearch(query, '#' + issue.number, issue.title, issue.body || '')) continue;
+    filtered.push(item);
+  }
+  _renderedMailItems = filtered;
+
+  let html = '';
+  for (let i = 0; i < filtered.length; i++) {
+    const item = filtered[i];
+    const isSelected = i === _selectedMailIdx;
+    const issue = item.data;
+    const isUnread = item.actionRequired;
+    const project = esc(issue.project_name || '');
+    const previewText = (issue.latest_comment_body || item.latestPreview || issue.body || '').replace(/\n/g, ' ').slice(0, 100) + ((issue.latest_comment_body || item.latestPreview || issue.body || '').length > 100 ? '…' : '');
+    const displayTime = item.time || issue.updated_at;
+    // Avatar: show role-based avatar for latest comment author (sender), fallback to assigned agent
+    const senderAuthorId = issue.latest_comment_author_id;
+    const senderRole = issue.latest_comment_author_role || issue.assigned_agent_role;
+    const senderName = issue.latest_comment_author_name || issue.assigned_agent_name;
+    const senderIsUser = !senderAuthorId || senderAuthorId === 'user';
+    const avatarHtml = senderIsUser || !senderRole
+      ? avatarSvg(senderIsUser ? 'user' : (senderName || senderAuthorId || '?'), 32)
+      : roleAvatarHtml(senderRole, 32, issue.project_color || '#4A90E2');
+    html += `<div class="mail-item${isUnread ? ' mail-unread' : ''}${isSelected ? ' mail-selected' : ''}" onclick="selectMailItem(${i})" onmouseenter="prefetchIssueDetail('${issue.id}')" data-idx="${i}">
+      <span class="mail-item-dot ${isUnread ? 'unread' : 'read'}"></span>
+      <div class="mail-item-avatar">${avatarHtml}</div>
+      <div class="mail-item-content">
+        <div class="mail-item-top">
+          <span class="mail-item-from">${project} #${issue.number}</span>
+          <span class="mail-item-time">${timeAgo(displayTime) || ''}</span>
+        </div>
+        <div class="mail-item-subject">${isUnread ? '<span class="mail-item-badge action">!</span>' : (!issue.is_actionable ? '<span class="mail-item-badge sent">已发送</span>' : '')}${esc(issue.title)}</div>
+        <div class="mail-item-preview">${esc(previewText)}</div>
+      </div>
+    </div>`;
   }
 
   if (!html && query) {
-    html = '<div style="padding:12px 16px;color:var(--text-secondary);font-size:12px;text-align:center">No results</div>';
+    html = '<div style="padding:20px;color:var(--text-secondary);font-size:12px;text-align:center">No results</div>';
   } else if (!html) {
-    html = '<div style="padding:12px 16px;color:var(--text-secondary);font-size:12px;text-align:center">No notifications</div>';
+    html = '<div style="padding:20px;color:var(--text-secondary);font-size:12px;text-align:center">No notifications</div>';
   }
 
   body.innerHTML = html;
-  if (_notificationsCollapsed) {
-    body.classList.add('collapsed');
-    document.getElementById('notif-toggle-icon').classList.add('collapsed');
+
+  // Collapse state
+  const mailBody = document.getElementById('mail-body');
+  if (mailBody && _notificationsCollapsed) {
+    mailBody.classList.add('collapsed');
   }
+}
+
+function selectMailItem(idx) {
+  _selectedMailIdx = idx;
+  // Highlight selected in list
+  document.querySelectorAll('.mail-item').forEach((el, i) => {
+    el.classList.toggle('mail-selected', i === idx);
+  });
+
+  const item = _renderedMailItems[idx];
+  const detail = document.getElementById('mail-detail-pane');
+  _currentReplyIssueId = null;
+  if (!item) {
+    detail.innerHTML = '<div class="mail-detail-empty"><div class="mail-detail-empty-icon">&#9993;</div><div>Select a message to read</div></div>';
+    return;
+  }
+
+  const issue = item.data;
+  // Mark as read (acknowledge)
+  if (item.actionRequired && !_acknowledgedIds.has(issue.id)) {
+    acknowledgeIssue(issue.id);
+  }
+  _currentReplyIssueId = issue.id;
+  detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary);font-size:12px;">Loading issue...</div>';
+  loadInboxIssueDetail(issue.id, idx);
+}
+
+async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
+  const detail = document.getElementById('mail-detail-pane');
+  const now = Date.now();
+  const cached = _issueDetailCache[issueId];
+
+  // Show cached data instantly if available
+  if (cached && !forceRefresh) {
+    if (_selectedMailIdx !== expectedIdx) return;
+    const agentsCached = _projectAgentsCache[cached.data.project_id];
+    const agents = agentsCached ? agentsCached.data : [];
+    _currentReplyIssueId = cached.data.id;
+    IssueRenderer.render(cached.data, agents, detail, {
+      reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
+      onAfterAction: function() { loadNotifications(); },
+    });
+
+    // Background refresh if cache is stale
+    if (now - cached.timestamp > ISSUE_CACHE_TTL) {
+      loadInboxIssueDetail(issueId, expectedIdx, true);
+    }
+    return;
+  }
+
+  // Determine project_id from inbox item data for parallel agents fetch
+  let knownProjectId = null;
+  const inboxItem = _renderedMailItems[expectedIdx];
+  if (inboxItem && inboxItem.data) {
+    knownProjectId = inboxItem.data.project_id;
+  }
+
+  try {
+    // Fetch issue and agents in parallel when project_id is known
+    const issuePromise = fetch(`/api/issues/${issueId}`, { headers: apiHeaders() });
+    let agentsPromise = null;
+    if (knownProjectId) {
+      const agentsCached = _projectAgentsCache[knownProjectId];
+      if (!agentsCached || now - agentsCached.timestamp >= 60000) {
+        agentsPromise = fetch(`/api/projects/${knownProjectId}/agents`, { headers: apiHeaders() });
+      }
+    }
+
+    const [issueRes, agentsRes] = await Promise.all([
+      issuePromise,
+      agentsPromise || Promise.resolve(null),
+    ]);
+
+    if (!issueRes.ok || _selectedMailIdx !== expectedIdx) return;
+    const issue = await issueRes.json();
+
+    // Cache issue data
+    _issueDetailCache[issueId] = { data: issue, timestamp: now };
+
+    // Process agents result
+    let agents = [];
+    if (agentsRes && agentsRes.ok) {
+      agents = await agentsRes.json();
+      _projectAgentsCache[issue.project_id] = { data: agents, timestamp: now };
+    } else {
+      const agentsCached = _projectAgentsCache[issue.project_id];
+      if (agentsCached) {
+        agents = agentsCached.data;
+      } else if (!agentsPromise) {
+        // project_id wasn't known before, fetch agents now
+        try {
+          const res2 = await fetch(`/api/projects/${issue.project_id}/agents`, { headers: apiHeaders() });
+          if (res2.ok) {
+            agents = await res2.json();
+            _projectAgentsCache[issue.project_id] = { data: agents, timestamp: now };
+          }
+        } catch {}
+      }
+    }
+
+    if (_selectedMailIdx !== expectedIdx) return;
+    _currentReplyIssueId = issue.id;
+    IssueRenderer.render(issue, agents, detail, {
+      reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
+      onAfterAction: function() { loadNotifications(); },
+    });
+  } catch (e) {
+    if (!cached) {
+      detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary)">Failed to load issue</div>';
+    }
+  }
+}
+
+// Prefetch issue detail on hover for faster click response
+function prefetchIssueDetail(issueId) {
+  if (_issueDetailCache[issueId]) return;
+  fetch(`/api/issues/${issueId}`, { headers: apiHeaders() })
+    .then(res => res.ok ? res.json() : null)
+    .then(data => {
+      if (data && !_issueDetailCache[issueId]) {
+        _issueDetailCache[issueId] = { data, timestamp: Date.now() };
+      }
+    })
+    .catch(() => {});
 }
 
 function matchesSearch(query, ...fields) {
@@ -276,11 +448,10 @@ async function searchInboxIssues(query) {
 }
 
 function toggleNotifications() {
-  const body = document.getElementById('notifications-body');
-  const icon = document.getElementById('notif-toggle-icon');
+  const mailBody = document.getElementById('mail-body');
+  if (!mailBody) return;
   _notificationsCollapsed = !_notificationsCollapsed;
-  body.classList.toggle('collapsed');
-  icon.classList.toggle('collapsed');
+  mailBody.classList.toggle('collapsed');
 }
 
 function toggleNotifFilter(filter) {
@@ -295,6 +466,38 @@ function toggleNotifFilter(filter) {
   } else {
     renderInboxItems(_inboxAllItems);
   }
+}
+
+function toggleInboxScope(scope) {
+  _inboxScope = scope;
+  document.querySelectorAll('.inbox-scope-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.scope === scope);
+  });
+  // Reload notifications with new scope
+  loadNotifications();
+}
+
+function toggleInboxProject(projectId) {
+  _inboxProject = projectId;
+  if (_notifFilter === 'my') {
+    loadMyIssues();
+  } else if (_inboxSearchQuery.trim()) {
+    searchInboxIssues(_inboxSearchQuery.trim());
+  } else {
+    renderInboxItems(_inboxAllItems);
+  }
+}
+
+function populateInboxProjectFilter() {
+  const filter = document.getElementById('inbox-project-filter');
+  if (!filter) return;
+  const current = filter.value;
+  let options = '<option value="">All Projects</option>';
+  for (const id in _dashboardProjectsById) {
+    const p = _dashboardProjectsById[id];
+    options += '<option value="' + id + '"' + (id === current ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+  }
+  filter.innerHTML = options;
 }
 
 async function loadMyIssues() {
@@ -315,32 +518,44 @@ async function loadMyIssues() {
 }
 
 async function acknowledgeIssue(issueId) {
+  // Optimistically update state before server response to prevent race with polling
+  _acknowledgedIds.add(issueId);
+  _pendingAcks.add(issueId);
+  // Update cached items
+  const cached = _inboxAllItems.find(i => i.data && i.data.id === issueId);
+  if (cached) cached.actionRequired = false;
+  // Update the mail list item visually
+  const idx = _renderedMailItems.findIndex(i => i.data && i.data.id === issueId);
+  if (idx >= 0) {
+    const el = document.querySelector(`.mail-item[data-idx="${idx}"]`);
+    if (el) {
+      el.classList.remove('mail-unread');
+      const dot = el.querySelector('.mail-item-dot');
+      if (dot) { dot.classList.remove('unread'); dot.classList.add('read'); }
+      const actionBadge = el.querySelector('.mail-item-badge.action');
+      if (actionBadge) actionBadge.remove();
+    }
+  }
+  // Update badge count
+  const remaining = _inboxAllItems.filter(i => i.actionRequired).length;
+  const badge = document.getElementById('notif-count');
+  if (badge) {
+    badge.textContent = remaining;
+    if (remaining === 0) badge.style.display = 'none';
+  }
   try {
     const res = await fetch(`/api/issues/${issueId}/acknowledge`, { method: 'POST' });
-    if (res.ok) {
-      // Track locally so the item survives inbox refresh
-      _acknowledgedIds.add(issueId);
-      const el = document.getElementById('notif-issue-' + issueId);
-      if (el) {
-        el.classList.remove('notif-action-required');
-        const dot = el.querySelector('.notif-icon');
-        if (dot) dot.style.color = 'var(--text-secondary)';
-        const ackBtn = el.querySelector('.notif-ack-btn');
-        if (ackBtn) ackBtn.style.display = 'none';
-      }
-      // Update cached items
-      const cached = _inboxAllItems.find(i => i.data && i.data.id === issueId);
-      if (cached) cached.actionRequired = false;
-      // Update badge count
-      const remaining = document.querySelectorAll('.notif-action-required').length;
-      const badge = document.getElementById('notif-count');
-      if (badge) {
-        badge.textContent = remaining;
-        if (remaining === 0) badge.style.display = 'none';
-      }
+    if (!res.ok) {
+      // Revert on failure
+      _acknowledgedIds.delete(issueId);
+      if (cached) cached.actionRequired = true;
     }
   } catch (e) {
     console.error('Failed to acknowledge issue', e);
+    _acknowledgedIds.delete(issueId);
+    if (cached) cached.actionRequired = true;
+  } finally {
+    _pendingAcks.delete(issueId);
   }
 }
 
@@ -355,6 +570,7 @@ async function loadProjects() {
     const projects = await res.json();
     _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
     populateActivityProjectFilter();
+    populateInboxProjectFilter();
     if (!projects.length) {
       container.innerHTML = '<div class="empty-state">No projects yet. Create one to get started.</div>';
       return;
@@ -566,17 +782,14 @@ async function sendQuickCmd(projectId) {
   btn.disabled = true;
   btn.textContent = '...';
   try {
-    // Find controller agent for this project
-    const agentsRes = await fetch(`/api/projects/${projectId}/agents`, { headers: apiHeaders() });
-    if (!agentsRes.ok) { showToast('Failed to find controller', 'error'); return; }
-    const agents = await agentsRes.json();
-    const controller = agents.find(a => a.is_controller);
-    if (!controller) { showToast('No controller agent found', 'error'); return; }
+    // Use cached controller agent ID from project stats (avoids extra API call)
+    const controllerId = _dashboardProjectsById[projectId]?.stats?.controllerAgentId;
+    if (!controllerId) { showToast('No controller agent found', 'error'); return; }
 
     // Create issue assigned to controller
     const res = await fetch(`/api/projects/${projectId}/issues`, {
       method: 'POST', headers: apiHeaders(),
-      body: JSON.stringify({ title: msg, body: bodyText || msg, created_by: 'user', assigned_to: controller.id })
+      body: JSON.stringify({ title: msg, body: bodyText || msg, created_by: 'user', assigned_to: controllerId })
     });
     if (res.ok) {
       // Re-query DOM elements: loadProjects() may have re-rendered during await,
@@ -709,6 +922,49 @@ async function loadDashboard() {
 }
 
 loadDashboard();
+
+// ─── Inbox resizer drag logic ───
+(function initMailResizer() {
+  const resizer = document.getElementById('mail-resizer');
+  const listPane = document.getElementById('mail-list-pane');
+  const container = document.querySelector('.mail-container');
+  if (!resizer || !listPane || !container) return;
+
+  // Restore saved width from localStorage
+  const savedWidth = localStorage.getItem('inbox-list-width');
+  if (savedWidth) {
+    const pct = parseFloat(savedWidth);
+    if (pct >= 10 && pct <= 60) {
+      listPane.style.width = pct + '%';
+    }
+  }
+
+  let dragging = false;
+  resizer.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    dragging = true;
+    resizer.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    const rect = container.getBoundingClientRect();
+    let pct = ((e.clientX - rect.left) / rect.width) * 100;
+    pct = Math.max(10, Math.min(60, pct));
+    listPane.style.width = pct + '%';
+  });
+  document.addEventListener('mouseup', function() {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    const pct = (listPane.offsetWidth / container.offsetWidth) * 100;
+    localStorage.setItem('inbox-list-width', pct.toFixed(1));
+  });
+})();
+
 // Polling: 10s for lightweight data, 30s for full project list, 60s for usage chart
 setInterval(() => { loadDashboardSummary(); loadNotifications(); loadActivityStream(); }, 10000);
 setInterval(() => { loadProjects(); loadAgentBoard(); }, 30000);
@@ -907,12 +1163,12 @@ async function loadActivityStream() {
         case 'agent_started':
           icon = '<span style="color:var(--success)">&#9654;</span>';
           label = 'Agent Started';
-          detail = '<a href="/projects/' + ev.project_id + '/agents/' + ev.object_id + '">' + esc(ev.agent_name) + '</a>';
+          detail = '<a href="/agents/' + ev.object_id + '">' + esc(ev.agent_name) + '</a>';
           break;
         case 'agent_stopped':
           icon = '<span style="color:var(--text-secondary)">&#9632;</span>';
           label = 'Agent Stopped';
-          detail = '<a href="/projects/' + ev.project_id + '/agents/' + ev.object_id + '">' + esc(ev.agent_name) + '</a>';
+          detail = '<a href="/agents/' + ev.object_id + '">' + esc(ev.agent_name) + '</a>';
           break;
         case 'approval_created':
           icon = '<span style="color:var(--warning)">&#9888;</span>';
@@ -1013,7 +1269,7 @@ async function loadAgentBoard() {
           '<div style="color:' + color + ';font-size:14px;flex-shrink:0;line-height:18px">' + icon + '</div>' +
           '<div style="flex:1;min-width:0">' +
             '<div style="display:flex;align-items:center;gap:4px">' +
-              '<a href="/projects/' + agent.project_id + '/agents/' + agent.id + '" style="font-weight:600;font-size:13px;color:var(--fg);text-decoration:none">' + esc(agent.name) + '</a>' +
+              '<a href="/agents/' + agent.id + '" style="font-weight:600;font-size:13px;color:var(--fg);text-decoration:none">' + esc(agent.name) + '</a>' +
               controllerBadge + pausedBadge +
             '</div>' +
             '<div style="font-size:11px;color:var(--text-secondary)">' +

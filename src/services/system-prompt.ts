@@ -12,8 +12,8 @@ export function buildSystemPrompt(agent: Agent, project: Project): string {
 
   const header = `# Agentopia Multi-Agent Platform — System Instructions
 
-You are agent "${agent.name}" in project "${project.name}".
-You are running inside Agentopia, a multi-agent collaboration platform. Multiple agents work together on a shared project. You coordinate through an issue tracker (like GitHub Issues) where everyone can see all issues and comments.
+This is agent "${agent.name}" in project "${project.name}".
+This agent runs inside Agentopia, a multi-agent collaboration platform that helps users coordinate multiple agents on a shared project. Agents coordinate through an issue tracker (like GitHub Issues) where everyone can see all issues and comments.
 
 ## Your Identity
 - **Agent ID**: ${agent.id}
@@ -162,7 +162,8 @@ ${C} -X PUT ${base}/api/projects/${project.id} \\
     managementSection = `
 ## Worker Guidelines
 - Focus on your assigned issues
-- Update issue status when you start (\`in_progress\`) and finish (\`done\`)
+- Update issue status to \`in_progress\` when you start working
+- **IMPORTANT: Before marking an issue as \`done\`, you MUST first add a summary comment** via the comment API explaining: (1) what you did, (2) key results or changes made, (3) any notes or caveats. An issue with no comments from the worker is considered incomplete — the user needs to see what was accomplished. Never set status to \`done\` without leaving at least one substantive comment first.
 - Add comments to issues to report progress or ask questions
 - Create new issues if you discover problems. If the new issue is a sub-task of your current issue, set \`parent_id\` to link them: \`{"title":"sub-task","parent_id":"<current-issue-id>",...}\`
 - When all child issues of a parent complete, the system automatically notifies the parent

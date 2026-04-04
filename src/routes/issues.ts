@@ -55,7 +55,7 @@ function parseMentionsAndStartAgents(
     // Auto-start if idle and not paused
     if (!agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
       const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
-      if (project) {
+      if (project && project.status !== 'paused') {
         const prompt = `You were mentioned (@${agentName}) in issue #${issueNumber} "${issueTitle}". Review the issue and take action.\n\nContext: ${text.slice(0, 500)}`;
         const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
         const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
@@ -84,7 +84,7 @@ function nameOfAgent(agentId: string, agents: Agent[]): string {
 function triggerControllerOnDemand(projectId: string, triggerIssueNumber?: number, actorId?: string): void {
   const db = getDatabase();
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
-  if (!project) return;
+  if (!project || project.status === 'paused') return;
 
   // Pre-controller: 规则引擎拦截简单场景，避免不必要的 LLM 调用
   if (tryHandleWithoutLLM(projectId, triggerIssueNumber)) return;
@@ -248,7 +248,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(assigned_to) as Agent | undefined;
         if (agent && !agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
-          if (project) {
+          if (project && project.status !== 'paused') {
             const prompt = `New issue #${number} "${title}" has been assigned to you. Review and take action.\n\nDescription: ${(body || '').slice(0, 500)}`;
             const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
             const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
@@ -259,7 +259,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       } else if (created_by === 'user' && (!assigned_to || assigned_to === 'all')) {
         // Trigger controller for unassigned/broadcast issues
         const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
-        if (project) {
+        if (project && project.status !== 'paused') {
           const t = setTimeout(() => {
             pendingControllerTriggerTimers.delete(t);
             try { if (isDatabaseOpen()) triggerControllerAgent(project, false, number); } catch {}
@@ -318,34 +318,22 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       'SELECT id, number, title, status, assigned_to FROM issues WHERE parent_id = ? ORDER BY number'
     ).all(request.params.id);
 
-    // Relations (blocks / blocked_by / related_to)
-    const blocksRaw = db.prepare(`
+    // Relations (blocks / blocked_by / related_to) — single query for all directions
+    const allRelations = db.prepare(`
       SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
+             r.from_issue_id, r.to_issue_id,
              i.id, i.number, i.title, i.status
-      FROM issue_relations r JOIN issues i ON i.id = r.to_issue_id
-      WHERE r.from_issue_id = ?
-    `).all(request.params.id) as any[];
-    const blockedByRaw = db.prepare(`
-      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
-             i.id, i.number, i.title, i.status
-      FROM issue_relations r JOIN issues i ON i.id = r.from_issue_id
-      WHERE r.to_issue_id = ? AND r.relation_type = 'blocks'
-    `).all(request.params.id) as any[];
-    const relatedRaw = db.prepare(`
-      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
-             i.id, i.number, i.title, i.status
-      FROM issue_relations r JOIN issues i ON i.id = r.to_issue_id
-      WHERE r.from_issue_id = ? AND r.relation_type = 'related_to'
-      UNION
-      SELECT r.id as relation_id, r.relation_type, r.created_by, r.created_at,
-             i.id, i.number, i.title, i.status
-      FROM issue_relations r JOIN issues i ON i.id = r.from_issue_id
-      WHERE r.to_issue_id = ? AND r.relation_type = 'related_to'
-    `).all(request.params.id, request.params.id) as any[];
+      FROM issue_relations r JOIN issues i ON i.id = CASE
+        WHEN r.from_issue_id = ? THEN r.to_issue_id
+        ELSE r.from_issue_id
+      END
+      WHERE r.from_issue_id = ? OR r.to_issue_id = ?
+    `).all(request.params.id, request.params.id, request.params.id) as any[];
 
-    const blocks = blocksRaw.filter(r => r.relation_type === 'blocks');
-    const blocked_by = blockedByRaw;
-    const related_to = relatedRaw;
+    const issueId = request.params.id;
+    const blocks = allRelations.filter(r => r.relation_type === 'blocks' && r.from_issue_id === issueId);
+    const blocked_by = allRelations.filter(r => r.relation_type === 'blocks' && r.to_issue_id === issueId);
+    const related_to = allRelations.filter(r => r.relation_type === 'related_to');
 
     // is_blocked: true if any blocker is not done/closed
     const is_blocked = blocked_by.some((r: any) => !['done', 'closed'].includes(r.status));
@@ -429,13 +417,12 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
             summaryBody, 'status_change',
             JSON.stringify({ all_children_complete: true, child_count: siblings.total }));
 
-          // If parent was created by user, assign back to user for review
+          // If parent was created by user, DO NOT assign to user yet — let controller summarize first
           if (parentIssue.created_by === 'user') {
-            db.prepare("UPDATE issues SET status = 'done', assigned_to = 'user', acknowledged_at = NULL, updated_at = datetime('now') WHERE id = ?")
+            db.prepare("UPDATE issues SET updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?")
               .run(updated.parent_id);
-            eventStmt2.run(uuidv4(), updated.parent_id, 'system',
-              'assigned to user for review (all child issues complete)', 'assignment',
-              JSON.stringify({ from: parentIssue.assigned_to, to: 'user' }));
+            // Trigger controller to write summary, then controller will assign to user
+            triggerControllerOnDemand(updated.project_id, parentIssue.number, actorId);
           } else {
             db.prepare("UPDATE issues SET updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?")
               .run(updated.parent_id);
@@ -523,6 +510,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   });
 
   // User notifications — open issues assigned to user + recent comments on user's issues
+  // ?scope=user (default): only user-related issues & comments
+  // ?scope=all: all issues & comments in accessible projects
   fastify.get('/api/notifications', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
@@ -530,28 +519,93 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     if (projectIds.length === 0) {
       return { user_issues: [], recent_comments: [] };
     }
+    const scope = (request.query as any)?.scope || 'user';
     const placeholders = buildSqlPlaceholders(projectIds);
-    const userIssues = db.prepare(
-      `SELECT i.*, p.name as project_name
-       FROM issues i
-       JOIN projects p ON i.project_id = p.id
-       WHERE i.project_id IN (${placeholders})
-         AND (i.assigned_to = 'user' OR (i.acknowledged_at IS NOT NULL AND i.created_by = 'user'))
-         AND i.status IN ('open', 'in_progress', 'pending', 'done')
-       ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC`
-    ).all(...projectIds) as any[];
 
-    // Recent comments on any issue (last 50)
-    const recentComments = db.prepare(
-      `SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name
-       FROM issue_comments c
-       JOIN issues i ON c.issue_id = i.id
-       JOIN projects p ON i.project_id = p.id
-       WHERE i.project_id IN (${placeholders})
-         AND c.author_id != 'user'
-       ORDER BY c.created_at DESC
-       LIMIT 50`
-    ).all(...projectIds) as any[];
+    let userIssues: any[];
+    let recentComments: any[];
+
+    if (scope === 'all') {
+      // All issues in accessible projects (non-closed)
+      // Uses a CTE to find latest comment per issue (avoids 4x repeated correlated subqueries)
+      userIssues = db.prepare(
+        `WITH latest_comments AS (
+           SELECT issue_id, body, author_id,
+                  ROW_NUMBER() OVER (PARTITION BY issue_id ORDER BY created_at DESC) as rn
+           FROM issue_comments
+           WHERE event_type IS NULL OR event_type = 'comment'
+         )
+         SELECT i.*, p.name as project_name, p.color as project_color,
+                CASE WHEN i.assigned_to = 'user' THEN 1 ELSE 0 END as is_actionable,
+                lc.body as latest_comment_body,
+                lc.author_id as latest_comment_author_id,
+                lca.role as latest_comment_author_role,
+                lca.name as latest_comment_author_name,
+                aa.role as assigned_agent_role,
+                aa.name as assigned_agent_name
+         FROM issues i
+         JOIN projects p ON i.project_id = p.id
+         LEFT JOIN latest_comments lc ON lc.issue_id = i.id AND lc.rn = 1
+         LEFT JOIN agents lca ON lca.id = lc.author_id
+         LEFT JOIN agents aa ON aa.id = i.assigned_to
+         WHERE i.project_id IN (${placeholders})
+           AND i.status IN ('open', 'in_progress', 'pending', 'done')
+         ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC`
+      ).all(...projectIds);
+      // All comments
+      recentComments = db.prepare(
+        `SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name
+         FROM issue_comments c
+         JOIN issues i ON c.issue_id = i.id
+         JOIN projects p ON i.project_id = p.id
+         WHERE i.project_id IN (${placeholders})
+           AND c.author_id != 'user'
+           AND (c.event_type IS NULL OR c.event_type = 'comment')
+         ORDER BY c.created_at DESC
+         LIMIT 50`
+      ).all(...projectIds);
+    } else {
+      // scope=user: user-related (assigned or created), with is_actionable flag
+      // Uses a CTE to find latest comment per issue (avoids 4x repeated correlated subqueries)
+      userIssues = db.prepare(
+        `WITH latest_comments AS (
+           SELECT issue_id, body, author_id,
+                  ROW_NUMBER() OVER (PARTITION BY issue_id ORDER BY created_at DESC) as rn
+           FROM issue_comments
+           WHERE event_type IS NULL OR event_type = 'comment'
+         )
+         SELECT i.*, p.name as project_name, p.color as project_color,
+                CASE WHEN i.assigned_to = 'user' THEN 1 ELSE 0 END as is_actionable,
+                lc.body as latest_comment_body,
+                lc.author_id as latest_comment_author_id,
+                lca.role as latest_comment_author_role,
+                lca.name as latest_comment_author_name,
+                aa.role as assigned_agent_role,
+                aa.name as assigned_agent_name
+         FROM issues i
+         JOIN projects p ON i.project_id = p.id
+         LEFT JOIN latest_comments lc ON lc.issue_id = i.id AND lc.rn = 1
+         LEFT JOIN agents lca ON lca.id = lc.author_id
+         LEFT JOIN agents aa ON aa.id = i.assigned_to
+         WHERE i.project_id IN (${placeholders})
+           AND (i.assigned_to = 'user' OR i.created_by = 'user')
+           AND i.status IN ('open', 'in_progress', 'pending', 'done')
+         ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC`
+      ).all(...projectIds);
+      // Only comments on user-related issues
+      recentComments = db.prepare(
+        `SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name
+         FROM issue_comments c
+         JOIN issues i ON c.issue_id = i.id
+         JOIN projects p ON i.project_id = p.id
+         WHERE i.project_id IN (${placeholders})
+           AND c.author_id != 'user'
+           AND (c.event_type IS NULL OR c.event_type = 'comment')
+           AND (i.assigned_to = 'user' OR i.created_by = 'user')
+         ORDER BY c.created_at DESC
+         LIMIT 50`
+      ).all(...projectIds);
+    }
 
     return { user_issues: userIssues, recent_comments: recentComments };
   });
@@ -684,7 +738,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         const agentToStart = targetAgent || (controllerAgent as Agent | undefined);
         if (agentToStart && !agentToStart.paused && agentToStart.status !== 'running' && !isAgentRunning(agentToStart.id)) {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(iss.project_id) as Project | undefined;
-          if (project) {
+          if (project && project.status !== 'paused') {
             if (agentToStart.is_controller) {
               const t = setTimeout(() => {
                 pendingControllerTriggerTimers.delete(t);
@@ -846,12 +900,22 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.pid);
     if (!access) return;
-    const milestones = db.prepare('SELECT * FROM milestones WHERE project_id = ? ORDER BY created_at DESC').all(request.params.pid);
-    // Add progress
-    return (milestones as any[]).map(m => {
-      const total = db.prepare('SELECT COUNT(*) as c FROM issues WHERE milestone_id = ?').get(m.id) as any;
-      const closed = db.prepare("SELECT COUNT(*) as c FROM issues WHERE milestone_id = ? AND status IN ('done','closed')").get(m.id) as any;
-      return { ...m, total_issues: total.c, closed_issues: closed.c, progress: total.c > 0 ? Math.round(closed.c / total.c * 100) : 0 };
+    const milestones = db.prepare('SELECT * FROM milestones WHERE project_id = ? ORDER BY created_at DESC').all(request.params.pid) as any[];
+    if (milestones.length === 0) return milestones;
+    // Batch-fetch progress for all milestones in one query (avoids 2 queries per milestone)
+    const mIds = milestones.map((m: any) => m.id);
+    const ph = mIds.map(() => '?').join(',');
+    const stats = db.prepare(
+      `SELECT milestone_id, COUNT(*) as total,
+              SUM(CASE WHEN status IN ('done','closed') THEN 1 ELSE 0 END) as closed
+       FROM issues WHERE milestone_id IN (${ph}) GROUP BY milestone_id`
+    ).all(...mIds) as any[];
+    const statsMap = new Map(stats.map((s: any) => [s.milestone_id, s]));
+    return milestones.map((m: any) => {
+      const s = statsMap.get(m.id);
+      const total = s?.total || 0;
+      const closed = s?.closed || 0;
+      return { ...m, total_issues: total, closed_issues: closed, progress: total > 0 ? Math.round(closed / total * 100) : 0 };
     });
   });
 
