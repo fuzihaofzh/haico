@@ -2748,6 +2748,29 @@ _projectEvents.on('issue_updated', function() {
 
 // Handle hash navigation (e.g., #issues or #agents from dashboard)
 const hash = window.location.hash.replace('#', '');
-if (['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow'].includes(hash)) {
-  setTimeout(() => switchTab(hash), 500);
+const hashTab = hash.split('?')[0];
+if (['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow'].includes(hashTab)) {
+  setTimeout(() => {
+    switchTab(hashTab);
+    // Auto-open file if hash contains ?file= (e.g., #files?file=src/app.ts&agent=AGENT_ID)
+    if (hashTab === 'files') {
+      const fileMatch = hash.match(/[?&]file=([^&]+)/);
+      if (fileMatch) {
+        const filePath = decodeURIComponent(fileMatch[1]);
+        const agentMatch = hash.match(/[?&]agent=([^&]+)/);
+        if (agentMatch) {
+          const agentId = decodeURIComponent(agentMatch[1]);
+          handleProjectFilesAgentChange(agentId);
+          const sel = document.getElementById('project-files-agent');
+          if (sel) sel.value = agentId;
+        }
+        setTimeout(() => {
+          var panel = window.ProjectFiles;
+          if (panel && typeof panel.openFile === 'function') {
+            panel.openFile(filePath);
+          }
+        }, 500);
+      }
+    }
+  }, 500);
 }

@@ -7,6 +7,7 @@ let _inboxProject = ''; // '' = all projects, or a specific project_id
 let _inboxSearchQuery = '';
 let _inboxAllItems = []; // cached items for search filtering
 let _selectedMailIdx = -1; // currently selected mail index
+let _selectedMailIssueId = null; // currently selected issue ID (stable across re-renders)
 let _renderedMailItems = []; // currently rendered (filtered) items
 let _currentReplyIssueId = null; // issue ID for the currently visible reply box
 let _dashboardProjectsById = {};
@@ -241,10 +242,16 @@ function renderInboxItems(items) {
   }
   _renderedMailItems = filtered;
 
+  // Re-map _selectedMailIdx to follow the selected issue across re-sorts
+  if (_selectedMailIssueId) {
+    const newIdx = filtered.findIndex(function(i) { return i.data && i.data.id === _selectedMailIssueId; });
+    if (newIdx >= 0) _selectedMailIdx = newIdx;
+  }
+
   let html = '';
   for (let i = 0; i < filtered.length; i++) {
     const item = filtered[i];
-    const isSelected = i === _selectedMailIdx;
+    const isSelected = _selectedMailIssueId ? (item.data && item.data.id === _selectedMailIssueId) : (i === _selectedMailIdx);
     const issue = item.data;
     const isUnread = item.actionRequired;
     const project = esc(issue.project_name || '');
@@ -305,11 +312,13 @@ function selectMailItem(idx) {
   const detail = document.getElementById('mail-detail-pane');
   _currentReplyIssueId = null;
   if (!item) {
+    _selectedMailIssueId = null;
     detail.innerHTML = '<div class="mail-detail-empty"><div class="mail-detail-empty-icon">&#9993;</div><div>Select a message to read</div></div>';
     return;
   }
 
   const issue = item.data;
+  _selectedMailIssueId = issue.id;
   // Mark as read (acknowledge)
   if (item.actionRequired && !_acknowledgedIds.has(issue.id)) {
     acknowledgeIssue(issue.id);
@@ -329,17 +338,25 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
   const now = Date.now();
   const cached = _issueDetailCache[issueId];
 
+  // Use issue ID for stale checks — immune to index shifts from re-sorting
+  function isStale() { return _selectedMailIssueId !== issueId; }
+
+  // Helper: find project color from current inbox items for this issue
+  function getProjectColor() {
+    var item = _renderedMailItems.find(function(i) { return i.data && i.data.id === issueId; });
+    return (item && item.data && item.data.project_color) || null;
+  }
+
   // Show cached data instantly if available
   if (cached && !forceRefresh) {
-    if (_selectedMailIdx !== expectedIdx) return;
+    if (isStale()) return;
     const agentsCached = _projectAgentsCache[cached.data.project_id];
     const agents = agentsCached ? agentsCached.data : [];
     _currentReplyIssueId = cached.data.id;
-    const inboxItemCached = _renderedMailItems[expectedIdx];
     IssueRenderer.render(cached.data, agents, detail, {
       reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
       onAfterAction: function() { loadNotifications(); },
-      projectColor: (inboxItemCached && inboxItemCached.data && inboxItemCached.data.project_color) || null,
+      projectColor: getProjectColor(),
     });
 
     // Background refresh if cache is stale
@@ -372,7 +389,7 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
       agentsPromise || Promise.resolve(null),
     ]);
 
-    if (!issueRes.ok || _selectedMailIdx !== expectedIdx) return;
+    if (!issueRes.ok || isStale()) return;
     const issue = await issueRes.json();
 
     // Cache issue data
@@ -399,18 +416,16 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
       }
     }
 
-    if (_selectedMailIdx !== expectedIdx) return;
+    if (isStale()) return;
     _currentReplyIssueId = issue.id;
-    const inboxItemFresh = _renderedMailItems[expectedIdx];
     IssueRenderer.render(issue, agents, detail, {
       reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
       onAfterAction: function() { loadNotifications(); },
-      projectColor: (inboxItemFresh && inboxItemFresh.data && inboxItemFresh.data.project_color) || null,
+      projectColor: getProjectColor(),
     });
   } catch (e) {
-    if (!cached) {
-      detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary)">Failed to load issue</div>';
-    }
+    if (isStale()) return;
+    detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary)">Failed to load issue</div>';
   }
 }
 

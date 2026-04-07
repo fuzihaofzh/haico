@@ -19,6 +19,7 @@
         editor: null,
         bannerTimer: null,
         canWrite: options.canWrite !== false,
+        pendingFile: null,
       };
 
       this.handleWindowResize = this.handleWindowResize.bind(this);
@@ -447,7 +448,12 @@
     }
 
     async openFile(filePath) {
-      if (!this.state.agent?.working_directory || !this.getAgentId()) return;
+      if (!this.state.agent?.working_directory || !this.getAgentId()) {
+        // agent 尚未就绪，暂存待打开文件，等 activate() 完成后自动打开
+        this.state.pendingFile = filePath;
+        return;
+      }
+      this.state.pendingFile = null;
 
       this.state.selectedFilePath = filePath;
       this.state.dirty = false;
@@ -813,7 +819,11 @@
         this.renderTree();
       }
 
-      if (!this.state.selectedFilePath) {
+      if (this.state.pendingFile) {
+        const pending = this.state.pendingFile;
+        this.state.pendingFile = null;
+        await this.openFile(pending);
+      } else if (!this.state.selectedFilePath) {
         this.setStatus(this.state.agent ? 'Select a file to preview and edit it.' : 'Select an agent to browse files.');
       } else if (this.state.editor) {
         this.state.editor.layout();

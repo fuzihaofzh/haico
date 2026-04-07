@@ -32,7 +32,7 @@ var IssueRenderer = (function() {
     return avatarSvg(nameOf(authorId), size);
   }
 
-  function renderMd(text) {
+  function renderMd(text, authorId) {
     if (!text) return '';
     var agents = _ctx.agents;
     var issue = _ctx.issue;
@@ -69,6 +69,17 @@ var IssueRenderer = (function() {
     html = html.replace(/@([\w-]+)/g, function(m, name) {
       var isAgent = agentNames.includes(name);
       return '<span style="color:' + (isAgent ? '#61afef' : '#e5c07b') + ';font-weight:500;background:' + (isAgent ? '#61afef18' : '#e5c07b18') + ';padding:0 4px;border-radius:3px">' + m + '</span>';
+    });
+
+    // Make file paths in <code> clickable — link to Files tab preview
+    // Matches paths like src/foo/bar.ts, public/js/app.js, etc.
+    html = html.replace(/<code>([^<]+?)<\/code>/g, function(m, path) {
+      // Match file paths: start with a known dir or contain / with a file extension
+      if (/^(?:src|public|dist|test|tests|lib|config|scripts|docs|\.github)\/[\w./-]+\.\w+$/.test(path) ||
+          /^[\w.-]+\/[\w./-]+\.\w+$/.test(path)) {
+        return '<code class="file-link" data-file-path="' + esc(path) + '"' + (authorId ? ' data-agent-id="' + esc(authorId) + '"' : '') + ' title="Click to preview in Files tab" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted;color:#61afef">' + esc(path) + '</code>';
+      }
+      return m;
     });
 
     // Restore LaTeX blocks with KaTeX rendering
@@ -144,7 +155,7 @@ var IssueRenderer = (function() {
               (c.author_id === 'user' ? '<button onclick="IssueRenderer.editComment(\'' + c.id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px">edit</button><button onclick="IssueRenderer.deleteComment(\'' + c.id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px">delete</button>' : '') +
             '</span>' +
           '</div>' +
-          '<div class="timeline-comment-body markdown-body" id="ir-comment-body-' + c.id + '">' + renderMd(c.body) + '</div>' +
+          '<div class="timeline-comment-body markdown-body" id="ir-comment-body-' + c.id + '">' + renderMd(c.body, c.author_id) + '</div>' +
           reactionBar('comment', c.id, c.reactions) +
         '</div>' +
       '</div>';
@@ -182,7 +193,7 @@ var IssueRenderer = (function() {
               '<button onclick="IssueRenderer.startEditBody()" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px">edit</button>' +
             '</div>' +
             '<div class="issue-body-content" id="ir-body-display">' +
-              '<div class="markdown-body">' + renderMd(issue.body) + '</div>' +
+              '<div class="markdown-body">' + renderMd(issue.body, issue.created_by) + '</div>' +
               reactionBar('issue', issue.id, issue.reactions) +
             '</div>' +
             '<div id="ir-body-edit" style="display:none;padding:12px">' +
@@ -529,6 +540,33 @@ var IssueRenderer = (function() {
       });
   }
 
+  function openFileInFilesTab(filePath, agentId) {
+    // On project page: switch to Files tab directly
+    if (typeof switchTab === 'function') {
+      // Switch agent in files panel if agentId is provided
+      if (agentId && typeof handleProjectFilesAgentChange === 'function') {
+        handleProjectFilesAgentChange(agentId);
+        var sel = document.getElementById('project-files-agent');
+        if (sel) sel.value = agentId;
+      }
+      switchTab('files');
+      setTimeout(function() {
+        var panel = window.ProjectFiles;
+        if (panel && typeof panel.openFile === 'function') {
+          panel.openFile(filePath);
+        }
+      }, 300);
+      return;
+    }
+    // On dashboard/other pages: navigate to the project page's Files tab
+    var projectId = _ctx.issue && _ctx.issue.project_id;
+    if (projectId) {
+      var url = '/projects/' + projectId + '#files?file=' + encodeURIComponent(filePath);
+      if (agentId) url += '&agent=' + encodeURIComponent(agentId);
+      window.open(url, '_blank');
+    }
+  }
+
   function showEmojiPicker(type, id) {
     var picker = EMOJIS.map(function(e) { return '<span onclick="IssueRenderer.toggleReaction(\'' + type + '\',\'' + id + '\',\'' + e + '\')" style="cursor:pointer;font-size:18px;padding:2px">' + e + '</span>'; }).join('');
     var el = document.getElementById('ir-emoji-picker');
@@ -566,6 +604,17 @@ var IssueRenderer = (function() {
     showAddRelation: showAddRelation,
     addRelation: addRelation,
     removeRelation: removeRelation,
+    openFileInFilesTab: openFileInFilesTab,
     _ctx: _ctx,
   };
 })();
+
+// Delegated click handler for clickable file paths in comments
+document.addEventListener('click', function(e) {
+  var el = e.target.closest('.file-link');
+  if (!el) return;
+  e.preventDefault();
+  var filePath = el.getAttribute('data-file-path');
+  var agentId = el.getAttribute('data-agent-id');
+  if (filePath) IssueRenderer.openFileInFilesTab(filePath, agentId);
+});

@@ -22,9 +22,10 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
 
   if (!issue) return false;
 
-  // 规则2: issue assigned_to = "user" → 无需操作
-  if (issue.assigned_to === 'user') {
-    logger.info(`Pre-controller: issue #${triggerIssueNumber} assigned to user, skipping LLM`);
+  // 规则2: issue assigned_to = "user" 且非 open/in_progress → 无需操作
+  // open/in_progress 的 user-assigned issue 需要 controller 重新分配（如用户 reopen 了已完成的 issue）
+  if (issue.assigned_to === 'user' && issue.status !== 'open' && issue.status !== 'in_progress') {
+    logger.info(`Pre-controller: issue #${triggerIssueNumber} assigned to user (status=${issue.status}), skipping LLM`);
     return true;
   }
 
@@ -38,7 +39,7 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
   if (issue.status === 'done' || issue.status === 'closed') {
     const pendingForController = db.prepare(
       `SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress')
-       AND (assigned_to IS NULL OR assigned_to = 'all' OR assigned_to IN (
+       AND (assigned_to IS NULL OR assigned_to = 'all' OR assigned_to = 'user' OR assigned_to IN (
          SELECT id FROM agents WHERE project_id = ? AND is_controller = 1
        )) LIMIT 1`
     ).get(projectId, projectId);

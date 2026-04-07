@@ -389,6 +389,19 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         WHERE id = ?
       `).run(title ?? null, body ?? null, assigned_to ?? null, status ?? null, labels ?? null, milestone_id ?? null, resetAck ? 1 : 0, request.params.id);
 
+      // When reopening a done/closed issue, if still assigned to 'user' (from auto-assign on completion),
+      // clear the assignment so the controller can reassign it to the appropriate agent.
+      if (status && (status === 'open' || status === 'in_progress')
+          && (existing.status === 'done' || existing.status === 'closed')
+          && assigned_to === undefined && existing.assigned_to === 'user') {
+        db.prepare("UPDATE issues SET assigned_to = NULL, updated_at = datetime('now') WHERE id = ?")
+          .run(request.params.id);
+        const reopenEvt = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
+        reopenEvt.run(uuidv4(), request.params.id, actorId,
+          'unassigned from user (issue reopened, needs reassignment)', 'assignment',
+          JSON.stringify({ from: 'user', to: null, reason: 'reopen' }));
+      }
+
       const updated = db.prepare('SELECT * FROM issues WHERE id = ?').get(request.params.id) as any;
 
       broadcastToProject(updated.project_id, {
@@ -533,7 +546,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
            SELECT issue_id, body, author_id,
                   ROW_NUMBER() OVER (PARTITION BY issue_id ORDER BY created_at DESC) as rn
            FROM issue_comments
-           WHERE event_type IS NULL OR event_type = 'comment'
+           WHERE (event_type IS NULL OR event_type = 'comment')
+             AND issue_id IN (SELECT id FROM issues WHERE project_id IN (${placeholders}))
          )
          SELECT i.*, p.name as project_name, p.color as project_color,
                 CASE WHEN i.assigned_to = 'user' THEN 1 ELSE 0 END as is_actionable,
@@ -551,7 +565,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
          WHERE i.project_id IN (${placeholders})
            AND i.status IN ('open', 'in_progress', 'pending', 'done')
          ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC`
-      ).all(...projectIds);
+      ).all(...projectIds, ...projectIds);
       // All comments
       recentComments = db.prepare(
         `SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name
@@ -572,7 +586,8 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
            SELECT issue_id, body, author_id,
                   ROW_NUMBER() OVER (PARTITION BY issue_id ORDER BY created_at DESC) as rn
            FROM issue_comments
-           WHERE event_type IS NULL OR event_type = 'comment'
+           WHERE (event_type IS NULL OR event_type = 'comment')
+             AND issue_id IN (SELECT id FROM issues WHERE project_id IN (${placeholders}))
          )
          SELECT i.*, p.name as project_name, p.color as project_color,
                 CASE WHEN i.assigned_to = 'user' THEN 1 ELSE 0 END as is_actionable,
@@ -591,7 +606,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
            AND (i.assigned_to = 'user' OR i.created_by = 'user')
            AND i.status IN ('open', 'in_progress', 'pending', 'done')
          ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC`
-      ).all(...projectIds);
+      ).all(...projectIds, ...projectIds);
       // Only comments on user-related issues
       recentComments = db.prepare(
         `SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name
