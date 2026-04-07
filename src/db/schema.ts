@@ -177,6 +177,11 @@ export function initializeDatabase(db: Database.Database): void {
       content TEXT NOT NULL DEFAULT '',
       tags TEXT DEFAULT '',
       importance TEXT DEFAULT 'medium' CHECK(importance IN ('high', 'medium', 'low')),
+      category TEXT DEFAULT 'architecture',
+      expires_at DATETIME,
+      last_verified_at DATETIME,
+      verified_by TEXT,
+      status TEXT DEFAULT 'active',
       created_by TEXT DEFAULT 'user',
       created_at DATETIME DEFAULT (datetime('now')),
       updated_at DATETIME DEFAULT (datetime('now'))
@@ -395,6 +400,57 @@ export function initializeDatabase(db: Database.Database): void {
     db.exec("CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id)");
     logger.info('Migration: added parent_id column to issues table');
   }
+
+  // Migration: add Knowledge Base lifecycle fields if missing
+  const knowledgeCols = db.prepare("PRAGMA table_info(knowledge_entries)").all() as any[];
+  const hasKnowledgeCol = (name: string) => knowledgeCols.some((c: any) => c.name === name);
+  if (!hasKnowledgeCol('category')) {
+    db.exec("ALTER TABLE knowledge_entries ADD COLUMN category TEXT DEFAULT 'architecture'");
+    logger.info('Migration: added category column to knowledge_entries table');
+  }
+  if (!hasKnowledgeCol('expires_at')) {
+    db.exec("ALTER TABLE knowledge_entries ADD COLUMN expires_at DATETIME");
+    logger.info('Migration: added expires_at column to knowledge_entries table');
+  }
+  if (!hasKnowledgeCol('last_verified_at')) {
+    db.exec("ALTER TABLE knowledge_entries ADD COLUMN last_verified_at DATETIME");
+    logger.info('Migration: added last_verified_at column to knowledge_entries table');
+  }
+  if (!hasKnowledgeCol('verified_by')) {
+    db.exec("ALTER TABLE knowledge_entries ADD COLUMN verified_by TEXT");
+    logger.info('Migration: added verified_by column to knowledge_entries table');
+  }
+  if (!hasKnowledgeCol('status')) {
+    db.exec("ALTER TABLE knowledge_entries ADD COLUMN status TEXT DEFAULT 'active'");
+    logger.info('Migration: added status column to knowledge_entries table');
+  }
+  db.exec(`
+    UPDATE knowledge_entries
+    SET category = 'architecture'
+    WHERE category IS NULL OR trim(category) = '';
+
+    UPDATE knowledge_entries
+    SET status = 'active'
+    WHERE status IS NULL OR status NOT IN ('active', 'stale', 'archived');
+
+    UPDATE knowledge_entries
+    SET expires_at = CASE
+      WHEN category = 'convention' THEN datetime(COALESCE(updated_at, created_at, datetime('now')), '+90 days')
+      WHEN category = 'reference' THEN datetime(COALESCE(updated_at, created_at, datetime('now')), '+180 days')
+      ELSE datetime(COALESCE(updated_at, created_at, datetime('now')), '+30 days')
+    END
+    WHERE expires_at IS NULL AND last_verified_at IS NULL;
+
+    UPDATE knowledge_entries
+    SET last_verified_at = COALESCE(updated_at, created_at, datetime('now'))
+    WHERE last_verified_at IS NULL;
+
+    UPDATE knowledge_entries
+    SET verified_by = COALESCE(NULLIF(created_by, ''), 'user')
+    WHERE verified_by IS NULL OR trim(verified_by) = '';
+
+    CREATE INDEX IF NOT EXISTS idx_knowledge_project_status ON knowledge_entries(project_id, status);
+  `);
 
   // Migration: fix issues CHECK constraint to include 'pending' status
   // SQLite doesn't support ALTER CHECK, so we rebuild the table if the constraint is missing.

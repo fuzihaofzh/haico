@@ -572,7 +572,7 @@ async function loadAgents() {
   if (assignSel) {
     const prev = assignSel.value;
     const controllerId = agentsData.find(a => a.is_controller)?.id || '';
-    assignSel.innerHTML = '<option value="">Unassigned</option><option value="all">All (broadcast)</option><option value="user">User (me)</option>';
+    assignSel.innerHTML = '<option value="">Select a recipient</option><option value="all">All (broadcast)</option><option value="user">User (me)</option>';
     agentsData.forEach(a => { assignSel.innerHTML += `<option value="${a.id}">${esc(a.name)}${a.is_controller ? ' [controller]' : ''}</option>`; });
     if (prev) assignSel.value = prev;
     else if (controllerId) assignSel.value = controllerId;
@@ -653,7 +653,7 @@ async function loadAgents() {
     const spinner = a.status === 'running' ? '<span class="thinking-spinner">✦</span> ' : '';
     const deleteBtn = canManage && !a.is_controller && a.status !== 'running'
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();deleteAgent('${a.id}')" style="color:var(--error);padding:3px 6px" title="Delete">✕</button>` : '';
-    const retryBtn = canManage && a.status === 'error' && a.last_prompt && !a.paused
+    const retryBtn = canManage && a.status === 'error' && a.has_last_prompt && !a.paused
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();retryAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Retry last prompt">Retry</button>` : '';
     const pauseBtn = canManage && !a.paused
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();pauseAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Pause agent">⏸</button>`
@@ -1531,6 +1531,11 @@ function showCreateIssueModal() {
   document.getElementById('issue-title').value = '';
   document.getElementById('issue-body').value = '';
   document.getElementById('issue-labels').value = '';
+  const projectSel = document.getElementById('issue-project');
+  if (projectSel && projectData) {
+    projectSel.innerHTML = `<option value="${esc(projectId)}">${esc(projectData.name)}</option>`;
+    projectSel.value = projectId;
+  }
   const tplSel = document.getElementById('issue-template');
   if (tplSel) tplSel.value = '';
   const sel = document.getElementById('issue-assign');
@@ -1541,20 +1546,23 @@ function showCreateIssueModal() {
   document.getElementById('createIssueModal').classList.add('active');
   const issueBodyTextarea = document.getElementById('issue-body');
   if (issueBodyTextarea) setupMentionAutocomplete(issueBodyTextarea, agentsData);
+  document.getElementById('issue-title')?.focus();
 }
 
 async function createIssue() {
   if (!requireProjectManageAccess('Insufficient permission to create issue')) return;
   const btn = document.querySelector('#createIssueModal button[onclick="createIssue()"]');
   await withLoading(btn, async () => {
+    const assignedTo = document.getElementById('issue-assign').value.trim();
     const body = {
-      title: document.getElementById('issue-title').value,
-      body: document.getElementById('issue-body').value,
+      title: document.getElementById('issue-title').value.trim(),
+      body: document.getElementById('issue-body').value.trim(),
       created_by: 'user',
-      assigned_to: document.getElementById('issue-assign').value || undefined,
-      labels: document.getElementById('issue-labels').value || undefined,
+      assigned_to: assignedTo,
+      labels: document.getElementById('issue-labels').value.trim() || undefined,
     };
-    if (!body.title) { showToast('Title is required', 'error'); return; }
+    if (!assignedTo) { showToast('To is required', 'error'); document.getElementById('issue-assign').focus(); return; }
+    if (!body.title) { showToast('Subject is required', 'error'); return; }
     const res = await fetch(`/api/projects/${projectId}/issues`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) { hideModal('createIssueModal'); loadIssues(); showToast('Issue created', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to create', 'error'); }
   });

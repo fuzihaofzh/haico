@@ -108,7 +108,33 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.pid);
     if (!access) return;
-    return db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY is_controller DESC, created_at').all(request.params.pid);
+    return db.prepare(`
+      SELECT
+        id,
+        project_id,
+        name,
+        role,
+        is_controller,
+        parent_agent_id,
+        working_directory,
+        new_session_per_run,
+        session_run_count,
+        session_max_runs,
+        session_token_count,
+        session_max_tokens,
+        session_resume_timeout,
+        command_template,
+        status,
+        paused,
+        pid,
+        started_at,
+        finished_at,
+        created_at,
+        (last_prompt IS NOT NULL AND last_prompt != '') as has_last_prompt
+      FROM agents
+      WHERE project_id = ?
+      ORDER BY is_controller DESC, created_at
+    `).all(request.params.pid);
   });
 
   // Create agent

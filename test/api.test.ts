@@ -928,6 +928,18 @@ describe('Agentopia API', () => {
       assert.equal(body.name, 'worker-1');
     });
 
+    it('GET /api/projects/:pid/agents returns lightweight agent rows', async () => {
+      const { status, body } = await api(app, `/api/projects/${projectId}/agents`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body));
+      const worker = body.find((agent: any) => agent.id === workerId);
+      assert.ok(worker, 'worker should appear in project agent list');
+      assert.ok(!('last_prompt' in worker), 'list row should not include last_prompt');
+      assert.ok(!('custom_instructions' in worker), 'list row should not include custom_instructions');
+      assert.ok(!('session_id' in worker), 'list row should not include session_id');
+      assert.ok('has_last_prompt' in worker, 'list row should include has_last_prompt flag');
+    });
+
     it('PUT updates agent', async () => {
       const { status, body } = await api(app, `/api/agents/${workerId}`, {
         method: 'PUT', body: { role: 'Updated role' },
@@ -1571,6 +1583,29 @@ describe('Agentopia API', () => {
       assert.equal(status, 200);
       assert.ok(Array.isArray(body.user_issues));
       assert.ok(Array.isArray(body.recent_comments));
+    });
+
+    it('GET /api/notifications returns preview-sized issue and comment bodies', async () => {
+      const longIssueBody = 'issue-preview-'.repeat(30);
+      const longCommentBody = 'comment-preview-'.repeat(30);
+      const { body: issue } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Notification Preview Issue', body: longIssueBody, created_by: 'user', assigned_to: 'user' },
+      });
+      await api(app, `/api/issues/${issue.id}/comments`, {
+        method: 'POST',
+        body: { author_id: workerId, body: longCommentBody },
+      });
+
+      const { body } = await api(app, '/api/notifications');
+      const found = body.user_issues.find((i: any) => i.id === issue.id);
+      assert.ok(found, 'preview test issue should appear in notifications');
+      assert.ok(found.body.length <= 150, 'issue body should be truncated to notification preview length');
+      assert.ok(found.latest_comment_body.length <= 150, 'latest comment body should be truncated to notification preview length');
+
+      const recent = body.recent_comments.find((comment: any) => comment.issue_id === issue.id);
+      assert.ok(recent, 'preview test comment should appear in recent comments');
+      assert.ok(recent.body.length <= 150, 'recent comment body should be truncated to notification preview length');
     });
 
     describe('pending status visibility (#380)', () => {

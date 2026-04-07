@@ -426,35 +426,45 @@
 
   <!-- Create Issue Modal -->
   <div class="modal-overlay" id="createIssueModal">
-    <div class="modal">
-      <h3>New Issue</h3>
-      <div class="form-group">
-        <label>Template</label>
-        <select id="issue-template" onchange="applyIssueTemplate(this.value)">
-          <option value="">Blank</option>
-          <option value="bug">Bug Report</option>
-          <option value="feature">Feature Request</option>
-        </select>
+    <div class="modal compose-modal">
+      <div class="compose-header">
+        <h3>Compose</h3>
+        <button class="compose-close" type="button" onclick="hideModal('createIssueModal')">&times;</button>
       </div>
-      <div class="form-group">
-        <label>Title</label>
-        <input type="text" id="issue-title" placeholder="Issue title">
+      <div class="compose-form">
+        <div class="compose-field compose-project-field" hidden>
+          <label>Project</label>
+          <select id="issue-project" disabled></select>
+        </div>
+        <div class="compose-field">
+          <label>To</label>
+          <select id="issue-assign"><option value="">Select a recipient</option></select>
+        </div>
+        <div class="compose-field compose-subject-field">
+          <label>Subject</label>
+          <input type="text" id="issue-title" placeholder="Subject">
+        </div>
+        <div class="compose-field compose-body-field">
+          <textarea id="issue-body" rows="10" placeholder="Write a message..."></textarea>
+        </div>
+        <div class="compose-options">
+          <div class="form-group">
+            <label>Template</label>
+            <select id="issue-template" onchange="applyIssueTemplate(this.value)">
+              <option value="">Blank</option>
+              <option value="bug">Bug Report</option>
+              <option value="feature">Feature Request</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Labels (comma-separated)</label>
+            <input type="text" id="issue-labels" placeholder="bug, urgent, feature">
+          </div>
+        </div>
       </div>
-      <div class="form-group">
-        <label>Description</label>
-        <textarea id="issue-body" rows="6" placeholder="Describe the issue..."></textarea>
-      </div>
-      <div class="form-group">
-        <label>Assign to</label>
-        <select id="issue-assign"><option value="">Unassigned</option></select>
-      </div>
-      <div class="form-group">
-        <label>Labels (comma-separated)</label>
-        <input type="text" id="issue-labels" placeholder="bug, urgent, feature">
-      </div>
-      <div class="modal-actions">
+      <div class="compose-actions">
         <button class="btn" onclick="hideModal('createIssueModal')">Cancel</button>
-        <button class="btn btn-primary" onclick="createIssue()">Create</button>
+        <button class="btn btn-primary" onclick="createIssue()">Send</button>
       </div>
     </div>
   </div>

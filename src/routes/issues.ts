@@ -20,6 +20,9 @@ import {
 
 // Track pending controller trigger timers so they can be cancelled during shutdown
 const pendingControllerTriggerTimers = new Set<NodeJS.Timeout>();
+const NOTIFICATION_PREVIEW_CHARS = 150;
+const DEFAULT_INBOX_PAGE_LIMIT = 20;
+const MAX_INBOX_PAGE_LIMIT = 100;
 
 export function clearPendingControllerTriggerTimers(): void {
   for (const timer of pendingControllerTriggerTimers) clearTimeout(timer);
@@ -114,6 +117,16 @@ function resolvePriority(createdBy: string, projectId: string): number {
 
 function buildSqlPlaceholders(values: readonly unknown[]): string {
   return values.map(() => '?').join(', ');
+}
+
+function previewSql(column: string): string {
+  return `substr(COALESCE(${column}, ''), 1, ${NOTIFICATION_PREVIEW_CHARS})`;
+}
+
+function parseBoundedInt(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
 }
 
 export function registerIssueRoutes(fastify: FastifyInstance): void {
@@ -522,107 +535,120 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     return db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(request.params.id);
   });
 
-  // User notifications — open issues assigned to user + recent comments on user's issues
+  // User notifications — paginated issues plus recent comments for the current page
   // ?scope=user (default): only user-related issues & comments
   // ?scope=all: all issues & comments in accessible projects
+  // ?limit=20&offset=0: page through inbox issues without loading the full history
+  // ?project_id=...: restrict the inbox page to one accessible project
   fastify.get('/api/notifications', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+    const query = request.query as any;
+    const limit = parseBoundedInt(query?.limit, DEFAULT_INBOX_PAGE_LIMIT, 1, MAX_INBOX_PAGE_LIMIT);
+    const offset = parseBoundedInt(query?.offset, 0, 0, 100000);
     if (projectIds.length === 0) {
-      return { user_issues: [], recent_comments: [] };
+      return {
+        user_issues: [],
+        recent_comments: [],
+        unread_count: 0,
+        pagination: { limit, offset, total: 0, has_more: false },
+      };
     }
-    const scope = (request.query as any)?.scope || 'user';
-    const placeholders = buildSqlPlaceholders(projectIds);
 
-    let userIssues: any[];
-    let recentComments: any[];
+    const requestedProjectId = typeof query?.project_id === 'string' ? query.project_id.trim() : '';
+    const visibleProjectIds = requestedProjectId
+      ? (projectIds.includes(requestedProjectId) ? [requestedProjectId] : [])
+      : projectIds;
+    if (visibleProjectIds.length === 0) {
+      return {
+        user_issues: [],
+        recent_comments: [],
+        unread_count: 0,
+        pagination: { limit, offset, total: 0, has_more: false },
+      };
+    }
 
-    if (scope === 'all') {
-      // All issues in accessible projects (non-closed)
-      // Uses a CTE to find latest comment per issue (avoids 4x repeated correlated subqueries)
-      userIssues = db.prepare(
-        `WITH latest_comments AS (
-           SELECT issue_id, body, author_id,
-                  ROW_NUMBER() OVER (PARTITION BY issue_id ORDER BY created_at DESC) as rn
-           FROM issue_comments
-           WHERE (event_type IS NULL OR event_type = 'comment')
-             AND issue_id IN (SELECT id FROM issues WHERE project_id IN (${placeholders}))
-         )
-         SELECT i.*, p.name as project_name, p.color as project_color,
-                CASE WHEN i.assigned_to = 'user' THEN 1 ELSE 0 END as is_actionable,
-                lc.body as latest_comment_body,
-                lc.author_id as latest_comment_author_id,
-                lca.role as latest_comment_author_role,
-                lca.name as latest_comment_author_name,
-                aa.role as assigned_agent_role,
-                aa.name as assigned_agent_name
-         FROM issues i
-         JOIN projects p ON i.project_id = p.id
-         LEFT JOIN latest_comments lc ON lc.issue_id = i.id AND lc.rn = 1
-         LEFT JOIN agents lca ON lca.id = lc.author_id
-         LEFT JOIN agents aa ON aa.id = i.assigned_to
-         WHERE i.project_id IN (${placeholders})
-           AND i.status IN ('open', 'in_progress', 'pending', 'done')
-         ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC`
-      ).all(...projectIds, ...projectIds);
-      // All comments
+    const scope = query?.scope === 'all' ? 'all' : 'user';
+    const placeholders = buildSqlPlaceholders(visibleProjectIds);
+    const baseWhere = scope === 'all'
+      ? `i.project_id IN (${placeholders})
+         AND i.status IN ('open', 'in_progress', 'pending', 'done')`
+      : `i.project_id IN (${placeholders})
+         AND (i.assigned_to = 'user' OR i.created_by = 'user')
+         AND i.status IN ('open', 'in_progress', 'pending', 'done')`;
+    const orderBy = `CASE WHEN i.assigned_to = 'user' AND i.acknowledged_at IS NULL THEN 1 ELSE 0 END DESC,
+                     i.priority DESC,
+                     i.updated_at DESC,
+                     i.number DESC`;
+
+    const total = (db.prepare(`SELECT COUNT(*) as count FROM issues i WHERE ${baseWhere}`).get(...visibleProjectIds) as any).count as number;
+    const unreadCount = (db.prepare(
+      `SELECT COUNT(*) as count
+       FROM issues i
+       WHERE ${baseWhere}
+         AND i.assigned_to = 'user'
+         AND i.acknowledged_at IS NULL`
+    ).get(...visibleProjectIds) as any).count as number;
+
+    // Uses a CTE to find latest comment per issue (avoids repeated correlated subqueries)
+    const userIssues = db.prepare(
+      `WITH latest_comments AS (
+         SELECT issue_id,
+                ${previewSql('body')} as body,
+                author_id,
+                ROW_NUMBER() OVER (PARTITION BY issue_id ORDER BY created_at DESC) as rn
+         FROM issue_comments
+         WHERE (event_type IS NULL OR event_type = 'comment')
+           AND issue_id IN (SELECT id FROM issues WHERE project_id IN (${placeholders}))
+       )
+       SELECT i.id, i.number, i.title, ${previewSql('i.body')} as body,
+              i.status, i.project_id, i.assigned_to, i.created_by, i.priority, i.updated_at, i.acknowledged_at,
+              p.name as project_name, p.color as project_color,
+              CASE WHEN i.assigned_to = 'user' THEN 1 ELSE 0 END as is_actionable,
+              lc.body as latest_comment_body,
+              lc.author_id as latest_comment_author_id,
+              lca.name as latest_comment_author_name,
+              aa.name as assigned_agent_name
+       FROM issues i
+       JOIN projects p ON i.project_id = p.id
+       LEFT JOIN latest_comments lc ON lc.issue_id = i.id AND lc.rn = 1
+       LEFT JOIN agents lca ON lca.id = lc.author_id
+       LEFT JOIN agents aa ON aa.id = i.assigned_to
+       WHERE ${baseWhere}
+       ORDER BY ${orderBy}
+       LIMIT ? OFFSET ?`
+    ).all(...visibleProjectIds, ...visibleProjectIds, limit, offset) as any[];
+
+    const issueIds = userIssues.map((issue) => issue.id);
+    let recentComments: any[] = [];
+    if (issueIds.length > 0) {
+      const issuePlaceholders = buildSqlPlaceholders(issueIds);
       recentComments = db.prepare(
-        `SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name
+        `SELECT c.id, c.issue_id, c.author_id, ${previewSql('c.body')} as body, c.created_at,
+                i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name
          FROM issue_comments c
          JOIN issues i ON c.issue_id = i.id
          JOIN projects p ON i.project_id = p.id
-         WHERE i.project_id IN (${placeholders})
+         WHERE c.issue_id IN (${issuePlaceholders})
            AND c.author_id != 'user'
            AND (c.event_type IS NULL OR c.event_type = 'comment')
          ORDER BY c.created_at DESC
          LIMIT 50`
-      ).all(...projectIds);
-    } else {
-      // scope=user: user-related (assigned or created), with is_actionable flag
-      // Uses a CTE to find latest comment per issue (avoids 4x repeated correlated subqueries)
-      userIssues = db.prepare(
-        `WITH latest_comments AS (
-           SELECT issue_id, body, author_id,
-                  ROW_NUMBER() OVER (PARTITION BY issue_id ORDER BY created_at DESC) as rn
-           FROM issue_comments
-           WHERE (event_type IS NULL OR event_type = 'comment')
-             AND issue_id IN (SELECT id FROM issues WHERE project_id IN (${placeholders}))
-         )
-         SELECT i.*, p.name as project_name, p.color as project_color,
-                CASE WHEN i.assigned_to = 'user' THEN 1 ELSE 0 END as is_actionable,
-                lc.body as latest_comment_body,
-                lc.author_id as latest_comment_author_id,
-                lca.role as latest_comment_author_role,
-                lca.name as latest_comment_author_name,
-                aa.role as assigned_agent_role,
-                aa.name as assigned_agent_name
-         FROM issues i
-         JOIN projects p ON i.project_id = p.id
-         LEFT JOIN latest_comments lc ON lc.issue_id = i.id AND lc.rn = 1
-         LEFT JOIN agents lca ON lca.id = lc.author_id
-         LEFT JOIN agents aa ON aa.id = i.assigned_to
-         WHERE i.project_id IN (${placeholders})
-           AND (i.assigned_to = 'user' OR i.created_by = 'user')
-           AND i.status IN ('open', 'in_progress', 'pending', 'done')
-         ORDER BY i.acknowledged_at IS NULL DESC, i.priority DESC, i.updated_at DESC`
-      ).all(...projectIds, ...projectIds);
-      // Only comments on user-related issues
-      recentComments = db.prepare(
-        `SELECT c.*, i.title as issue_title, i.number as issue_number, i.project_id, p.name as project_name
-         FROM issue_comments c
-         JOIN issues i ON c.issue_id = i.id
-         JOIN projects p ON i.project_id = p.id
-         WHERE i.project_id IN (${placeholders})
-           AND c.author_id != 'user'
-           AND (c.event_type IS NULL OR c.event_type = 'comment')
-           AND (i.assigned_to = 'user' OR i.created_by = 'user')
-         ORDER BY c.created_at DESC
-         LIMIT 50`
-      ).all(...projectIds);
+      ).all(...issueIds) as any[];
     }
 
-    return { user_issues: userIssues, recent_comments: recentComments };
+    return {
+      user_issues: userIssues,
+      recent_comments: recentComments,
+      unread_count: unreadCount,
+      pagination: {
+        limit,
+        offset,
+        total,
+        has_more: offset + userIssues.length < total,
+      },
+    };
   });
 
   // My Issues — all issues the user is involved in (assigned, created, or commented)

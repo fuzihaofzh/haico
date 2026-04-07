@@ -2,6 +2,7 @@ import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { config } from '../config';
 import { getDirectChildAgents, loadProjectHierarchyAgents } from './agent-hierarchy';
+import { markExpiredKnowledgeEntries } from './knowledge-lifecycle';
 
 const BASE_URL = () => `http://localhost:${config.port}`;
 
@@ -177,7 +178,7 @@ ${C} "${base}/api/projects/${project.id}/knowledge?q=architecture"
 \`\`\`bash
 ${C} -X POST ${base}/api/projects/${project.id}/knowledge \\
   -H "Content-Type: application/json" \\
-  -d '{"title":"代码库整体架构","content":"关键发现：文件位置、模块职责、重要函数/类、运行或构建注意事项。","tags":"architecture,codebase","importance":"high","created_by":"${agent.id}"}'
+  -d '{"title":"代码库整体架构","content":"关键发现：文件位置、模块职责、重要函数/类、运行或构建注意事项。","tags":"architecture,codebase","importance":"high","category":"architecture","created_by":"${agent.id}"}'
 \`\`\`
 写入要求：title 描述探索主题；content 包含关键发现（文件位置、模块职责、重要函数/类等）；tags 加上 architecture、codebase 等相关标签；importance 必须为 high，确保后续 agent 会自动获得该信息。
 
@@ -187,9 +188,16 @@ ${C} -X POST ${base}/api/projects/${project.id}/knowledge \\
 - You cannot create or manage other agents — only the controller can`;
   }
 
-  // Knowledge base: auto-inject high importance entries
+  // Knowledge base: auto-inject active high importance entries
+  markExpiredKnowledgeEntries(db, project.id);
   const knowledgeEntries = db.prepare(
-    "SELECT title, content FROM knowledge_entries WHERE project_id = ? AND importance = 'high' ORDER BY updated_at DESC"
+    `SELECT title, content
+     FROM knowledge_entries
+     WHERE project_id = ?
+       AND importance = 'high'
+       AND status = 'active'
+       AND (expires_at IS NULL OR expires_at >= datetime('now'))
+     ORDER BY updated_at DESC`
   ).all(project.id) as any[];
   const knowledgeSection = `
 ## Project Knowledge Base
@@ -206,16 +214,29 @@ ${C} "${base}/api/projects/${project.id}/knowledge?tag=TAG&importance=LEVEL"
 \`\`\`bash
 ${C} -X POST ${base}/api/projects/${project.id}/knowledge \\
   -H "Content-Type: application/json" \\
-  -d '{"title":"Title","content":"What you learned","tags":"tag1,tag2","importance":"high","created_by":"${agent.id}"}'
+  -d '{"title":"Title","content":"What you learned","tags":"tag1,tag2","importance":"high","category":"architecture","created_by":"${agent.id}"}'
 \`\`\`
 importance: \`high\` (auto-injected to all agents), \`medium\` (queryable), \`low\`
+category: \`architecture\`, \`convention\`, \`bug\`, \`environment\`, \`code\`, \`reference\`
+
+**Verify knowledge** (when you used an entry and confirmed it is still accurate):
+\`\`\`bash
+${C} -X POST ${base}/api/knowledge/{id}/verify \\
+  -H "Content-Type: application/json" \\
+  -d '{"verified_by":"${agent.id}"}'
+\`\`\`
 
 **Update existing knowledge:**
 \`\`\`bash
 ${C} -X PUT ${base}/api/knowledge/{id} \\
   -H "Content-Type: application/json" \\
-  -d '{"content":"Updated content","importance":"high"}'
+  -d '{"content":"Updated content","importance":"high","category":"architecture","verified_by":"${agent.id}"}'
 \`\`\`
+
+Knowledge maintenance rules:
+- When you query and use a KB entry, call the verify API if the content is still accurate.
+- When you find a KB entry is outdated or conflicts with the current code, update it instead of relying on it.
+- When you create a KB entry, choose a category so the lifecycle policy can expire it correctly.
 
 Record knowledge when you encounter: project conventions, recurring bugs, environment quirks, build/deploy notes, or anything future agents should know.
 

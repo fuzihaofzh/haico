@@ -11,6 +11,10 @@ let _selectedMailIssueId = null; // currently selected issue ID (stable across r
 let _renderedMailItems = []; // currently rendered (filtered) items
 let _currentReplyIssueId = null; // issue ID for the currently visible reply box
 let _dashboardProjectsById = {};
+let _globalComposeAgentsByProject = {};
+const INBOX_ITEM_LIMIT = 20;
+let _inboxPagination = { limit: INBOX_ITEM_LIMIT, offset: 0, total: 0, hasMore: false, loading: false };
+let _inboxUnreadCount = 0;
 
 // Inbox issue detail caches
 const _issueDetailCache = {}; // issueId -> { data, timestamp }
@@ -116,9 +120,48 @@ async function loadDashboardSummary() {
   }
 }
 
-async function loadNotifications() {
+function updateInboxBadge(count) {
+  _inboxUnreadCount = Math.max(0, count || 0);
+  const badge = document.getElementById('notif-count');
+  if (!badge) return;
+  if (_inboxUnreadCount > 0) {
+    const prevCount = parseInt(badge.textContent, 10) || 0;
+    badge.textContent = _inboxUnreadCount;
+    badge.style.display = '';
+    if (_inboxUnreadCount > prevCount) {
+      badge.classList.remove('pulse');
+      void badge.offsetWidth;
+      badge.classList.add('pulse');
+    }
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function resetInboxPagination() {
+  _inboxPagination = { limit: INBOX_ITEM_LIMIT, offset: 0, total: 0, hasMore: false, loading: false };
+  _inboxAllItems = [];
+}
+
+async function loadNotifications(options) {
+  const opts = options || {};
+  const append = opts.append === true;
+  if (_inboxPagination.loading) return;
+  if (opts.reset) resetInboxPagination();
+
   try {
-    const res = await fetch('/api/notifications?scope=' + encodeURIComponent(_inboxScope), { headers: apiHeaders() });
+    _inboxPagination.loading = true;
+    if (append) renderInboxItems(_inboxAllItems);
+
+    const params = new URLSearchParams();
+    const currentLoaded = append ? _inboxPagination.offset : 0;
+    const limit = append ? INBOX_ITEM_LIMIT : Math.max(INBOX_ITEM_LIMIT, _inboxAllItems.length || 0);
+    params.set('scope', _inboxScope);
+    params.set('limit', String(limit));
+    params.set('offset', String(currentLoaded));
+    if (_inboxProject) params.set('project_id', _inboxProject);
+
+    const res = await fetch('/api/notifications?' + params.toString(), { headers: apiHeaders() });
     if (!res.ok) return;
     const data = await res.json();
 
@@ -126,44 +169,34 @@ async function loadNotifications() {
     const comments = (data.recent_comments || []).slice(0, 50);
     // Only count actionable (assigned_to=user) + unacknowledged issues for badge/notifications
     const actionableUnacknowledged = issues.filter(i => i.is_actionable && !i.acknowledged_at);
-    const totalCount = actionableUnacknowledged.length;
+    const totalCount = typeof data.unread_count === 'number' ? data.unread_count : actionableUnacknowledged.length;
 
     // Detect new action-required issues and play notification sound (only actionable)
     const currentIds = new Set(actionableUnacknowledged.map(i => i.id || i.number));
-    if (_knownActionIssueIds === null) {
-      _knownActionIssueIds = currentIds;
-    } else {
-      const newItems = [];
-      for (const id of currentIds) {
-        if (!_knownActionIssueIds.has(id)) {
-          const item = actionableUnacknowledged.find(i => (i.id || i.number) === id);
-          if (item) newItems.push(item);
+    if (!append) {
+      if (_knownActionIssueIds === null) {
+        _knownActionIssueIds = currentIds;
+      } else {
+        const newItems = [];
+        for (const id of currentIds) {
+          if (!_knownActionIssueIds.has(id)) {
+            const item = actionableUnacknowledged.find(i => (i.id || i.number) === id);
+            if (item) newItems.push(item);
+          }
         }
-      }
-      _knownActionIssueIds = currentIds;
-      if (newItems.length > 0) {
-        if (typeof playNotificationSound === 'function') {
-          playNotificationSound();
+        _knownActionIssueIds = currentIds;
+        if (newItems.length > 0) {
+          if (typeof playNotificationSound === 'function') {
+            playNotificationSound();
+          }
+          showBrowserNotification(newItems);
         }
-        showBrowserNotification(newItems);
       }
     }
 
     // Always show the Inbox panel
     document.getElementById('notifications-panel').style.display = '';
-    const badge = document.getElementById('notif-count');
-    if (totalCount > 0) {
-      const prevCount = parseInt(badge.textContent, 10) || 0;
-      badge.textContent = totalCount;
-      badge.style.display = '';
-      if (totalCount > prevCount) {
-        badge.classList.remove('pulse');
-        void badge.offsetWidth;
-        badge.classList.add('pulse');
-      }
-    } else {
-      badge.style.display = 'none';
-    }
+    updateInboxBadge(totalCount);
 
     // Build items: action-required (unacknowledged) issues first, then acknowledged, then comments
     // Sync local acknowledged set with server state:
@@ -215,10 +248,30 @@ async function loadNotifications() {
       }
     }
 
-    _inboxAllItems = items;
-    renderInboxItems(items);
+    if (append) {
+      const existingIds = new Set(_inboxAllItems.map(i => i.data && i.data.id).filter(Boolean));
+      _inboxAllItems = _inboxAllItems.concat(items.filter(i => i.data && !existingIds.has(i.data.id)));
+    } else {
+      _inboxAllItems = items;
+    }
+
+    const page = data.pagination || {};
+    const responseOffset = Number.isFinite(Number(page.offset)) ? Number(page.offset) : currentLoaded;
+    _inboxPagination = {
+      limit: page.limit || limit,
+      offset: responseOffset + issues.length,
+      total: page.total || _inboxAllItems.length,
+      hasMore: !!page.has_more,
+      loading: false,
+    };
+
+    if (!_inboxSearchQuery.trim() && _notifFilter !== 'my') {
+      renderInboxItems(_inboxAllItems);
+    }
   } catch (e) {
     console.error('Failed to load notifications', e);
+  } finally {
+    _inboxPagination.loading = false;
   }
 }
 
@@ -240,17 +293,18 @@ function renderInboxItems(items) {
     if (query && !matchesSearch(query, '#' + issue.number, issue.title, issue.body || '')) continue;
     filtered.push(item);
   }
-  _renderedMailItems = filtered;
+  const visibleItems = filtered;
+  _renderedMailItems = visibleItems;
 
   // Re-map _selectedMailIdx to follow the selected issue across re-sorts
   if (_selectedMailIssueId) {
-    const newIdx = filtered.findIndex(function(i) { return i.data && i.data.id === _selectedMailIssueId; });
+    const newIdx = visibleItems.findIndex(function(i) { return i.data && i.data.id === _selectedMailIssueId; });
     if (newIdx >= 0) _selectedMailIdx = newIdx;
   }
 
   let html = '';
-  for (let i = 0; i < filtered.length; i++) {
-    const item = filtered[i];
+  for (let i = 0; i < visibleItems.length; i++) {
+    const item = visibleItems[i];
     const isSelected = _selectedMailIssueId ? (item.data && item.data.id === _selectedMailIssueId) : (i === _selectedMailIdx);
     const issue = item.data;
     const isUnread = item.actionRequired;
@@ -259,7 +313,6 @@ function renderInboxItems(items) {
     const displayTime = item.time || issue.updated_at;
     // Avatar: show role-based avatar for latest comment author (sender), fallback to assigned agent
     const senderAuthorId = issue.latest_comment_author_id;
-    const senderRole = issue.latest_comment_author_role;
     const senderName = issue.latest_comment_author_name;
     const projColor = issue.project_color || '#4A90E2';
     let avatarHtml;
@@ -280,7 +333,7 @@ function renderInboxItems(items) {
           <span class="mail-item-from">${project} #${issue.number}</span>
           <span class="mail-item-time">${timeAgo(displayTime) || ''}</span>
         </div>
-        <div class="mail-item-subject">${isUnread ? '<span class="mail-item-badge action">!</span>' : (!issue.is_actionable ? '<span class="mail-item-badge sent">已发送</span>' : '')}${esc(issue.title)}</div>
+        <div class="mail-item-subject">${isUnread ? '<span class="mail-item-badge action">!</span>' : (!issue.is_actionable ? '<span class="mail-item-badge sent">Sent</span>' : '')}${esc(issue.title)}</div>
         <div class="mail-item-preview">${esc(previewText)}</div>
       </div>
     </div>`;
@@ -292,6 +345,17 @@ function renderInboxItems(items) {
     html = '<div style="padding:20px;color:var(--text-secondary);font-size:12px;text-align:center">No notifications</div>';
   }
 
+  if (!query && _notifFilter !== 'my' && (_inboxPagination.hasMore || _inboxPagination.loading)) {
+    const loaded = Math.min(_inboxAllItems.length, _inboxPagination.total || _inboxAllItems.length);
+    const total = _inboxPagination.total || loaded;
+    html += `<div class="mail-list-footer">
+      <button class="btn btn-sm" onclick="loadMoreInbox()" ${_inboxPagination.loading ? 'disabled' : ''}>
+        ${_inboxPagination.loading ? 'Loading...' : 'Load more'}
+      </button>
+      <span>${loaded} / ${total}</span>
+    </div>`;
+  }
+
   body.innerHTML = html;
 
   // Collapse state
@@ -299,6 +363,11 @@ function renderInboxItems(items) {
   if (mailBody && _notificationsCollapsed) {
     mailBody.classList.add('collapsed');
   }
+}
+
+function loadMoreInbox() {
+  if (_inboxSearchQuery.trim() || _notifFilter === 'my' || !_inboxPagination.hasMore || _inboxPagination.loading) return;
+  loadNotifications({ append: true });
 }
 
 function selectMailItem(idx) {
@@ -313,7 +382,7 @@ function selectMailItem(idx) {
   _currentReplyIssueId = null;
   if (!item) {
     _selectedMailIssueId = null;
-    detail.innerHTML = '<div class="mail-detail-empty"><div class="mail-detail-empty-icon">&#9993;</div><div>Select a message to read</div></div>';
+    detail.innerHTML = renderMailDetailEmpty();
     return;
   }
 
@@ -501,7 +570,8 @@ function toggleNotifFilter(filter) {
   } else if (_inboxSearchQuery.trim()) {
     searchInboxIssues(_inboxSearchQuery.trim());
   } else {
-    renderInboxItems(_inboxAllItems);
+    if (filter === 'all' || filter === 'action') loadNotifications({ reset: true });
+    else renderInboxItems(_inboxAllItems);
   }
 }
 
@@ -511,7 +581,7 @@ function toggleInboxScope(scope) {
     btn.classList.toggle('active', btn.dataset.scope === scope);
   });
   // Reload notifications with new scope
-  loadNotifications();
+  loadNotifications({ reset: true });
 }
 
 function toggleInboxProject(projectId) {
@@ -521,7 +591,7 @@ function toggleInboxProject(projectId) {
   } else if (_inboxSearchQuery.trim()) {
     searchInboxIssues(_inboxSearchQuery.trim());
   } else {
-    renderInboxItems(_inboxAllItems);
+    loadNotifications({ reset: true });
   }
 }
 
@@ -574,12 +644,7 @@ async function acknowledgeIssue(issueId) {
     }
   }
   // Update badge count
-  const remaining = _inboxAllItems.filter(i => i.actionRequired).length;
-  const badge = document.getElementById('notif-count');
-  if (badge) {
-    badge.textContent = remaining;
-    if (remaining === 0) badge.style.display = 'none';
-  }
+  updateInboxBadge(_inboxUnreadCount - 1);
   try {
     const res = await fetch(`/api/issues/${issueId}/acknowledge`, { method: 'POST' });
     if (!res.ok) {
@@ -722,6 +787,229 @@ async function loadProjects() {
     container.innerHTML = '<div class="empty-state"></div>';
     container.querySelector('.empty-state').textContent = 'Error loading projects: ' + e.message;
   }
+}
+
+function getGlobalComposeProjects() {
+  return Object.values(_dashboardProjectsById || {}).filter((project) => project && project.can_manage);
+}
+
+async function ensureGlobalComposeProjects() {
+  let projects = Object.values(_dashboardProjectsById || {});
+  if (!projects.length) {
+    const res = await fetch('/api/projects?with_stats=1', { headers: apiHeaders() });
+    if (!res.ok) throw new Error('Failed to load projects');
+    projects = await res.json();
+    _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
+    populateActivityProjectFilter();
+    populateInboxProjectFilter();
+  }
+  return getGlobalComposeProjects();
+}
+
+function setGlobalComposeStatus(message, type) {
+  const status = document.getElementById('global-compose-status');
+  if (!status) return;
+  status.textContent = message || '';
+  status.className = 'compose-status' + (type ? ' compose-status-' + type : '');
+}
+
+function renderMailDetailEmpty() {
+  return '<div class="mail-detail-empty"><div class="mail-detail-empty-icon">&#9993;</div><div>Select a message to read</div></div>';
+}
+
+function renderInlineComposePane() {
+  return `<div class="compose-pane">
+    <div class="compose-header">
+      <h3>Compose</h3>
+      <button class="compose-close" type="button" onclick="closeInlineCompose()">&times;</button>
+    </div>
+    <div class="compose-form">
+      <div class="compose-field">
+        <label>Project</label>
+        <select id="global-compose-project" onchange="updateGlobalComposeRecipients()">
+          <option value="">Loading projects...</option>
+        </select>
+      </div>
+      <div class="compose-field">
+        <label>To</label>
+        <select id="global-compose-to">
+          <option value="">Select a project first</option>
+        </select>
+      </div>
+      <div class="compose-field compose-subject-field">
+        <label>Subject</label>
+        <input type="text" id="global-compose-subject" placeholder="Subject">
+      </div>
+      <div class="compose-field compose-body-field">
+        <label>Message</label>
+        <textarea id="global-compose-body" rows="10" placeholder="Write a message..."></textarea>
+      </div>
+      <div class="compose-status" id="global-compose-status"></div>
+    </div>
+    <div class="compose-actions">
+      <button class="btn" onclick="closeInlineCompose()">Cancel</button>
+      <button class="btn btn-primary" id="global-compose-send" onclick="sendGlobalCompose()">Send</button>
+    </div>
+  </div>`;
+}
+
+function closeInlineCompose() {
+  const detail = document.getElementById('mail-detail-pane');
+  if (!detail) return;
+  _selectedMailIdx = -1;
+  _selectedMailIssueId = null;
+  _currentReplyIssueId = null;
+  document.querySelectorAll('.mail-item').forEach((el) => el.classList.remove('mail-selected'));
+  detail.innerHTML = renderMailDetailEmpty();
+}
+
+async function openGlobalCompose(defaults) {
+  const opts = defaults || {};
+  const detail = document.getElementById('mail-detail-pane');
+  const mailBody = document.getElementById('mail-body');
+  if (!detail) return;
+
+  _selectedMailIdx = -1;
+  _selectedMailIssueId = null;
+  _currentReplyIssueId = null;
+  document.querySelectorAll('.mail-item').forEach((el) => el.classList.remove('mail-selected'));
+  if (mailBody && _notificationsCollapsed) {
+    _notificationsCollapsed = false;
+    mailBody.classList.remove('collapsed');
+  }
+  detail.innerHTML = renderInlineComposePane();
+
+  const projectSelect = document.getElementById('global-compose-project');
+  const toSelect = document.getElementById('global-compose-to');
+  const subjectInput = document.getElementById('global-compose-subject');
+  const bodyInput = document.getElementById('global-compose-body');
+  const sendButton = document.getElementById('global-compose-send');
+  if (!projectSelect || !toSelect || !subjectInput || !bodyInput) return;
+
+  subjectInput.value = opts.subject || '';
+  bodyInput.value = opts.body || '';
+  projectSelect.innerHTML = '<option value="">Loading projects...</option>';
+  projectSelect.disabled = true;
+  toSelect.innerHTML = '<option value="">Select a project first</option>';
+  toSelect.disabled = true;
+  if (sendButton) sendButton.disabled = true;
+  setGlobalComposeStatus('', '');
+
+  try {
+    const projects = await ensureGlobalComposeProjects();
+    if (!projects.length) {
+      projectSelect.innerHTML = '<option value="">No writable projects</option>';
+      setGlobalComposeStatus('You need editor or owner access to a project before composing.', 'error');
+      return;
+    }
+
+    const preferredProjectId = opts.projectId || _inboxProject;
+    const selectedProject = projects.find((project) => project.id === preferredProjectId) || projects[0];
+    projectSelect.innerHTML = projects.map((project) =>
+      `<option value="${esc(project.id)}">${esc(project.name)}</option>`
+    ).join('');
+    projectSelect.value = selectedProject.id;
+    projectSelect.disabled = false;
+    const recipientsLoaded = await updateGlobalComposeRecipients(opts.assignedTo);
+    if (sendButton) sendButton.disabled = !recipientsLoaded;
+    subjectInput.focus();
+  } catch (e) {
+    projectSelect.innerHTML = '<option value="">Failed to load projects</option>';
+    setGlobalComposeStatus(e.message || 'Failed to load compose data', 'error');
+  }
+}
+
+async function updateGlobalComposeRecipients(selectedTo) {
+  const projectSelect = document.getElementById('global-compose-project');
+  const toSelect = document.getElementById('global-compose-to');
+  const sendButton = document.getElementById('global-compose-send');
+  if (!projectSelect || !toSelect) return;
+
+  const selectedProjectId = projectSelect.value;
+  if (!selectedProjectId) {
+    toSelect.innerHTML = '<option value="">Select a project first</option>';
+    toSelect.disabled = true;
+    if (sendButton) sendButton.disabled = true;
+    return false;
+  }
+
+  toSelect.innerHTML = '<option value="">Loading recipients...</option>';
+  toSelect.disabled = true;
+  if (sendButton) sendButton.disabled = true;
+  setGlobalComposeStatus('', '');
+
+  try {
+    let agents = _globalComposeAgentsByProject[selectedProjectId];
+    if (!agents) {
+      const res = await fetch(`/api/projects/${selectedProjectId}/agents`, { headers: apiHeaders() });
+      if (!res.ok) throw new Error('Failed to load recipients');
+      agents = await res.json();
+      _globalComposeAgentsByProject[selectedProjectId] = agents;
+    }
+
+    const controllerId = agents.find((agent) => agent.is_controller)?.id
+      || _dashboardProjectsById[selectedProjectId]?.stats?.controllerAgentId
+      || '';
+    const selectedValue = selectedTo !== undefined ? selectedTo : controllerId;
+    toSelect.innerHTML = '<option value="">Select a recipient</option><option value="all">All (broadcast)</option><option value="user">User (me)</option>' +
+      agents.map((agent) =>
+        `<option value="${esc(agent.id)}">${esc(agent.name)}${agent.is_controller ? ' [controller]' : ''}</option>`
+      ).join('');
+    toSelect.value = selectedValue || '';
+    toSelect.disabled = false;
+    if (sendButton) sendButton.disabled = false;
+    return true;
+  } catch (e) {
+    toSelect.innerHTML = '<option value="">Failed to load recipients</option>';
+    setGlobalComposeStatus(e.message || 'Failed to load recipients', 'error');
+    return false;
+  }
+}
+
+async function sendGlobalCompose() {
+  const projectSelect = document.getElementById('global-compose-project');
+  const toSelect = document.getElementById('global-compose-to');
+  const subjectInput = document.getElementById('global-compose-subject');
+  const bodyInput = document.getElementById('global-compose-body');
+  const btn = document.getElementById('global-compose-send');
+  if (!projectSelect || !toSelect || !subjectInput || !bodyInput) return;
+
+  await withLoading(btn, async () => {
+    const targetProjectId = projectSelect.value;
+    const subject = subjectInput.value.trim();
+    const body = bodyInput.value.trim();
+    const assignedTo = toSelect.value.trim();
+
+    if (!targetProjectId) { setGlobalComposeStatus('Project is required.', 'error'); return; }
+    if (!assignedTo) { setGlobalComposeStatus('To is required.', 'error'); toSelect.focus(); return; }
+    if (!subject) { setGlobalComposeStatus('Subject is required.', 'error'); subjectInput.focus(); return; }
+    if (!_dashboardProjectsById[targetProjectId]?.can_manage) {
+      setGlobalComposeStatus('Insufficient permission to create issues in this project.', 'error');
+      return;
+    }
+
+    const res = await fetch(`/api/projects/${targetProjectId}/issues`, {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify({ title: subject, body, created_by: 'user', assigned_to: assignedTo }),
+    });
+
+    if (res.ok) {
+      closeInlineCompose();
+      subjectInput.value = '';
+      bodyInput.value = '';
+      showToast('Message sent', 'success');
+      await Promise.all([loadNotifications({ reset: true }), loadProjects()]);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setGlobalComposeStatus(err.error || 'Failed to send message', 'error');
+    }
+  });
+}
+
+function hideModal(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.classList.remove('active');
 }
 
 function showCreateModal() { document.getElementById('createModal').classList.add('active'); }

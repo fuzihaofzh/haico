@@ -29,9 +29,21 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
     return true;
   }
 
-  // 规则2b: issue is pending (waiting for child issues) → 无需操作
+  // 规则2b: issue is pending (waiting for child issues)
+  // 如果所有子 issue 都已完成，需要 LLM controller 来汇总并交付用户
   if (issue.status === 'pending') {
-    logger.info(`Pre-controller: issue #${triggerIssueNumber} is pending (waiting for children), skipping LLM`);
+    const childStats = db.prepare(
+      `SELECT COUNT(*) as total,
+       SUM(CASE WHEN status IN ('done','closed') THEN 1 ELSE 0 END) as completed
+       FROM issues WHERE parent_id = ?`
+    ).get(issue.id) as { total: number; completed: number };
+
+    if (childStats.total > 0 && childStats.total === childStats.completed) {
+      logger.info(`Pre-controller: pending issue #${triggerIssueNumber} has all ${childStats.total} children completed, needs LLM controller`);
+      return false; // 交给 LLM controller 汇总
+    }
+
+    logger.info(`Pre-controller: issue #${triggerIssueNumber} is pending (${childStats.completed}/${childStats.total} children done), skipping LLM`);
     return true;
   }
 

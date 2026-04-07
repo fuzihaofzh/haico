@@ -2,17 +2,66 @@ import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../db/database';
 import { ensureKnowledgeAccess, ensureProjectAccess } from '../services/project-permissions';
+import {
+  calculateKnowledgeExpiresAt,
+  DEFAULT_KNOWLEDGE_CATEGORY,
+  isKnowledgeCategory,
+  isKnowledgeStatus,
+  type KnowledgeCategory,
+  type KnowledgeStatus,
+  KNOWLEDGE_CATEGORIES,
+  KNOWLEDGE_STATUSES,
+  markExpiredKnowledgeEntries,
+  normalizeKnowledgeCategory,
+  normalizeKnowledgeStatus,
+} from '../services/knowledge-lifecycle';
+
+const VALID_IMPORTANCE = ['high', 'medium', 'low'];
+
+function parseKnowledgeCategory(value: unknown): KnowledgeCategory | null {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return DEFAULT_KNOWLEDGE_CATEGORY;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  return isKnowledgeCategory(normalized) ? normalized : null;
+}
+
+function parseKnowledgeStatus(value: unknown): KnowledgeStatus | 'all' | null {
+  if (value === undefined || value === null || String(value).trim() === '') return 'active';
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'all') return 'all';
+  return isKnowledgeStatus(normalized) ? normalized : null;
+}
+
+function resolveKnowledgeActor(body: any, existing?: any): string {
+  const actor = body?.verified_by || body?.created_by || existing?.verified_by || existing?.created_by || 'user';
+  return String(actor).trim() || 'user';
+}
 
 export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
   // List knowledge entries for a project (supports FTS5 full-text search via ?q=)
-  fastify.get<{ Params: { pid: string }; Querystring: { tag?: string; importance?: string; q?: string } }>(
+  fastify.get<{ Params: { pid: string }; Querystring: { tag?: string; importance?: string; q?: string; status?: string; category?: string } }>(
     '/api/projects/:pid/knowledge',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
-      const { tag, importance, q } = request.query;
+      const { tag, importance, q, status: statusQuery, category: categoryQuery } = request.query;
       const access = ensureProjectAccess(db, request, reply, pid);
       if (!access) return;
+
+      if (importance && !VALID_IMPORTANCE.includes(importance)) {
+        return reply.status(400).send({ error: `Invalid importance. Must be one of: ${VALID_IMPORTANCE.join(', ')}` });
+      }
+      const status = parseKnowledgeStatus(statusQuery);
+      if (!status) {
+        return reply.status(400).send({ error: `Invalid status. Must be one of: all, ${KNOWLEDGE_STATUSES.join(', ')}` });
+      }
+      const category = categoryQuery ? parseKnowledgeCategory(categoryQuery) : null;
+      if (categoryQuery && !category) {
+        return reply.status(400).send({ error: `Invalid category. Must be one of: ${KNOWLEDGE_CATEGORIES.join(', ')}` });
+      }
+
+      markExpiredKnowledgeEntries(db, pid);
 
       if (q && q.trim()) {
         // FTS5 full-text search
@@ -22,9 +71,17 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
           WHERE knowledge_fts MATCH ? AND ke.project_id = ?`;
         const params: any[] = [q.trim(), pid];
 
+        if (status !== 'all') {
+          sql += ' AND ke.status = ?';
+          params.push(status);
+        }
         if (importance) {
           sql += ' AND ke.importance = ?';
           params.push(importance);
+        }
+        if (category) {
+          sql += ' AND ke.category = ?';
+          params.push(category);
         }
         if (tag) {
           sql += " AND (',' || ke.tags || ',' LIKE ?)";
@@ -39,9 +96,17 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
       let sql = 'SELECT * FROM knowledge_entries WHERE project_id = ?';
       const params: any[] = [pid];
 
+      if (status !== 'all') {
+        sql += ' AND status = ?';
+        params.push(status);
+      }
       if (importance) {
         sql += ' AND importance = ?';
         params.push(importance);
+      }
+      if (category) {
+        sql += ' AND category = ?';
+        params.push(category);
       }
       if (tag) {
         sql += " AND (',' || tags || ',' LIKE ?)";
@@ -55,25 +120,32 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
   );
 
   // Create knowledge entry
-  fastify.post<{ Params: { pid: string }; Body: { title: string; content: string; tags?: string; importance?: string; created_by?: string } }>(
+  fastify.post<{ Params: { pid: string }; Body: { title: string; content: string; tags?: string; importance?: string; category?: string; created_by?: string } }>(
     '/api/projects/:pid/knowledge',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
-      const { title, content, tags, importance, created_by } = request.body as any;
+      const { title, content, tags, importance, category: categoryRaw, created_by } = request.body as any;
       const access = ensureProjectAccess(db, request, reply, pid, true);
       if (!access) return;
 
       if (!title) return reply.status(400).send({ error: 'title is required' });
-      const validImportance = ['high', 'medium', 'low'];
-      if (importance && !validImportance.includes(importance)) {
-        return reply.status(400).send({ error: `Invalid importance. Must be one of: ${validImportance.join(', ')}` });
+      if (importance && !VALID_IMPORTANCE.includes(importance)) {
+        return reply.status(400).send({ error: `Invalid importance. Must be one of: ${VALID_IMPORTANCE.join(', ')}` });
+      }
+      const category = parseKnowledgeCategory(categoryRaw);
+      if (!category) {
+        return reply.status(400).send({ error: `Invalid category. Must be one of: ${KNOWLEDGE_CATEGORIES.join(', ')}` });
       }
 
       const id = uuidv4();
+      const actor = created_by || 'user';
+      const expiresAt = calculateKnowledgeExpiresAt(category);
       db.prepare(
-        'INSERT INTO knowledge_entries (id, project_id, title, content, tags, importance, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(id, pid, title, content || '', tags || '', importance || 'medium', created_by || 'user');
+        `INSERT INTO knowledge_entries
+          (id, project_id, title, content, tags, importance, category, expires_at, last_verified_at, verified_by, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, 'active', ?)`
+      ).run(id, pid, title, content || '', tags || '', importance || 'medium', category, expiresAt, actor, actor);
 
       const entry = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(id);
       return reply.status(201).send(entry);
@@ -94,7 +166,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
   );
 
   // Update knowledge entry
-  fastify.put<{ Params: { id: string }; Body: { title?: string; content?: string; tags?: string; importance?: string } }>(
+  fastify.put<{ Params: { id: string }; Body: { title?: string; content?: string; tags?: string; importance?: string; category?: string; status?: string; verified_by?: string } }>(
     '/api/knowledge/:id',
     async (request, reply) => {
       const db = getDatabase();
@@ -106,19 +178,78 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
       const existing = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(id) as any;
       if (!existing) return reply.status(404).send({ error: 'Knowledge entry not found' });
 
-      const validImportance = ['high', 'medium', 'low'];
-      if (body.importance && !validImportance.includes(body.importance)) {
-        return reply.status(400).send({ error: `Invalid importance. Must be one of: ${validImportance.join(', ')}` });
+      if (body.importance && !VALID_IMPORTANCE.includes(body.importance)) {
+        return reply.status(400).send({ error: `Invalid importance. Must be one of: ${VALID_IMPORTANCE.join(', ')}` });
+      }
+      const category = body.category === undefined
+        ? normalizeKnowledgeCategory(existing.category)
+        : parseKnowledgeCategory(body.category);
+      if (!category) {
+        return reply.status(400).send({ error: `Invalid category. Must be one of: ${KNOWLEDGE_CATEGORIES.join(', ')}` });
+      }
+      const parsedStatus = body.status === undefined ? undefined : parseKnowledgeStatus(body.status);
+      if (parsedStatus === 'all' || parsedStatus === null) {
+        return reply.status(400).send({ error: `Invalid status. Must be one of: ${KNOWLEDGE_STATUSES.join(', ')}` });
       }
 
       const title = body.title ?? existing.title;
       const content = body.content ?? existing.content;
       const tags = body.tags ?? existing.tags;
       const importance = body.importance ?? existing.importance;
+      const shouldRefreshLifecycle = body.title !== undefined
+        || body.content !== undefined
+        || body.tags !== undefined
+        || body.importance !== undefined
+        || body.category !== undefined;
+      const status = parsedStatus ?? (shouldRefreshLifecycle ? 'active' : normalizeKnowledgeStatus(existing.status));
+      const shouldVerifyLifecycle = shouldRefreshLifecycle || parsedStatus === 'active';
+      const expiresAt = shouldVerifyLifecycle ? calculateKnowledgeExpiresAt(category) : existing.expires_at;
+      const verifiedBy = shouldVerifyLifecycle || body.verified_by !== undefined
+        ? resolveKnowledgeActor(body, existing)
+        : existing.verified_by;
 
+      if (shouldVerifyLifecycle) {
+        db.prepare(
+          `UPDATE knowledge_entries
+           SET title = ?, content = ?, tags = ?, importance = ?, category = ?, expires_at = ?,
+               last_verified_at = datetime('now'), verified_by = ?, status = ?, updated_at = datetime('now')
+           WHERE id = ?`
+        ).run(title, content, tags, importance, category, expiresAt, verifiedBy, status, id);
+      } else {
+        db.prepare(
+          `UPDATE knowledge_entries
+           SET title = ?, content = ?, tags = ?, importance = ?, category = ?, expires_at = ?,
+               verified_by = ?, status = ?, updated_at = datetime('now')
+           WHERE id = ?`
+        ).run(title, content, tags, importance, category, expiresAt, verifiedBy, status, id);
+      }
+
+      const updated = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(id);
+      return updated;
+    }
+  );
+
+  // Verify knowledge entry and extend its lifecycle
+  fastify.post<{ Params: { id: string }; Body: { verified_by?: string } }>(
+    '/api/knowledge/:id/verify',
+    async (request, reply) => {
+      const db = getDatabase();
+      const { id } = request.params;
+      const body = request.body as any;
+      const access = ensureKnowledgeAccess(db, request, reply, id, true);
+      if (!access) return;
+
+      const existing = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(id) as any;
+      if (!existing) return reply.status(404).send({ error: 'Knowledge entry not found' });
+
+      const category = normalizeKnowledgeCategory(existing.category);
+      const expiresAt = calculateKnowledgeExpiresAt(category);
+      const actor = resolveKnowledgeActor(body, existing);
       db.prepare(
-        "UPDATE knowledge_entries SET title = ?, content = ?, tags = ?, importance = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(title, content, tags, importance, id);
+        `UPDATE knowledge_entries
+         SET last_verified_at = datetime('now'), verified_by = ?, expires_at = ?, status = 'active', updated_at = datetime('now')
+         WHERE id = ?`
+      ).run(actor, expiresAt, id);
 
       const updated = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(id);
       return updated;

@@ -194,9 +194,11 @@ ${workers.map((a: any) => {
 - 需要调研/分析 → 分配给助手 agent（agentopia-assistant）
 然后将用户 issue 状态设为 \`pending\`。
 
-**步骤 3 — 汇总并交付用户：** 子任务全部完成后（issue 评论中出现 'All X sub-issues completed'），系统会触发你。你**必须**：(1) 先写一条详细的总结评论，说明每个子 task 完成了什么、整体结果如何；(2) 然后将父 issue 的 assigned_to 改为 user、status 改为 done。**切勿跳过总结直接 assign。**
+**步骤 3 — 测试验证：** 当开发类子任务完成后，检查该父 issue 下是否已存在测试验证子 issue。如果没有，**必须**创建一个测试验证子 issue（设 \`parent_id\` 指向父 issue），分配给测试 agent，验证开发成果。**不要在没有测试验证的情况下直接关闭父 issue。**
 
-**步骤 4 — 切勿跳过步骤 1。** 即使 issue 很简单，也必须先评论再创建子任务。用户需要知道他们的 issue 被接收了。
+**步骤 4 — 汇总并交付用户：** 所有子任务（包括测试验证）全部完成后（issue 评论中出现 'All X sub-issues completed'），系统会触发你。你**必须**：(1) 先写一条详细的总结评论，说明每个子 task 完成了什么、测试结果如何；(2) 然后将父 issue 的 assigned_to 改为 user、status 改为 done。**切勿跳过总结直接 assign。**
+
+**步骤 5 — 切勿跳过步骤 1。** 即使 issue 很简单，也必须先评论再创建子任务。用户需要知道他们的 issue 被接收了。
 
 ## Rules
 1. **复用agent。** NEVER create a new agent if one with a similar role already exists. Reuse existing agents.
@@ -208,10 +210,10 @@ ${workers.map((a: any) => {
 7. **与用户沟通用issue。** 需要用户输入、审批、决策时，创建issue assigned给"user"。
 8. **NEVER长时间等待。** 不要用sleep/wait/poll。如需等worker完成就直接退出，系统会在worker完成后自动触发你。每次turn应在60秒内完成。
 9. **需求需用户确认。** 产品agent提出的新功能需求必须先分配给"user"等待确认。Bug修复可以直接分配开发。
-10. **开发→测试流程。** 开发完成后创建测试验证issue（设parent_id关联父issue）分配给测试agent。测试通过标done，发现bug创建bug issue分配给开发。
+10. **开发→测试流程（强制执行）。** 开发子 issue 完成后，**必须**创建测试验证子 issue（设 parent_id 关联同一个父 issue）分配给测试 agent。只有测试通过并标 done 后，才能进入汇总交付步骤。测试发现 bug 则创建 bug fix issue 分配给开发。**禁止跳过测试直接关闭父 issue。**
 11. **新issue还是新session。** 启动worker时通过start API的\`force_new_session\`决定：任务相关用默认session，全新任务用\`"force_new_session": true\`。
 12. **关闭用户issue时必须回复。** 当你关闭或完成一个由用户创建的issue时，必须先添加一条简短评论，说明你做了什么（如创建了哪些子任务、分配给了谁、结论是什么）。不要默默关闭issue。
-13. **子issue全完成必须先总结再交付用户。** 当一个用户创建的 pending issue，其所有子 issue 已 done（系统评论显示 All X sub-issues completed），你**必须**：(1) 先写详细总结评论（说明每个子 task 做了什么、最终产出）；(2) 再 UPDATE 父 issue status=done, assigned_to=user。**不得先 assign 再总结。**
+13. **子issue全完成必须先验证测试再交付。** 当一个用户创建的 pending issue 的所有子 issue 已 done（系统评论显示 All X sub-issues completed），你**必须**先检查子 issue 中是否包含测试验证 issue。如果没有测试验证 issue，**必须先创建测试子 issue** 分配给测试 agent，等测试完成后再汇总交付。如果已有测试且全部通过，则：(1) 先写详细总结评论（说明每个子 task 做了什么、测试结果、最终产出）；(2) 再 UPDATE 父 issue status=done, assigned_to=user。**不得先 assign 再总结，不得跳过测试。**
 
 Assignable targets: ${agents.map((a: any) => `"${a.id}" (${a.name})`).join(', ')}, "user" for human tasks, or "all" to broadcast to everyone.`;
 }
@@ -305,12 +307,21 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
         `SELECT 1 FROM agents WHERE project_id = ? AND is_controller = 0 AND status = 'error' AND paused = 0 LIMIT 1`
       ).get(project.id);
 
-      if (!errorWorkers) {
-        logger.info(`Skipping controller trigger: no unassigned issues and no errored workers in project "${project.name}"`);
+      // Check 3: any pending parent issues whose children are ALL done?
+      const stalePending = db.prepare(
+        `SELECT 1 FROM issues p
+         WHERE p.project_id = ? AND p.status = 'pending'
+         AND EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = p.id)
+         AND NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = p.id AND c.status NOT IN ('done','closed'))
+         LIMIT 1`
+      ).get(project.id);
+
+      if (!errorWorkers && !stalePending) {
+        logger.info(`Skipping controller trigger: no unassigned issues, no errored workers, and no stale pending issues in project "${project.name}"`);
         return;
       }
-      // If there are errored workers, let controller handle them
-      logger.info(`Controller trigger: errored workers detected in project "${project.name}"`);
+      if (errorWorkers) logger.info(`Controller trigger: errored workers detected in project "${project.name}"`);
+      if (stalePending) logger.info(`Controller trigger: pending issue(s) with all children completed detected in project "${project.name}"`);
     }
   }
 
