@@ -1630,6 +1630,12 @@ function getProjectFilesAgent() {
   return agentsData.find((agent) => agent.id === projectFilesAgentId) || null;
 }
 
+function normalizeProjectFilesAgentId(agentId) {
+  if (!agentId) return '';
+  if (!agentsData.length || agentsData.some((agent) => agent.id === agentId)) return agentId;
+  return getControllerAgent()?.id || '';
+}
+
 function syncProjectFilesAgents() {
   ensureProjectFilesPanel();
   const select = document.getElementById('project-files-agent');
@@ -1652,9 +1658,10 @@ function syncProjectFilesAgents() {
   select.innerHTML = `<option value="">Select an agent</option>${options}`;
   select.disabled = false;
 
-  let nextAgentId = previousAgentId;
-  if (!nextAgentId || !agentsData.some((agent) => agent.id === nextAgentId)) {
+  let nextAgentId = normalizeProjectFilesAgentId(previousAgentId);
+  if (!nextAgentId) {
     const preferredAgent = agentsData.find((agent) => agent.id === currentAgentId)
+      || getControllerAgent()
       || agentsData.find((agent) => !!agent.working_directory)
       || agentsData[0];
     nextAgentId = preferredAgent?.id || '';
@@ -1669,7 +1676,7 @@ function syncProjectFilesAgents() {
 }
 
 function handleProjectFilesAgentChange(agentId) {
-  projectFilesAgentId = agentId || '';
+  projectFilesAgentId = normalizeProjectFilesAgentId(agentId);
   if (projectFilesPanel) {
     projectFilesPanel.setAgent(getProjectFilesAgent());
     projectFilesPanel.activate();
@@ -1927,31 +1934,35 @@ function renderHierarchyAgentGraph(container, graphContext) {
   });
 
   const maxDepth = Math.max(0, ...Array.from(depthMap.values()));
-  const W = Math.min(Math.max(container.clientWidth || 760, 640), 960);
-  const levelGap = 112;
-  const topPadding = 56;
-  const H = Math.max(280, topPadding + maxDepth * levelGap + 96);
   const nodeH = 40;
+  const nodeW = Math.max(140, ...agentsData.map((agent) => agent.name.length * 7.5 + 28));
+  const levelGap = Math.max(220, nodeW + 80);
+  const rowGap = 76;
+  const topPadding = 56;
+  const bottomPadding = 72;
+  const leftPadding = nodeW / 2 + 36;
+  const rightPadding = nodeW / 2 + 36;
+  const totalLeaves = Math.max(1, roots.reduce((sum, r) => sum + (subtreeSize.get(r.id) || 1), 0));
+  const W = Math.max(container.clientWidth || 760, leftPadding + maxDepth * levelGap + rightPadding);
+  const H = Math.max(280, topPadding + Math.max(0, totalLeaves - 1) * rowGap + bottomPadding);
   const positions = new Map();
 
-  // Position nodes: center children under their parent using subtree sizes
-  const totalLeaves = roots.reduce((sum, r) => sum + (subtreeSize.get(r.id) || 1), 0);
-  const leafWidth = W / (totalLeaves + 1);
-
+  // Position nodes left-to-right by hierarchy depth; rows expand vertically with fixed spacing.
   let leafCounter = 0;
   function positionSubtree(agent, depth) {
     const children = childrenMap.get(agent.id) || [];
-    const y = topPadding + depth * levelGap;
+    const x = leftPadding + depth * levelGap;
     if (children.length === 0) {
+      const y = topPadding + leafCounter * rowGap;
       leafCounter++;
-      positions.set(agent.id, { x: leafCounter * leafWidth, y });
+      positions.set(agent.id, { x, y });
     } else {
       children.forEach((child) => positionSubtree(child, depth + 1));
-      // Center parent over its children
+      // Center parent beside its child block without squeezing sibling rows.
       const childPositions = children.map((c) => positions.get(c.id)).filter(Boolean);
-      const minX = Math.min(...childPositions.map((p) => p.x));
-      const maxX = Math.max(...childPositions.map((p) => p.x));
-      positions.set(agent.id, { x: (minX + maxX) / 2, y });
+      const minY = Math.min(...childPositions.map((p) => p.y));
+      const maxY = Math.max(...childPositions.map((p) => p.y));
+      positions.set(agent.id, { x, y: (minY + maxY) / 2 });
     }
   }
   roots.forEach((root) => positionSubtree(root, 0));
@@ -1967,7 +1978,7 @@ function renderHierarchyAgentGraph(container, graphContext) {
     if (!parentPos || !childPos) return;
 
     const dispatched = graphContext.dispatchedAgents.has(agent.id);
-    svg += '<line x1="' + parentPos.x + '" y1="' + (parentPos.y + nodeH / 2) + '" x2="' + childPos.x + '" y2="' + (childPos.y - nodeH / 2) + '" stroke="' + (dispatched ? 'var(--accent)' : 'var(--border)') + '" stroke-width="' + (dispatched ? 2.2 : 1.2) + '"' +
+    svg += '<line x1="' + (parentPos.x + nodeW / 2) + '" y1="' + parentPos.y + '" x2="' + (childPos.x - nodeW / 2) + '" y2="' + childPos.y + '" stroke="' + (dispatched ? 'var(--accent)' : 'var(--border)') + '" stroke-width="' + (dispatched ? 2.2 : 1.2) + '"' +
       ' opacity="' + (dispatched ? 0.95 : 0.7) + '"/>';
 
     if (dispatched) {
@@ -1982,7 +1993,6 @@ function renderHierarchyAgentGraph(container, graphContext) {
     const position = positions.get(agent.id);
     if (!position) return;
     const color = getAgentGraphStatusColor(agent);
-    const nw = Math.max(70, agent.name.length * 7.5 + 20);
     const pulse = agent.status === 'running'
       ? '<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/>'
       : '';
@@ -1994,7 +2004,7 @@ function renderHierarchyAgentGraph(container, graphContext) {
     const metaParts = [statusLabel, assignedCount > 0 ? assignedCount + ' tasks' : null, childCount > 0 ? childCount + ' child' : null].filter(Boolean).join(' · ');
 
     svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + agent.id + '\")">' +
-      '<rect x="' + (position.x - nw / 2) + '" y="' + (position.y - nodeH / 2) + '" width="' + nw + '" height="' + nodeH + '" rx="8" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (agent.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</rect>' +
+      '<rect x="' + (position.x - nodeW / 2) + '" y="' + (position.y - nodeH / 2) + '" width="' + nodeW + '" height="' + nodeH + '" rx="8" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (agent.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</rect>' +
       '<text x="' + position.x + '" y="' + (position.y - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(agent.name) + '</text>' +
       '<text x="' + position.x + '" y="' + (position.y + 12) + '" text-anchor="middle" fill="' + (dispatched ? 'var(--accent)' : color) + '" font-size="8.5">' + esc(metaParts || statusLabel) + '</text>' +
       '<title>' + esc([agent.name, reason].filter(Boolean).join(' · ')) + '</title>' +
@@ -2031,7 +2041,7 @@ function renderAgentGraph() {
 
   container.innerHTML = '<div class="card" style="padding:12px;text-align:center">' +
     '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">' + graph.title + '</div>' +
-    graph.svg +
+    '<div style="max-height:420px;overflow-y:auto;overflow-x:auto;padding:4px 0">' + graph.svg + '</div>' +
     '<div style="font-size:11px;color:var(--text-secondary);margin-top:8px">' + graph.note + '</div>' +
     runInfo +
   '</div>';
@@ -2762,14 +2772,15 @@ if (['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'w
           const agentId = decodeURIComponent(agentMatch[1]);
           handleProjectFilesAgentChange(agentId);
           const sel = document.getElementById('project-files-agent');
-          if (sel) sel.value = agentId;
+          if (sel) sel.value = projectFilesAgentId || agentId;
         }
-        setTimeout(() => {
-          var panel = window.ProjectFiles;
-          if (panel && typeof panel.openFile === 'function') {
-            panel.openFile(filePath);
-          }
-        }, 500);
+        // setAgent() is synchronous; call openFile immediately.
+        // If agent is ready (has working_directory) it fetches directly.
+        // If not yet ready, pendingFile stores it and activate() will process it.
+        const panel = window.ProjectFiles;
+        if (panel && typeof panel.openFile === 'function') {
+          panel.openFile(filePath);
+        }
       }
     }
   }, 500);

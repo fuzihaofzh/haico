@@ -200,6 +200,14 @@ export function startAgentProcess(
       command = 'codex exec --json --sandbox danger-full-access --skip-git-repo-check';
     }
     useStreamJson = true;
+  } else if (lowerTool === 'cx') {
+    // cx: SOCKS5 proxy wrapper for codex. Same interface as codex.
+    if (existingSessionId) {
+      command = `cx exec resume --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check ${sessionId} -`;
+    } else {
+      command = 'cx exec --json --sandbox danger-full-access --skip-git-repo-check';
+    }
+    useStreamJson = true;
   } else if (lowerTool.startsWith('codex ')) {
     // Allow advanced users to fully customize Codex invocation via
     // command_template (e.g. "codex exec --json --sandbox workspace-write").
@@ -300,7 +308,7 @@ export function startAgentProcess(
   // Use stream-json parser only for Claude Code / Codex; other tools are
   // logged as plain text so we don't depend on their JSON schema.
   const isStreamJson = useStreamJson;
-  const isCodex = lowerTool === 'codex' || (lowerTool.startsWith('codex ') && useStreamJson);
+  const isCodex = lowerTool === 'codex' || lowerTool === 'cx' || (lowerTool.startsWith('codex ') && useStreamJson);
   const requiresCompletionSignal = isStreamJson && (
     isCodex ||
     lowerTool.startsWith('cld') ||

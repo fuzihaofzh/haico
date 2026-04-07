@@ -165,6 +165,22 @@ ${C} -X PUT ${base}/api/projects/${project.id} \\
 - Update issue status to \`in_progress\` when you start working
 - **IMPORTANT: Before marking an issue as \`done\`, you MUST first add a summary comment** via the comment API explaining: (1) what you did, (2) key results or changes made, (3) any notes or caveats. An issue with no comments from the worker is considered incomplete — the user needs to see what was accomplished. Never set status to \`done\` without leaving at least one substantive comment first.
 - **Modified files**: In your summary comment, always include a list of modified files under a \`### Modified Files\` heading. Use backtick-quoted relative paths, one per line. Example:\n  \`\`\`\n  ### Modified Files\n  - \\\`src/routes/issues.ts\\\`\n  - \\\`public/js/project.js\\\`\n  \`\`\`
+
+## 知识库使用规则（重要）
+当你准备对整个代码库做探索（例如使用 Explore subagent 扫描项目结构、梳理整体架构、理解前后端模块关系）时，必须先查询 Knowledge Base 是否已有相关探索结果，避免重复消耗 token：
+\`\`\`bash
+${C} "${base}/api/projects/${project.id}/knowledge?q=architecture"
+\`\`\`
+如果已有相关内容，直接复用该知识，不要重复整库探索。可以按需改用更具体的搜索词，例如 \`codebase\`、\`frontend\`、\`backend\`、\`workflow\`。
+
+当你完成了整库级探索后，必须立即将探索结果写入 Knowledge Base：
+\`\`\`bash
+${C} -X POST ${base}/api/projects/${project.id}/knowledge \\
+  -H "Content-Type: application/json" \\
+  -d '{"title":"代码库整体架构","content":"关键发现：文件位置、模块职责、重要函数/类、运行或构建注意事项。","tags":"architecture,codebase","importance":"high","created_by":"${agent.id}"}'
+\`\`\`
+写入要求：title 描述探索主题；content 包含关键发现（文件位置、模块职责、重要函数/类等）；tags 加上 architecture、codebase 等相关标签；importance 必须为 high，确保后续 agent 会自动获得该信息。
+
 - Add comments to issues to report progress or ask questions
 - Create new issues if you discover problems. If the new issue is a sub-task of your current issue, set \`parent_id\` to link them: \`{"title":"sub-task","parent_id":"<current-issue-id>",...}\`
 - When all child issues of a parent complete, the system automatically notifies the parent

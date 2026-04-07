@@ -22,6 +22,26 @@ var IssueRenderer = (function() {
     return (id || '').slice(0, 8);
   }
 
+  function findAgentById(id) {
+    if (!id) return null;
+    return _ctx.agents.find(function(x) { return x.id === id; }) || null;
+  }
+
+  function getControllerAgent() {
+    return _ctx.agents.find(function(x) { return !!x.is_controller; }) || null;
+  }
+
+  function getFileLinkAgentId(authorId) {
+    return findAgentById(authorId) ? authorId : '';
+  }
+
+  function resolveFileOpenAgentId(agentId) {
+    var fileAgentId = getFileLinkAgentId(agentId);
+    if (fileAgentId) return fileAgentId;
+    var controller = getControllerAgent();
+    return controller ? controller.id : '';
+  }
+
   // Generate avatar HTML: use role-based avatar for agents, fallback to identicon
   function authorAvatarHtml(authorId, size) {
     var agent = _ctx.agents.find(function(x) { return x.id === authorId; });
@@ -77,7 +97,8 @@ var IssueRenderer = (function() {
       // Match file paths: start with a known dir or contain / with a file extension
       if (/^(?:src|public|dist|test|tests|lib|config|scripts|docs|\.github)\/[\w./-]+\.\w+$/.test(path) ||
           /^[\w.-]+\/[\w./-]+\.\w+$/.test(path)) {
-        return '<code class="file-link" data-file-path="' + esc(path) + '"' + (authorId ? ' data-agent-id="' + esc(authorId) + '"' : '') + ' title="Click to preview in Files tab" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted;color:#61afef">' + esc(path) + '</code>';
+        var fileAgentId = getFileLinkAgentId(authorId);
+        return '<code class="file-link" data-file-path="' + esc(path) + '"' + (fileAgentId ? ' data-agent-id="' + esc(fileAgentId) + '"' : '') + ' title="Click to preview in Files tab" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted;color:#61afef">' + esc(path) + '</code>';
       }
       return m;
     });
@@ -541,28 +562,29 @@ var IssueRenderer = (function() {
   }
 
   function openFileInFilesTab(filePath, agentId) {
+    var targetAgentId = resolveFileOpenAgentId(agentId);
     // On project page: switch to Files tab directly
     if (typeof switchTab === 'function') {
       // Switch agent in files panel if agentId is provided
-      if (agentId && typeof handleProjectFilesAgentChange === 'function') {
-        handleProjectFilesAgentChange(agentId);
+      if (targetAgentId && typeof handleProjectFilesAgentChange === 'function') {
+        handleProjectFilesAgentChange(targetAgentId);
         var sel = document.getElementById('project-files-agent');
-        if (sel) sel.value = agentId;
+        if (sel) sel.value = targetAgentId;
       }
       switchTab('files');
-      setTimeout(function() {
-        var panel = window.ProjectFiles;
-        if (panel && typeof panel.openFile === 'function') {
-          panel.openFile(filePath);
-        }
-      }, 300);
+      // setAgent() is synchronous; call openFile immediately.
+      // If agent is ready it fetches directly; otherwise pendingFile handles retry.
+      var panel = window.ProjectFiles;
+      if (panel && typeof panel.openFile === 'function') {
+        panel.openFile(filePath);
+      }
       return;
     }
     // On dashboard/other pages: navigate to the project page's Files tab
     var projectId = _ctx.issue && _ctx.issue.project_id;
     if (projectId) {
       var url = '/projects/' + projectId + '#files?file=' + encodeURIComponent(filePath);
-      if (agentId) url += '&agent=' + encodeURIComponent(agentId);
+      if (targetAgentId) url += '&agent=' + encodeURIComponent(targetAgentId);
       window.open(url, '_blank');
     }
   }
