@@ -15,6 +15,43 @@ let _globalComposeAgentsByProject = {};
 const INBOX_ITEM_LIMIT = 20;
 let _inboxPagination = { limit: INBOX_ITEM_LIMIT, offset: 0, total: 0, hasMore: false, loading: false };
 let _inboxUnreadCount = 0;
+let _dashboardView = 'inbox';
+
+function setSidebarActive(view) {
+  document.querySelectorAll('.sidebar-nav-item').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.sidebarView === view);
+  });
+}
+
+function switchView(view) {
+  const nextView = ['inbox', 'projects', 'usage', 'settings'].includes(view) ? view : 'inbox';
+  setSidebarActive(nextView);
+
+  if (nextView === 'settings') {
+    if (typeof openDrawer === 'function') openDrawer();
+    return;
+  }
+
+  _dashboardView = nextView;
+  document.body.dataset.dashboardView = nextView;
+  if (typeof closeDrawer === 'function') closeDrawer();
+
+  if (nextView === 'inbox') {
+    loadDashboardSummary();
+    loadNotifications();
+  } else if (nextView === 'projects') {
+    loadProjects();
+    loadAgentBoard();
+    loadActivityStream();
+  } else if (nextView === 'usage') {
+    loadUsageByProject();
+    checkCostAlert();
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.switchView = switchView;
+}
 
 // Inbox issue detail caches
 const _issueDetailCache = {}; // issueId -> { data, timestamp }
