@@ -443,18 +443,20 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
             summaryBody, 'status_change',
             JSON.stringify({ all_children_complete: true, child_count: siblings.total }));
 
-          // If parent was created by user, DO NOT assign to user yet — let controller summarize first
-          if (parentIssue.created_by === 'user') {
-            db.prepare("UPDATE issues SET updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?")
+          if (parentIssue.status === 'pending' && parentIssue.created_by === 'user') {
+            eventStmt2.run(uuidv4(), updated.parent_id, 'system',
+              'changed status from pending to open (all child issues completed)', 'status_change',
+              JSON.stringify({ from: 'pending', to: 'open', all_children_complete: true }));
+            db.prepare("UPDATE issues SET status = 'open', updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?")
               .run(updated.parent_id);
-            // Trigger controller to write summary, then controller will assign to user
-            triggerControllerOnDemand(updated.project_id, parentIssue.number, actorId);
           } else {
             db.prepare("UPDATE issues SET updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?")
               .run(updated.parent_id);
-            // Trigger controller to review and close parent
-            triggerControllerOnDemand(updated.project_id, parentIssue.number, actorId);
           }
+
+          // Trigger controller to summarize/review the parent after all children complete.
+          triggerControllerOnDemand(updated.project_id, parentIssue.number, actorId);
+
           // Broadcast parent update to frontend
           const refreshedParent = db.prepare('SELECT * FROM issues WHERE id = ?').get(updated.parent_id);
           broadcastToProject(updated.project_id, {

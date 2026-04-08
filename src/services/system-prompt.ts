@@ -2,6 +2,7 @@ import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { config } from '../config';
 import { getDirectChildAgents, loadProjectHierarchyAgents } from './agent-hierarchy';
+import { resolveCommandType } from './command-profiles';
 import { markExpiredKnowledgeEntries } from './knowledge-lifecycle';
 
 const BASE_URL = () => `http://localhost:${config.port}`;
@@ -10,6 +11,7 @@ export function buildSystemPrompt(agent: Agent, project: Project): string {
   const db = getDatabase();
   const base = BASE_URL();
   const effectiveCommand = (agent.command_template || project.command_template || config.defaultCommandTemplate || '').trim().toLowerCase();
+  const effectiveCommandType = resolveCommandType(agent.command_type, effectiveCommand);
 
   const header = `# Agentopia Multi-Agent Platform — System Instructions
 
@@ -167,20 +169,28 @@ ${C} -X PUT ${base}/api/projects/${project.id} \\
 - **IMPORTANT: Before marking an issue as \`done\`, you MUST first add a summary comment** via the comment API explaining: (1) what you did, (2) key results or changes made, (3) any notes or caveats. An issue with no comments from the worker is considered incomplete — the user needs to see what was accomplished. Never set status to \`done\` without leaving at least one substantive comment first.
 - **Modified files**: In your summary comment, always include a list of modified files under a \`### Modified Files\` heading. Use backtick-quoted relative paths, one per line. Example:\n  \`\`\`\n  ### Modified Files\n  - \\\`src/routes/issues.ts\\\`\n  - \\\`public/js/project.js\\\`\n  \`\`\`
 
-## 知识库使用规则（重要）
-当你准备对整个代码库做探索（例如使用 Explore subagent 扫描项目结构、梳理整体架构、理解前后端模块关系）时，必须先查询 Knowledge Base 是否已有相关探索结果，避免重复消耗 token：
-\`\`\`bash
-${C} "${base}/api/projects/${project.id}/knowledge?q=architecture"
-\`\`\`
-如果已有相关内容，直接复用该知识，不要重复整库探索。可以按需改用更具体的搜索词，例如 \`codebase\`、\`frontend\`、\`backend\`、\`workflow\`。
+## 知识库使用规则（重要 — 违反将浪费大量 token）
 
-当你完成了整库级探索后，必须立即将探索结果写入 Knowledge Base：
+### 规则 1：读代码前先查知识库
+在你准备读取源文件（\`cat\`/\`sed\`/\`head\` 等）或对代码库做探索（Explore subagent、\`rg\` 全局搜索）之前，**必须先查询 Knowledge Base**，看是否已有该文件/模块的描述：
+\`\`\`bash
+${C} "${base}/api/projects/${project.id}/knowledge?q=你要了解的模块或文件名"
+\`\`\`
+例如要读 \`auth.ts\`，先查 \`?q=auth\`；要了解前端布局，先查 \`?q=frontend+layout\`。
+- **如果 KB 已有足够信息**：直接复用，不要再读文件。
+- **如果 KB 信息不足或缺失**：再去读代码，读完后 **必须将关键发现写回 KB**（见规则 2）。
+
+### 规则 2：读完代码后写回知识库
+当你读取了源文件并获得了对模块/文件的理解后，必须立即将结果写入 Knowledge Base，让其他 agent 不再需要重复读取：
 \`\`\`bash
 ${C} -X POST ${base}/api/projects/${project.id}/knowledge \\
   -H "Content-Type: application/json" \\
-  -d '{"title":"代码库整体架构","content":"关键发现：文件位置、模块职责、重要函数/类、运行或构建注意事项。","tags":"architecture,codebase","importance":"high","category":"architecture","created_by":"${agent.id}"}'
+  -d '{"title":"文件/模块名称及用途","content":"关键发现：文件结构、核心函数/类、对外接口、重要逻辑。","tags":"code,模块名","importance":"high","category":"code","created_by":"${agent.id}"}'
 \`\`\`
-写入要求：title 描述探索主题；content 包含关键发现（文件位置、模块职责、重要函数/类等）；tags 加上 architecture、codebase 等相关标签；importance 必须为 high，确保后续 agent 会自动获得该信息。
+写入要求：title 包含文件路径或模块名；content 包含关键发现（核心函数、对外接口、重要逻辑等）；tags 加上 code 和模块名；importance 设为 high 确保后续 agent 自动获得。
+
+### 规则 3：整库级探索
+对整个代码库做架构级探索前，先查 \`?q=architecture\` 或 \`?q=codebase\`。如果已有相关内容直接复用。探索后必须写回 KB。
 
 - Add comments to issues to report progress or ask questions
 - Create new issues if you discover problems. If the new issue is a sub-task of your current issue, set \`parent_id\` to link them: \`{"title":"sub-task","parent_id":"<current-issue-id>",...}\`
@@ -306,7 +316,7 @@ ${C} "${base}/api/agents/${agent.id}/messages?status=unread"
 ${C} -X PUT ${base}/api/agents/${agent.id}/messages/{message_id}
 \`\`\``;
 
-  const toolExecutionSection = effectiveCommand.startsWith('codex')
+  const toolExecutionSection = effectiveCommandType === 'codex'
     ? `
 ## Codex 执行约束
 - 对于需要持续运行、后续还要继续交互的命令，第一次就必须使用带 \`tty: true\` 的交互会话。典型例子：dev server、\`tail -f\`、\`watch\`、REPL、\`ssh\`、\`sqlite3\` 交互模式、\`google-chrome --headless --remote-debugging-port=...\`。

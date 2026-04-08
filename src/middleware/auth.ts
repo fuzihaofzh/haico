@@ -93,6 +93,7 @@ const LOCALHOST_SAFE_PREFIXES = [
   '/api/projects',   // project CRUD and sub-resources (issues, agents, etc.)
   '/api/issues/',    // issue CRUD + comments
   '/api/agents/',    // agent status/logs (GET), start/stop (POST)
+  '/api/command-profiles',
   '/api/comments/',  // comment editing
   '/api/milestones', // milestone CRUD
   '/api/notifications',
@@ -453,7 +454,7 @@ export function setupAuth(app: FastifyInstance): void {
   }
 
   // Setup page
-  app.get('/setup', async (_req, reply) => {
+  app.get('/setup', { compress: false }, async (_req, reply) => {
     if (authConfig.passwordHash) return reply.redirect('/login');
     reply.type('text/html').send(SETUP_HTML);
   });
@@ -472,12 +473,12 @@ export function setupAuth(app: FastifyInstance): void {
   });
 
   // Register page
-  app.get('/register', async (_req, reply) => {
+  app.get('/register', { compress: false }, async (_req, reply) => {
     reply.type('text/html').send(REGISTER_HTML);
   });
 
   // Login page
-  app.get('/login', async (_req, reply) => {
+  app.get('/login', { compress: false }, async (_req, reply) => {
     if (!authConfig.passwordHash) {
       // Check if multi-user mode has users
       let hasUsers = false;
@@ -509,7 +510,7 @@ export function setupAuth(app: FastifyInstance): void {
   });
 
   // Change password page
-  app.get('/change-password', async (_req, reply) => {
+  app.get('/change-password', { compress: false }, async (_req, reply) => {
     reply.type('text/html').send(CHANGE_PASSWORD_HTML);
   });
 

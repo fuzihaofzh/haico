@@ -15,7 +15,18 @@ let _globalComposeAgentsByProject = {};
 const INBOX_ITEM_LIMIT = 20;
 let _inboxPagination = { limit: INBOX_ITEM_LIMIT, offset: 0, total: 0, hasMore: false, loading: false };
 let _inboxUnreadCount = 0;
-let _dashboardView = 'inbox';
+const DASHBOARD_NAV_VIEWS = new Set(['inbox', 'projects', 'usage', 'settings']);
+
+function normalizeDashboardView(view) {
+  return DASHBOARD_NAV_VIEWS.has(view) ? view : 'inbox';
+}
+
+function getInitialDashboardView() {
+  const params = new URLSearchParams(window.location.search);
+  return normalizeDashboardView(params.get('view'));
+}
+
+let _dashboardView = getInitialDashboardView();
 
 function setSidebarActive(view) {
   document.querySelectorAll('.sidebar-nav-item').forEach((btn) => {
@@ -23,17 +34,23 @@ function setSidebarActive(view) {
   });
 }
 
-function switchView(view) {
-  const nextView = ['inbox', 'projects', 'usage', 'settings'].includes(view) ? view : 'inbox';
-  setSidebarActive(nextView);
+function applyDashboardViewState(view) {
+  setSidebarActive(view);
+  document.body.dataset.dashboardView = view;
+}
 
-  if (nextView === 'settings') {
-    if (typeof openDrawer === 'function') openDrawer();
-    return;
-  }
+function updateDashboardViewUrl(view) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', view);
+  window.history.replaceState({}, '', url);
+}
+
+function switchView(view) {
+  const nextView = normalizeDashboardView(view);
 
   _dashboardView = nextView;
-  document.body.dataset.dashboardView = nextView;
+  applyDashboardViewState(nextView);
+  updateDashboardViewUrl(nextView);
   if (typeof closeDrawer === 'function') closeDrawer();
 
   if (nextView === 'inbox') {
@@ -46,6 +63,10 @@ function switchView(view) {
   } else if (nextView === 'usage') {
     loadUsageByProject();
     checkCostAlert();
+  } else if (nextView === 'settings') {
+    if (window.AgentopiaCommandProfiles && typeof window.AgentopiaCommandProfiles.ensureLoaded === 'function') {
+      window.AgentopiaCommandProfiles.ensureLoaded();
+    }
   }
 }
 
@@ -1049,21 +1070,79 @@ function hideModal(id) {
   if (modal) modal.classList.remove('active');
 }
 
-function showCreateModal() { document.getElementById('createModal').classList.add('active'); }
+function getCreateProjectCommandProfileManager() {
+  return window.AgentopiaCommandProfiles || null;
+}
+
+async function hydrateCreateProjectCommandProfileControls() {
+  const select = document.getElementById('proj-cmd-profile');
+  const hiddenInput = document.getElementById('proj-cmd');
+  const preview = document.getElementById('proj-cmd-preview');
+  if (!select || !hiddenInput) return;
+
+  const manager = getCreateProjectCommandProfileManager();
+  if (!manager) {
+    select.innerHTML = '<option value="">Command profiles unavailable</option>';
+    select.disabled = true;
+    hiddenInput.value = '';
+    if (preview) preview.textContent = 'Open Settings and configure a command profile first.';
+    return;
+  }
+
+  await manager.ensureLoaded();
+  manager.populateSelect(select, {
+    includeProjectDefault: false,
+    includeCustom: false,
+    emptyLabel: 'No command profiles configured - open Settings first',
+  });
+
+  const profiles = manager.getProfiles();
+  select.disabled = profiles.length === 0;
+  if (profiles.length > 0 && !manager.getById(select.value)) {
+    select.value = profiles[0].id;
+  }
+  handleCreateProjectCommandProfileChange();
+}
+
+function handleCreateProjectCommandProfileChange() {
+  const select = document.getElementById('proj-cmd-profile');
+  const hiddenInput = document.getElementById('proj-cmd');
+  const preview = document.getElementById('proj-cmd-preview');
+  if (!select || !hiddenInput) return;
+
+  const manager = getCreateProjectCommandProfileManager();
+  const selectedProfile = manager?.getById(select.value) || null;
+  hiddenInput.value = selectedProfile?.command || '';
+  if (preview) {
+    preview.textContent = selectedProfile
+      ? `Command: ${selectedProfile.command} (${selectedProfile.type})`
+      : 'No command profiles configured. Open Settings and add a tool first.';
+  }
+}
+
+function showCreateModal() {
+  document.getElementById('createModal').classList.add('active');
+  hydrateCreateProjectCommandProfileControls().catch((error) => {
+    console.error('Failed to load project command profile controls', error);
+  });
+}
 function hideCreateModal() { document.getElementById('createModal').classList.remove('active'); }
 
 async function createProject() {
   const btn = document.querySelector('#createModal button[onclick="createProject()"]');
   await withLoading(btn, async () => {
     const task = document.getElementById('proj-task').value.trim();
-    const toolPath = document.getElementById('proj-cmd').value.trim() || 'cld';
+    const commandProfileManager = getCreateProjectCommandProfileManager();
+    const selectedProfile = commandProfileManager?.getById(document.getElementById('proj-cmd-profile')?.value || '') || null;
+    const toolPath = selectedProfile?.command || document.getElementById('proj-cmd').value.trim();
     if (!task) { showToast('Please describe the task to execute', 'error'); return; }
+    if (!selectedProfile || !toolPath) { showToast('Please configure and select a command profile in Settings first', 'error'); return; }
 
     // Step 1: Call AI to generate project metadata
     btn.textContent = 'Generating...';
     const genRes = await fetch('/api/generate-project', {
       method: 'POST', headers: apiHeaders(),
-      body: JSON.stringify({ description: task, tool_path: toolPath }),
+      body: JSON.stringify({ description: task, tool_path: toolPath, command_type: selectedProfile.type }),
     });
 
     let name, description, taskDesc, workDir, ctrlRole;
@@ -1088,6 +1167,7 @@ async function createProject() {
       description,
       task_description: taskDesc,
       command_template: toolPath,
+      command_type: selectedProfile.type,
       working_directory: workDir,
       controller_role: ctrlRole,
     };
@@ -1288,6 +1368,7 @@ async function loadDashboard() {
   populateActivityProjectFilter();
 }
 
+applyDashboardViewState(_dashboardView);
 loadDashboard();
 
 // ─── Inbox resizer drag logic ───
@@ -1349,6 +1430,11 @@ setInterval(async () => {
 }, 30000);
 setInterval(() => { loadUsageByProject(); checkCostAlert(); }, 60000);
 window.addEventListener('agentopia:user-ready', () => { loadProjects(); populateActivityProjectFilter(); });
+window.addEventListener('agentopia:command-profiles-changed', () => {
+  hydrateCreateProjectCommandProfileControls().catch((error) => {
+    console.error('Failed to refresh project command profile controls', error);
+  });
+});
 
 // ─── Floating Issue Panel ───
 

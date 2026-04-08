@@ -9,6 +9,7 @@ import { Project, CreateProjectInput, Agent, OrchestratorEngine, ProjectMember }
 import { stopAgentProcess, isAgentRunning } from '../services/process-manager';
 import { config } from '../config';
 import { isLegacyAuthUser } from '../middleware/auth';
+import { buildControllerCommandConfig, resolveCommandType } from '../services/command-profiles';
 import {
   ensureProjectAccess,
   getProjectPermission,
@@ -407,8 +408,8 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
   });
 
   // Generate project metadata from user description using AI
-  fastify.post<{ Body: { description: string; tool_path: string } }>('/api/generate-project', async (request, reply) => {
-    const { description, tool_path } = request.body;
+  fastify.post<{ Body: { description: string; tool_path: string; command_type?: string | null } }>('/api/generate-project', async (request, reply) => {
+    const { description, tool_path, command_type } = request.body;
     if (!description) return reply.code(400).send({ error: 'description is required' });
 
     const tool = (tool_path || config.defaultCommandTemplate || '').trim() || 'cld';
@@ -427,19 +428,21 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
     try {
       const lowerTool = tool.toLowerCase();
+      const resolvedCommandType = resolveCommandType(command_type, tool);
+      const toolBinary = tool.split(/\s+/).filter(Boolean)[0] || tool;
       let cmd: string;
 
-      if (lowerTool.startsWith('cld') || lowerTool.startsWith('claude')) {
+      if (resolvedCommandType === 'claude') {
         // Claude Code / cld — keep existing non-interactive print mode
         cmd = `${tool} -p`;
       } else if (lowerTool.startsWith('gemini')) {
         // Gemini CLI — use text output mode with -p prompt flag
         cmd = `${tool} --output-format text -p`;
-      } else if (lowerTool.startsWith('codex')) {
+      } else if (resolvedCommandType === 'codex') {
         // Codex CLI — non-interactive exec. We avoid --json here to keep
         // output as plain text so that JSON extraction via regex still works.
         // PROMPT is read from stdin when '-' is used.
-        cmd = 'codex exec --sandbox workspace-write --skip-git-repo-check -';
+        cmd = `${toolBinary} exec --sandbox workspace-write --skip-git-repo-check -`;
       } else {
         // Fallback: run the tool as-is, reading prompt from stdin
         cmd = tool;
@@ -752,7 +755,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
   // Create project
   fastify.post<{ Body: CreateProjectInput }>('/api/projects', async (request, reply) => {
-    const { name, description, task_description, command_template, orchestrator_engine, working_directory, controller_role } = request.body as any;
+    const { name, description, task_description, command_template, command_type, orchestrator_engine, working_directory, controller_role } = request.body as any;
 
     if (!task_description) {
       return reply.code(400).send({ error: 'task_description is required' });
@@ -761,6 +764,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const db = getDatabase();
     const id = uuidv4();
     const tmpl = command_template || config.defaultCommandTemplate;
+    const resolvedCommandType = resolveCommandType(command_type, tmpl);
     const orchestratorEngine = normalizeOrchestratorEngine(orchestrator_engine);
     const { user } = getProjectRequestContext(request);
     const ownerId = user && !isLegacyAuthUser(user) ? user.id : null;
@@ -770,9 +774,9 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     }
 
     db.prepare(`
-      INSERT INTO projects (id, name, description, task_description, command_template, orchestrator_engine, owner_id, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
-    `).run(id, name, description || '', task_description, tmpl, orchestratorEngine || config.defaultOrchestratorEngine, ownerId);
+      INSERT INTO projects (id, name, description, task_description, command_template, command_type, orchestrator_engine, owner_id, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+    `).run(id, name, description || '', task_description, tmpl, resolvedCommandType, orchestratorEngine || config.defaultOrchestratorEngine, ownerId);
 
     if (ownerId) {
       db.prepare(`
@@ -785,11 +789,19 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     // Create default controller agent (with Sonnet model for cost efficiency)
     const controllerId = uuidv4();
     const ctrlRole = controller_role || 'Main controller agent that manages and coordinates other agents';
-    const ctrlCommandTemplate = `${tmpl} --model claude-sonnet-4-6`;
+    const ctrlCommandConfig = buildControllerCommandConfig({ commandTemplate: tmpl, commandType: resolvedCommandType });
     db.prepare(`
-      INSERT INTO agents (id, project_id, name, role, is_controller, working_directory, command_template, status)
-      VALUES (?, ?, ?, ?, 1, ?, ?, 'idle')
-    `).run(controllerId, id, `${name || 'project'}-controller`, ctrlRole, working_directory || null, ctrlCommandTemplate);
+      INSERT INTO agents (id, project_id, name, role, is_controller, working_directory, command_template, command_type, status)
+      VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'idle')
+    `).run(
+      controllerId,
+      id,
+      `${name || 'project'}-controller`,
+      ctrlRole,
+      working_directory || null,
+      ctrlCommandConfig.commandTemplate,
+      ctrlCommandConfig.commandType
+    );
 
     // Create default assistant agent
     const assistantId = uuidv4();
@@ -821,7 +833,15 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id) as Project | undefined;
     if (!existing) return reply.code(404).send({ error: 'Project not found' });
 
-    const { name, description, task_description, command_template, orchestrator_engine, status, color } = request.body as any;
+    const { name, description, task_description, command_template, command_type, orchestrator_engine, status, color } = request.body as any;
+    const hasCommandTemplate = Object.prototype.hasOwnProperty.call(request.body || {}, 'command_template');
+    const hasCommandType = Object.prototype.hasOwnProperty.call(request.body || {}, 'command_type');
+    const nextCommandTemplate = hasCommandTemplate
+      ? (typeof command_template === 'string' ? command_template.trim() || config.defaultCommandTemplate : config.defaultCommandTemplate)
+      : existing.command_template;
+    const nextCommandType = hasCommandType || hasCommandTemplate
+      ? resolveCommandType(hasCommandType ? command_type : existing.command_type, nextCommandTemplate)
+      : existing.command_type;
 
     const orchestratorEngine = normalizeOrchestratorEngine(orchestrator_engine);
     if (orchestrator_engine !== undefined && orchestratorEngine === null) {
@@ -834,6 +854,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
         description = COALESCE(?, description),
         task_description = COALESCE(?, task_description),
         command_template = COALESCE(?, command_template),
+        command_type = COALESCE(?, command_type),
         orchestrator_engine = COALESCE(?, orchestrator_engine),
         status = COALESCE(?, status),
         color = COALESCE(?, color),
@@ -841,7 +862,8 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       WHERE id = ?
     `).run(
       name ?? null, description ?? null, task_description ?? null,
-      command_template ?? null, orchestratorEngine ?? null,
+      hasCommandTemplate ? nextCommandTemplate : null, (hasCommandType || hasCommandTemplate) ? nextCommandType : null,
+      orchestratorEngine ?? null,
       status ?? null, color ?? null,
       request.params.id
     );

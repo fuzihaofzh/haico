@@ -42,6 +42,7 @@
               </button>
             </label>
           </div>
+          <div data-command-profiles-root></div>
         </div>
       </div>
       <div class="drawer-section">
@@ -88,6 +89,20 @@
         <div style="display:flex;gap:8px;align-items:center">
           <input type="text" id="agent-workdir" style="flex:1;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px;font-family:monospace" placeholder="(default: server cwd)">
           <button class="btn btn-sm btn-primary" onclick="saveWorkdir()">Save</button>
+        </div>
+      </div>
+
+      <div class="mt-16">
+        <label style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:6px;display:block">Tool Path</label>
+        <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px">
+            <select id="agent-command-profile" onchange="handleTerminalCommandProfileChange()" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px">
+              <option value="">Use project default</option>
+            </select>
+            <input type="hidden" id="agent-command-template">
+            <div id="agent-command-template-preview" style="font-size:11px;color:var(--text-secondary);opacity:0.7;margin-top:4px">Choose a saved CLI preset or keep the project default.</div>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="saveCommandConfig()">Save</button>
         </div>
       </div>
 
@@ -207,6 +222,7 @@
   </div>
 
   <script src="/public/js/common.js?v=2"></script>
+  <script src="/public/js/command-profiles.js?v=3"></script>
   <script src="/public/vendor/xterm.js"></script>
   <script src="/public/vendor/xterm-addon-fit.js"></script>
   <script src="/public/js/terminal.js"></script>

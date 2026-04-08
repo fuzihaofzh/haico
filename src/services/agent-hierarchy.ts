@@ -73,6 +73,10 @@ export function canMessageDirectHierarchyOnly(
   fromAgent: Pick<Agent, 'id' | 'project_id' | 'is_controller' | 'parent_agent_id'>,
   toAgentId: string
 ): boolean {
+  if (fromAgent.id === toAgentId) {
+    return true;
+  }
+
   if (fromAgent.is_controller || !fromAgent.parent_agent_id) {
     return true;
   }

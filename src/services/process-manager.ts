@@ -4,8 +4,9 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { getDatabase, isDatabaseOpen } from '../db/database';
-import { Agent } from '../types';
+import { Agent, Project } from '../types';
 import { broadcastToAgent, broadcastToProject } from './websocket';
+import { resolveCommandType } from './command-profiles';
 import logger from '../logger';
 
 const runningProcesses = new Map<string, ChildProcess>();
@@ -26,6 +27,12 @@ interface CpuSnapshot {
 }
 const childCpuSnapshots = new Map<string, CpuSnapshot>();
 const CPU_STALE_THRESHOLD = 3; // 3 consecutive unchanged scans (= 15 min at 5-min interval) → stuck
+
+// Codex-mini pricing (USD per token) — used to estimate cost when Codex CLI
+// doesn't report cost_usd in turn.completed events.
+const CODEX_INPUT_PRICE  = 1.50 / 1_000_000;
+const CODEX_OUTPUT_PRICE = 6.00 / 1_000_000;
+const CODEX_CACHED_PRICE = 0.375 / 1_000_000;
 
 // Track API connection errors for auto-retry
 const agentApiConnectErrorCount = new Map<string, number>();
@@ -48,6 +55,33 @@ const INTRA_LOW_OUTPUT_CHAR_LIMIT = 200;   // assistant text below this = "low o
 const TOOL_INPUT_LOG_CHAR_LIMIT = 4000;    // large enough for expandable UI without storing unbounded payloads
 const RESUME_MISSING_FILE_RE = /no such file or directory/i;
 const CLOSED_STDIN_SESSION_RE = /stdin is closed for this session|write_stdin failed/i;
+
+function resolveProcessCommandConfig(
+  db: ReturnType<typeof getDatabase>,
+  agent: Agent,
+  commandTemplate: string
+): { commandTemplate: string; commandType: ReturnType<typeof resolveCommandType> } {
+  const normalizedCommandTemplate = commandTemplate.trim() || 'claude';
+  let inheritedProjectCommandType: Project['command_type'] | null = null;
+
+  if (!agent.command_type && agent.project_id) {
+    const project = db.prepare('SELECT command_template, command_type FROM projects WHERE id = ?').get(agent.project_id) as
+      | Pick<Project, 'command_template' | 'command_type'>
+      | undefined;
+    const projectCommandTemplate = String(project?.command_template || '').trim();
+    const agentUsesProjectDefault = !String(agent.command_template || '').trim()
+      || (!!projectCommandTemplate && projectCommandTemplate === normalizedCommandTemplate);
+
+    if (agentUsesProjectDefault) {
+      inheritedProjectCommandType = project?.command_type || null;
+    }
+  }
+
+  return {
+    commandTemplate: normalizedCommandTemplate,
+    commandType: resolveCommandType(agent.command_type || inheritedProjectCommandType, normalizedCommandTemplate),
+  };
+}
 
 function writePromptFile(runId: string, prompt: string): string {
   if (!fs.existsSync(PROMPT_DIR)) fs.mkdirSync(PROMPT_DIR, { recursive: true });
@@ -127,13 +161,22 @@ export function startAgentProcess(
   // "codex", "gemini"). For Claude Code / Codex / Gemini we append
   // appropriate flags so they behave like non-interactive agents; for other
   // CLIs we run the template as-is.
-  const toolPath = commandTemplate.trim() || 'claude';
+  const commandConfig = resolveProcessCommandConfig(db, agent, commandTemplate);
+  const toolPath = commandConfig.commandTemplate;
+  const resolvedCommandType = commandConfig.commandType;
   // Session strategy: time-based timeout → cache token (preferred) → run count (fallback)
   const resumeTimeout = (agent as any).session_resume_timeout ?? 300; // default 5 minutes
   const maxTokens = (agent as any).session_max_tokens || 400000;
   const maxRuns = (agent as any).session_max_runs || 10;
   const runCount = ((agent as any).session_run_count || 0) + 1;
+  const newSessionPerRun = !!(agent as any).new_session_per_run;
   let shouldReset = false;
+
+  // Forced new session per run
+  if (newSessionPerRun) {
+    shouldReset = true;
+    logger.info(`Agent ${agent.id} new_session_per_run=true, starting new session`);
+  }
 
   // Time-based reset: if last session ended more than resumeTimeout seconds ago, start fresh
   if (resumeTimeout > 0 && agent.session_id && agent.finished_at) {
@@ -184,38 +227,24 @@ export function startAgentProcess(
   let command: string;
   let useStreamJson = false;
 
-  if (lowerTool.startsWith('cld') || lowerTool.startsWith('claude')) {
+  if (resolvedCommandType === 'claude') {
     const sessionFlag = existingSessionId ? `--resume ${sessionId}` : `--session-id ${sessionId}`;
     command = `${toolPath} -p --output-format stream-json --verbose ${sessionFlag} --dangerously-skip-permissions --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"`;
     useStreamJson = true;
-  } else if (lowerTool === 'codex') {
-    // Codex CLI: non-interactive exec mode with JSONL output.
-    // Support resume like Claude: use existing session's thread_id to resume,
-    // otherwise start a new session. The resume subcommand uses
-    // --dangerously-bypass-approvals-and-sandbox instead of --sandbox.
-    if (existingSessionId) {
-      // Resume: prompt is read from stdin (using -)
-      command = `codex exec resume --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check ${sessionId} -`;
+  } else if (resolvedCommandType === 'codex') {
+    const hasExplicitExec = /\bexec\b/.test(lowerTool);
+    if (hasExplicitExec) {
+      // Fully customized Codex command; respect the template as-is.
+      command = toolPath;
+      useStreamJson = toolPath.includes('--json');
+    } else if (existingSessionId) {
+      command = `${toolPath} exec resume --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check ${sessionId} -`;
+      useStreamJson = true;
     } else {
-      command = 'codex exec --json --sandbox danger-full-access --skip-git-repo-check';
+      command = `${toolPath} exec --json --sandbox danger-full-access --skip-git-repo-check`;
+      useStreamJson = true;
     }
-    useStreamJson = true;
-  } else if (lowerTool === 'cx') {
-    // cx: SOCKS5 proxy wrapper for codex. Same interface as codex.
-    if (existingSessionId) {
-      command = `cx exec resume --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check ${sessionId} -`;
-    } else {
-      command = 'cx exec --json --sandbox danger-full-access --skip-git-repo-check';
-    }
-    useStreamJson = true;
-  } else if (lowerTool.startsWith('codex ')) {
-    // Allow advanced users to fully customize Codex invocation via
-    // command_template (e.g. "codex exec --json --sandbox workspace-write").
-    // We respect their flags and only enable JSON parsing if --json is
-    // explicitly requested.
-    command = toolPath;
-    useStreamJson = toolPath.includes('--json');
-  } else if (lowerTool.startsWith('gemini')) {
+  } else if (resolvedCommandType === 'gemini') {
     // Gemini CLI: use stream-json output and sandboxed auto-approval so
     // long-running agents can operate with minimal friction.
     command = `${toolPath} --output-format stream-json --sandbox --approval-mode yolo`;
@@ -308,12 +337,11 @@ export function startAgentProcess(
   // Use stream-json parser only for Claude Code / Codex; other tools are
   // logged as plain text so we don't depend on their JSON schema.
   const isStreamJson = useStreamJson;
-  const isCodex = lowerTool === 'codex' || lowerTool === 'cx' || (lowerTool.startsWith('codex ') && useStreamJson);
+  const isCodex = resolvedCommandType === 'codex' && isStreamJson;
   const requiresCompletionSignal = isStreamJson && (
     isCodex ||
-    lowerTool.startsWith('cld') ||
-    lowerTool.startsWith('claude') ||
-    lowerTool.startsWith('gemini')
+    resolvedCommandType === 'claude' ||
+    resolvedCommandType === 'gemini'
   );
   let stdoutBuffer = '';
   let sawStdout = false;
@@ -373,8 +401,10 @@ export function startAgentProcess(
           const cacheRead = obj.usage.cached_input_tokens || 0;
           // Codex doesn't report cache_creation separately; estimate as input - cached
           const cacheCreation = Math.max(0, input - cacheRead);
-          // Try to extract real cost from Codex event (may be at top-level or nested in usage)
-          const costUsd = obj.cost_usd || obj.total_cost_usd || obj.usage?.cost_usd || obj.usage?.cost || 0;
+          // Try to extract real cost from Codex event; fall back to estimate from token counts
+          const reportedCost = obj.cost_usd || obj.total_cost_usd || obj.usage?.cost_usd || obj.usage?.cost || 0;
+          const costUsd = reportedCost > 0 ? reportedCost
+            : (cacheRead * CODEX_CACHED_PRICE + cacheCreation * CODEX_INPUT_PRICE + output * CODEX_OUTPUT_PRICE);
           const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
           const costLabel = costUsd > 0 ? ` | Cost: $${costUsd.toFixed(4)}` : '';
           logAndBroadcast(`\n--- [${now}] Tokens: ${input} in, ${output} out, ${cacheRead} cache${costLabel} ---\n`, 'stdout');

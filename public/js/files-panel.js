@@ -449,7 +449,7 @@
 
     async openFile(filePath) {
       if (!this.state.agent?.working_directory || !this.getAgentId()) {
-        // agent 尚未就绪，暂存待打开文件，等 activate() 完成后自动打开
+        // Agent is not ready yet; keep this file pending until activate() completes.
         this.state.pendingFile = filePath;
         return;
       }

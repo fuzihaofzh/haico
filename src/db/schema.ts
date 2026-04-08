@@ -1,6 +1,11 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import logger from '../logger';
+import {
+  buildControllerCommandConfig,
+  detectCommandTypeFromCommand,
+  resolveCommandType,
+} from '../services/command-profiles';
 
 export function initializeDatabase(db: Database.Database): void {
   db.pragma('journal_mode = WAL');
@@ -12,12 +17,22 @@ export function initializeDatabase(db: Database.Database): void {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS command_profiles (
+      id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+      name TEXT NOT NULL,
+      command TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'claude' CHECK(type IN ('claude', 'codex', 'gemini')),
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
       task_description TEXT NOT NULL,
       command_template TEXT DEFAULT 'cld',
+      command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
       orchestrator_engine TEXT DEFAULT 'langgraph' CHECK(orchestrator_engine IN ('native', 'langgraph')),
       schedule_hours TEXT DEFAULT '',
       status TEXT DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed')),
@@ -43,6 +58,7 @@ export function initializeDatabase(db: Database.Database): void {
       session_max_tokens INTEGER DEFAULT 400000,
       session_resume_timeout INTEGER DEFAULT 300,
       command_template TEXT DEFAULT NULL,
+      command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
       status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error')),
       paused BOOLEAN DEFAULT 0,
       pid INTEGER,
@@ -127,6 +143,7 @@ export function initializeDatabase(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_agents_project ON agents(project_id);
     CREATE INDEX IF NOT EXISTS idx_agents_parent ON agents(parent_agent_id);
+    CREATE INDEX IF NOT EXISTS idx_command_profiles_name ON command_profiles(name);
     CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
     CREATE INDEX IF NOT EXISTS idx_issues_assigned ON issues(assigned_to, status);
     CREATE INDEX IF NOT EXISTS idx_issue_comments ON issue_comments(issue_id);
@@ -303,15 +320,36 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: added command_template column to agents table');
   }
 
+  // Migration: add command_type column to agents if missing
+  if (!cols.find((c: any) => c.name === 'command_type')) {
+    db.exec("ALTER TABLE agents ADD COLUMN command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini'))");
+    logger.info('Migration: added command_type column to agents table');
+  }
+
+  const agentsMissingCommandType = db.prepare(
+    'SELECT id, command_template FROM agents WHERE command_type IS NULL AND command_template IS NOT NULL'
+  ).all() as Array<{ id: string; command_template: string | null }>;
+  if (agentsMissingCommandType.length > 0) {
+    const updateAgentCommandType = db.prepare('UPDATE agents SET command_type = ? WHERE id = ?');
+    let backfilledCommandTypeCount = 0;
+    for (const agent of agentsMissingCommandType) {
+      const detectedType = detectCommandTypeFromCommand(agent.command_template);
+      if (!detectedType) continue;
+      updateAgentCommandType.run(detectedType, agent.id);
+      backfilledCommandTypeCount += 1;
+    }
+    if (backfilledCommandTypeCount > 0) {
+      logger.info(`Migration: backfilled command_type for ${backfilledCommandTypeCount} agent(s)`);
+    }
+  }
+
   // Migration: add parent_agent_id column to agents if missing
   if (!cols.find((c: any) => c.name === 'parent_agent_id')) {
     db.exec("ALTER TABLE agents ADD COLUMN parent_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL");
     db.exec("CREATE INDEX IF NOT EXISTS idx_agents_parent ON agents(parent_agent_id)");
     logger.info('Migration: added parent_agent_id column to agents table');
-  }
 
-  // Migration: fix orphan agents — non-controller agents with no parent should be assigned to their project's controller
-  {
+    // One-time backfill for databases that predate explicit hierarchy support.
     const orphanFixed = db.prepare(`
       UPDATE agents SET parent_agent_id = (
         SELECT c.id FROM agents c WHERE c.project_id = agents.project_id AND c.is_controller = 1 LIMIT 1
@@ -338,6 +376,27 @@ export function initializeDatabase(db: Database.Database): void {
   if (!projectCols.find((c: any) => c.name === 'color')) {
     db.exec("ALTER TABLE projects ADD COLUMN color TEXT DEFAULT '#4A90E2'");
     logger.info('Migration: added color column to projects table');
+  }
+  if (!projectCols.find((c: any) => c.name === 'command_type')) {
+    db.exec("ALTER TABLE projects ADD COLUMN command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini'))");
+    logger.info('Migration: added command_type column to projects table');
+  }
+
+  const projectsMissingCommandType = db.prepare(
+    'SELECT id, command_template FROM projects WHERE command_type IS NULL AND command_template IS NOT NULL'
+  ).all() as Array<{ id: string; command_template: string | null }>;
+  if (projectsMissingCommandType.length > 0) {
+    const updateProjectCommandType = db.prepare('UPDATE projects SET command_type = ? WHERE id = ?');
+    let backfilledProjectCommandTypeCount = 0;
+    for (const project of projectsMissingCommandType) {
+      const detectedType = detectCommandTypeFromCommand(project.command_template);
+      if (!detectedType) continue;
+      updateProjectCommandType.run(detectedType, project.id);
+      backfilledProjectCommandTypeCount += 1;
+    }
+    if (backfilledProjectCommandTypeCount > 0) {
+      logger.info(`Migration: backfilled command_type for ${backfilledProjectCommandTypeCount} project(s)`);
+    }
   }
 
   db.exec(`
@@ -511,9 +570,30 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: rebuilt issue_comments table to fix FK references');
   }
 
-  // Migration: fix agents CHECK constraint to include 'waiting' status
+  const commandProfilesTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='command_profiles'").get() as any;
+  if (commandProfilesTableSql && !commandProfilesTableSql.sql.includes("'gemini'")) {
+    db.exec(`
+      ALTER TABLE command_profiles RENAME TO command_profiles_old;
+      CREATE TABLE command_profiles (
+        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+        name TEXT NOT NULL,
+        command TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'claude' CHECK(type IN ('claude', 'codex', 'gemini')),
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      INSERT INTO command_profiles (id, name, command, type, created_at, updated_at)
+      SELECT id, name, command, type, created_at, updated_at
+      FROM command_profiles_old;
+      DROP TABLE command_profiles_old;
+      CREATE INDEX IF NOT EXISTS idx_command_profiles_name ON command_profiles(name);
+    `);
+    logger.info('Migration: rebuilt command_profiles table to include gemini type');
+  }
+
+  // Migration: fix agents CHECK constraint to include 'waiting' status and expanded command_type values
   const agentsTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agents'").get() as any;
-  if (agentsTableSql && !agentsTableSql.sql.includes("'waiting'")) {
+  if (agentsTableSql && (!agentsTableSql.sql.includes("'waiting'") || !agentsTableSql.sql.includes("'gemini'"))) {
     db.pragma('foreign_keys = OFF');
     db.exec(`
       ALTER TABLE agents RENAME TO agents_old;
@@ -534,6 +614,7 @@ export function initializeDatabase(db: Database.Database): void {
         session_max_tokens INTEGER DEFAULT 400000,
         session_resume_timeout INTEGER DEFAULT 300,
         command_template TEXT DEFAULT NULL,
+        command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
         status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error')),
         paused BOOLEAN DEFAULT 0,
         pid INTEGER,
@@ -545,13 +626,13 @@ export function initializeDatabase(db: Database.Database): void {
       INSERT INTO agents (
         id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
         custom_instructions, new_session_per_run, session_run_count, session_max_runs,
-        session_token_count, session_max_tokens, session_resume_timeout, command_template,
+        session_token_count, session_max_tokens, session_resume_timeout, command_template, command_type,
         status, paused, pid, last_prompt, started_at, finished_at, created_at
       )
       SELECT
         id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
         custom_instructions, new_session_per_run, session_run_count, session_max_runs,
-        session_token_count, session_max_tokens, session_resume_timeout, command_template,
+        session_token_count, session_max_tokens, session_resume_timeout, command_template, command_type,
         status, paused, pid, last_prompt, started_at, finished_at, created_at
       FROM agents_old;
       DROP TABLE agents_old;
@@ -559,7 +640,7 @@ export function initializeDatabase(db: Database.Database): void {
       CREATE INDEX IF NOT EXISTS idx_agents_parent ON agents(parent_agent_id);
     `);
     db.pragma('foreign_keys = ON');
-    logger.info('Migration: rebuilt agents table with waiting status in CHECK constraint');
+    logger.info('Migration: rebuilt agents table with updated status and command_type constraints');
   }
 
   // Migration: fix broken FK references after agents table rebuild
@@ -610,12 +691,48 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: rebuilt agent_memories table to fix FK references');
   }
 
-  // Migration: set default Sonnet model for controller agents without a --model flag
-  const ctrlModelUpdated = db.prepare(
-    "UPDATE agents SET command_template = COALESCE(command_template, 'cld') || ' --model claude-sonnet-4-6' WHERE is_controller = 1 AND (command_template IS NULL OR (command_template NOT LIKE '%--model%'))"
-  ).run();
-  if (ctrlModelUpdated.changes > 0) {
-    logger.info(`Migration: set default Sonnet model for ${ctrlModelUpdated.changes} controller agent(s)`);
+  // Migration: normalize controller command_type and only add Sonnet defaults for Claude controllers.
+  const controllerAgents = db.prepare(
+    'SELECT id, command_template, command_type FROM agents WHERE is_controller = 1'
+  ).all() as Array<{ id: string; command_template: string | null; command_type: string | null }>;
+  if (controllerAgents.length > 0) {
+    const updateControllerCommand = db.prepare(
+      'UPDATE agents SET command_template = ?, command_type = ? WHERE id = ?'
+    );
+    let normalizedControllerCount = 0;
+
+    for (const agent of controllerAgents) {
+      const currentCommandTemplate = agent.command_template ? agent.command_template.trim() : null;
+      const resolvedCommandType = resolveCommandType(agent.command_type, currentCommandTemplate);
+
+      if (resolvedCommandType === 'claude' || (!resolvedCommandType && !currentCommandTemplate)) {
+        const desiredCommandConfig = buildControllerCommandConfig({
+          commandTemplate: currentCommandTemplate,
+          commandType: resolvedCommandType || 'claude',
+        });
+        if (
+          desiredCommandConfig.commandTemplate !== currentCommandTemplate ||
+          desiredCommandConfig.commandType !== agent.command_type
+        ) {
+          updateControllerCommand.run(
+            desiredCommandConfig.commandTemplate,
+            desiredCommandConfig.commandType,
+            agent.id
+          );
+          normalizedControllerCount += 1;
+        }
+        continue;
+      }
+
+      if (!agent.command_type && resolvedCommandType) {
+        updateControllerCommand.run(currentCommandTemplate, resolvedCommandType, agent.id);
+        normalizedControllerCount += 1;
+      }
+    }
+
+    if (normalizedControllerCount > 0) {
+      logger.info(`Migration: normalized command config for ${normalizedControllerCount} controller agent(s)`);
+    }
   }
 
   // Migration: create FTS5 virtual table for knowledge full-text search

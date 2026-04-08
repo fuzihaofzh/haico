@@ -9,9 +9,6 @@
   <link rel="stylesheet" href="/public/vendor/katex/katex.min.css?v=0.16.11">
 </head>
 <body class="dashboard-shell" data-dashboard-view="inbox">
-  <!-- Overlay -->
-  <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
-
   <!-- Outlook-style Sidebar -->
   <nav class="vertical-sidebar" aria-label="Dashboard navigation">
     <a href="/" class="sidebar-logo" aria-label="Agentopia Dashboard">A</a>
@@ -50,54 +47,8 @@
     </button>
   </nav>
 
-  <!-- Drawer -->
-  <div class="drawer" id="drawer">
-    <div class="drawer-header">
-      <h3><span style="color:var(--accent)">Agentopia</span></h3>
-      <button class="drawer-close" onclick="closeDrawer()">&times;</button>
-    </div>
-    <div class="drawer-content">
-      <div class="drawer-section">
-        <div class="drawer-section-header">Navigation</div>
-        <a href="/" class="drawer-link">Dashboard</a>
-      </div>
-      <div class="drawer-section">
-        <div class="drawer-section-header">Settings</div>
-        <div class="settings-section">
-          <div class="setting-group">
-            <label>Theme</label>
-            <select id="theme-select" onchange="changeTheme(this.value)">
-              <option value="github-dark">GitHub Dark</option>
-              <option value="dracula">Dracula</option>
-              <option value="nord-dark">Nord Dark</option>
-              <option value="nord-light">Nord Light</option>
-              <option value="monokai">Monokai</option>
-              <option value="solarized-dark">Solarized Dark</option>
-              <option value="solarized-light">Solarized Light</option>
-            </select>
-          </div>
-          <div class="setting-group">
-            <label class="toggle-label">
-              Notification Sound
-              <button type="button" class="toggle-switch notif-sound-toggle" onclick="toggleNotificationSound()">
-                <span class="toggle-knob"></span>
-              </button>
-            </label>
-          </div>
-        </div>
-      </div>
-      <div class="drawer-section">
-        <a href="/change-password" class="drawer-link">Change Password</a>
-        <a href="#" class="drawer-link" onclick="logout();return false" style="color:var(--error)">Logout</a>
-      </div>
-    </div>
-  </div>
-
   <!-- Header -->
   <header>
-    <button class="menu-btn" onclick="toggleDrawer()">
-      <span></span><span></span><span></span>
-    </button>
     <h1><a href="/" style="color:var(--accent);text-decoration:none">Agentopia</a></h1>
     <div class="header-right">
       <button class="btn btn-primary btn-sm" onclick="showCreateModal()">+ New Project</button>
@@ -249,6 +200,81 @@
       </div>
       <div id="usage-by-project-chart"></div>
     </div>
+
+    <div id="settings-view-panel" class="dashboard-view dashboard-view-settings">
+      <div class="settings-page-header">
+        <div>
+          <div class="settings-page-eyebrow">Workspace</div>
+          <h2>Settings</h2>
+          <p>Manage dashboard preferences, account actions, and reusable command profiles.</p>
+        </div>
+      </div>
+
+      <div class="settings-page-grid">
+        <section class="card settings-card">
+          <div class="settings-card-header">
+            <div>
+              <h3>Appearance</h3>
+              <p>Choose the theme used across Agentopia.</p>
+            </div>
+          </div>
+          <div class="settings-section settings-section-page">
+            <div class="setting-group">
+              <label>Theme</label>
+              <select id="theme-select" onchange="changeTheme(this.value)">
+                <option value="github-dark">GitHub Dark</option>
+                <option value="dracula">Dracula</option>
+                <option value="nord-dark">Nord Dark</option>
+                <option value="nord-light">Nord Light</option>
+                <option value="monokai">Monokai</option>
+                <option value="solarized-dark">Solarized Dark</option>
+                <option value="solarized-light">Solarized Light</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="card settings-card">
+          <div class="settings-card-header">
+            <div>
+              <h3>Notifications And Account</h3>
+              <p>Control alerts and access common account actions.</p>
+            </div>
+          </div>
+          <div class="settings-section settings-section-page">
+            <div class="setting-group">
+              <label class="toggle-label">
+                Notification Sound
+                <button type="button" class="toggle-switch notif-sound-toggle" onclick="toggleNotificationSound()">
+                  <span class="toggle-knob"></span>
+                </button>
+              </label>
+              <div class="settings-help">Play a short alert when new actionable work arrives.</div>
+            </div>
+
+            <div class="setting-group">
+              <label>Account</label>
+              <div class="settings-action-list">
+                <a href="/change-password" class="settings-action-link">Change Password</a>
+                <a href="#" class="settings-action-link settings-action-link-danger" onclick="logout();return false">Logout</a>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="card settings-card settings-card-wide">
+        <div class="settings-card-header">
+          <div>
+            <h3>Command Profiles</h3>
+            <p>Manage reusable CLI presets for agent creation and editing.</p>
+          </div>
+        </div>
+        <div class="settings-section settings-section-page">
+          <div data-command-profiles-root></div>
+        </div>
+      </section>
+    </div>
   </main>
 
   <!-- Issue Detail Floating Panel -->
@@ -269,9 +295,12 @@
       </div>
       <div class="form-group">
         <label>Tool Path</label>
-        <input type="text" id="proj-cmd" value="cld" style="font-family:monospace;font-size:13px" placeholder="claude">
-        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-          Path to Claude CLI. Leave default unless you have a custom setup.
+        <select id="proj-cmd-profile" onchange="handleCreateProjectCommandProfileChange()" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px">
+          <option value="">Loading command profiles...</option>
+        </select>
+        <input type="hidden" id="proj-cmd" value="">
+        <div id="proj-cmd-preview" style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+          Choose a tool configured in Settings.
         </div>
       </div>
       <input type="hidden" id="proj-name" value="">
@@ -286,7 +315,8 @@
   <script src="/public/vendor/marked.js"></script>
   <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
   <script src="/public/js/common.js?v=2"></script>
+  <script src="/public/js/command-profiles.js?v=3"></script>
   <script src="/public/js/issue-renderer.js"></script>
-  <script src="/public/js/dashboard.js?v=4"></script>
+  <script src="/public/js/dashboard.js?v=5"></script>
 </body>
 </html>

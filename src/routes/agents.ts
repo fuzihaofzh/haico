@@ -14,6 +14,7 @@ import { config } from '../config';
 import { broadcastToProject } from '../services/websocket';
 import { ensureAgentAccess, ensureProjectAccess } from '../services/project-permissions';
 import { validateParentAgentAssignment } from '../services/agent-hierarchy';
+import { buildControllerCommandConfig, resolveCommandType } from '../services/command-profiles';
 
 const TOOL_CALL_REPORT_CHAR_LIMIT = 4000;
 const MAX_AGENT_FILE_SIZE = 1024 * 1024;
@@ -124,6 +125,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
         session_max_tokens,
         session_resume_timeout,
         command_template,
+        command_type,
         status,
         paused,
         pid,
@@ -139,42 +141,36 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
 
   // Create agent
   fastify.post<{ Params: { pid: string }; Body: CreateAgentInput }>('/api/projects/:pid/agents', async (request, reply) => {
-    const { name, role, is_controller, session_id, working_directory, command_template, parent_agent_id } = request.body as any;
+    const { name, role, is_controller, session_id, working_directory, command_template, command_type, parent_agent_id } = request.body as any;
     if (!name) return reply.code(400).send({ error: 'name is required' });
 
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.pid, true);
     if (!access) return;
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid);
+    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
     if (!project) return reply.code(404).send({ error: 'Project not found' });
 
-    // Auto-assign parent to controller if not specified and not creating a controller
-    let effectiveParentId = parent_agent_id;
-    if (!effectiveParentId && !is_controller) {
-      const controller = db.prepare(
-        'SELECT id FROM agents WHERE project_id = ? AND is_controller = 1 LIMIT 1'
-      ).get(request.params.pid) as { id: string } | undefined;
-      if (controller) {
-        effectiveParentId = controller.id;
-      }
-    }
-
-    const parentValidation = validateParentAgentAssignment(db, request.params.pid, effectiveParentId);
+    const parentValidation = validateParentAgentAssignment(db, request.params.pid, parent_agent_id);
     if (parentValidation.error) {
       return reply.code(400).send({ error: parentValidation.error });
     }
 
     const id = uuidv4();
-    // For controller agents, default to Sonnet model if no --model flag specified
-    let finalCommandTemplate = command_template || null;
-    if (is_controller && finalCommandTemplate && !finalCommandTemplate.includes('--model')) {
-      finalCommandTemplate = finalCommandTemplate + ' --model claude-sonnet-4-6';
-    } else if (is_controller && !finalCommandTemplate) {
-      finalCommandTemplate = 'cld --model claude-sonnet-4-6';
+    let finalCommandTemplate = typeof command_template === 'string' ? command_template.trim() || null : null;
+    let finalCommandType = resolveCommandType(command_type, finalCommandTemplate);
+    if (is_controller) {
+      const controllerCommandConfig = buildControllerCommandConfig({
+        commandTemplate: finalCommandTemplate,
+        commandType: command_type,
+        fallbackCommandTemplate: project.command_template,
+        fallbackCommandType: project.command_type,
+      });
+      finalCommandTemplate = controllerCommandConfig.commandTemplate;
+      finalCommandType = controllerCommandConfig.commandType;
     }
     db.prepare(`
-      INSERT INTO agents (id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory, command_template, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle')
+      INSERT INTO agents (id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory, command_template, command_type, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle')
     `).run(
       id,
       request.params.pid,
@@ -184,7 +180,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       parentValidation.parentAgent?.id || null,
       session_id || null,
       working_directory || null,
-      finalCommandTemplate
+      finalCommandTemplate,
+      finalCommandType
     );
 
     return reply.code(201).send(db.prepare('SELECT * FROM agents WHERE id = ?').get(id));
@@ -218,6 +215,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       session_max_tokens,
       session_resume_timeout,
       command_template,
+      command_type,
       parent_agent_id,
       paused,
     } = request.body as any;
@@ -250,9 +248,34 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       session_resume_timeout !== undefined ? Math.max(0, Number.isNaN(parseInt(session_resume_timeout)) ? 300 : parseInt(session_resume_timeout)) : null,
     ];
 
-    if (command_template !== undefined) {
+    const hasCommandTemplate = Object.prototype.hasOwnProperty.call(request.body || {}, 'command_template');
+    const hasCommandType = Object.prototype.hasOwnProperty.call(request.body || {}, 'command_type');
+    let nextCommandTemplate = hasCommandTemplate
+      ? (typeof command_template === 'string' ? command_template.trim() || null : null)
+      : existing.command_template;
+    let nextCommandType = hasCommandType
+      ? resolveCommandType(command_type, nextCommandTemplate)
+      : hasCommandTemplate
+        ? resolveCommandType(null, nextCommandTemplate)
+        : existing.command_type;
+
+    if (existing.is_controller && hasCommandTemplate && nextCommandTemplate) {
+      const controllerCommandConfig = buildControllerCommandConfig({
+        commandTemplate: nextCommandTemplate,
+        commandType: hasCommandType ? command_type : undefined,
+      });
+      nextCommandTemplate = controllerCommandConfig.commandTemplate;
+      nextCommandType = controllerCommandConfig.commandType;
+    }
+
+    if (hasCommandTemplate) {
       fields.push('command_template = ?');
-      params.push(command_template || null);
+      params.push(nextCommandTemplate);
+    }
+
+    if (hasCommandType || hasCommandTemplate) {
+      fields.push('command_type = ?');
+      params.push(nextCommandType);
     }
 
     if (custom_instructions !== undefined) {

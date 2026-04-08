@@ -411,19 +411,23 @@ function changeTheme(name) {
 // Drawer
 function toggleDrawer() {
   const drawer = document.getElementById('drawer');
-  const overlay = document.getElementById('overlay');
+  if (!drawer) return;
   const isOpen = drawer.classList.contains('open');
   if (isOpen) { closeDrawer(); } else { openDrawer(); }
 }
 
 function openDrawer() {
-  document.getElementById('drawer').classList.add('open');
-  document.getElementById('overlay').classList.add('open');
+  const drawer = document.getElementById('drawer');
+  const overlay = document.getElementById('overlay');
+  if (drawer) drawer.classList.add('open');
+  if (overlay) overlay.classList.add('open');
 }
 
 function closeDrawer() {
-  document.getElementById('drawer').classList.remove('open');
-  document.getElementById('overlay').classList.remove('open');
+  const drawer = document.getElementById('drawer');
+  const overlay = document.getElementById('overlay');
+  if (drawer) drawer.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
 }
 
 // Override fetch — on 401 API response, redirect to /login

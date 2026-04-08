@@ -14,6 +14,7 @@ import { registerUIRoutes } from './routes/ui';
 import { registerKnowledgeRoutes } from './routes/knowledge';
 import { registerMemoryRoutes } from './routes/memories';
 import { registerMessageRoutes } from './routes/messages';
+import { registerCommandProfileRoutes } from './routes/command-profiles';
 import { registerTemplateRoutes } from './routes/templates';
 import { registerApprovalRoutes } from './routes/approvals';
 import { setupWebSocket } from './services/websocket';
@@ -59,6 +60,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   registerKnowledgeRoutes(fastify);
   registerMemoryRoutes(fastify);
   registerMessageRoutes(fastify);
+  registerCommandProfileRoutes(fastify);
   registerTemplateRoutes(fastify);
   registerApprovalRoutes(fastify);
   registerUIRoutes(fastify);

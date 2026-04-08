@@ -9,6 +9,17 @@ let projectMembersData = [];
 let projectFilesAgentId = '';
 let projectFilesPanel = null;
 const AGENT_OUTPUT_POLL_MS = 2000;
+const CUSTOM_COMMAND_PROFILE_VALUE = '__custom__';
+const DASHBOARD_NAV_VIEWS = new Set(['inbox', 'projects', 'usage', 'settings']);
+
+function navigateProjectSidebar(view) {
+  const nextView = DASHBOARD_NAV_VIEWS.has(view) ? view : 'projects';
+  window.location.href = `/?view=${encodeURIComponent(nextView)}`;
+}
+
+if (typeof window !== 'undefined') {
+  window.navigateProjectSidebar = navigateProjectSidebar;
+}
 
 const PROJECT_ACCESS_META = {
   owner: {
@@ -128,6 +139,322 @@ function syncParentAgentSelect(selectId, currentAgentId, selectedParentId, disab
   select.value = selectedParentId || '';
 }
 
+function getCommandProfileManager() {
+  return window.AgentopiaCommandProfiles || null;
+}
+
+async function populateCommandProfileSelect(select, options) {
+  if (!select) return [];
+  const manager = getCommandProfileManager();
+  if (!manager) {
+    select.innerHTML = `
+      <option value="">Use project default</option>
+      <option value="${CUSTOM_COMMAND_PROFILE_VALUE}">Custom command</option>
+    `;
+    return [];
+  }
+
+  await manager.ensureLoaded();
+  manager.populateSelect(select, options || {});
+  return manager.getProfiles();
+}
+
+function setCommandProfileSelection(select, commandTemplate, commandType) {
+  if (!select) return;
+
+  const manager = getCommandProfileManager();
+  const normalizedCommand = String(commandTemplate || '').trim();
+  if (!normalizedCommand) {
+    select.value = '';
+    return;
+  }
+
+  const matchedProfile = manager?.findMatch(normalizedCommand, commandType) || null;
+  if (matchedProfile) {
+    select.value = matchedProfile.id;
+    return;
+  }
+
+  const option = select.querySelector(`option[value="${CUSTOM_COMMAND_PROFILE_VALUE}"]`) || document.createElement('option');
+  option.value = CUSTOM_COMMAND_PROFILE_VALUE;
+  option.textContent = `Legacy/custom: ${normalizedCommand}${commandType ? ` (${commandType})` : ''}`;
+  if (!option.parentElement) select.appendChild(option);
+  select.value = CUSTOM_COMMAND_PROFILE_VALUE;
+}
+
+function updateCommandPreview(previewId, commandTemplate, commandType, fallbackText) {
+  const preview = document.getElementById(previewId);
+  if (!preview) return;
+  const command = String(commandTemplate || '').trim();
+  preview.textContent = command
+    ? `Command: ${command}${commandType ? ` (${commandType})` : ''}`
+    : fallbackText;
+}
+
+function syncCommandProfileSelection(select, input) {
+  if (!select || !input) return;
+  const manager = getCommandProfileManager();
+  const normalizedCommand = String(input.value || '').trim();
+  const selectedProfile = manager?.getById(select.value) || null;
+
+  if (!normalizedCommand) {
+    select.value = '';
+    return;
+  }
+
+  if (selectedProfile && String(selectedProfile.command || '').trim() === normalizedCommand) {
+    return;
+  }
+
+  if (select.value === '') {
+    select.value = CUSTOM_COMMAND_PROFILE_VALUE;
+  } else if (selectedProfile) {
+    select.value = CUSTOM_COMMAND_PROFILE_VALUE;
+  }
+}
+
+async function hydrateCreateAgentCommandProfileControls(commandTemplate, commandType) {
+  const select = document.getElementById('agent-command-profile');
+  const input = document.getElementById('agent-cmdtpl');
+  if (!select || !input) return;
+
+  await populateCommandProfileSelect(select, {
+    includeProjectDefault: true,
+    projectDefaultLabel: 'Use project default',
+    includeCustom: false,
+  });
+  setCommandProfileSelection(select, commandTemplate, commandType);
+  const manager = getCommandProfileManager();
+  const selectedProfile = manager?.getById(select.value) || null;
+  input.value = selectedProfile?.command || String(commandTemplate || '').trim();
+  input.dataset.commandType = selectedProfile?.type || commandType || '';
+  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+}
+
+function handleCreateAgentCommandProfileChange() {
+  const select = document.getElementById('agent-command-profile');
+  const input = document.getElementById('agent-cmdtpl');
+  if (!select || !input) return;
+
+  const manager = getCommandProfileManager();
+  const selectedProfile = manager?.getById(select.value) || null;
+  if (selectedProfile) {
+    input.value = selectedProfile.command || '';
+    input.dataset.commandType = selectedProfile.type || '';
+    updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+    return;
+  }
+
+  if (select.value === '') {
+    input.value = '';
+    input.dataset.commandType = '';
+    updateCommandPreview('agent-cmdtpl-preview', '', '', 'Using project-level Tool Path setting.');
+    return;
+  }
+
+  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Select a tool configured in Settings.');
+}
+
+function handleCreateAgentCommandInputChange() {
+  syncCommandProfileSelection(
+    document.getElementById('agent-command-profile'),
+    document.getElementById('agent-cmdtpl')
+  );
+}
+
+async function hydrateAgentCommandProfileControls(agentId, agent) {
+  const select = document.getElementById(`ad-cmdprof-${agentId}`);
+  const input = document.getElementById(`ad-cmdtpl-${agentId}`);
+  if (!select || !input) return;
+
+  await populateCommandProfileSelect(select, {
+    includeProjectDefault: true,
+    projectDefaultLabel: 'Use project default',
+    includeCustom: false,
+  });
+  setCommandProfileSelection(select, agent?.command_template, agent?.command_type);
+  const manager = getCommandProfileManager();
+  const selectedProfile = manager?.getById(select.value) || null;
+  input.value = selectedProfile?.command || String(agent?.command_template || '').trim();
+  input.dataset.commandType = selectedProfile?.type || agent?.command_type || '';
+  updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+}
+
+function handleAgentCommandProfileChange(agentId) {
+  const select = document.getElementById(`ad-cmdprof-${agentId}`);
+  const input = document.getElementById(`ad-cmdtpl-${agentId}`);
+  if (!select || !input) return;
+
+  const manager = getCommandProfileManager();
+  const selectedProfile = manager?.getById(select.value) || null;
+  if (selectedProfile) {
+    input.value = selectedProfile.command || '';
+    input.dataset.commandType = selectedProfile.type || '';
+    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+    return;
+  }
+
+  if (select.value === '') {
+    input.value = '';
+    input.dataset.commandType = '';
+    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, '', '', 'Using project-level Tool Path setting.');
+    return;
+  }
+
+  updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Select a tool configured in Settings.');
+}
+
+function handleAgentCommandInputChange(agentId) {
+  syncCommandProfileSelection(
+    document.getElementById(`ad-cmdprof-${agentId}`),
+    document.getElementById(`ad-cmdtpl-${agentId}`)
+  );
+}
+
+function buildAgentCommandConfigPayload(selectId, inputId) {
+  const select = document.getElementById(selectId);
+  const input = document.getElementById(inputId);
+  const manager = getCommandProfileManager();
+  const selectedProfile = manager?.getById(select?.value || '') || null;
+  const commandTemplate = String(input?.value || '').trim();
+
+  if (selectedProfile) {
+    return {
+      command_template: selectedProfile.command,
+      command_type: selectedProfile.type,
+    };
+  }
+
+  if (!commandTemplate) {
+    return { command_template: null, command_type: null };
+  }
+
+  return {
+    command_template: commandTemplate,
+    command_type: input?.dataset.commandType || undefined,
+  };
+}
+
+async function hydrateProjectCommandProfileControls(commandTemplate, commandType) {
+  const select = document.getElementById('project-cmd-profile');
+  const input = document.getElementById('project-cmd');
+  if (!select || !input) return;
+
+  const profiles = await populateCommandProfileSelect(select, {
+    includeProjectDefault: false,
+    includeCustom: false,
+    emptyLabel: 'No command profiles configured - open Settings first',
+  });
+  setCommandProfileSelection(select, commandTemplate, commandType);
+
+  const manager = getCommandProfileManager();
+  const selectedProfile = manager?.getById(select.value) || null;
+  input.value = selectedProfile?.command || String(commandTemplate || '').trim();
+  input.dataset.commandType = selectedProfile?.type || commandType || '';
+  select.disabled = !canManageProject() || (profiles.length === 0 && !input.value);
+  updateCommandPreview('project-cmd-preview', input.value, input.dataset.commandType, 'Choose a tool configured in Settings.');
+}
+
+function handleProjectCommandProfileChange() {
+  const select = document.getElementById('project-cmd-profile');
+  const input = document.getElementById('project-cmd');
+  if (!select || !input) return;
+
+  const manager = getCommandProfileManager();
+  const selectedProfile = manager?.getById(select.value) || null;
+  if (selectedProfile) {
+    input.value = selectedProfile.command || '';
+    input.dataset.commandType = selectedProfile.type || '';
+  }
+  updateCommandPreview('project-cmd-preview', input.value, input.dataset.commandType, 'Choose a tool configured in Settings.');
+}
+
+function buildProjectCommandConfigPayload() {
+  const select = document.getElementById('project-cmd-profile');
+  const input = document.getElementById('project-cmd');
+  const manager = getCommandProfileManager();
+  const selectedProfile = manager?.getById(select?.value || '') || null;
+  const commandTemplate = String(input?.value || '').trim();
+
+  if (selectedProfile) {
+    return {
+      command_template: selectedProfile.command,
+      command_type: selectedProfile.type,
+    };
+  }
+
+  return {
+    command_template: commandTemplate,
+    command_type: input?.dataset.commandType || undefined,
+  };
+}
+
+async function refreshCreateAgentCommandProfileControls() {
+  const select = document.getElementById('agent-command-profile');
+  const input = document.getElementById('agent-cmdtpl');
+  if (!select || !input) return;
+
+  const manager = getCommandProfileManager();
+  const commandTemplate = String(input.value || '').trim();
+  const selectedType = input.dataset.commandType || manager?.getById(select.value)?.type || null;
+  await populateCommandProfileSelect(select, {
+    includeProjectDefault: true,
+    projectDefaultLabel: 'Use project default',
+    includeCustom: false,
+  });
+  setCommandProfileSelection(select, commandTemplate, selectedType);
+  const selectedProfile = manager?.getById(select.value) || null;
+  input.value = selectedProfile?.command || commandTemplate;
+  input.dataset.commandType = selectedProfile?.type || selectedType || '';
+  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+}
+
+async function refreshProjectCommandProfileControls() {
+  if (!projectData) return;
+  const input = document.getElementById('project-cmd');
+  const commandTemplate = input?.value || projectData.command_template;
+  const commandType = input?.dataset.commandType || projectData.command_type || null;
+  await hydrateProjectCommandProfileControls(commandTemplate, commandType);
+}
+
+async function refreshVisibleAgentCommandProfileControls() {
+  const selects = Array.from(document.querySelectorAll('[id^="ad-cmdprof-"]'));
+  if (!selects.length) return;
+
+  const manager = getCommandProfileManager();
+  for (const select of selects) {
+    const agentId = select.id.slice('ad-cmdprof-'.length);
+    const input = document.getElementById(`ad-cmdtpl-${agentId}`);
+    if (!input) continue;
+
+    const existingAgent = agentsData.find((agent) => agent.id === agentId);
+    const commandTemplate = String(input.value || '').trim();
+    const selectedType = input.dataset.commandType || manager?.getById(select.value)?.type || existingAgent?.command_type || null;
+    await populateCommandProfileSelect(select, {
+      includeProjectDefault: true,
+      projectDefaultLabel: 'Use project default',
+      includeCustom: false,
+    });
+    setCommandProfileSelection(select, commandTemplate, selectedType);
+    const selectedProfile = manager?.getById(select.value) || null;
+    input.value = selectedProfile?.command || commandTemplate;
+    input.dataset.commandType = selectedProfile?.type || selectedType || '';
+    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+  }
+}
+
+window.addEventListener('agentopia:command-profiles-changed', () => {
+  refreshProjectCommandProfileControls().catch((error) => {
+    console.error('Failed to refresh project command profile controls', error);
+  });
+  refreshCreateAgentCommandProfileControls().catch((error) => {
+    console.error('Failed to refresh create-agent command profile controls', error);
+  });
+  refreshVisibleAgentCommandProfileControls().catch((error) => {
+    console.error('Failed to refresh agent command profile controls', error);
+  });
+});
+
 function getDisplayParentAgent(agent) {
   if (!agent?.parent_agent_id) return null;
   return getAgentMap().get(agent.parent_agent_id) || null;
@@ -160,7 +487,7 @@ function applyProjectManageState() {
     if (el) el.style.display = canManage ? '' : 'none';
   });
 
-  const overviewIds = ['project-name-edit', 'project-desc-edit', 'project-task', 'project-cmd'];
+  const overviewIds = ['project-name-edit', 'project-desc-edit', 'project-task', 'project-cmd', 'project-cmd-profile'];
   overviewIds.forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = !canManage;
@@ -382,7 +709,11 @@ async function loadProject() {
     document.getElementById('project-name-edit').value = projectData.name;
     document.getElementById('project-desc-edit').value = projectData.description || '';
     document.getElementById('project-task').value = projectData.task_description || '';
-    document.getElementById('project-cmd').value = projectData.command_template;
+    document.getElementById('project-cmd').value = projectData.command_template || '';
+    document.getElementById('project-cmd').dataset.commandType = projectData.command_type || '';
+    hydrateProjectCommandProfileControls(projectData.command_template, projectData.command_type).catch((error) => {
+      console.error('Failed to hydrate project command profile controls', error);
+    });
     // Render color picker
     const colorPicker = document.getElementById('project-color-picker');
     const colorInput = document.getElementById('project-color');
@@ -447,15 +778,17 @@ function selectProjectColor(color) {
 
 async function saveOverview() {
   if (!projectData?.can_manage) { showToast('Insufficient permission to update project settings', 'error'); return; }
+  const commandConfig = buildProjectCommandConfigPayload();
   const body = {
     name: document.getElementById('project-name-edit').value.trim(),
     description: document.getElementById('project-desc-edit').value.trim(),
     task_description: document.getElementById('project-task').value.trim(),
-    command_template: document.getElementById('project-cmd').value.trim() || 'cld',
+    ...commandConfig,
     color: document.getElementById('project-color')?.value || '#4A90E2',
   };
   if (!body.name) { showToast('Name cannot be empty', 'error'); return; }
   if (!body.task_description) { showToast('Task description cannot be empty', 'error'); return; }
+  if (!body.command_template) { showToast('Select a command profile in Settings before saving', 'error'); return; }
   const btn = document.querySelector('button[onclick="saveOverview()"]');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
@@ -833,8 +1166,11 @@ async function viewAgent(agentId) {
             </div>
             <div style="flex:1;min-width:200px">
               <div style="${L}">Tool Path</div>
-              <input type="text" id="ad-cmdtpl-${agentId}" value="${esc(agent.command_template || '')}" placeholder="(use project default)" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
-              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">Leave blank to use the project default.</div>
+              <select id="ad-cmdprof-${agentId}" onchange="handleAgentCommandProfileChange('${agentId}')" ${readOnlyAttr} style="${B};width:100%;font-size:12px;color:var(--fg)">
+                <option value="">Loading...</option>
+              </select>
+              <input type="hidden" id="ad-cmdtpl-${agentId}" value="${esc(agent.command_template || '')}">
+              <div id="ad-cmdtpl-preview-${agentId}" style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">Saved profiles populate both command and command type.</div>
             </div>
             <div style="width:140px">
               <div style="${L}">Max Cache Tokens</div>
@@ -895,6 +1231,7 @@ async function viewAgent(agentId) {
     loadAgentGitStatus(agentId);
     loadAgentOutput(agentId);
     startAgentOutputPolling(agentId);
+    hydrateAgentCommandProfileControls(agentId, agent);
 
   } catch (e) {
     stopAgentOutputPolling();
@@ -1042,9 +1379,10 @@ async function saveAllAgentFields(agentId) {
     const maxRunsRaw = parseInt(document.getElementById('ad-maxruns-' + agentId).value, 10);
     const resumeTimeoutRaw = parseInt(document.getElementById('ad-resumetimeout-' + agentId).value, 10);
     const parentAgentId = document.getElementById('ad-parent-' + agentId)?.value || null;
+    const commandConfig = buildAgentCommandConfigPayload('ad-cmdprof-' + agentId, 'ad-cmdtpl-' + agentId);
     const body = {
       working_directory: document.getElementById('ad-workdir-' + agentId).value || null,
-      command_template: document.getElementById('ad-cmdtpl-' + agentId).value || null,
+      ...commandConfig,
       parent_agent_id: parentAgentId,
       session_max_tokens: Number.isNaN(maxTokensRaw) ? 200000 : Math.max(0, maxTokensRaw),
       session_max_runs: Number.isNaN(maxRunsRaw) ? 10 : Math.max(1, maxRunsRaw),
@@ -1308,6 +1646,7 @@ function showCreateAgentModal() {
   const controller = getControllerAgent();
   syncParentAgentSelect('agent-parent', null, controller ? controller.id : '', false);
   document.getElementById('agent-cmdtpl').value = '';
+  hydrateCreateAgentCommandProfileControls('', null);
   document.getElementById('createAgentModal').classList.add('active');
 }
 function hideModal(id) { document.getElementById(id).classList.remove('active'); }
@@ -1316,12 +1655,13 @@ async function createAgent() {
   if (!requireProjectManageAccess('Insufficient permission to create agent')) return;
   const btn = document.querySelector('#createAgentModal button[onclick="createAgent()"]');
   await withLoading(btn, async () => {
+    const commandConfig = buildAgentCommandConfigPayload('agent-command-profile', 'agent-cmdtpl');
     const body = {
       name: document.getElementById('agent-name').value,
       role: document.getElementById('agent-role').value,
       working_directory: document.getElementById('agent-workdir').value || undefined,
       parent_agent_id: document.getElementById('agent-parent').value || null,
-      command_template: document.getElementById('agent-cmdtpl').value.trim() || undefined
+      ...commandConfig,
     };
     if (!body.name) { showToast('Name is required', 'error'); return; }
     const res = await fetch(`/api/projects/${projectId}/agents`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });

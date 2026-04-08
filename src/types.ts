@@ -1,4 +1,5 @@
 export type OrchestratorEngine = 'native' | 'langgraph';
+export type CommandProfileType = 'claude' | 'codex' | 'gemini';
 
 export interface Project {
   id: string;
@@ -6,6 +7,7 @@ export interface Project {
   description: string;
   task_description: string;
   command_template: string;
+  command_type: CommandProfileType | null;
   orchestrator_engine: OrchestratorEngine;
   status: 'active' | 'paused' | 'completed';
   owner_id: string | null;
@@ -38,6 +40,7 @@ export interface Agent {
   session_max_tokens: number;
   session_resume_timeout: number;
   command_template: string | null;
+  command_type: CommandProfileType | null;
   status: 'idle' | 'running' | 'waiting' | 'error';
   paused: boolean;
   pid: number | null;
@@ -88,7 +91,10 @@ export interface CreateProjectInput {
   description?: string;
   task_description: string;
   command_template?: string;
+  command_type?: CommandProfileType | null;
   orchestrator_engine?: OrchestratorEngine;
+  working_directory?: string | null;
+  controller_role?: string | null;
 }
 
 export interface CreateAgentInput {
@@ -99,6 +105,16 @@ export interface CreateAgentInput {
   session_id?: string;
   working_directory?: string;
   command_template?: string;
+  command_type?: CommandProfileType | null;
+}
+
+export interface CommandProfile {
+  id: string;
+  name: string;
+  command: string;
+  type: CommandProfileType;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface StartAgentInput {

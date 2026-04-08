@@ -2,8 +2,9 @@
 import path from 'path';
 import os from 'os';
 import { getDatabase } from '../db/database';
-import { Agent } from '../types';
+import { Agent, Project } from '../types';
 import { config } from '../config';
+import { resolveCommandType } from './command-profiles';
 import logger from '../logger';
 
 let pty: typeof import('node-pty') | null = null;
@@ -105,13 +106,17 @@ export function getOrCreatePtySession(
 
   // Get command template: agent-level > project-level > default
   let commandTemplate = 'claude';
+  let commandType: Agent['command_type'] | Project['command_type'] | null = agent?.command_type || null;
   if (agent) {
     if (agent.command_template) {
       commandTemplate = agent.command_template.trim() || 'claude';
     } else {
-      const project = db.prepare('SELECT command_template FROM projects WHERE id = ?').get(agent.project_id) as { command_template: string } | undefined;
+      const project = db.prepare('SELECT command_template, command_type FROM projects WHERE id = ?').get(agent.project_id) as
+        | Pick<Project, 'command_template' | 'command_type'>
+        | undefined;
       if (project?.command_template) {
         commandTemplate = project.command_template.trim() || 'claude';
+        commandType = commandType || project.command_type || null;
       } else {
         commandTemplate = config.defaultCommandTemplate || 'claude';
       }
@@ -122,10 +127,10 @@ export function getOrCreatePtySession(
   const baseCommand = parsed[0] || 'claude';
   const baseArgs = parsed.slice(1);
 
-  // Build session args for Claude-family CLIs.
+  // Prefer explicit command_type when deciding terminal session behavior.
   const sessionId = agent?.session_id || undefined;
-  const toolName = path.basename(baseCommand).toLowerCase();
-  const isClaudeFamily = toolName === 'cld' || toolName === 'claude' || toolName === 'ccr';
+  const resolvedCommandType = resolveCommandType(commandType, commandTemplate);
+  const isClaudeFamily = resolvedCommandType === 'claude';
   const sessionArgs: string[] = [];
   if (isClaudeFamily) {
     sessionArgs.push('--dangerously-skip-permissions');
