@@ -12,6 +12,7 @@ let _renderedMailItems = []; // currently rendered (filtered) items
 let _currentReplyIssueId = null; // issue ID for the currently visible reply box
 let _dashboardProjectsById = {};
 let _globalComposeAgentsByProject = {};
+let _dashboardProjectsLoadPromise = null;
 const INBOX_ITEM_LIMIT = 20;
 let _inboxPagination = { limit: INBOX_ITEM_LIMIT, offset: 0, total: 0, hasMore: false, loading: false };
 let _inboxUnreadCount = 0;
@@ -27,6 +28,14 @@ function getInitialDashboardView() {
 }
 
 let _dashboardView = getInitialDashboardView();
+
+async function ensureDashboardProjectsLoaded() {
+  if (Object.keys(_dashboardProjectsById || {}).length > 0) {
+    return Object.values(_dashboardProjectsById);
+  }
+  await loadProjects();
+  return Object.values(_dashboardProjectsById || {});
+}
 
 function setSidebarActive(view) {
   document.querySelectorAll('.sidebar-nav-item').forEach((btn) => {
@@ -52,22 +61,7 @@ function switchView(view) {
   applyDashboardViewState(nextView);
   updateDashboardViewUrl(nextView);
   if (typeof closeDrawer === 'function') closeDrawer();
-
-  if (nextView === 'inbox') {
-    loadDashboardSummary();
-    loadNotifications();
-  } else if (nextView === 'projects') {
-    loadProjects();
-    loadAgentBoard();
-    loadActivityStream();
-  } else if (nextView === 'usage') {
-    loadUsageByProject();
-    checkCostAlert();
-  } else if (nextView === 'settings') {
-    if (window.AgentopiaCommandProfiles && typeof window.AgentopiaCommandProfiles.ensureLoaded === 'function') {
-      window.AgentopiaCommandProfiles.ensureLoaded();
-    }
-  }
+  loadDashboard(nextView);
 }
 
 if (typeof window !== 'undefined') {
@@ -172,7 +166,6 @@ async function loadDashboardSummary() {
 
     document.getElementById('dashboard-stats').style.display = '';
     _lastActivityMap = data.last_activity || {};
-    loadDashboardApprovals();
   } catch (e) {
     console.error('Failed to load dashboard summary', e);
   }
@@ -720,131 +713,139 @@ async function acknowledgeIssue(issueId) {
 }
 
 async function loadProjects() {
+  if (_dashboardProjectsLoadPromise) return _dashboardProjectsLoadPromise;
+
   const container = document.getElementById('projects');
-  try {
-    const res = await fetch('/api/projects?with_stats=1', { headers: apiHeaders() });
-    if (!res.ok) {
-      container.innerHTML = renderError(null, 'loadProjects()');
-      return;
-    }
-    const projects = await res.json();
-    _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
-    populateActivityProjectFilter();
-    populateInboxProjectFilter();
-    if (!projects.length) {
-      container.innerHTML = '<div class="empty-state">No projects yet. Create one to get started.</div>';
-      return;
-    }
+  _dashboardProjectsLoadPromise = (async () => {
+    try {
+      const res = await fetch('/api/projects?with_stats=1', { headers: apiHeaders() });
+      if (!res.ok) {
+        container.innerHTML = renderError(null, 'loadProjects()');
+        return;
+      }
+      const projects = await res.json();
+      _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
+      populateActivityProjectFilter();
+      populateInboxProjectFilter();
+      if (!projects.length) {
+        container.innerHTML = '<div class="empty-state">No projects yet. Create one to get started.</div>';
+        return;
+      }
 
-    // Preserve quick-cmd input values before re-render
-    const savedInputs = {};
-    container.querySelectorAll('.quick-cmd-input').forEach(input => {
-      if (input.value) savedInputs[input.id] = input.value;
-    });
-    const savedBodies = {};
-    container.querySelectorAll('.quick-cmd-body').forEach(ta => {
-      if (ta.value) savedBodies[ta.id] = ta.value;
-    });
-    const focusedEl = document.activeElement;
-    const focusedId = (focusedEl?.classList.contains('quick-cmd-input') || focusedEl?.classList.contains('quick-cmd-body')) ? focusedEl.id : null;
+      // Preserve quick-cmd input values before re-render
+      const savedInputs = {};
+      container.querySelectorAll('.quick-cmd-input').forEach(input => {
+        if (input.value) savedInputs[input.id] = input.value;
+      });
+      const savedBodies = {};
+      container.querySelectorAll('.quick-cmd-body').forEach(ta => {
+        if (ta.value) savedBodies[ta.id] = ta.value;
+      });
+      const focusedEl = document.activeElement;
+      const focusedId = (focusedEl?.classList.contains('quick-cmd-input') || focusedEl?.classList.contains('quick-cmd-body')) ? focusedEl.id : null;
 
-    container.innerHTML = projects.map(p => {
-      const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
-      const link = `/projects/${p.id}`;
-      const access = getProjectAccessMeta(p);
-      const ownerName = displayProjectUser(p.owner);
-      const ownerRole = p.owner?.role === 'admin' ? 'Global Admin' : 'Project Member';
-      const memberCount = Number.isFinite(p.member_count) ? p.member_count : 0;
-      const toggleButton = p.can_manage
-        ? `<button onclick="event.stopPropagation();toggleProjectStatus('${p.id}','${p.status}')" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>`
-        : '';
-      const userCount = s.userIssues?.length || 0;
-      const notifBadge = userCount > 0
-        ? `<span onclick="event.stopPropagation();window.location='${link}#issues'" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</span>`
-        : '';
-      const lastAct = _lastActivityMap[p.id];
-      const activityText = lastAct ? timeAgo(lastAct) : null;
-      const activityLine = activityText
-        ? `<div class="last-activity">Last activity: ${activityText}</div>`
-        : '';
-      const quickCmdBar = p.can_manage ? `
-        <div class="quick-cmd-bar" onclick="event.stopPropagation()">
-          <div class="quick-cmd-row">
-            <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." oninput="toggleQuickCmdBody('${p.id}')" onkeydown="if(event.key==='Enter'&&event.shiftKey&&!event.isComposing){event.preventDefault();sendQuickCmd('${p.id}')}">
-            <button class="quick-cmd-btn" onclick="sendQuickCmd('${p.id}')" title="Send">&#9654;</button>
+      container.innerHTML = projects.map(p => {
+        const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
+        const link = `/projects/${p.id}`;
+        const access = getProjectAccessMeta(p);
+        const ownerName = displayProjectUser(p.owner);
+        const ownerRole = p.owner?.role === 'admin' ? 'Global Admin' : 'Project Member';
+        const memberCount = Number.isFinite(p.member_count) ? p.member_count : 0;
+        const toggleButton = p.can_manage
+          ? `<button onclick="event.stopPropagation();toggleProjectStatus('${p.id}','${p.status}')" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>`
+          : '';
+        const userCount = s.userIssues?.length || 0;
+        const notifBadge = userCount > 0
+          ? `<span onclick="event.stopPropagation();window.location='${link}#issues'" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</span>`
+          : '';
+        const lastAct = _lastActivityMap[p.id];
+        const activityText = lastAct ? timeAgo(lastAct) : null;
+        const activityLine = activityText
+          ? `<div class="last-activity">Last activity: ${activityText}</div>`
+          : '';
+        const quickCmdBar = p.can_manage ? `
+          <div class="quick-cmd-bar" onclick="event.stopPropagation()">
+            <div class="quick-cmd-row">
+              <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." oninput="toggleQuickCmdBody('${p.id}')" onkeydown="if(event.key==='Enter'&&event.shiftKey&&!event.isComposing){event.preventDefault();sendQuickCmd('${p.id}')}">
+              <button class="quick-cmd-btn" onclick="sendQuickCmd('${p.id}')" title="Send">&#9654;</button>
+            </div>
+            <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="Details (optional)..." rows="3" data-collapsed></textarea>
           </div>
-          <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="Details (optional)..." rows="3" data-collapsed></textarea>
-        </div>
-      ` : '';
-      return `
-      <div class="card project-card" style="cursor:pointer" onclick="window.location='${link}'">
-        <div class="project-card-head">
-          <div class="project-card-main">
-            <strong class="project-card-title">${esc(p.name)}${notifBadge}</strong>
-            <div class="project-card-tags">
-              <span class="permission-badge permission-${access.tone}" title="${esc(access.summary)}">${access.badge}</span>
-              <span class="meta-chip" title="Project owner">
-                <span class="meta-chip-label">Owner</span>
-                <span>${esc(ownerName)}</span>
-              </span>
-              <span class="meta-chip" title="Project member count">
-                <span class="meta-chip-label">Members</span>
-                <span>${memberCount}</span>
-              </span>
+        ` : '';
+        return `
+        <div class="card project-card" style="cursor:pointer" onclick="window.location='${link}'">
+          <div class="project-card-head">
+            <div class="project-card-main">
+              <strong class="project-card-title">${esc(p.name)}${notifBadge}</strong>
+              <div class="project-card-tags">
+                <span class="permission-badge permission-${access.tone}" title="${esc(access.summary)}">${access.badge}</span>
+                <span class="meta-chip" title="Project owner">
+                  <span class="meta-chip-label">Owner</span>
+                  <span>${esc(ownerName)}</span>
+                </span>
+                <span class="meta-chip" title="Project member count">
+                  <span class="meta-chip-label">Members</span>
+                  <span>${memberCount}</span>
+                </span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span class="status-badge status-${p.status}">${p.status}</span>
+              ${toggleButton}
             </div>
           </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span class="status-badge status-${p.status}">${p.status}</span>
-            ${toggleButton}
+          <div class="project-card-note">
+            <span>${esc(access.detail)}</span>
+            <span>·</span>
+            <span>${esc(ownerRole)}</span>
           </div>
-        </div>
-        <div class="project-card-note">
-          <span>${esc(access.detail)}</span>
-          <span>·</span>
-          <span>${esc(ownerRole)}</span>
-        </div>
-        <p class="project-card-desc">${esc(p.description || '')}</p>
-        <div class="project-card-stats">
-          <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm5 7c0-2.8-2.2-5-5-5s-5 2.2-5 5h10z"/></svg>
-            <span>${s.running} running</span>
-            <span style="opacity:0.5">/ ${s.agents}</span>
-            ${s.agentError > 0 ? `<span style="color:var(--error)">${s.agentError} error</span>` : ''}
+          <p class="project-card-desc">${esc(p.description || '')}</p>
+          <div class="project-card-stats">
+            <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm5 7c0-2.8-2.2-5-5-5s-5 2.2-5 5h10z"/></svg>
+              <span>${s.running} running</span>
+              <span style="opacity:0.5">/ ${s.agents}</span>
+              ${s.agentError > 0 ? `<span style="color:var(--error)">${s.agentError} error</span>` : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              <span>${s.openIssues} open</span>
+              <span style="opacity:0.5">/ ${s.issues}</span>
+            </div>
           </div>
-          <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-            <span>${s.openIssues} open</span>
-            <span style="opacity:0.5">/ ${s.issues}</span>
-          </div>
+          ${activityLine}
+          ${quickCmdBar}
         </div>
-        ${activityLine}
-        ${quickCmdBar}
-      </div>
-    `}).join('');
+      `}).join('');
 
-    // Restore quick-cmd input values after re-render
-    for (const [id, value] of Object.entries(savedInputs)) {
-      const input = document.getElementById(id);
-      if (input) {
-        input.value = value;
-        // Also restore body textarea visibility
-        const pId = id.replace('quick-cmd-', '');
-        const body = document.getElementById('quick-cmd-body-' + pId);
-        if (body) body.removeAttribute('data-collapsed');
+      // Restore quick-cmd input values after re-render
+      for (const [id, value] of Object.entries(savedInputs)) {
+        const input = document.getElementById(id);
+        if (input) {
+          input.value = value;
+          // Also restore body textarea visibility
+          const pId = id.replace('quick-cmd-', '');
+          const body = document.getElementById('quick-cmd-body-' + pId);
+          if (body) body.removeAttribute('data-collapsed');
+        }
       }
+      for (const [id, value] of Object.entries(savedBodies)) {
+        const ta = document.getElementById(id);
+        if (ta) ta.value = value;
+      }
+      if (focusedId) {
+        const el = document.getElementById(focusedId);
+        if (el) el.focus();
+      }
+    } catch (e) {
+      container.innerHTML = '<div class="empty-state"></div>';
+      container.querySelector('.empty-state').textContent = 'Error loading projects: ' + e.message;
+    } finally {
+      _dashboardProjectsLoadPromise = null;
     }
-    for (const [id, value] of Object.entries(savedBodies)) {
-      const ta = document.getElementById(id);
-      if (ta) ta.value = value;
-    }
-    if (focusedId) {
-      const el = document.getElementById(focusedId);
-      if (el) el.focus();
-    }
-  } catch (e) {
-    container.innerHTML = '<div class="empty-state"></div>';
-    container.querySelector('.empty-state').textContent = 'Error loading projects: ' + e.message;
-  }
+  })();
+
+  return _dashboardProjectsLoadPromise;
 }
 
 function getGlobalComposeProjects() {
@@ -852,14 +853,9 @@ function getGlobalComposeProjects() {
 }
 
 async function ensureGlobalComposeProjects() {
-  let projects = Object.values(_dashboardProjectsById || {});
+  const projects = await ensureDashboardProjectsLoaded();
   if (!projects.length) {
-    const res = await fetch('/api/projects?with_stats=1', { headers: apiHeaders() });
-    if (!res.ok) throw new Error('Failed to load projects');
-    projects = await res.json();
-    _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
-    populateActivityProjectFilter();
-    populateInboxProjectFilter();
+    throw new Error('Failed to load projects');
   }
   return getGlobalComposeProjects();
 }
@@ -1268,15 +1264,28 @@ function switchUsagePeriod(period) {
 }
 
 async function loadUsageByProject() {
+  const panel = document.getElementById('usage-by-project-panel');
+  const container = document.getElementById('usage-by-project-chart');
+  if (!panel || !container) return;
+
   try {
     const res = await fetch(`/api/dashboard/usage-by-project?period=${_usagePeriod}`, { headers: apiHeaders() });
     if (!res.ok) return;
     const data = await res.json();
 
-    const panel = document.getElementById('usage-by-project-panel');
-    const container = document.getElementById('usage-by-project-chart');
-    if (!data.time_buckets || !data.time_buckets.length) {
-      panel.style.display = 'none';
+    const emptyPeriodLabel = {
+      hour: 'this hour',
+      day: 'today',
+      week: 'this week',
+      month: 'this month',
+    }[_usagePeriod] || 'this period';
+
+    if (!data.time_buckets || !data.time_buckets.length || !data.projects || !data.projects.length) {
+      panel.style.display = '';
+      container.innerHTML = `<div class="empty-state" style="padding:32px 12px;text-align:center">
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">No usage data for ${esc(emptyPeriodLabel)}.</div>
+        <div style="font-size:12px;color:var(--text-secondary)">Usage and cost metrics will appear here after agents record activity. Try a broader period if you expected older data.</div>
+      </div>`;
       return;
     }
     panel.style.display = '';
@@ -1354,6 +1363,8 @@ async function loadUsageByProject() {
     <div style="margin-top:6px;line-height:1.8">${legend}</div>`;
   } catch (e) {
     console.error('Failed to load usage by project', e);
+    panel.style.display = '';
+    container.innerHTML = renderError(e, 'loadUsageByProject()');
   }
 }
 
@@ -1362,10 +1373,25 @@ let _agentBoardData = [];
 let _costAlertDismissed = false;
 const COST_ALERT_THRESHOLD = parseFloat(localStorage.getItem('agentopia-cost-threshold') || '10');
 
-// Initial load: summary + notifications + projects + usage chart + new panels in parallel
-async function loadDashboard() {
-  await Promise.all([loadDashboardSummary(), loadNotifications(), loadProjects(), loadUsageByProject(), loadAgentBoard(), loadActivityStream(), checkCostAlert()]);
-  populateActivityProjectFilter();
+function getDashboardViewLoaders(view) {
+  const activeView = normalizeDashboardView(view || _dashboardView);
+  if (activeView === 'projects') {
+    return [loadDashboardSummary(), loadProjects(), loadAgentBoard(), loadActivityStream(), loadDashboardApprovals()];
+  }
+  if (activeView === 'usage') {
+    return [loadUsageByProject(), checkCostAlert()];
+  }
+  if (activeView === 'settings') {
+    if (window.AgentopiaCommandProfiles && typeof window.AgentopiaCommandProfiles.ensureLoaded === 'function') {
+      return [Promise.resolve(window.AgentopiaCommandProfiles.ensureLoaded())];
+    }
+    return [];
+  }
+  return [loadDashboardSummary(), loadNotifications(), ensureDashboardProjectsLoaded()];
+}
+
+async function loadDashboard(view) {
+  await Promise.all(getDashboardViewLoaders(view));
 }
 
 applyDashboardViewState(_dashboardView);
@@ -1417,19 +1443,24 @@ loadDashboard();
 let _pollInFlight = false;
 let _pollSlowInFlight = false;
 setInterval(async () => {
+  if (_dashboardView !== 'inbox') return;
   if (_pollInFlight) return;
   _pollInFlight = true;
-  try { await Promise.all([loadDashboardSummary(), loadNotifications(), loadActivityStream()]); }
+  try { await loadDashboard('inbox'); }
   finally { _pollInFlight = false; }
 }, 10000);
 setInterval(async () => {
+  if (_dashboardView !== 'projects') return;
   if (_pollSlowInFlight) return;
   _pollSlowInFlight = true;
-  try { await Promise.all([loadProjects(), loadAgentBoard()]); }
+  try { await loadDashboard('projects'); }
   finally { _pollSlowInFlight = false; }
 }, 30000);
-setInterval(() => { loadUsageByProject(); checkCostAlert(); }, 60000);
-window.addEventListener('agentopia:user-ready', () => { loadProjects(); populateActivityProjectFilter(); });
+setInterval(() => {
+  if (_dashboardView !== 'usage') return;
+  loadDashboard('usage');
+}, 60000);
+window.addEventListener('agentopia:user-ready', () => { ensureDashboardProjectsLoaded(); });
 window.addEventListener('agentopia:command-profiles-changed', () => {
   hydrateCreateProjectCommandProfileControls().catch((error) => {
     console.error('Failed to refresh project command profile controls', error);
@@ -1508,10 +1539,8 @@ async function loadDashboardApprovals() {
     panel.style.display = '';
     if (countEl) countEl.textContent = data.count;
 
-    // Load actual approvals from all projects
-    const projectsRes = await fetch('/api/projects', { headers: apiHeaders() });
-    if (!projectsRes.ok) return;
-    const projects = await projectsRes.json();
+    // Reuse the already loaded project index when available.
+    const projects = await ensureDashboardProjectsLoaded();
 
     let allApprovals = [];
     for (const p of projects) {
@@ -1799,7 +1828,7 @@ function scheduleWSRefresh() {
     if (_pollInFlight) return; // skip if polling is already running
     _pollInFlight = true;
     try {
-      await Promise.all([loadDashboardSummary(), loadNotifications(), loadActivityStream(), loadProjects(), loadAgentBoard()]);
+      await loadDashboard(_dashboardView);
     } finally { _pollInFlight = false; }
   }, 2000); // 2s debounce
 }

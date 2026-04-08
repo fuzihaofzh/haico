@@ -11,6 +11,8 @@ let projectFilesPanel = null;
 const AGENT_OUTPUT_POLL_MS = 2000;
 const CUSTOM_COMMAND_PROFILE_VALUE = '__custom__';
 const DASHBOARD_NAV_VIEWS = new Set(['inbox', 'projects', 'usage', 'settings']);
+const PROJECT_RESOURCE_CACHE_TTL_MS = 1500;
+const _projectResourceCache = new Map();
 
 function navigateProjectSidebar(view) {
   const nextView = DASHBOARD_NAV_VIEWS.has(view) ? view : 'projects';
@@ -19,6 +21,98 @@ function navigateProjectSidebar(view) {
 
 if (typeof window !== 'undefined') {
   window.navigateProjectSidebar = navigateProjectSidebar;
+}
+
+function invalidateProjectResources(keys) {
+  (keys || []).forEach((key) => _projectResourceCache.delete(key));
+}
+
+async function fetchProjectResource(key, loader, options) {
+  const opts = options || {};
+  const force = opts.force === true;
+  const ttl = typeof opts.ttl === 'number' ? opts.ttl : PROJECT_RESOURCE_CACHE_TTL_MS;
+  const cached = _projectResourceCache.get(key);
+
+  if (cached?.promise) return cached.promise;
+  if (!force && cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  const promise = Promise.resolve()
+    .then(loader)
+    .then((data) => {
+      _projectResourceCache.set(key, { data, expiresAt: Date.now() + ttl, promise: null });
+      return data;
+    })
+    .catch((error) => {
+      if (cached && Object.prototype.hasOwnProperty.call(cached, 'data')) {
+        _projectResourceCache.set(key, { data: cached.data, expiresAt: cached.expiresAt || 0, promise: null });
+      } else {
+        _projectResourceCache.delete(key);
+      }
+      throw error;
+    });
+
+  _projectResourceCache.set(key, {
+    data: cached?.data,
+    expiresAt: cached?.expiresAt || 0,
+    promise,
+  });
+
+  return promise;
+}
+
+async function fetchProjectJson(cacheKey, url, options) {
+  return fetchProjectResource(cacheKey, async () => {
+    const res = await fetch(url, { headers: apiHeaders() });
+    if (!res.ok) throw new Error(`Failed to load ${cacheKey}`);
+    return res.json();
+  }, options);
+}
+
+function getProjectDetail(options) {
+  return fetchProjectJson('project', `/api/projects/${projectId}`, options);
+}
+
+function getProjectAgents(options) {
+  return fetchProjectJson('agents', `/api/projects/${projectId}/agents`, options);
+}
+
+function getProjectIssueCounts(options) {
+  return fetchProjectJson('issueCounts', `/api/projects/${projectId}/issues/counts`, options);
+}
+
+function getProjectCostSummary(options) {
+  return fetchProjectJson('costSummary', `/api/projects/${projectId}/costs`, options);
+}
+
+async function getProjectActiveIssues(options) {
+  return fetchProjectResource('activeIssues', async () => {
+    const activeStatuses = ['open', 'in_progress', 'pending'];
+    const results = await Promise.all(
+      activeStatuses.map((status) =>
+        fetch(`/api/projects/${projectId}/issues?status=${status}&per_page=200`, { headers: apiHeaders() })
+          .then((res) => (res.ok ? res.json() : { issues: [] }))
+      )
+    );
+    return results.flatMap((result) => result.issues || []);
+  }, options);
+}
+
+function updateProjectCostSummary(cost) {
+  const costContainer = document.getElementById('project-cost');
+  const costValue = document.getElementById('project-cost-value');
+  if (!costContainer || !costValue) return;
+
+  if (cost && (cost.total_cost_usd > 0 || cost.total_input_tokens > 0 || cost.total_output_tokens > 0)) {
+    costContainer.style.display = '';
+    const costText = cost.total_cost_usd > 0 ? `$${cost.total_cost_usd.toFixed(4)}` : 'Cost unavailable';
+    costValue.textContent = `${costText} (${cost.total_input_tokens} in / ${cost.total_output_tokens} out)`;
+    return;
+  }
+
+  costContainer.style.display = 'none';
+  costValue.textContent = '';
 }
 
 const PROJECT_ACCESS_META = {
@@ -690,10 +784,15 @@ function statusBadge(s) {
 
 // ─── Project ───
 
-async function loadProject() {
-  const res = await fetch(`/api/projects/${projectId}`, { headers: apiHeaders() });
-  if (!res.ok) { showToast('Failed to load project', 'error'); return; }
-  projectData = await res.json();
+async function loadProject(options) {
+  let cost = null;
+  try {
+    projectData = await getProjectDetail(options);
+    cost = await getProjectCostSummary(options).catch(() => null);
+  } catch (e) {
+    showToast('Failed to load project', 'error');
+    return;
+  }
 
   document.getElementById('project-name').textContent = projectData.name;
   document.getElementById('project-title').textContent = projectData.name;
@@ -732,16 +831,7 @@ async function loadProject() {
   const triggerButton = document.getElementById('btn-trigger');
   if (triggerButton) triggerButton.style.display = projectData.can_manage && projectData.status === 'active' ? '' : 'none';
 
-  // Load cost
-  fetch(`/api/projects/${projectId}/costs`, { headers: apiHeaders() }).then(r => r.ok ? r.json() : null).then(c => {
-    if (c && (c.total_cost_usd > 0 || c.total_input_tokens > 0 || c.total_output_tokens > 0)) {
-      document.getElementById('project-cost').style.display = '';
-      const costText = c.total_cost_usd > 0 ? `$${c.total_cost_usd.toFixed(4)}` : 'Cost unavailable';
-      document.getElementById('project-cost-value').textContent = `${costText} (${c.total_input_tokens} in / ${c.total_output_tokens} out)`;
-    }
-  }).catch(() => {});
-
-  loadAgents();
+  updateProjectCostSummary(cost);
 }
 
 async function toggleProjectStatus() {
@@ -751,7 +841,8 @@ async function toggleProjectStatus() {
   const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: newStatus }) });
   if (res.ok) showToast('Status updated', 'success');
   else showToast('Failed to update status', 'error');
-  loadProject();
+  invalidateProjectResources(['project']);
+  loadProject({ force: true });
 }
 
 async function triggerController() {
@@ -762,7 +853,7 @@ async function triggerController() {
     if (!controller) { showToast('No controller agent found', 'error'); return; }
     if (controller.status === 'running') { showToast('Controller is already running', 'error'); return; }
     const res = await fetch(`/api/agents/${controller.id}/start`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) { loadAgents(); showToast('Controller started', 'success'); } else { const err = await res.json().catch(() => ({})); showToast(err.error || 'Failed to start', 'error'); }
+    if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Controller started', 'success'); } else { const err = await res.json().catch(() => ({})); showToast(err.error || 'Failed to start', 'error'); }
   };
   if (btn) await withLoading(btn, run); else await run();
 }
@@ -792,7 +883,12 @@ async function saveOverview() {
   const btn = document.querySelector('button[onclick="saveOverview()"]');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { window._overviewLoaded = false; loadProject(); showToast('Saved', 'success'); }
+    if (res.ok) {
+      window._overviewLoaded = false;
+      invalidateProjectResources(['project', 'costSummary']);
+      loadProject({ force: true });
+      showToast('Saved', 'success');
+    }
     else showToast('Failed to save', 'error');
   });
 }
@@ -832,7 +928,8 @@ async function addProjectMember() {
 
     if (input) input.value = '';
     showToast('Member added', 'success');
-    await loadProject();
+    invalidateProjectResources(['project']);
+    await loadProject({ force: true });
     await loadProjectMembers();
   });
 }
@@ -882,15 +979,25 @@ async function removeProjectMember(userId, encodedDisplayName) {
   }
 
   showToast('Member removed', 'success');
-  await loadProject();
+  invalidateProjectResources(['project']);
+  await loadProject({ force: true });
   await loadProjectMembers();
 }
 
 // ─── Agents ───
 
-async function loadAgents() {
-  const res = await fetch(`/api/projects/${projectId}/agents`, { headers: apiHeaders() });
-  agentsData = await res.json();
+async function loadAgents(options) {
+  const opts = options || {};
+  let activeIssues = [];
+
+  try {
+    agentsData = await getProjectAgents(opts);
+    activeIssues = Array.isArray(opts.activeIssues) ? opts.activeIssues : await getProjectActiveIssues(opts);
+  } catch (e) {
+    console.error('Failed to load agents', e);
+    return;
+  }
+
   syncParentAgentSelect('agent-parent', null, document.getElementById('agent-parent')?.value || '', !canManageProject());
   const list = document.getElementById('agent-list');
   const canManage = canManageProject();
@@ -913,19 +1020,13 @@ async function loadAgents() {
 
   // Fetch active issues (open/in_progress/pending) per agent
   const agentIssues = {};
-  try {
-    const activeStatuses = ['open', 'in_progress', 'pending'];
-    const issPromises = activeStatuses.map(s => fetch(`/api/projects/${projectId}/issues?status=${s}&per_page=200`, { headers: apiHeaders() }).then(r => r.ok ? r.json() : { issues: [] }));
-    const issResults = await Promise.all(issPromises);
-    for (const issData of issResults) {
-      for (const iss of (issData.issues || [])) {
-        if (iss.assigned_to) {
-          if (!agentIssues[iss.assigned_to]) agentIssues[iss.assigned_to] = [];
-          agentIssues[iss.assigned_to].push(iss);
-        }
-      }
+  for (const iss of activeIssues) {
+    if (iss.assigned_to) {
+      if (!agentIssues[iss.assigned_to]) agentIssues[iss.assigned_to] = [];
+      agentIssues[iss.assigned_to].push(iss);
     }
-  } catch (e) { console.error('Failed to fetch agent issues', e); }
+  }
+  window._dashboardIssues = activeIssues;
 
   // Fetch errors
   const errorLogs = {};
@@ -1057,12 +1158,7 @@ async function loadAgents() {
   }
   list.innerHTML = treeHtml;
 
-  // Render agent collaboration graph
-  // Cache active issues for graph node task counts
-  Promise.all(['open','in_progress','pending'].map(s => fetch(`/api/projects/${projectId}/issues?status=${s}&per_page=200`, { headers: apiHeaders() }).then(r => r.ok ? r.json() : { issues: [] })))
-    .then(results => { window._dashboardIssues = results.flatMap(d => d.issues || []); renderAgentGraph(); })
-    .catch(() => renderAgentGraph());
-
+  renderAgentGraph();
   syncProjectFilesAgents();
   loadOrchestrationRuns();
 }
@@ -1391,7 +1487,8 @@ async function saveAllAgentFields(agentId) {
     };
     const res = await fetch(`/api/agents/${agentId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) {
-      await loadAgents();
+      invalidateProjectResources(['agents']);
+      await loadAgents({ force: true });
       await viewAgent(agentId);
       showToast('Saved', 'success');
     } else {
@@ -1583,7 +1680,8 @@ async function deleteAgent(id) {
   const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
   if (res.ok) {
     if (currentAgentId === id) closeAgentDetail();
-    loadAgents(); showToast('Agent deleted', 'success');
+    invalidateProjectResources(['agents']);
+    loadAgents({ force: true }); showToast('Agent deleted', 'success');
   } else { showToast('Failed to delete', 'error'); }
 }
 
@@ -1592,7 +1690,7 @@ async function retryAgent(id) {
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/retry`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) { loadAgents(); showToast('Agent retried', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to retry', 'error'); }
+    if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent retried', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to retry', 'error'); }
   });
 }
 
@@ -1606,7 +1704,7 @@ async function quickStartAgent(id) {
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/start`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) { loadAgents(); showToast('Agent started', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to start', 'error'); }
+    if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent started', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to start', 'error'); }
   });
 }
 async function pauseAgent(id) {
@@ -1614,7 +1712,7 @@ async function pauseAgent(id) {
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/pause`, { method: 'POST', headers: apiHeaders(), body: '{}' });
-    if (res.ok) { loadAgents(); showToast('Agent paused', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to pause', 'error'); }
+    if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent paused', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to pause', 'error'); }
   });
 }
 
@@ -1623,7 +1721,7 @@ async function unpauseAgent(id) {
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/unpause`, { method: 'POST', headers: apiHeaders(), body: '{}' });
-    if (res.ok) { loadAgents(); showToast('Agent resumed', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to resume', 'error'); }
+    if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent resumed', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to resume', 'error'); }
   });
 }
 
@@ -1634,7 +1732,8 @@ async function stopAgentById(id) {
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/stop`, { method: 'POST', headers: apiHeaders(), body: '{}' });
     if (res.ok) { showToast('Agent stopped', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to stop', 'error'); }
-    loadAgents();
+    invalidateProjectResources(['agents']);
+    loadAgents({ force: true });
   });
 }
 
@@ -1665,7 +1764,7 @@ async function createAgent() {
     };
     if (!body.name) { showToast('Name is required', 'error'); return; }
     const res = await fetch(`/api/projects/${projectId}/agents`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { hideModal('createAgentModal'); loadAgents(); showToast('Agent created', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to create', 'error'); }
+    if (res.ok) { hideModal('createAgentModal'); invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent created', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to create', 'error'); }
   });
 }
 
@@ -2163,29 +2262,28 @@ async function loadGitTab() {
 
 // ─── Dashboard & Visualization ───
 
-async function loadDashboard() {
+async function loadDashboard(options) {
   const el = document.getElementById('project-dashboard');
   if (!el) return;
   try {
-    const [agentsRes, issueCountsRes, costRes] = await Promise.all([
-      fetch(`/api/projects/${projectId}/agents`, { headers: apiHeaders() }),
-      fetch(`/api/projects/${projectId}/issues/counts`, { headers: apiHeaders() }),
-      fetch(`/api/projects/${projectId}/costs`, { headers: apiHeaders() }),
+    const opts = options || {};
+    const [agents, issueCounts, cost] = await Promise.all([
+      Array.isArray(opts.agents) ? opts.agents : getProjectAgents(opts),
+      opts.issueCounts || getProjectIssueCounts(opts),
+      Object.prototype.hasOwnProperty.call(opts, 'cost') ? opts.cost : getProjectCostSummary(opts).catch(() => null),
     ]);
-    const agents = agentsRes.ok ? await agentsRes.json() : [];
-    const issueCounts = issueCountsRes.ok ? await issueCountsRes.json() : { open: 0, in_progress: 0, done: 0, closed: 0, total: 0 };
-    const cost = costRes.ok ? await costRes.json() : null;
 
     const running = agents.filter(a => a.status === 'running').length;
     const errors = agents.filter(a => a.status === 'error').length;
     const paused = agents.filter(a => a.paused).length;
     const openIssues = (issueCounts.open || 0) + (issueCounts.in_progress || 0);
     const doneIssues = (issueCounts.done || 0) + (issueCounts.closed || 0);
+    const totalIssues = issueCounts.total || 0;
     const fmtCostOverview = v => !v ? '$0' : v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
     const fmtTokensOverview = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
 
     // Update issue count for tab display (fixes #97: count shows 0 until clicking Issues tab)
-    issueCount = issueCounts.total || 0;
+    issueCount = totalIssues;
     updateTabCounts();
 
     const card = (label, value, color, sub) => `
@@ -2206,8 +2304,8 @@ async function loadDashboard() {
         `${doneIssues} completed`) +
       card(costLabel, costValue, 'var(--accent)',
         cost ? `${cost.total_runs || 0} runs` : '') +
-      card('Issues Progress', issues.length > 0 ? Math.round(doneIssues / issues.length * 100) + '%' : '-', 'var(--fg)',
-        `${doneIssues}/${issues.length} total`);
+      card('Issues Progress', totalIssues > 0 ? Math.round(doneIssues / totalIssues * 100) + '%' : '-', 'var(--fg)',
+        `${doneIssues}/${totalIssues} total`);
   } catch { el.innerHTML = ''; }
 }
 
@@ -3042,21 +3140,29 @@ async function decideApproval(approvalId, decision) {
 window.decideApproval = decideApproval;
 
 // ─── Init ───
-loadProject();
-loadAgents();
-loadDashboard();
-loadCostChart();
+async function loadProjectBootstrap(options) {
+  const opts = options || {};
+  await Promise.all([
+    loadProject(opts),
+    loadAgents(opts),
+    loadDashboard(opts),
+    loadCostChart(),
+  ]);
+}
+
+loadProjectBootstrap({ force: true });
 window.addEventListener('agentopia:user-ready', () => { renderProjectAccessSummary(); });
 
 // Slow fallback polling (WS handles real-time)
-setInterval(loadAgents, 30000);
+setInterval(() => { loadAgents({ force: true }); }, 30000);
 
 // Connect to project-level WebSocket for real-time updates
 const _projectEvents = connectProjectEvents(projectId);
 
 _projectEvents.on('agent_status', function(data) {
-  loadAgents();
-  loadDashboard();
+  loadAgents({ force: true })
+    .then(() => loadDashboard({ agents: agentsData }))
+    .catch(() => loadDashboard({ force: true }));
   // If viewing this agent's detail, refresh output too
   if (currentAgentId === data.agentId) {
     loadAgentOutput(data.agentId);
