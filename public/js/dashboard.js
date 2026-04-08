@@ -6,6 +6,7 @@ let _inboxScope = 'user'; // 'user' (default: user-related only) or 'all'
 let _inboxProject = ''; // '' = all projects, or a specific project_id
 let _inboxSearchQuery = '';
 let _inboxAllItems = []; // cached items for search filtering
+let _inboxLastUpdatedAt = ''; // cursor for background incremental inbox refresh
 let _selectedMailIdx = -1; // currently selected mail index
 let _selectedMailIssueId = null; // currently selected issue ID (stable across re-renders)
 let _renderedMailItems = []; // currently rendered (filtered) items
@@ -192,6 +193,7 @@ function updateInboxBadge(count) {
 function resetInboxPagination() {
   _inboxPagination = { limit: INBOX_ITEM_LIMIT, offset: 0, total: 0, hasMore: false, loading: false };
   _inboxAllItems = [];
+  _inboxLastUpdatedAt = '';
 }
 
 async function loadNotifications(options) {
@@ -205,12 +207,14 @@ async function loadNotifications(options) {
     if (append) renderInboxItems(_inboxAllItems);
 
     const params = new URLSearchParams();
+    const incremental = !append && !opts.reset && opts.incremental !== false && _inboxAllItems.length > 0 && !!_inboxLastUpdatedAt && !_inboxSearchQuery.trim() && _notifFilter !== 'my';
     const currentLoaded = append ? _inboxPagination.offset : 0;
-    const limit = append ? INBOX_ITEM_LIMIT : Math.max(INBOX_ITEM_LIMIT, _inboxAllItems.length || 0);
+    const limit = append || incremental ? INBOX_ITEM_LIMIT : Math.max(INBOX_ITEM_LIMIT, _inboxAllItems.length || 0);
     params.set('scope', _inboxScope);
     params.set('limit', String(limit));
     params.set('offset', String(currentLoaded));
     if (_inboxProject) params.set('project_id', _inboxProject);
+    if (incremental) params.set('since_updated_at', _inboxLastUpdatedAt);
 
     const res = await fetch('/api/notifications?' + params.toString(), { headers: apiHeaders() });
     if (!res.ok) return;
@@ -221,29 +225,6 @@ async function loadNotifications(options) {
     // Only count actionable (assigned_to=user) + unacknowledged issues for badge/notifications
     const actionableUnacknowledged = issues.filter(i => i.is_actionable && !i.acknowledged_at);
     const totalCount = typeof data.unread_count === 'number' ? data.unread_count : actionableUnacknowledged.length;
-
-    // Detect new action-required issues and play notification sound (only actionable)
-    const currentIds = new Set(actionableUnacknowledged.map(i => i.id || i.number));
-    if (!append) {
-      if (_knownActionIssueIds === null) {
-        _knownActionIssueIds = currentIds;
-      } else {
-        const newItems = [];
-        for (const id of currentIds) {
-          if (!_knownActionIssueIds.has(id)) {
-            const item = actionableUnacknowledged.find(i => (i.id || i.number) === id);
-            if (item) newItems.push(item);
-          }
-        }
-        _knownActionIssueIds = currentIds;
-        if (newItems.length > 0) {
-          if (typeof playNotificationSound === 'function') {
-            playNotificationSound();
-          }
-          showBrowserNotification(newItems);
-        }
-      }
-    }
 
     // Always show the Inbox panel
     document.getElementById('notifications-panel').style.display = '';
@@ -285,11 +266,7 @@ async function loadNotifications(options) {
       const isActionable = !!issue.is_actionable;
       items.push({ type: 'issue', time: displayTime, data: issue, actionRequired: isActionable && !isAcknowledged, latestPreview });
     }
-    // Sort: action-required first, then by time desc
-    items.sort((a, b) => {
-      if (a.actionRequired !== b.actionRequired) return a.actionRequired ? -1 : 1;
-      return (b.time || '') > (a.time || '') ? 1 : -1;
-    });
+    sortInboxItems(items);
 
     // Invalidate issue caches for issues whose updated_at changed
     for (const issue of issues) {
@@ -299,20 +276,62 @@ async function loadNotifications(options) {
       }
     }
 
-    if (append) {
+    if (incremental) {
+      const removedIds = new Set(data.removed_issue_ids || []);
+      const byId = new Map();
+      for (const existing of _inboxAllItems) {
+        const id = existing.data && existing.data.id;
+        if (id && !removedIds.has(id)) byId.set(id, existing);
+      }
+      for (const item of items) {
+        const id = item.data && item.data.id;
+        if (id) byId.set(id, item);
+      }
+      _inboxAllItems = sortInboxItems(Array.from(byId.values()));
+    } else if (append) {
       const existingIds = new Set(_inboxAllItems.map(i => i.data && i.data.id).filter(Boolean));
-      _inboxAllItems = _inboxAllItems.concat(items.filter(i => i.data && !existingIds.has(i.data.id)));
+      _inboxAllItems = sortInboxItems(_inboxAllItems.concat(items.filter(i => i.data && !existingIds.has(i.data.id))));
     } else {
       _inboxAllItems = items;
     }
 
+    const maxUpdatedAt = _inboxAllItems.reduce((max, item) => {
+      const updatedAt = item.data && item.data.updated_at;
+      return updatedAt && updatedAt > max ? updatedAt : max;
+    }, _inboxLastUpdatedAt || '');
+    if (maxUpdatedAt) _inboxLastUpdatedAt = maxUpdatedAt;
+
+    // Detect new action-required issues after incremental merge, using the full loaded list.
+    const currentIds = new Set(_inboxAllItems.filter(i => i.actionRequired && i.data).map(i => i.data.id || i.data.number));
+    if (!append) {
+      if (_knownActionIssueIds === null) {
+        _knownActionIssueIds = currentIds;
+      } else {
+        const newItems = [];
+        for (const id of currentIds) {
+          if (!_knownActionIssueIds.has(id)) {
+            const item = _inboxAllItems.find(i => i.data && (i.data.id || i.data.number) === id);
+            if (item && item.data) newItems.push(item.data);
+          }
+        }
+        _knownActionIssueIds = currentIds;
+        if (newItems.length > 0) {
+          if (typeof playNotificationSound === 'function') {
+            playNotificationSound();
+          }
+          showBrowserNotification(newItems);
+        }
+      }
+    }
+
     const page = data.pagination || {};
     const responseOffset = Number.isFinite(Number(page.offset)) ? Number(page.offset) : currentLoaded;
+    const total = page.total || _inboxAllItems.length;
     _inboxPagination = {
       limit: page.limit || limit,
-      offset: responseOffset + issues.length,
-      total: page.total || _inboxAllItems.length,
-      hasMore: !!page.has_more,
+      offset: incremental ? _inboxAllItems.length : responseOffset + issues.length,
+      total,
+      hasMore: incremental ? _inboxAllItems.length < total : !!page.has_more,
       loading: false,
     };
 
@@ -324,6 +343,13 @@ async function loadNotifications(options) {
   } finally {
     _inboxPagination.loading = false;
   }
+}
+
+function sortInboxItems(items) {
+  return items.sort((a, b) => {
+    if (a.actionRequired !== b.actionRequired) return a.actionRequired ? -1 : 1;
+    return (b.time || '') > (a.time || '') ? 1 : -1;
+  });
 }
 
 function renderInboxItems(items) {
@@ -476,6 +502,7 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
     IssueRenderer.render(cached.data, agents, detail, {
       reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
       onAfterAction: function() { loadNotifications(); },
+      refreshComments: function(seedComment) { refreshInboxIssueComments(issueId, seedComment); },
       projectColor: getProjectColor(),
     });
 
@@ -541,12 +568,65 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
     IssueRenderer.render(issue, agents, detail, {
       reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
       onAfterAction: function() { loadNotifications(); },
+      refreshComments: function(seedComment) { refreshInboxIssueComments(issueId, seedComment); },
       projectColor: getProjectColor(),
     });
   } catch (e) {
     if (isStale()) return;
     detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary)">Failed to load issue</div>';
   }
+}
+
+function mergeIssueComments(issue, comments) {
+  if (!issue || !Array.isArray(comments) || comments.length === 0) return false;
+  const byId = new Map((issue.comments || []).map(function(comment) { return [comment.id, comment]; }));
+  let changed = false;
+  for (const comment of comments) {
+    if (!comment || !comment.id) continue;
+    if (!byId.has(comment.id)) changed = true;
+    byId.set(comment.id, Object.assign({ reactions: [] }, comment));
+  }
+  if (!changed) return false;
+  issue.comments = Array.from(byId.values()).sort(function(a, b) {
+    return (a.created_at || '') > (b.created_at || '') ? 1 : -1;
+  });
+  return true;
+}
+
+function getIssueLastCommentCreatedAt(issue) {
+  return (issue && issue.comments || []).reduce(function(max, comment) {
+    const createdAt = comment && comment.created_at;
+    return createdAt && createdAt > max ? createdAt : max;
+  }, '');
+}
+
+async function refreshInboxIssueComments(issueId, seedComment) {
+  const cached = _issueDetailCache[issueId];
+  if (!cached || !cached.data) {
+    return loadInboxIssueDetail(issueId, _selectedMailIdx, true);
+  }
+  let changed = mergeIssueComments(cached.data, seedComment ? [seedComment] : []);
+  const sinceCreatedAt = getIssueLastCommentCreatedAt(cached.data);
+  try {
+    const params = new URLSearchParams();
+    if (sinceCreatedAt) params.set('since_created_at', sinceCreatedAt);
+    const res = await fetch(`/api/issues/${issueId}/comments?${params.toString()}`, { headers: apiHeaders() });
+    if (res.ok) {
+      const comments = await res.json();
+      changed = mergeIssueComments(cached.data, comments) || changed;
+    }
+  } catch (e) {
+    console.error('Failed to refresh inbox issue comments', e);
+  }
+  if (!changed || _selectedMailIssueId !== issueId) return;
+  cached.timestamp = Date.now();
+  const agentsCached = _projectAgentsCache[cached.data.project_id];
+  IssueRenderer.render(cached.data, agentsCached ? agentsCached.data : [], document.getElementById('mail-detail-pane'), {
+    reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
+    onAfterAction: function() { loadNotifications(); },
+    refreshComments: function(nextSeedComment) { refreshInboxIssueComments(issueId, nextSeedComment); },
+    projectColor: (cached.data && cached.data.project_color) || null,
+  });
 }
 
 // Prefetch issue detail on hover for faster click response

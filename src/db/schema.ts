@@ -691,6 +691,38 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: rebuilt agent_memories table to fix FK references');
   }
 
+  const approvalRequestsTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='approval_requests'").get() as any;
+  if (approvalRequestsTableSql && (
+    approvalRequestsTableSql.sql.includes('agents_old')
+    || approvalRequestsTableSql.sql.includes('issues_old')
+    || approvalRequestsTableSql.sql.includes('projects_old')
+  )) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE approval_requests RENAME TO approval_requests_old;
+      CREATE TABLE approval_requests (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
+        agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        risk_level TEXT DEFAULT 'medium' CHECK(risk_level IN ('low', 'medium', 'high', 'critical')),
+        status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+        decided_by TEXT,
+        decision_note TEXT DEFAULT '',
+        decided_at DATETIME,
+        created_at DATETIME DEFAULT (datetime('now'))
+      );
+      INSERT INTO approval_requests SELECT * FROM approval_requests_old;
+      DROP TABLE approval_requests_old;
+      CREATE INDEX IF NOT EXISTS idx_approval_project ON approval_requests(project_id, status);
+      CREATE INDEX IF NOT EXISTS idx_approval_agent ON approval_requests(agent_id);
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: rebuilt approval_requests table to fix FK references');
+  }
+
   // Migration: normalize controller command_type and only add Sonnet defaults for Claude controllers.
   const controllerAgents = db.prepare(
     'SELECT id, command_template, command_type FROM agents WHERE is_controller = 1'

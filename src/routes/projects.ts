@@ -1091,6 +1091,9 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.id, true);
     if (!access) return;
+    if (access.permission.level === 'editor') {
+      return reply.code(403).send({ error: 'Only project owners or admins can delete projects' });
+    }
     const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.id);
     if (!existing) return reply.code(404).send({ error: 'Project not found' });
 
@@ -1100,7 +1103,18 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       if (isAgentRunning(agent.id)) stopAgentProcess(agent.id);
     }
 
-    db.prepare('DELETE FROM projects WHERE id = ?').run(request.params.id);
+    try {
+      db.prepare('DELETE FROM projects WHERE id = ?').run(request.params.id);
+    } catch (err) {
+      request.log.error({ err, projectId: request.params.id }, 'Failed to delete project');
+      const message = err instanceof Error ? err.message : String(err);
+      if (/foreign key|constraint|agents_old|issues_old|projects_old/i.test(message)) {
+        return reply.code(409).send({
+          error: 'Project could not be deleted because related records still block deletion. Please restart the server to apply database migrations and retry.',
+        });
+      }
+      throw err;
+    }
     return { success: true };
   });
 }

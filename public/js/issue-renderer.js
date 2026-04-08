@@ -10,6 +10,7 @@ var IssueRenderer = (function() {
     agents: [],
     container: null,
     reload: null,
+    refreshComments: null,
     onAfterAction: null,
     projectColor: null,
   };
@@ -149,6 +150,7 @@ var IssueRenderer = (function() {
     _ctx.agents = agents || [];
     _ctx.container = container;
     _ctx.reload = options.reload || function() {};
+    _ctx.refreshComments = options.refreshComments || null;
     _ctx.onAfterAction = options.onAfterAction || function() {};
     _ctx.projectColor = options.projectColor || issue.project_color || null;
 
@@ -449,7 +451,19 @@ var IssueRenderer = (function() {
     var body = document.getElementById('ir-comment-input').value.trim();
     if (!body) return;
     fetch('/api/issues/' + _ctx.issue.id + '/comments', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body: body }) })
-      .then(function(res) { if (res.ok) showToast('Comment added', 'success'); _ctx.reload(); });
+      .then(function(res) {
+        if (!res.ok) throw new Error('Failed to add comment');
+        return res.json();
+      })
+      .then(function(comment) {
+        showToast('Comment added', 'success');
+        var input = document.getElementById('ir-comment-input');
+        if (input) input.value = '';
+        if (_ctx.refreshComments) _ctx.refreshComments(comment);
+        else _ctx.reload();
+        _ctx.onAfterAction();
+      })
+      .catch(function() { showToast('Failed to add comment', 'error'); });
   }
 
   function editComment(cid) {

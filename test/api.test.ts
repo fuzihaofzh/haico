@@ -648,6 +648,62 @@ describe('Agentopia API', () => {
       assert.equal(memberDetail.body.owner.username, ownerUsername);
       assert.equal(memberDetail.body.member_count, 2);
     });
+
+    it('rejects project deletion by editor with a clear 403', async () => {
+      const suffix = Date.now();
+      const ownerUsername = `delete-owner-${suffix}`;
+      const editorUsername = `delete-editor-${suffix}`;
+
+      await api(app, '/api/auth/register', {
+        method: 'POST',
+        body: { username: ownerUsername, password: 'pass1234', display_name: 'Delete Owner' },
+      });
+      await api(app, '/api/auth/register', {
+        method: 'POST',
+        body: { username: editorUsername, password: 'pass1234', display_name: 'Delete Editor' },
+      });
+
+      const ownerToken = (await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username: ownerUsername, password: 'pass1234' },
+      })).body.token;
+      const editorToken = (await api(app, '/api/auth/login', {
+        method: 'POST',
+        body: { username: editorUsername, password: 'pass1234' },
+      })).body.token;
+
+      const created = await api(app, '/api/projects', {
+        method: 'POST',
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        body: {
+          name: `delete-permission-${suffix}`,
+          description: 'delete permission test',
+          task_description: 'verify editor cannot delete project',
+          command_template: 'echo',
+        },
+      });
+      assert.equal(created.status, 201);
+
+      const shareRes = await api(app, `/api/projects/${created.body.id}/members`, {
+        method: 'POST',
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        body: { username: editorUsername, role: 'editor' },
+      });
+      assert.equal(shareRes.status, 201);
+
+      const editorDelete = await api(app, `/api/projects/${created.body.id}`, {
+        method: 'DELETE',
+        headers: { cookie: `agentopia-auth=${editorToken}` },
+      });
+      assert.equal(editorDelete.status, 403);
+      assert.match(editorDelete.body.error, /owners or admins/);
+
+      const ownerDelete = await api(app, `/api/projects/${created.body.id}`, {
+        method: 'DELETE',
+        headers: { cookie: `agentopia-auth=${ownerToken}` },
+      });
+      assert.equal(ownerDelete.status, 200);
+    });
   });
 
   describe('统一项目权限边界 (#525/#530)', () => {
@@ -982,6 +1038,24 @@ describe('Agentopia API', () => {
       const { body } = await api(app, `/api/agents/${workerId}/logs`);
       assert.ok(Array.isArray(body));
       assert.ok(body.length > 0, 'Should have at least one log entry');
+    });
+
+    it('logs support since_id cursor in ascending order', async () => {
+      const { body: before } = await api(app, `/api/agents/${workerId}/logs?limit=1`);
+      const sinceId = before.length ? before[0].id : 0;
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const insertLog = db.prepare(
+        'INSERT INTO conversation_logs (agent_id, run_id, content, stream, created_at) VALUES (?, ?, ?, ?, ?)'
+      );
+      insertLog.run(workerId, 'since-cursor-run', 'cursor-log-1', 'stdout', '2026-04-08 13:00:00');
+      insertLog.run(workerId, 'since-cursor-run', 'cursor-log-2', 'stdout', '2026-04-08 13:00:01');
+
+      const { status, body } = await api(app, `/api/agents/${workerId}/logs?since_id=${sinceId}&limit=10`);
+      assert.equal(status, 200);
+      const cursorLogs = body.filter((entry: any) => entry.run_id === 'since-cursor-run');
+      assert.equal(cursorLogs.length, 2);
+      assert.deepEqual(cursorLogs.map((entry: any) => entry.content), ['cursor-log-1', 'cursor-log-2']);
     });
 
     it('start + stop works', async () => {
@@ -1606,6 +1680,49 @@ describe('Agentopia API', () => {
       const recent = body.recent_comments.find((comment: any) => comment.issue_id === issue.id);
       assert.ok(recent, 'preview test comment should appear in recent comments');
       assert.ok(recent.body.length <= 150, 'recent comment body should be truncated to notification preview length');
+    });
+
+    it('GET /api/notifications supports since_updated_at incremental refresh', async () => {
+      const baseline = await api(app, '/api/notifications?limit=20');
+      assert.equal(baseline.status, 200);
+      const cursor = (baseline.body.user_issues || []).reduce((max: string, issue: any) => {
+        return issue.updated_at && issue.updated_at > max ? issue.updated_at : max;
+      }, '1970-01-01 00:00:00');
+
+      const created = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Notification Incremental Issue', body: 'incremental body', created_by: 'user', assigned_to: 'user' },
+      });
+      assert.equal(created.status, 201);
+
+      const { status, body } = await api(app, `/api/notifications?since_updated_at=${encodeURIComponent(cursor)}&limit=20`);
+      assert.equal(status, 200);
+      assert.equal(body.pagination.incremental, true);
+      assert.ok(body.user_issues.some((issue: any) => issue.id === created.body.id), 'incremental notifications should include newly updated issue');
+    });
+
+    it('GET /api/issues/:id/comments supports since_created_at with reactions', async () => {
+      const created = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Comment Incremental Issue', body: 'comment incremental body', created_by: 'user', assigned_to: 'user' },
+      });
+      assert.equal(created.status, 201);
+
+      const first = await api(app, `/api/issues/${created.body.id}/comments`, {
+        method: 'POST',
+        body: { author_id: 'user', body: 'first incremental comment' },
+      });
+      assert.equal(first.status, 201);
+      const second = await api(app, `/api/issues/${created.body.id}/comments`, {
+        method: 'POST',
+        body: { author_id: workerId, body: 'second incremental comment' },
+      });
+      assert.equal(second.status, 201);
+
+      const { status, body } = await api(app, `/api/issues/${created.body.id}/comments?since_created_at=${encodeURIComponent(first.body.created_at)}`);
+      assert.equal(status, 200);
+      assert.ok(body.some((comment: any) => comment.id === second.body.id), 'incremental comments should include later comments');
+      assert.ok(body.every((comment: any) => Array.isArray(comment.reactions)), 'comments endpoint should attach reaction arrays');
     });
 
     describe('pending status visibility (#380)', () => {

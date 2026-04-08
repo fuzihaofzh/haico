@@ -5,6 +5,7 @@ let orchestrationRunsData = [];
 let agentOutputPollTimer = null;
 let agentOutputPollingAgentId = null;
 let agentOutputRefreshInFlight = false;
+const agentOutputLogState = new Map();
 let projectMembersData = [];
 let projectFilesAgentId = '';
 let projectFilesPanel = null;
@@ -172,6 +173,11 @@ function getProjectAccessMeta(project) {
 
 function canManageProject() {
   return !!projectData?.can_manage;
+}
+
+function canDeleteProject() {
+  const level = getProjectAccessLevel(projectData);
+  return canManageProject() && level !== 'editor';
 }
 
 function requireProjectManageAccess(message) {
@@ -575,11 +581,13 @@ function applyProjectManageState() {
 
   const canManage = canManageProject();
   const meta = getProjectAccessMeta(projectData);
-  const manageIds = ['btn-toggle', 'btn-trigger', 'btn-delete-project', 'btn-share-project', 'btn-save-overview', 'btn-new-agent', 'btn-new-issue', 'btn-new-knowledge'];
+  const manageIds = ['btn-toggle', 'btn-trigger', 'btn-share-project', 'btn-save-overview', 'btn-new-agent', 'btn-new-issue', 'btn-new-knowledge'];
   manageIds.forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.style.display = canManage ? '' : 'none';
   });
+  const deleteButton = document.getElementById('btn-delete-project');
+  if (deleteButton) deleteButton.style.display = canDeleteProject() ? '' : 'none';
 
   const overviewIds = ['project-name-edit', 'project-desc-edit', 'project-task', 'project-cmd', 'project-cmd-profile'];
   overviewIds.forEach((id) => {
@@ -894,11 +902,14 @@ async function saveOverview() {
 }
 
 async function deleteProject() {
-  if (!projectData?.can_manage) { showToast('Insufficient permission to delete project', 'error'); return; }
+  if (!canDeleteProject()) { showToast('Only project owners or admins can delete projects', 'error'); return; }
   if (!await showConfirm('Delete this project and all agents/issues?')) return;
   const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
   if (res.ok) { showToast('Project deleted', 'success'); window.location.href = '/'; }
-  else { showToast('Failed to delete', 'error'); }
+  else {
+    const data = await res.json().catch(() => ({}));
+    showToast(data.error || 'Failed to delete', 'error');
+  }
 }
 
 async function addProjectMember() {
@@ -1032,12 +1043,8 @@ async function loadAgents(options) {
   const errorLogs = {};
   await Promise.all(agentsData.filter(a => a.status === 'error').map(async (a) => {
     try {
-      const r = await fetch(`/api/agents/${a.id}/logs?limit=5`, { headers: apiHeaders() });
-      if (r.ok) {
-        // Use status API for last_error instead of raw logs
-        const sr = await fetch(`/api/agents/${a.id}/status`, { headers: apiHeaders() });
-        if (sr.ok) { const st = await sr.json(); errorLogs[a.id] = st.last_error || ''; }
-      }
+      const sr = await fetch(`/api/agents/${a.id}/status`, { headers: apiHeaders() });
+      if (sr.ok) { const st = await sr.json(); errorLogs[a.id] = st.last_error || ''; }
     } catch (e) { console.error('Failed to fetch error logs for agent', a.id, e); }
   }));
 
@@ -1404,9 +1411,22 @@ async function loadAgentOutput(agentId, options) {
   if (opts.silent && agentOutputRefreshInFlight) return;
   agentOutputRefreshInFlight = true;
   try {
-    const logsRes = await fetch(`/api/agents/${agentId}/logs?limit=100`, { headers: apiHeaders() });
-    const logs = logsRes.ok ? await logsRes.json() : [];
-    logs.reverse();
+    const cachedState = agentOutputLogState.get(agentId);
+    const useIncremental = opts.silent && cachedState && cachedState.lastLogId > 0;
+    const logsUrl = useIncremental
+      ? `/api/agents/${agentId}/logs?since_id=${cachedState.lastLogId}&limit=100`
+      : `/api/agents/${agentId}/logs?limit=100`;
+    const logsRes = await fetch(logsUrl, { headers: apiHeaders() });
+    const fetchedLogs = logsRes.ok ? await logsRes.json() : [];
+    if (useIncremental && fetchedLogs.length === 0) return;
+    let logs = fetchedLogs;
+    if (useIncremental) {
+      logs = cachedState.logs.concat(fetchedLogs).slice(-500);
+    } else {
+      logs.reverse();
+    }
+    const lastLogId = logs.length ? Math.max(...logs.map(l => l.id || 0)) : 0;
+    agentOutputLogState.set(agentId, { logs, lastLogId });
 
     // Group by run, only show last 3 runs
     const runs = [];

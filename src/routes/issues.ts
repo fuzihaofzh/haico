@@ -129,6 +129,21 @@ function parseBoundedInt(value: unknown, fallback: number, min: number, max: num
   return Math.min(max, Math.max(min, parsed));
 }
 
+function attachCommentReactions(db: ReturnType<typeof getDatabase>, comments: any[]): any[] {
+  const commentIds = comments.map(c => c.id);
+  if (commentIds.length === 0) return comments;
+  const placeholders = buildSqlPlaceholders(commentIds);
+  const reactions = db.prepare(`SELECT * FROM reactions WHERE target_type = 'comment' AND target_id IN (${placeholders})`).all(...commentIds) as any[];
+  const reactionsByComment: Record<string, any[]> = {};
+  for (const reaction of reactions) {
+    (reactionsByComment[reaction.target_id] ||= []).push(reaction);
+  }
+  return comments.map(comment => ({
+    ...comment,
+    reactions: reactionsByComment[comment.id] || [],
+  }));
+}
+
 export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // ─── Issues ───
@@ -157,7 +172,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         'oldest': 'created_at ASC',
         'updated': 'updated_at DESC',
         'priority': 'priority DESC, created_at DESC',
-        'comments': '(SELECT COUNT(*) FROM issue_comments WHERE issue_id = issues.id) DESC',
+        'comments': "(SELECT COUNT(*) FROM issue_comments WHERE issue_id = issues.id AND event_type = 'comment') DESC",
       };
       sql += ' ORDER BY ' + (sortMap[sort || ''] || 'created_at DESC');
 
@@ -530,11 +545,15 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // ─── Comments ───
 
   // List comments
-  fastify.get<{ Params: { id: string } }>('/api/issues/:id/comments', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { since_created_at?: string } }>('/api/issues/:id/comments', async (request, reply) => {
     const db = getDatabase();
     const access = ensureIssueAccess(db, request, reply, request.params.id);
     if (!access) return;
-    return db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(request.params.id);
+    const sinceCreatedAt = typeof request.query.since_created_at === 'string' ? request.query.since_created_at.trim() : '';
+    const comments = sinceCreatedAt
+      ? db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? AND created_at >= ? ORDER BY created_at').all(request.params.id, sinceCreatedAt) as any[]
+      : db.prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at').all(request.params.id) as any[];
+    return attachCommentReactions(db, comments);
   });
 
   // User notifications — paginated issues plus recent comments for the current page
@@ -573,12 +592,14 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
     const scope = query?.scope === 'all' ? 'all' : 'user';
     const placeholders = buildSqlPlaceholders(visibleProjectIds);
-    const baseWhere = scope === 'all'
-      ? `i.project_id IN (${placeholders})
-         AND i.status IN ('open', 'in_progress', 'pending', 'done')`
+    const visibilityWhere = scope === 'all'
+      ? `i.project_id IN (${placeholders})`
       : `i.project_id IN (${placeholders})
-         AND (i.assigned_to = 'user' OR i.created_by = 'user')
-         AND i.status IN ('open', 'in_progress', 'pending', 'done')`;
+         AND (i.assigned_to = 'user' OR i.created_by = 'user')`;
+    const activeInboxStatusWhere = `i.status IN ('open', 'in_progress', 'pending', 'done')`;
+    const baseWhere = `${visibilityWhere} AND ${activeInboxStatusWhere}`;
+    const sinceUpdatedAt = typeof query?.since_updated_at === 'string' ? query.since_updated_at.trim() : '';
+    const incrementalWhere = sinceUpdatedAt ? 'AND i.updated_at >= ?' : '';
     const orderBy = `CASE WHEN i.assigned_to = 'user' AND i.acknowledged_at IS NULL THEN 1 ELSE 0 END DESC,
                      i.priority DESC,
                      i.updated_at DESC,
@@ -618,9 +639,16 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
        LEFT JOIN agents lca ON lca.id = lc.author_id
        LEFT JOIN agents aa ON aa.id = i.assigned_to
        WHERE ${baseWhere}
+         ${incrementalWhere}
        ORDER BY ${orderBy}
        LIMIT ? OFFSET ?`
-    ).all(...visibleProjectIds, ...visibleProjectIds, limit, offset) as any[];
+    ).all(
+      ...visibleProjectIds,
+      ...visibleProjectIds,
+      ...(sinceUpdatedAt ? [sinceUpdatedAt] : []),
+      limit,
+      sinceUpdatedAt ? 0 : offset
+    ) as any[];
 
     const issueIds = userIssues.map((issue) => issue.id);
     let recentComments: any[] = [];
@@ -639,16 +667,27 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
          LIMIT 50`
       ).all(...issueIds) as any[];
     }
+    const removedIssueIds = sinceUpdatedAt
+      ? (db.prepare(
+        `SELECT i.id
+         FROM issues i
+         WHERE ${visibilityWhere}
+           AND i.updated_at >= ?
+           AND NOT (${activeInboxStatusWhere})`
+      ).all(...visibleProjectIds, sinceUpdatedAt) as any[]).map((row) => row.id)
+      : [];
 
     return {
       user_issues: userIssues,
       recent_comments: recentComments,
+      removed_issue_ids: removedIssueIds,
       unread_count: unreadCount,
       pagination: {
         limit,
-        offset,
+        offset: sinceUpdatedAt ? 0 : offset,
         total,
-        has_more: offset + userIssues.length < total,
+        has_more: sinceUpdatedAt ? userIssues.length >= limit : offset + userIssues.length < total,
+        incremental: !!sinceUpdatedAt,
       },
     };
   });

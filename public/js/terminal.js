@@ -2,6 +2,7 @@ const agentId = window.location.pathname.split('/').pop();
 let term = null;
 let fitAddon = null;
 let lastLogId = 0;
+let logsPollInFlight = false;
 const CUSTOM_COMMAND_PROFILE_VALUE = '__custom__';
 
 // ─── Activity Summary ───
@@ -341,19 +342,25 @@ function writeLog(log, skipActivity) {
 // ─── Poll logs via HTTP (real-time, every 1 second) ───
 
 async function pollLogs() {
+  if (logsPollInFlight) return;
+  logsPollInFlight = true;
   try {
-    const res = await fetch(`/api/agents/${agentId}/logs?limit=200`, { headers: apiHeaders() });
+    const url = lastLogId > 0
+      ? `/api/agents/${agentId}/logs?since_id=${lastLogId}&limit=200`
+      : `/api/agents/${agentId}/logs?limit=200`;
+    const res = await fetch(url, { headers: apiHeaders() });
     if (!res.ok) return;
     const logs = await res.json();
     if (!logs.length) return;
 
     const newLogs = logs.filter(l => l.id > lastLogId);
     if (newLogs.length > 0) {
-      // Display oldest first
-      newLogs.reverse().forEach(writeLog);
-      lastLogId = Math.max(...logs.map(l => l.id));
+      if (lastLogId === 0) newLogs.reverse();
+      newLogs.forEach(writeLog);
+      lastLogId = Math.max(lastLogId, ...newLogs.map(l => l.id));
     }
   } catch (e) { console.error('Failed to poll logs', e); }
+  finally { logsPollInFlight = false; }
 }
 
 // Initial load: fetch history, grouped by run

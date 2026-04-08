@@ -20,6 +20,12 @@ const TOOL_CALL_REPORT_CHAR_LIMIT = 4000;
 const MAX_AGENT_FILE_SIZE = 1024 * 1024;
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
+function parseBoundedInt(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(value || '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(parsed, max));
+}
+
 function expandWorkingDirectory(dir: string): string {
   if (dir.startsWith('~/')) {
     return path.join(os.homedir(), dir.slice(2));
@@ -976,11 +982,17 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Get agent logs
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/agents/:id/logs', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string; since_id?: string; after_id?: string; after?: string } }>('/api/agents/:id/logs', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
-    const limit = parseInt(request.query.limit || '100', 10);
+    const limit = parseBoundedInt(request.query.limit, 100, 1, 1000);
+    const sinceId = parseBoundedInt(request.query.since_id || request.query.after_id || request.query.after, 0, 0, Number.MAX_SAFE_INTEGER);
+    if (sinceId > 0) {
+      return db.prepare(
+        'SELECT * FROM conversation_logs WHERE agent_id = ? AND id > ? ORDER BY id ASC LIMIT ?'
+      ).all(request.params.id, sinceId, limit);
+    }
     return db.prepare(
       'SELECT * FROM conversation_logs WHERE agent_id = ? ORDER BY id DESC LIMIT ?'
     ).all(request.params.id, limit);
