@@ -7,6 +7,7 @@ import logger from '../logger';
 import { startAgentProcess } from './process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
 import { buildSystemPrompt } from './system-prompt';
+import { resolveDispatchCommand } from './model-tier-router';
 
 export interface LangGraphControllerInput {
   project: Project;
@@ -587,7 +588,8 @@ const controllerGraph = new StateGraph(ControllerGraphState)
       }
 
       const prompt = buildWorkerPrompt(state.project, agent, assignedIssues);
-      const commandTemplate = agent.command_template || state.project.command_template || config.defaultCommandTemplate;
+      const routeResult = resolveDispatchCommand(agent, assignedIssues, state.project);
+      const commandTemplate = routeResult.commandTemplate;
       const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
       const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agent, state.project);
 
@@ -596,8 +598,11 @@ const controllerGraph = new StateGraph(ControllerGraphState)
         const issueBatch = getAgentIssueBatch(assignedIssues);
         markCurrentBatchInProgress(db, issueBatch);
 
+        const routeTag = routeResult.routed
+          ? ', model=' + routeResult.profileName + '(intel=' + routeResult.selectedIntelligence + ', required=' + routeResult.requiredIntelligence + ')'
+          : '';
         logger.info(
-          'LangGraph dispatched worker agent (project=' + state.project.id + ', agent=' + agent.id + ', issues=' + issueBatch.currentBatch.length + '/' + issueBatch.activeIssues.length + ', runId=' + process.runId + ')'
+          'LangGraph dispatched worker agent (project=' + state.project.id + ', agent=' + agent.id + ', issues=' + issueBatch.currentBatch.length + '/' + issueBatch.activeIssues.length + ', runId=' + process.runId + routeTag + ')'
         );
         results.push({
           agentId: action.agentId,

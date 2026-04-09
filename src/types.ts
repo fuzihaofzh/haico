@@ -41,6 +41,8 @@ export interface Agent {
   session_resume_timeout: number;
   command_template: string | null;
   command_type: CommandProfileType | null;
+  model_tier_policy: 'auto' | 'fixed';
+  last_command_template: string | null;
   status: 'idle' | 'running' | 'waiting' | 'error';
   paused: boolean;
   pid: number | null;
@@ -75,6 +77,16 @@ export interface IssueComment {
   event_type: 'comment' | 'status_change' | 'assignment' | 'label_change';
   meta: string;
   created_at: string;
+}
+
+export interface CommandProfile {
+  id: string;
+  name: string;
+  command: string;
+  type: CommandProfileType;
+  intelligence: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ConversationLog {

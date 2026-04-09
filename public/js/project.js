@@ -1289,6 +1289,14 @@ async function viewAgent(agentId) {
               <input type="number" id="ad-resumetimeout-${agentId}" value="${agent.session_resume_timeout ?? 300}" min="0" ${readOnlyAttr} style="${B};width:80px;font-size:12px;color:var(--fg);text-align:center">
               <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">0 = unlimited</div>
             </div>
+            <div style="width:120px">
+              <div style="${L}">Model Routing</div>
+              <select id="ad-tierpolicy-${agentId}" ${readOnlyAttr} style="${B};width:100%;font-size:12px;color:var(--fg)">
+                <option value="fixed"${(agent.model_tier_policy || 'fixed') === 'fixed' ? ' selected' : ''}>Fixed</option>
+                <option value="auto"${agent.model_tier_policy === 'auto' ? ' selected' : ''}>Auto</option>
+              </select>
+              <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">Auto = pick model by issue complexity</div>
+            </div>
             <div style="min-width:220px;flex:1">
               <div style="${L}">Parent Agent</div>
               <select id="ad-parent-${agentId}" ${!canManage || agent.is_controller ? 'disabled' : ''} style="${B};width:100%;font-size:12px;color:var(--fg)">
@@ -1503,6 +1511,7 @@ async function saveAllAgentFields(agentId) {
       session_max_tokens: Number.isNaN(maxTokensRaw) ? 200000 : Math.max(0, maxTokensRaw),
       session_max_runs: Number.isNaN(maxRunsRaw) ? 10 : Math.max(1, maxRunsRaw),
       session_resume_timeout: Number.isNaN(resumeTimeoutRaw) ? 0 : Math.max(0, resumeTimeoutRaw),
+      model_tier_policy: document.getElementById('ad-tierpolicy-' + agentId)?.value || 'fixed',
       custom_instructions: instructionsVal.trim() === '' ? null : instructionsVal
     };
     const res = await fetch(`/api/agents/${agentId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });

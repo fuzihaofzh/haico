@@ -222,6 +222,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       session_resume_timeout,
       command_template,
       command_type,
+      model_tier_policy,
       parent_agent_id,
       paused,
     } = request.body as any;
@@ -292,6 +293,13 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     if (validatedParentId !== undefined) {
       fields.push('parent_agent_id = ?');
       params.push(validatedParentId);
+    }
+
+    if (model_tier_policy !== undefined) {
+      const validPolicies = ['auto', 'fixed'];
+      const policy = validPolicies.includes(model_tier_policy) ? model_tier_policy : 'fixed';
+      fields.push('model_tier_policy = ?');
+      params.push(policy);
     }
 
     if (paused !== undefined) {

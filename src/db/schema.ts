@@ -22,6 +22,7 @@ export function initializeDatabase(db: Database.Database): void {
       name TEXT NOT NULL,
       command TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'claude' CHECK(type IN ('claude', 'codex', 'gemini')),
+      intelligence INTEGER DEFAULT 5,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -59,6 +60,8 @@ export function initializeDatabase(db: Database.Database): void {
       session_resume_timeout INTEGER DEFAULT 300,
       command_template TEXT DEFAULT NULL,
       command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
+      model_tier_policy TEXT DEFAULT 'fixed' CHECK(model_tier_policy IN ('auto', 'fixed')),
+      last_command_template TEXT DEFAULT NULL,
       status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error')),
       paused BOOLEAN DEFAULT 0,
       pid INTEGER,
@@ -360,6 +363,23 @@ export function initializeDatabase(db: Database.Database): void {
     }
   }
 
+  // Migration: add intelligence column to command_profiles if missing
+  const profileCols = db.prepare("PRAGMA table_info(command_profiles)").all() as any[];
+  if (!profileCols.find((c: any) => c.name === 'intelligence')) {
+    db.exec("ALTER TABLE command_profiles ADD COLUMN intelligence INTEGER DEFAULT 5");
+    logger.info('Migration: added intelligence column to command_profiles table');
+  }
+
+  // Migration: add model_tier_policy and last_command_template columns to agents if missing
+  if (!cols.find((c: any) => c.name === 'model_tier_policy')) {
+    db.exec("ALTER TABLE agents ADD COLUMN model_tier_policy TEXT DEFAULT 'fixed'");
+    logger.info('Migration: added model_tier_policy column to agents table');
+  }
+  if (!cols.find((c: any) => c.name === 'last_command_template')) {
+    db.exec("ALTER TABLE agents ADD COLUMN last_command_template TEXT DEFAULT NULL");
+    logger.info('Migration: added last_command_template column to agents table');
+  }
+
   // Migration: add parent_agent_id column to agents if missing
   if (!cols.find((c: any) => c.name === 'parent_agent_id')) {
     db.exec("ALTER TABLE agents ADD COLUMN parent_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL");
@@ -596,16 +616,17 @@ export function initializeDatabase(db: Database.Database): void {
         name TEXT NOT NULL,
         command TEXT NOT NULL,
         type TEXT NOT NULL DEFAULT 'claude' CHECK(type IN ('claude', 'codex', 'gemini')),
+        intelligence INTEGER DEFAULT 5,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
       );
-      INSERT INTO command_profiles (id, name, command, type, created_at, updated_at)
-      SELECT id, name, command, type, created_at, updated_at
+      INSERT INTO command_profiles (id, name, command, type, intelligence, created_at, updated_at)
+      SELECT id, name, command, type, 5, created_at, updated_at
       FROM command_profiles_old;
       DROP TABLE command_profiles_old;
       CREATE INDEX IF NOT EXISTS idx_command_profiles_name ON command_profiles(name);
     `);
-    logger.info('Migration: rebuilt command_profiles table to include gemini type');
+    logger.info('Migration: rebuilt command_profiles table to include gemini type and intelligence');
   }
 
   // Migration: fix agents CHECK constraint to include 'waiting' status and expanded command_type values
@@ -632,6 +653,8 @@ export function initializeDatabase(db: Database.Database): void {
         session_resume_timeout INTEGER DEFAULT 300,
         command_template TEXT DEFAULT NULL,
         command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
+        model_tier_policy TEXT DEFAULT 'fixed' CHECK(model_tier_policy IN ('auto', 'fixed')),
+        last_command_template TEXT DEFAULT NULL,
         status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error')),
         paused BOOLEAN DEFAULT 0,
         pid INTEGER,
@@ -644,12 +667,14 @@ export function initializeDatabase(db: Database.Database): void {
         id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
         custom_instructions, new_session_per_run, session_run_count, session_max_runs,
         session_token_count, session_max_tokens, session_resume_timeout, command_template, command_type,
+        model_tier_policy, last_command_template,
         status, paused, pid, last_prompt, started_at, finished_at, created_at
       )
       SELECT
         id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
         custom_instructions, new_session_per_run, session_run_count, session_max_runs,
         session_token_count, session_max_tokens, session_resume_timeout, command_template, command_type,
+        'fixed', NULL,
         status, paused, pid, last_prompt, started_at, finished_at, created_at
       FROM agents_old;
       DROP TABLE agents_old;
