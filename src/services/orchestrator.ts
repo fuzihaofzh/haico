@@ -5,12 +5,14 @@ import logger from '../logger';
 import { startAgentProcess } from './process-manager';
 import { buildSystemPrompt } from './system-prompt';
 import { runControllerWithLangGraph } from './langgraph-runner';
+import { applyControllerBackoff, buildControllerActivitySnapshot } from './controller-backoff';
 
 export interface ControllerOrchestrationInput {
   project: Project;
   controller: Agent;
   taskPrompt: string;
   triggerIssueNumber?: number;
+  activitySnapshot?: string;
 }
 
 interface OrchestrationRunRecordInput {
@@ -25,7 +27,12 @@ interface OrchestrationRunRecordInput {
   reasons: string[];
   actions: unknown[];
   dispatchResults: unknown[];
+  backoffMs?: number;
+  backoffReason?: string;
+  backoffLabel?: string;
 }
+
+const CONTROLLER_ERROR_BACKOFF_MS = 15 * 60 * 1000;
 
 function normalizeEngine(value: unknown): OrchestratorEngine {
   return String(value || '').toLowerCase() === 'native' ? 'native' : 'langgraph';
@@ -37,6 +44,22 @@ function safeJson(value: unknown): string {
   } catch {
     return '[]';
   }
+}
+
+function combineOrchestrationReasons(
+  controllerReasons: string[],
+  idleReasons: string[] = [],
+  backoffLabel?: string,
+  backoffReason?: string
+): string[] {
+  const reasons = [...controllerReasons];
+  for (const reason of idleReasons.filter(Boolean)) {
+    reasons.push('idle: ' + reason);
+  }
+  if (backoffLabel && backoffReason) {
+    reasons.push('backoff ' + backoffLabel + ': ' + backoffReason);
+  }
+  return reasons;
 }
 
 function recordOrchestrationRun(projectId: string, input: OrchestrationRunRecordInput): void {
@@ -54,9 +77,12 @@ function recordOrchestrationRun(projectId: string, input: OrchestrationRunRecord
         dispatch_count,
         dispatch_summary,
         reasons,
+        backoff_ms,
+        backoff_reason,
+        backoff_label,
         actions,
         dispatch_results
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       projectId,
       input.engine,
@@ -68,6 +94,9 @@ function recordOrchestrationRun(projectId: string, input: OrchestrationRunRecord
       input.dispatchCount,
       input.dispatchSummary || '',
       safeJson(input.reasons),
+      input.backoffMs ?? 0,
+      input.backoffReason || '',
+      input.backoffLabel || '',
       safeJson(input.actions),
       safeJson(input.dispatchResults)
     );
@@ -95,6 +124,9 @@ function startNativeController(input: ControllerOrchestrationInput): void {
     reasons: ['Native engine directly starts controller'],
     actions: [],
     dispatchResults: [],
+    backoffMs: 0,
+    backoffReason: '',
+    backoffLabel: '',
   });
 }
 
@@ -103,6 +135,24 @@ function startLangGraphController(input: ControllerOrchestrationInput): void {
 
   void runControllerWithLangGraph(input)
     .then((result) => {
+      if (!result.controllerStarted && result.backoffMs > 0 && result.backoffLabel) {
+        const snapshot = input.activitySnapshot || buildControllerActivitySnapshot(input.project.id);
+        const source = result.backoffLabel === 'waiting_user' ? 'waiting_user' : 'idle';
+        applyControllerBackoff(input.project.id, {
+          source,
+          snapshot,
+          ms: result.backoffMs,
+          reason: result.backoffReason || result.idleReasons.join('; ') || 'No controller work needed',
+          label: result.backoffLabel,
+        });
+      }
+
+      const reasons = combineOrchestrationReasons(
+        result.controllerReasons,
+        result.idleReasons,
+        result.backoffLabel,
+        result.backoffReason
+      );
       recordOrchestrationRun(input.project.id, {
         engine: 'langgraph',
         decision: result.decision,
@@ -112,9 +162,12 @@ function startLangGraphController(input: ControllerOrchestrationInput): void {
         controllerPid: result.pid,
         dispatchCount: result.dispatchCount,
         dispatchSummary: result.dispatchSummary,
-        reasons: result.controllerReasons,
+        reasons,
         actions: result.actions,
         dispatchResults: result.dispatchResults,
+        backoffMs: result.backoffMs,
+        backoffReason: result.backoffReason,
+        backoffLabel: result.backoffLabel || '',
       });
 
       if (result.controllerStarted) {
@@ -124,12 +177,25 @@ function startLangGraphController(input: ControllerOrchestrationInput): void {
         return;
       }
 
-      const reasons = result.controllerReasons.length > 0 ? result.controllerReasons.join('; ') : 'none';
+      const reasonText = reasons.length > 0 ? reasons.join('; ') : 'none';
+      const backoffText = result.backoffLabel
+        ? `, backoff=${result.backoffLabel}(${Math.round(result.backoffMs / 60000)}m)`
+        : '';
       logger.info(
-        `LangGraph orchestration finished without controller start (project=${input.project.id}, decision=${result.decision}, dispatched=${result.dispatchCount}, reasons=${reasons})`
+        `LangGraph orchestration finished without controller start (project=${input.project.id}, decision=${result.decision}, dispatched=${result.dispatchCount}, reasons=${reasonText}${backoffText})`
       );
     })
     .catch((err) => {
+      const errorMessage = err?.message || String(err);
+      const snapshot = input.activitySnapshot || buildControllerActivitySnapshot(input.project.id);
+      const backoffLabel = err?.code === 'E2BIG' ? 'spawn_e2big' : 'controller_error';
+      applyControllerBackoff(input.project.id, {
+        source: 'controller_error',
+        snapshot,
+        ms: CONTROLLER_ERROR_BACKOFF_MS,
+        reason: errorMessage,
+        label: backoffLabel,
+      });
       recordOrchestrationRun(input.project.id, {
         engine: 'langgraph',
         decision: 'error',
@@ -137,11 +203,14 @@ function startLangGraphController(input: ControllerOrchestrationInput): void {
         controllerStarted: false,
         dispatchCount: 0,
         dispatchSummary: 'langgraph execution failed',
-        reasons: [err?.message || String(err)],
+        reasons: combineOrchestrationReasons([errorMessage], [], backoffLabel, errorMessage),
         actions: [],
         dispatchResults: [],
+        backoffMs: CONTROLLER_ERROR_BACKOFF_MS,
+        backoffReason: errorMessage,
+        backoffLabel,
       });
-      logger.error(err, `LangGraph controller run failed for project ${input.project.id}`);
+      logger.error(err, `LangGraph controller run failed for project ${input.project.id}; applying ${backoffLabel} backoff`);
     });
 }
 

@@ -3552,6 +3552,12 @@ describe('Agentopia API', () => {
 set -eu
 
 prompt="\${AGENTOPIA_PROMPT:-}"
+prompt_file="\${AGENTOPIA_PROMPT_FILE:-}"
+prompt_truncated="\${AGENTOPIA_PROMPT_TRUNCATED:-0}"
+
+if [ "$prompt_truncated" = "1" ] && [ -n "$prompt_file" ] && [ -f "$prompt_file" ]; then
+  prompt="$(cat "$prompt_file")"
+fi
 
 contains() {
   printf '%s' "$prompt" | grep -q "$1"
@@ -3566,8 +3572,8 @@ if contains 'TAIL_SESSION'; then
   cat <<'JSON'
 {"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"tiny"}]}}
+{"type":"result","result":"tail session done","usage":{"input_tokens":10,"output_tokens":20},"total_cost_usd":0}
 JSON
-  sleep 10
   exit 0
 fi
 
@@ -3616,6 +3622,32 @@ JSON
       return body.id;
     }
 
+    async function createIsolatedOrchestrationProject(namePrefix: string): Promise<{ projectId: string; controllerId: string }> {
+      const { getDatabase } = await import('../src/db/database');
+      const uniqueName = `${namePrefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      const { status, body } = await api(app, '/api/projects', {
+        method: 'POST',
+        body: {
+          name: uniqueName,
+          description: 'orchestration regression project',
+          task_description: 'regression test',
+          command_template: 'echo',
+        },
+      });
+      assert.equal(status, 201);
+
+      const db = getDatabase();
+      const controller = db.prepare(
+        'SELECT id FROM agents WHERE project_id = ? AND is_controller = 1'
+      ).get(body.id) as { id: string } | undefined;
+      assert.ok(controller?.id, '应自动创建 controller');
+
+      return {
+        projectId: body.id,
+        controllerId: controller.id,
+      };
+    }
+
     async function waitForAgentStatus(
       agentId: string,
       predicate: (status: string) => boolean,
@@ -3656,6 +3688,206 @@ JSON
 
       return number;
     }
+
+    it('waiting-user orchestration run records finish backoff instead of starting controller', async () => {
+      const { getDatabase } = await import('../src/db/database');
+      const { startControllerOrchestration } = await import('../src/services/orchestrator');
+      const { getControllerBackoff, clearControllerBackoff } = await import('../src/services/controller-backoff');
+      const isolated = await createIsolatedOrchestrationProject('waiting-user-orch');
+
+      const db = getDatabase();
+      const controller = db.prepare('SELECT * FROM agents WHERE id = ?').get(isolated.controllerId) as any;
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(isolated.projectId) as any;
+      const issueId = `waiting-user-${Date.now()}`;
+      const issueRow = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(isolated.projectId) as { n: number | null };
+      const issueNumber = (issueRow?.n || 0) + 1;
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(
+        issueId,
+        isolated.projectId,
+        issueNumber,
+        'waiting user orchestration',
+        'waiting on user',
+        'test',
+        'user',
+        1,
+        'open',
+        'test'
+      );
+
+      clearControllerBackoff(isolated.projectId);
+      const beforeRow = db.prepare('SELECT MAX(id) as id FROM orchestration_runs WHERE project_id = ?').get(isolated.projectId) as { id: number | null };
+      startControllerOrchestration({
+        project: { ...project, orchestrator_engine: 'langgraph' },
+        controller,
+        taskPrompt: 'controller should stay idle when issues are waiting on user',
+        activitySnapshot: 'waiting-user-snapshot',
+      });
+
+      const deadline = Date.now() + 5000;
+      let latest: any;
+      while (Date.now() < deadline) {
+        latest = db.prepare(
+          'SELECT id, decision, controller_started, dispatch_count, backoff_ms, backoff_reason, backoff_label FROM orchestration_runs WHERE project_id = ? ORDER BY id DESC LIMIT 1'
+        ).get(isolated.projectId) as any;
+        if (latest && latest.id !== beforeRow?.id) break;
+        await sleep(50);
+      }
+
+      assert.ok(latest && latest.id !== beforeRow?.id, '应写入新的 orchestration run');
+      assert.equal(latest.decision, 'finish');
+      assert.equal(latest.controller_started, 0);
+      assert.equal(latest.dispatch_count, 0);
+      assert.equal(latest.backoff_label, 'waiting_user');
+      assert.equal(latest.backoff_ms, 30 * 60 * 1000);
+      assert.match(String(latest.backoff_reason || ''), /waiting on user/);
+
+      const backoff = getControllerBackoff(isolated.projectId);
+      assert.ok(backoff, '应记录 controller backoff');
+      assert.equal(backoff?.label, 'waiting_user');
+
+      db.prepare('DELETE FROM issues WHERE id = ?').run(issueId);
+      clearControllerBackoff(isolated.projectId);
+    });
+
+    it('controller trigger respects unchanged backoff snapshot', async () => {
+      const { getDatabase } = await import('../src/db/database');
+      const { triggerControllerAgent } = await import('../src/services/controller');
+      const { applyControllerBackoff, buildControllerActivitySnapshot, clearControllerBackoff } = await import('../src/services/controller-backoff');
+      const isolated = await createIsolatedOrchestrationProject('backoff-snapshot');
+
+      const db = getDatabase();
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(isolated.projectId) as any;
+      const issueId = `trigger-wait-${Date.now()}`;
+      const issueRow = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(isolated.projectId) as { n: number | null };
+      const issueNumber = (issueRow?.n || 0) + 1;
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(
+        issueId,
+        isolated.projectId,
+        issueNumber,
+        'backoff snapshot issue',
+        'still waiting',
+        'test',
+        'user',
+        1,
+        'open',
+        'test'
+      );
+
+      const beforeRow = db.prepare('SELECT MAX(id) as id FROM orchestration_runs WHERE project_id = ?').get(isolated.projectId) as { id: number | null };
+      const snapshot = buildControllerActivitySnapshot(isolated.projectId);
+      applyControllerBackoff(isolated.projectId, {
+        source: 'waiting_user',
+        snapshot,
+        ms: 30 * 60 * 1000,
+        reason: 'user still needs to reply',
+        label: 'waiting_user',
+      });
+
+      triggerControllerAgent(project, false);
+      await sleep(150);
+
+      const afterRow = db.prepare('SELECT MAX(id) as id FROM orchestration_runs WHERE project_id = ?').get(isolated.projectId) as { id: number | null };
+      assert.equal(afterRow?.id || null, beforeRow?.id || null, 'backoff 生效时不应新增 orchestration run');
+
+      db.prepare('DELETE FROM issues WHERE id = ?').run(issueId);
+      clearControllerBackoff(isolated.projectId);
+    });
+
+    it('fresh activity clears backoff and bypasses debounce', async () => {
+      const { getDatabase } = await import('../src/db/database');
+      const { triggerControllerAgent } = await import('../src/services/controller');
+      const { clearControllerBackoff, getControllerBackoff } = await import('../src/services/controller-backoff');
+      const isolated = await createIsolatedOrchestrationProject('backoff-bypass');
+
+      const db = getDatabase();
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(isolated.projectId) as any;
+      const issueId = `fresh-activity-${Date.now()}`;
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, updated_at)
+        VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(
+        issueId,
+        isolated.projectId,
+        'fresh activity issue',
+        'waiting on user',
+        'test',
+        'user',
+        1,
+        'open',
+        'test'
+      );
+
+      clearControllerBackoff(isolated.projectId);
+      triggerControllerAgent(project, false);
+
+      const firstDeadline = Date.now() + 5000;
+      let firstRun: any;
+      while (Date.now() < firstDeadline) {
+        firstRun = db.prepare(
+          'SELECT id, decision, controller_started, backoff_label FROM orchestration_runs WHERE project_id = ? ORDER BY id DESC LIMIT 1'
+        ).get(isolated.projectId) as any;
+        if (firstRun?.backoff_label === 'waiting_user') break;
+        await sleep(50);
+      }
+
+      assert.ok(firstRun?.id, '首次 waiting_user 调度应写入 orchestration run');
+      assert.equal(firstRun.controller_started, 0);
+      assert.equal(firstRun.backoff_label, 'waiting_user');
+      assert.ok(getControllerBackoff(isolated.projectId), '首次调度后应存在 backoff');
+
+      db.prepare(
+        "UPDATE issues SET assigned_to = 'all', updated_at = datetime('now', '+1 second') WHERE id = ?"
+      ).run(issueId);
+
+      triggerControllerAgent(project, false);
+
+      const secondDeadline = Date.now() + 5000;
+      let secondRun: any;
+      while (Date.now() < secondDeadline) {
+        secondRun = db.prepare(
+          'SELECT id, decision, controller_started, backoff_label FROM orchestration_runs WHERE project_id = ? ORDER BY id DESC LIMIT 1'
+        ).get(isolated.projectId) as any;
+        if (secondRun && secondRun.id !== firstRun.id) break;
+        await sleep(50);
+      }
+
+      assert.ok(secondRun && secondRun.id !== firstRun.id, '新活动应绕过 debounce，立即生成新的 orchestration run');
+      assert.equal(secondRun.decision, 'execute_controller');
+      assert.equal(secondRun.controller_started, 1);
+      assert.equal(getControllerBackoff(isolated.projectId), undefined, '真实新活动后应清除旧 backoff');
+
+      db.prepare('DELETE FROM issues WHERE id = ?').run(issueId);
+      clearControllerBackoff(isolated.projectId);
+    });
+
+    it('large prompts are truncated in AGENTOPIA_PROMPT env but full prompt remains in prompt file', async () => {
+      const agentId = await createMockWorker(`large-prompt-worker-${Date.now()}`);
+      const marker = 'TAIL_SESSION';
+      const hugePrompt = 'A'.repeat(18000) + marker;
+
+      const startRes = await api(app, `/api/agents/${agentId}/start`, {
+        method: 'POST',
+        body: { prompt: hugePrompt },
+      });
+      assert.equal(startRes.status, 200);
+
+      const finalState = await waitForAgentStatus(agentId, (status) => status === 'idle', 7000);
+      assert.equal(finalState.status, 'idle');
+
+      const { body: logs } = await api(app, `/api/agents/${agentId}/logs`);
+      const promptLog = logs.find((entry: any) => entry.stream === 'stdin');
+      assert.ok(promptLog, '应记录输入 prompt');
+      assert.match(String(promptLog.content || ''), /TAIL_SESSION/);
+    });
 
     it('低产出 run 不触发 cooldown，agent 运行完毕后恢复 idle（cooldown 和低产出跟踪已移除）', async () => {
       const { isAgentInCooldown } = await import('../src/services/process-manager');

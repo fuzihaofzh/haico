@@ -169,28 +169,15 @@ ${C} -X PUT ${base}/api/projects/${project.id} \\
 - **IMPORTANT: Before marking an issue as \`done\`, you MUST first add a summary comment** via the comment API explaining: (1) what you did, (2) key results or changes made, (3) any notes or caveats. An issue with no comments from the worker is considered incomplete — the user needs to see what was accomplished. Never set status to \`done\` without leaving at least one substantive comment first.
 - **Modified files**: In your summary comment, always include a list of modified files under a \`### Modified Files\` heading. Use backtick-quoted relative paths, one per line. Example:\n  \`\`\`\n  ### Modified Files\n  - \\\`src/routes/issues.ts\\\`\n  - \\\`public/js/project.js\\\`\n  \`\`\`
 
-## 知识库使用规则（重要 — 违反将浪费大量 token）
+## 知识库使用规则
 
-### 规则 1：读代码前先查知识库
-在你准备读取源文件（\`cat\`/\`sed\`/\`head\` 等）或对代码库做探索（Explore subagent、\`rg\` 全局搜索）之前，**必须先查询 Knowledge Base**，看是否已有该文件/模块的描述：
+**读代码前先查知识库**：在探索代码之前，先查询 KB 看是否已有描述：
 \`\`\`bash
-${C} "${base}/api/projects/${project.id}/knowledge?q=你要了解的模块或文件名"
+${C} "${base}/api/projects/${project.id}/knowledge?q=关键词"
 \`\`\`
-例如要读 \`auth.ts\`，先查 \`?q=auth\`；要了解前端布局，先查 \`?q=frontend+layout\`。
-- **如果 KB 已有足够信息**：直接复用，不要再读文件。
-- **如果 KB 信息不足或缺失**：再去读代码，读完后 **必须将关键发现写回 KB**（见规则 2）。
+如果 KB 已有足够信息就直接复用，避免重复读文件。
 
-### 规则 2：读完代码后写回知识库
-当你读取了源文件并获得了对模块/文件的理解后，必须立即将结果写入 Knowledge Base，让其他 agent 不再需要重复读取：
-\`\`\`bash
-${C} -X POST ${base}/api/projects/${project.id}/knowledge \\
-  -H "Content-Type: application/json" \\
-  -d '{"title":"文件/模块名称及用途","content":"关键发现：文件结构、核心函数/类、对外接口、重要逻辑。","tags":"code,模块名","importance":"high","category":"code","created_by":"${agent.id}"}'
-\`\`\`
-写入要求：title 包含文件路径或模块名；content 包含关键发现（核心函数、对外接口、重要逻辑等）；tags 加上 code 和模块名；importance 设为 high 确保后续 agent 自动获得。
-
-### 规则 3：整库级探索
-对整个代码库做架构级探索前，先查 \`?q=architecture\` 或 \`?q=codebase\`。如果已有相关内容直接复用。探索后必须写回 KB。
+**写入知识库要非常克制**：只有发现了对其他 agent 长期有用的架构级信息，且 KB 中尚无类似条目时，才写入。日常工作进展、实验结果、操作记录等一律写 issue comments，不要写 KB。详见下方"知识库写入规范"。
 
 - Add comments to issues to report progress or ask questions
 - Create new issues if you discover problems. If the new issue is a sub-task of your current issue, set \`parent_id\` to link them: \`{"title":"sub-task","parent_id":"<current-issue-id>",...}\`
@@ -248,12 +235,34 @@ Knowledge maintenance rules:
 - When you find a KB entry is outdated or conflicts with the current code, update it instead of relying on it.
 - When you create a KB entry, choose a category so the lifecycle policy can expire it correctly.
 
-Record knowledge when you encounter: project conventions, recurring bugs, environment quirks, build/deploy notes, or anything future agents should know.
-
 **Full-text search knowledge:**
 \`\`\`bash
 ${C} "${base}/api/projects/${project.id}/knowledge?q=search+terms"
-\`\`\``;
+\`\`\`
+
+## ⚠️ 知识库写入规范（严格遵守 — 违规写入浪费所有 agent 的 token）
+
+知识库的每一条 high importance 条目都会被注入到所有 agent 的 system prompt 中，直接增加每次调用的 token 消耗。因此必须严格控制写入。
+
+### 该写入知识库的（长期有效、跨 session 复用）：
+- **项目架构概览**：项目做什么、核心模块、目录结构（每个项目/子项目最多 1 条）
+- **长期有效的约定和规范**：编码规范、命名约定、工作流程、API 协议
+- **环境陷阱**：GPU 配置、内存限制、离线环境注意事项等长期不变的信息
+- **已验证的结构性结论**：如"某方法已被证明不可行（附原因）"
+
+### 绝对不要写入知识库的：
+- ❌ **操作日志**：几点几分跑了什么命令、结果是什么（这些属于 issue comments）
+- ❌ **Issue 级别的进展快照**：如"issue #123 的实验结果"（这些属于 issue comments）
+- ❌ **审稿/评审结论快照**：如"当前评分 6.5/10"（会过时）
+- ❌ **临时状态**：如"当前 frontier 推进到 xxx"、"当前代码还没整合 xxx"
+- ❌ **代码细节路径**：具体函数名、行号（代码会变，直接读代码更准确）
+- ❌ **重复内容**：写之前先搜索，已有类似条目就更新而不是新建
+
+### 写入前检查清单：
+1. 这条信息 6 个月后还有用吗？→ 否则不要写
+2. 这条信息已经在某个 issue comment 里了吗？→ 是则不要重复写到 KB
+3. KB 里已经有类似条目了吗？→ 有则更新，不要新建
+4. 设为 high importance 是必要的吗？→ 非核心信息用 medium（不会注入 prompt）`;
 
   // Agent memories: inject recent relevant memories
   const agentMemories = db.prepare(`

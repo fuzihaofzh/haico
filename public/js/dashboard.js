@@ -7,6 +7,7 @@ let _inboxProject = ''; // '' = all projects, or a specific project_id
 let _inboxSearchQuery = '';
 let _inboxAllItems = []; // cached items for search filtering
 let _inboxLastUpdatedAt = ''; // cursor for background incremental inbox refresh
+let _inboxMobilePane = 'list';
 let _selectedMailIdx = -1; // currently selected mail index
 let _selectedMailIssueId = null; // currently selected issue ID (stable across re-renders)
 let _renderedMailItems = []; // currently rendered (filtered) items
@@ -44,9 +45,41 @@ function setSidebarActive(view) {
   });
 }
 
+function isMobileInboxViewport() {
+  return window.innerWidth <= MOBILE_INBOX_BREAKPOINT;
+}
+
+function getInboxNotificationsPanel() {
+  return document.getElementById('notifications-panel');
+}
+
+function getMailDetailContent() {
+  return document.getElementById('mail-detail-content') || document.getElementById('mail-detail-pane');
+}
+
+function syncInboxMobilePane() {
+  const panel = getInboxNotificationsPanel();
+  if (!panel) return;
+  if (_dashboardView !== 'inbox' || !isMobileInboxViewport()) {
+    delete panel.dataset.mobilePane;
+    return;
+  }
+  panel.dataset.mobilePane = _inboxMobilePane;
+}
+
+function setInboxMobilePane(pane) {
+  _inboxMobilePane = pane === 'detail' ? 'detail' : 'list';
+  syncInboxMobilePane();
+}
+
+function showInboxListPane() {
+  setInboxMobilePane('list');
+}
+
 function applyDashboardViewState(view) {
   setSidebarActive(view);
   document.body.dataset.dashboardView = view;
+  syncInboxMobilePane();
 }
 
 function updateDashboardViewUrl(view) {
@@ -67,12 +100,15 @@ function switchView(view) {
 
 if (typeof window !== 'undefined') {
   window.switchView = switchView;
+  window.showInboxListPane = showInboxListPane;
+  window.addEventListener('resize', syncInboxMobilePane);
 }
 
 // Inbox issue detail caches
 const _issueDetailCache = {}; // issueId -> { data, timestamp }
 const _projectAgentsCache = {}; // projectId -> { data, timestamp }
 const ISSUE_CACHE_TTL = 30000; // 30s - background refresh after this
+const MOBILE_INBOX_BREAKPOINT = 768;
 
 // Track known action-required issue IDs to detect new ones
 let _knownActionIssueIds = null; // null = first load (don't ring on first load)
@@ -376,7 +412,16 @@ function renderInboxItems(items) {
   // Re-map _selectedMailIdx to follow the selected issue across re-sorts
   if (_selectedMailIssueId) {
     const newIdx = visibleItems.findIndex(function(i) { return i.data && i.data.id === _selectedMailIssueId; });
-    if (newIdx >= 0) _selectedMailIdx = newIdx;
+    if (newIdx >= 0) {
+      _selectedMailIdx = newIdx;
+    } else {
+      _selectedMailIdx = -1;
+      _selectedMailIssueId = null;
+      _currentReplyIssueId = null;
+      const detail = getMailDetailContent();
+      if (detail) detail.innerHTML = renderMailDetailEmpty();
+      setInboxMobilePane('list');
+    }
   }
 
   let html = '';
@@ -455,11 +500,12 @@ function selectMailItem(idx) {
   });
 
   const item = _renderedMailItems[idx];
-  const detail = document.getElementById('mail-detail-pane');
+  const detail = getMailDetailContent();
   _currentReplyIssueId = null;
   if (!item) {
     _selectedMailIssueId = null;
     detail.innerHTML = renderMailDetailEmpty();
+    setInboxMobilePane('list');
     return;
   }
 
@@ -471,16 +517,12 @@ function selectMailItem(idx) {
   }
   _currentReplyIssueId = issue.id;
   detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary);font-size:12px;">Loading issue...</div>';
+  setInboxMobilePane('detail');
   loadInboxIssueDetail(issue.id, idx);
-
-  // On mobile, scroll detail pane into view
-  if (window.innerWidth <= 768) {
-    setTimeout(() => detail.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-  }
 }
 
 async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
-  const detail = document.getElementById('mail-detail-pane');
+  const detail = getMailDetailContent();
   const now = Date.now();
   const cached = _issueDetailCache[issueId];
 
@@ -499,6 +541,7 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
     const agentsCached = _projectAgentsCache[cached.data.project_id];
     const agents = agentsCached ? agentsCached.data : [];
     _currentReplyIssueId = cached.data.id;
+    setInboxMobilePane('detail');
     IssueRenderer.render(cached.data, agents, detail, {
       reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
       onAfterAction: function() { loadNotifications(); },
@@ -565,6 +608,7 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
 
     if (isStale()) return;
     _currentReplyIssueId = issue.id;
+    setInboxMobilePane('detail');
     IssueRenderer.render(issue, agents, detail, {
       reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
       onAfterAction: function() { loadNotifications(); },
@@ -621,7 +665,7 @@ async function refreshInboxIssueComments(issueId, seedComment) {
   if (!changed || _selectedMailIssueId !== issueId) return;
   cached.timestamp = Date.now();
   const agentsCached = _projectAgentsCache[cached.data.project_id];
-  IssueRenderer.render(cached.data, agentsCached ? agentsCached.data : [], document.getElementById('mail-detail-pane'), {
+  IssueRenderer.render(cached.data, agentsCached ? agentsCached.data : [], getMailDetailContent(), {
     reload: function() { loadInboxIssueDetail(issueId, _selectedMailIdx, true); },
     onAfterAction: function() { loadNotifications(); },
     refreshComments: function(nextSeedComment) { refreshInboxIssueComments(issueId, nextSeedComment); },
@@ -988,18 +1032,19 @@ function renderInlineComposePane() {
 }
 
 function closeInlineCompose() {
-  const detail = document.getElementById('mail-detail-pane');
+  const detail = getMailDetailContent();
   if (!detail) return;
   _selectedMailIdx = -1;
   _selectedMailIssueId = null;
   _currentReplyIssueId = null;
   document.querySelectorAll('.mail-item').forEach((el) => el.classList.remove('mail-selected'));
   detail.innerHTML = renderMailDetailEmpty();
+  setInboxMobilePane('list');
 }
 
 async function openGlobalCompose(defaults) {
   const opts = defaults || {};
-  const detail = document.getElementById('mail-detail-pane');
+  const detail = getMailDetailContent();
   const mailBody = document.getElementById('mail-body');
   if (!detail) return;
 
@@ -1012,6 +1057,7 @@ async function openGlobalCompose(defaults) {
     mailBody.classList.remove('collapsed');
   }
   detail.innerHTML = renderInlineComposePane();
+  setInboxMobilePane('detail');
 
   const projectSelect = document.getElementById('global-compose-project');
   const toSelect = document.getElementById('global-compose-to');

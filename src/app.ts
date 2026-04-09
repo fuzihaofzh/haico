@@ -5,11 +5,11 @@ import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import path from 'path';
 import { config } from './config';
-import { getDatabase, closeDatabase, isDatabaseOpen } from './db/database';
+import { getDatabase, closeDatabase } from './db/database';
 import { setupAuth } from './middleware/auth';
 import { registerProjectRoutes } from './routes/projects';
 import { registerAgentRoutes } from './routes/agents';
-import { registerIssueRoutes, clearPendingControllerTriggerTimers } from './routes/issues';
+import { registerIssueRoutes } from './routes/issues';
 import { registerUIRoutes } from './routes/ui';
 import { registerKnowledgeRoutes } from './routes/knowledge';
 import { registerMemoryRoutes } from './routes/memories';
@@ -20,13 +20,11 @@ import { registerApprovalRoutes } from './routes/approvals';
 import { setupWebSocket } from './services/websocket';
 import { initializeScheduler } from './services/scheduler';
 import { setOnAgentFinish, stopAllProcesses } from './services/process-manager';
-import { triggerControllerAgent } from './services/controller';
+import { enqueueControllerTrigger, clearCoalescingTimers } from './services/controller';
 import { stopAllSchedulers } from './services/scheduler';
 import { killAllPtySessions } from './services/terminal';
 import { clearAllPtyCleanupTimers } from './services/websocket';
 import { Agent, Project } from './types';
-
-const pendingFinishTimers = new Set<NodeJS.Timeout>();
 
 export interface AppOptions {
   port?: number;
@@ -75,24 +73,13 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
       if (!project || project.status !== 'active') return;
 
       if (!agent.is_controller) {
-        // Worker finished — only trigger controller if there are issues that
-        // genuinely need controller attention (unassigned, errored workers, etc.)
-        // System-level auto-assign and issue scan handle most cases now.
-        const needsController = db.prepare(`
-          SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress')
-          AND (assigned_to IS NULL OR assigned_to = 'all' OR assigned_to = 'user'
-               OR assigned_to IN (SELECT id FROM agents WHERE project_id = ? AND is_controller = 1))
-          LIMIT 1
-        `).get(project.id, project.id);
-
-        if (needsController) {
-          const timer = setTimeout(() => {
-            pendingFinishTimers.delete(timer);
-            if (!isDatabaseOpen()) return;
-            try { triggerControllerAgent(project); } catch (e) { fastify.log.error(e, 'Failed to trigger controller agent'); }
-          }, 2000);
-          pendingFinishTimers.add(timer);
-        }
+        // Worker finished — enqueue a normal-priority controller trigger.
+        // The coalescing system will batch this with other events and the
+        // necessity check in triggerControllerAgent will skip if there's nothing to do.
+        enqueueControllerTrigger(project, {
+          priority: 'normal',
+          reason: `worker-finished:${agent.name}`,
+        });
       }
     } catch (e) {
       fastify.log.warn(e, 'Failed to handle agent finish (DB may be closed)');
@@ -120,10 +107,8 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
 export async function destroyApp(fastify: FastifyInstance): Promise<void> {
   // Clear onAgentFinish callback to prevent new async activity during shutdown
   setOnAgentFinish(null);
-  // Cancel any pending triggerControllerAgent timers (from onAgentFinish and issue routes)
-  for (const timer of pendingFinishTimers) clearTimeout(timer);
-  pendingFinishTimers.clear();
-  clearPendingControllerTriggerTimers();
+  // Cancel any pending coalescing timers
+  clearCoalescingTimers();
 
   stopAllSchedulers();
   await stopAllProcesses();

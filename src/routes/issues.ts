@@ -1,10 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase, isDatabaseOpen } from '../db/database';
+import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { startAgentProcess, isAgentRunning } from '../services/process-manager';
 import { buildSystemPrompt } from '../services/system-prompt';
-import { triggerControllerAgent } from '../services/controller';
+import { enqueueControllerTrigger } from '../services/controller';
 import { tryHandleWithoutLLM } from '../services/pre-controller';
 import { broadcastToProject } from '../services/websocket';
 import { config } from '../config';
@@ -18,16 +18,9 @@ import {
   listAccessibleProjectIds,
 } from '../services/project-permissions';
 
-// Track pending controller trigger timers so they can be cancelled during shutdown
-const pendingControllerTriggerTimers = new Set<NodeJS.Timeout>();
 const NOTIFICATION_PREVIEW_CHARS = 150;
 const DEFAULT_INBOX_PAGE_LIMIT = 20;
 const MAX_INBOX_PAGE_LIMIT = 100;
-
-export function clearPendingControllerTriggerTimers(): void {
-  for (const timer of pendingControllerTriggerTimers) clearTimeout(timer);
-  pendingControllerTriggerTimers.clear();
-}
 
 // Parse @agent-name mentions from text and auto-start mentioned agents
 function parseMentionsAndStartAgents(
@@ -82,9 +75,24 @@ function nameOfAgent(agentId: string, agents: Agent[]): string {
   return a ? a.name : agentId;
 }
 
-// Trigger controller on-demand (wake-on-issue mode)
-// actorId: skip triggering if the actor is the controller itself (avoid self-trigger loops)
-function triggerControllerOnDemand(projectId: string, triggerIssueNumber?: number, actorId?: string): void {
+/**
+ * Smart controller trigger with event classification.
+ * Replaces the old triggerControllerOnDemand that fired on every event.
+ *
+ * Classification:
+ *   skip    — agent working on its own issue, no controller attention needed
+ *   normal  — agent-driven events, coalesced into 60s window
+ *   urgent  — user actions, coalesced into 3s window
+ *
+ * All events go through enqueueControllerTrigger which enforces a 5-minute
+ * hard minimum interval between controller runs.
+ */
+function triggerControllerOnDemand(
+  projectId: string,
+  triggerIssueNumber?: number,
+  actorId?: string,
+  opts?: { reason?: string; forceUrgent?: boolean }
+): void {
   const db = getDatabase();
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
   if (!project || project.status === 'paused') return;
@@ -95,16 +103,42 @@ function triggerControllerOnDemand(projectId: string, triggerIssueNumber?: numbe
   const controller = db.prepare(
     'SELECT * FROM agents WHERE project_id = ? AND is_controller = 1'
   ).get(projectId) as Agent | undefined;
-  if (!controller || controller.status === 'running' || controller.paused) return;
+  if (!controller || controller.paused) return;
+  // Note: don't return early if controller is 'running' — enqueueControllerTrigger
+  // will queue the event and triggerControllerAgent will check status when it fires
 
   // Skip if the action was performed by the controller itself to avoid self-trigger loops
   if (actorId && actorId === controller.id) return;
 
-  const timer = setTimeout(() => {
-    pendingControllerTriggerTimers.delete(timer);
-    try { if (isDatabaseOpen()) triggerControllerAgent(project, false, triggerIssueNumber); } catch {}
-  }, 1000);
-  pendingControllerTriggerTimers.add(timer);
+  // Classify: is this a user action (urgent) or agent action (normal/skip)?
+  const isUserAction = actorId === 'user' || actorId === 'system' || opts?.forceUrgent;
+
+  if (!isUserAction && actorId && triggerIssueNumber) {
+    // Agent action on a specific issue — check if agent is just working on its own issue
+    const issue = db.prepare(
+      'SELECT assigned_to, status FROM issues WHERE project_id = ? AND number = ?'
+    ).get(projectId, triggerIssueNumber) as { assigned_to: string | null; status: string } | undefined;
+
+    if (issue) {
+      // Agent updating its own assigned issue → skip (normal workflow, no controller needed)
+      if (issue.assigned_to === actorId && issue.status !== 'pending') {
+        return;
+      }
+      // Issue already done/closed → skip (pre-controller handles cleanup)
+      if (issue.status === 'done' || issue.status === 'closed') {
+        return;
+      }
+    }
+  }
+
+  const priority = isUserAction ? 'urgent' as const : 'normal' as const;
+  const reason = opts?.reason || (isUserAction ? 'user-action' : 'agent-event');
+
+  enqueueControllerTrigger(project, {
+    issueNumber: triggerIssueNumber,
+    priority,
+    reason,
+  });
 }
 
 function resolvePriority(createdBy: string, projectId: string): number {
@@ -284,16 +318,6 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
             startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
           }
         }
-      } else if (created_by === 'user' && (!assigned_to || assigned_to === 'all')) {
-        // Trigger controller for unassigned/broadcast issues
-        const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
-        if (project && project.status !== 'paused') {
-          const t = setTimeout(() => {
-            pendingControllerTriggerTimers.delete(t);
-            try { if (isDatabaseOpen()) triggerControllerAgent(project, false, number); } catch {}
-          }, 1000);
-          pendingControllerTriggerTimers.add(t);
-        }
       }
 
       // Parse @mentions in body and auto-start mentioned agents
@@ -302,7 +326,11 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       }
 
       // Wake-on-issue: trigger controller when any issue is created
-      triggerControllerOnDemand(request.params.pid, number, created_by);
+      // User-created unassigned issues get urgent priority
+      triggerControllerOnDemand(request.params.pid, number, created_by, {
+        reason: 'issue-created',
+        forceUrgent: created_by === 'user' && (!assigned_to || assigned_to === 'all'),
+      });
 
       return reply.code(201).send(created);
     }
@@ -458,11 +486,11 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
             summaryBody, 'status_change',
             JSON.stringify({ all_children_complete: true, child_count: siblings.total }));
 
-          if (parentIssue.status === 'pending' && parentIssue.created_by === 'user') {
+          if (parentIssue.status === 'pending') {
             eventStmt2.run(uuidv4(), updated.parent_id, 'system',
-              'changed status from pending to open (all child issues completed)', 'status_change',
-              JSON.stringify({ from: 'pending', to: 'open', all_children_complete: true }));
-            db.prepare("UPDATE issues SET status = 'open', updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?")
+              'changed status from pending to in_progress (all child issues completed, awaiting review)', 'status_change',
+              JSON.stringify({ from: 'pending', to: 'in_progress', all_children_complete: true }));
+            db.prepare("UPDATE issues SET status = 'in_progress', updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?")
               .run(updated.parent_id);
           } else {
             db.prepare("UPDATE issues SET updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?")
@@ -470,7 +498,10 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
           }
 
           // Trigger controller to summarize/review the parent after all children complete.
-          triggerControllerOnDemand(updated.project_id, parentIssue.number, actorId);
+          // This is always important — use 'system' as actor to avoid being skipped.
+          triggerControllerOnDemand(updated.project_id, parentIssue.number, 'system', {
+            reason: 'all-children-complete',
+          });
 
           // Broadcast parent update to frontend
           const refreshedParent = db.prepare('SELECT * FROM issues WHERE id = ?').get(updated.parent_id);
@@ -501,7 +532,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       }
 
       // Wake-on-issue: trigger controller when issue status/assignment changes
-      triggerControllerOnDemand(updated.project_id, updated.number, actorId);
+      triggerControllerOnDemand(updated.project_id, updated.number, actorId, {
+        reason: 'issue-updated',
+      });
 
       // Auto-start agent when user assigns an issue to them
       if (actorId === 'user' && assigned_to && assigned_to !== existing.assigned_to && assigned_to !== 'user' && assigned_to !== 'all') {
@@ -790,7 +823,9 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       parseMentionsAndStartAgents(body, iss.project_id, request.params.id, iss.number, iss.title, author_id);
 
       // Wake-on-issue: trigger controller when comment is added
-      triggerControllerOnDemand(iss.project_id, iss.number, author_id);
+      triggerControllerOnDemand(iss.project_id, iss.number, author_id, {
+        reason: 'comment-added',
+      });
 
       // If user commented, auto-reassign issue and start the target agent
       if (author_id === 'user') {
@@ -822,11 +857,12 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(iss.project_id) as Project | undefined;
           if (project && project.status !== 'paused') {
             if (agentToStart.is_controller) {
-              const t = setTimeout(() => {
-                pendingControllerTriggerTimers.delete(t);
-                try { if (isDatabaseOpen()) triggerControllerAgent(project, false, iss.number); } catch {}
-              }, 1000);
-              pendingControllerTriggerTimers.add(t);
+              enqueueControllerTrigger(project, {
+                issueNumber: iss.number,
+                priority: 'urgent',
+                reason: 'user-comment-to-controller',
+                skipActivityCheck: true,
+              });
             } else {
               const prompt = `User just commented on issue #${iss.number} "${iss.title}" assigned to you. Review the comment and respond.\n\nComment: ${body}`;
               const commandTemplate = agentToStart.command_template || project.command_template || config.defaultCommandTemplate;

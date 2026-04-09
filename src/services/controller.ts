@@ -1,60 +1,126 @@
-import { getDatabase } from '../db/database';
+import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project, Issue } from '../types';
 import { startControllerOrchestration } from './orchestrator';
+import {
+  buildControllerActivitySnapshot,
+  clearControllerBackoff,
+  formatBackoffDuration,
+  getControllerBackoff,
+  getRemainingBackoffMs,
+} from './controller-backoff';
 import logger from '../logger';
 
-const TRIGGER_DEBOUNCE_MS = 180000; // 3 minutes — reduce idle triggers to save cost
+// --- Event Coalescing Architecture ---
+// Instead of triggering controller on every event, events are queued and coalesced.
+// Two priority levels with different coalesce windows:
+//   urgent (user actions): 3 seconds — user is waiting for response
+//   normal (agent actions): 60 seconds — batch agent activity into one controller run
+// Hard minimum interval: 5 minutes between controller runs, NEVER bypassed.
 
-function buildActivitySnapshot(projectId: string): string {
-  const db = getDatabase();
+const MIN_CONTROLLER_INTERVAL_MS = 300_000; // 5 minutes hard floor
+const COALESCE_URGENT_MS = 3_000;           // 3s for user events
+const COALESCE_NORMAL_MS = 60_000;          // 60s for agent events
 
-  const issueStats = db.prepare(
-    `SELECT
-      COUNT(*) AS active_count,
-      SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 'all' THEN 1 ELSE 0 END) AS unassigned_count,
-      SUM(CASE WHEN assigned_to = 'user' THEN 1 ELSE 0 END) AS user_waiting_count,
-      SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open_count,
-      SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress_count,
-      MAX(updated_at) AS issue_updated_max
-    FROM issues
-    WHERE project_id = ? AND status IN ('open', 'in_progress')`
-  ).get(projectId) as any;
+interface CoalescedTrigger {
+  project: Project;
+  issueNumbers: Set<number>;
+  highestPriority: 'urgent' | 'normal';
+  reasons: string[];
+  skipActivityCheck: boolean;
+}
 
-  const commentStats = db.prepare(
-    `SELECT
-      COUNT(*) AS comment_count,
-      MAX(ic.created_at) AS comment_created_max
-    FROM issue_comments ic
-    JOIN issues i ON ic.issue_id = i.id
-    WHERE i.project_id = ?`
-  ).get(projectId) as any;
+const coalescedTriggers = new Map<string, CoalescedTrigger>();
+const coalescingTimers = new Map<string, NodeJS.Timeout>();
+const lastControllerRunMs = new Map<string, number>();
 
-  const workerStats = db.prepare(
-    `SELECT
-      SUM(CASE WHEN status = 'idle' AND paused = 0 THEN 1 ELSE 0 END) AS idle_count,
-      SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running_count,
-      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error_count,
-      SUM(CASE WHEN paused = 1 THEN 1 ELSE 0 END) AS paused_count,
-      MAX(finished_at) AS finished_max
-    FROM agents
-    WHERE project_id = ? AND is_controller = 0`
-  ).get(projectId) as any;
+/**
+ * Enqueue a controller trigger event. Events are coalesced per project.
+ * This is the ONLY entry point for triggering the controller from event sources.
+ */
+export function enqueueControllerTrigger(
+  project: Project,
+  opts: {
+    issueNumber?: number;
+    priority: 'urgent' | 'normal';
+    reason: string;
+    skipActivityCheck?: boolean;
+  }
+): void {
+  const pid = project.id;
 
-  return [
-    issueStats?.active_count ?? 0,
-    issueStats?.unassigned_count ?? 0,
-    issueStats?.user_waiting_count ?? 0,
-    issueStats?.open_count ?? 0,
-    issueStats?.in_progress_count ?? 0,
-    issueStats?.issue_updated_max || '',
-    commentStats?.comment_count ?? 0,
-    commentStats?.comment_created_max || '',
-    workerStats?.idle_count ?? 0,
-    workerStats?.running_count ?? 0,
-    workerStats?.error_count ?? 0,
-    workerStats?.paused_count ?? 0,
-    workerStats?.finished_max || '',
-  ].join('|');
+  // Accumulate into existing coalesced trigger or create new one
+  let coalesced = coalescedTriggers.get(pid);
+  if (!coalesced) {
+    coalesced = {
+      project,
+      issueNumbers: new Set(),
+      highestPriority: opts.priority,
+      reasons: [],
+      skipActivityCheck: false,
+    };
+    coalescedTriggers.set(pid, coalesced);
+  }
+
+  if (opts.issueNumber) coalesced.issueNumbers.add(opts.issueNumber);
+  if (opts.priority === 'urgent') coalesced.highestPriority = 'urgent';
+  if (opts.skipActivityCheck) coalesced.skipActivityCheck = true;
+  coalesced.reasons.push(opts.reason);
+
+  // Determine coalesce delay
+  const windowMs = coalesced.highestPriority === 'urgent'
+    ? COALESCE_URGENT_MS
+    : COALESCE_NORMAL_MS;
+
+  // Check hard minimum interval
+  const lastRun = lastControllerRunMs.get(pid) || 0;
+  const sinceLast = Date.now() - lastRun;
+  const minDelay = Math.max(0, MIN_CONTROLLER_INTERVAL_MS - sinceLast);
+  const delay = Math.max(windowMs, minDelay);
+
+  // Reset timer if we upgraded to urgent (shorter window) and min interval allows it
+  const existingTimer = coalescingTimers.get(pid);
+  if (existingTimer && opts.priority === 'urgent' && minDelay <= COALESCE_URGENT_MS) {
+    clearTimeout(existingTimer);
+    coalescingTimers.delete(pid);
+  }
+
+  // Set coalescing timer if not already set
+  if (!coalescingTimers.has(pid)) {
+    const timer = setTimeout(() => {
+      coalescingTimers.delete(pid);
+      const trigger = coalescedTriggers.get(pid);
+      coalescedTriggers.delete(pid);
+      if (!trigger) return;
+      if (!isDatabaseOpen()) return;
+
+      // Pick the most relevant trigger issue (first one added)
+      const triggerIssueNumber = trigger.issueNumbers.size > 0
+        ? trigger.issueNumbers.values().next().value as number
+        : undefined;
+
+      logger.info(
+        `Coalesced controller trigger for "${trigger.project.name}": ${trigger.reasons.length} event(s) [${trigger.highestPriority}], issues=[${[...trigger.issueNumbers].join(',')}], reasons=[${trigger.reasons.slice(0, 3).join('; ')}${trigger.reasons.length > 3 ? '...' : ''}]`
+      );
+
+      try {
+        triggerControllerAgent(trigger.project, trigger.skipActivityCheck, triggerIssueNumber);
+      } catch (e) {
+        logger.error(e, 'Coalesced controller trigger failed');
+      }
+    }, delay);
+    coalescingTimers.set(pid, timer);
+
+    if (delay > windowMs) {
+      logger.info(`Controller trigger queued for "${project.name}" in ${Math.round(delay / 1000)}s (min interval enforced, ${opts.reason})`);
+    }
+  }
+}
+
+/** Cancel all pending coalescing timers (for shutdown). */
+export function clearCoalescingTimers(): void {
+  for (const timer of coalescingTimers.values()) clearTimeout(timer);
+  coalescingTimers.clear();
+  coalescedTriggers.clear();
 }
 
 export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?: number): string {
@@ -218,34 +284,7 @@ ${workers.map((a: any) => {
 Assignable targets: ${agents.map((a: any) => `"${a.id}" (${a.name})`).join(', ')}, "user" for human tasks, or "all" to broadcast to everyone.`;
 }
 
-const lastTriggerTime = new Map<string, string>();
-const lastTriggerAtMs = new Map<string, number>();
 const lastTriggerSnapshot = new Map<string, string>();
-
-function hasNewActivity(projectId: string, since: string): boolean {
-  const db = getDatabase();
-
-  const newIssues = db.prepare(
-    "SELECT 1 FROM issues WHERE project_id = ? AND (created_at > ? OR updated_at > ?) LIMIT 1"
-  ).get(projectId, since, since);
-  if (newIssues) return true;
-
-  const newComments = db.prepare(
-    "SELECT 1 FROM issue_comments ic JOIN issues i ON ic.issue_id = i.id WHERE i.project_id = ? AND ic.created_at > ? LIMIT 1"
-  ).get(projectId, since);
-  if (newComments) return true;
-
-  const agentChanges = db.prepare(
-    "SELECT 1 FROM agents WHERE project_id = ? AND is_controller = 0 AND finished_at > ? LIMIT 1"
-  ).get(projectId, since);
-  if (agentChanges) return true;
-
-  return false;
-}
-
-function nowAsDbTimestamp(): string {
-  return new Date().toISOString().replace('T', ' ').replace('Z', '');
-}
 
 export function triggerControllerAgent(project: Project, skipActivityCheck = false, triggerIssueNumber?: number): void {
   const db = getDatabase();
@@ -268,7 +307,25 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
     return;
   }
 
-  const now = Date.now();
+  const snapshot = buildControllerActivitySnapshot(project.id);
+
+  if (!skipActivityCheck) {
+    // Backoff check: if controller set a backoff and snapshot is unchanged, respect it
+    const backoff = getControllerBackoff(project.id);
+    if (backoff) {
+      if (backoff.snapshot === snapshot) {
+        const remainingMs = getRemainingBackoffMs(project.id);
+        logger.info(
+          `Skipping controller trigger: active ${backoff.source} backoff (${formatBackoffDuration(remainingMs)}) for project "${project.name}" because snapshot is unchanged; reason=${backoff.reason}`
+        );
+        return;
+      }
+      clearControllerBackoff(project.id);
+      logger.info(
+        `Clearing controller backoff for project "${project.name}" because activity snapshot changed (previous=${backoff.label})`
+      );
+    }
+  }
 
   // If triggered by a specific issue, check its status first.
   // Pending issues with active children should NOT trigger the controller — they are
@@ -287,25 +344,29 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
         logger.info(`Skipping controller trigger: issue #${triggerIssueNumber} is pending with ${activeChildren.cnt} active children in project "${project.name}"`);
         return;
       }
-      // Stale pending (no active children) — let controller handle it, but don't skip activity check
     }
   }
 
-  // Idle-period optimization: skip LLM call entirely when controller has nothing to do.
+  // Necessity check: skip LLM call entirely when controller has nothing to do.
   if (!triggerIssueNumber) {
     // Check 1: any issues that need controller to assign or handle?
     const needsControllerAction = db.prepare(
       `SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress')
-       AND (assigned_to IS NULL OR assigned_to = 'all' OR assigned_to = 'user' OR assigned_to IN (
+       AND (assigned_to IS NULL OR assigned_to = 'all' OR assigned_to IN (
          SELECT id FROM agents WHERE project_id = ? AND is_controller = 1
        )) LIMIT 1`
     ).get(project.id, project.id);
 
     if (!needsControllerAction) {
-      // Check 2: any workers in error state that controller might need to handle?
-      const errorWorkers = db.prepare(
-        `SELECT 1 FROM agents WHERE project_id = ? AND is_controller = 0 AND status = 'error' AND paused = 0 LIMIT 1`
-      ).get(project.id);
+      // Check 2: error workers WITH active issues only (not bare error workers)
+      const errorWorkersWithIssues = db.prepare(
+        `SELECT 1 FROM agents a
+         WHERE a.project_id = ? AND a.is_controller = 0 AND a.status = 'error' AND a.paused = 0
+         AND EXISTS (
+           SELECT 1 FROM issues i
+           WHERE i.assigned_to = a.id AND i.project_id = ? AND i.status IN ('open', 'in_progress')
+         ) LIMIT 1`
+      ).get(project.id, project.id);
 
       // Check 3: any pending parent issues whose children are ALL done?
       const stalePending = db.prepare(
@@ -316,53 +377,36 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
          LIMIT 1`
       ).get(project.id);
 
-      if (!errorWorkers && !stalePending) {
-        logger.info(`Skipping controller trigger: no unassigned issues, no errored workers, and no stale pending issues in project "${project.name}"`);
+      if (!errorWorkersWithIssues && !stalePending) {
+        logger.info(`Skipping controller trigger: no unassigned issues, no errored workers with active issues, and no stale pending issues in project "${project.name}"`);
         return;
       }
-      if (errorWorkers) logger.info(`Controller trigger: errored workers detected in project "${project.name}"`);
+      if (errorWorkersWithIssues) logger.info(`Controller trigger: errored workers with active issues detected in project "${project.name}"`);
       if (stalePending) logger.info(`Controller trigger: pending issue(s) with all children completed detected in project "${project.name}"`);
     }
   }
 
-  if (!skipActivityCheck && controller.status !== 'error') {
-    const lastAt = lastTriggerAtMs.get(project.id);
-    if (lastAt && now - lastAt < TRIGGER_DEBOUNCE_MS) {
-      logger.info(
-        `Skipping controller trigger: debounced (${now - lastAt}ms < ${TRIGGER_DEBOUNCE_MS}ms) for project "${project.name}"`
-      );
-      return;
-    }
-
-    const since = lastTriggerTime.get(project.id);
-    if (since && !hasNewActivity(project.id, since)) {
-      logger.info(`Skipping controller trigger: no new activity since last run for project "${project.name}"`);
-      return;
-    }
-  }
-
-  const snapshot = buildActivitySnapshot(project.id);
+  // Snapshot dedup: don't re-run controller if nothing structurally changed
   if (!skipActivityCheck) {
     const prevSnapshot = lastTriggerSnapshot.get(project.id);
     if (prevSnapshot && prevSnapshot === snapshot) {
-      logger.info(`Skipping controller trigger: no-op snapshot unchanged for project "${project.name}"`);
+      logger.info(`Skipping controller trigger: snapshot unchanged for project "${project.name}"`);
       return;
     }
   }
 
-  const triggerTime = nowAsDbTimestamp();
   const taskPrompt = buildControllerTaskPrompt(project, triggerIssueNumber);
 
-  lastTriggerAtMs.set(project.id, now);
+  // Record that controller is running now (for MIN_CONTROLLER_INTERVAL_MS enforcement)
+  lastControllerRunMs.set(project.id, Date.now());
 
   try {
     logger.info(`Triggering controller agent for project "${project.name}"`);
-    startControllerOrchestration({ project, controller, taskPrompt, triggerIssueNumber });
+    startControllerOrchestration({ project, controller, taskPrompt, triggerIssueNumber, activitySnapshot: snapshot });
 
-    lastTriggerTime.set(project.id, triggerTime);
     lastTriggerSnapshot.set(project.id, snapshot);
   } catch (err) {
-    lastTriggerAtMs.delete(project.id);
+    lastControllerRunMs.delete(project.id);
     throw err;
   }
 }

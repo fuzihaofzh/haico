@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
-import { triggerControllerAgent } from './controller';
+// Controller is purely event-driven now — no scheduler triggers needed
 import { tryHandleWithoutLLM } from './pre-controller';
 import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, isAgentInCooldown, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
@@ -13,39 +13,6 @@ let logCleanupTask: cron.ScheduledTask | null = null;
 let issueScanTask: cron.ScheduledTask | null = null;
 let watchdogTask: cron.ScheduledTask | null = null;
 const pendingWatchdogTimers = new Set<NodeJS.Timeout>();
-
-// Pending issues should normally be waiting on child issues or active blockers.
-// If neither exists anymore, the issue is stale and needs controller review.
-export function findStalePendingIssue(projectId: string): { number: number } | undefined {
-  const db = getDatabase();
-  return db.prepare(`
-    SELECT i.number
-    FROM issues i
-    LEFT JOIN (
-      SELECT parent_id,
-             SUM(CASE WHEN status NOT IN ('done', 'closed') THEN 1 ELSE 0 END) AS active_children
-      FROM issues
-      WHERE project_id = ? AND parent_id IS NOT NULL
-      GROUP BY parent_id
-    ) child_stats ON child_stats.parent_id = i.id
-    LEFT JOIN (
-      SELECT r.to_issue_id AS issue_id,
-             SUM(CASE WHEN blocker.status NOT IN ('done', 'closed') THEN 1 ELSE 0 END) AS active_blockers
-      FROM issue_relations r
-      JOIN issues blocker ON blocker.id = r.from_issue_id
-      JOIN issues blocked ON blocked.id = r.to_issue_id
-      WHERE blocked.project_id = ? AND r.relation_type = 'blocks'
-      GROUP BY r.to_issue_id
-    ) blocker_stats ON blocker_stats.issue_id = i.id
-    WHERE i.project_id = ?
-      AND i.status = 'pending'
-      AND COALESCE(i.assigned_to, '') <> 'user'
-      AND COALESCE(child_stats.active_children, 0) = 0
-      AND COALESCE(blocker_stats.active_blockers, 0) = 0
-    ORDER BY i.priority DESC, i.updated_at ASC, i.created_at ASC
-    LIMIT 1
-  `).get(projectId, projectId, projectId) as { number: number } | undefined;
-}
 
 function startLogCleanup(): void {
   // Run daily at 3:00 AM
@@ -66,24 +33,21 @@ function startLogCleanup(): void {
   logger.info(`Log cleanup scheduled: retain ${config.logRetentionDays} days`);
 }
 
-// Periodic issue scan: every minute, check all active projects for open issues
-// and trigger controller if there are issues needing attention
+// Periodic worker scan: every 3 minutes, auto-start idle/error workers that have
+// assigned issues. This is the ONLY periodic scan — controller is purely event-driven.
 function startIssueScan(): void {
-  issueScanTask = cron.schedule('* * * * *', () => {
+  issueScanTask = cron.schedule('*/3 * * * *', () => {
     try {
       const db = getDatabase();
       const projects = db.prepare("SELECT * FROM projects WHERE status = 'active'").all() as Project[];
 
       for (const project of projects) {
-        let controllerTriggered = false;
-
         // Check if there are any open/in_progress issues in this project
         const hasOpenIssues = db.prepare(
           "SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress') LIMIT 1"
         ).get(project.id);
-        const stalePendingIssue = findStalePendingIssue(project.id);
 
-        if (!hasOpenIssues && !stalePendingIssue) continue;
+        if (!hasOpenIssues) continue;
 
         // Directly start idle/error workers that have assigned open/in_progress issues
         // Error agents are auto-retried — crashes and transient failures are common
@@ -135,63 +99,38 @@ function startIssueScan(): void {
             const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
             const systemPrompt = isRawShell ? undefined : buildSystemPrompt(worker, project);
             const issueBatch = getAgentIssueBatch(issues);
-            logger.info(`Issue scan: auto-starting idle worker "${worker.name}" with ${issueBatch.currentBatch.length}/${issueBatch.activeIssues.length} assigned issue(s) in current batch for project "${project.name}"`);
+            logger.info(`Worker scan: auto-starting idle worker "${worker.name}" with ${issueBatch.currentBatch.length}/${issueBatch.activeIssues.length} assigned issue(s) in current batch for project "${project.name}"`);
             startAgentProcess(worker, prompt, commandTemplate, systemPrompt);
           } catch (e) {
-            logger.error(e, `Issue scan: failed to auto-start worker "${worker.name}"`);
+            logger.error(e, `Worker scan: failed to auto-start worker "${worker.name}"`);
           }
         }
 
-        // Trigger controller for unassigned issues or issues assigned to controller itself
-        const needsController = db.prepare(
-          `SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress')
-           AND (assigned_to IS NULL OR assigned_to = 'all' OR assigned_to = 'user'
-                OR assigned_to IN (SELECT id FROM agents WHERE project_id = ? AND is_controller = 1))
-           LIMIT 1`
-        ).get(project.id, project.id);
-
-        if (needsController) {
-          logger.info(`Issue scan: issues needing controller attention in project "${project.name}", triggering controller`);
-          triggerControllerAgent(project);
-          controllerTriggered = true;
-          continue;
-        }
-
-        // Check for stale in_progress issues: assigned agent is idle (not paused),
-        // issue not updated for 5+ minutes. This catches cases where agent crashed
-        // or controller was interrupted mid-assignment.
-        // Exclude issues assigned to the controller itself to avoid self-trigger loops.
+        // Stale in_progress issues: try pre-controller to restart idle worker directly
+        // (no LLM controller involved — just restart the assigned worker)
         const staleIssue = db.prepare(`
           SELECT i.number FROM issues i
           JOIN agents a ON i.assigned_to = a.id
           WHERE i.project_id = ? AND i.status = 'in_progress'
             AND a.status IN ('idle', 'error') AND a.paused = 0 AND a.is_controller = 0
-            AND i.updated_at < datetime('now', '-5 minutes')
+            AND i.updated_at < datetime('now', '-10 minutes')
           ORDER BY i.priority DESC
           LIMIT 1
         `).get(project.id) as { number: number } | undefined;
 
         if (staleIssue) {
-          // Try pre-controller first to restart idle worker directly (avoid expensive LLM controller call)
           if (tryHandleWithoutLLM(project.id, staleIssue.number)) {
-            logger.info(`Issue scan: stale issue #${staleIssue.number} handled by pre-controller (direct worker restart)`);
-          } else {
-            logger.info(`Issue scan: stale in_progress issue #${staleIssue.number} with idle agent in project "${project.name}", re-triggering controller`);
-            triggerControllerAgent(project, false, staleIssue.number);
-            controllerTriggered = true;
+            logger.info(`Worker scan: stale issue #${staleIssue.number} handled by pre-controller (direct worker restart)`);
           }
-        }
-
-        if (stalePendingIssue && !controllerTriggered) {
-          logger.info(`Issue scan: stale pending issue #${stalePendingIssue.number} in project "${project.name}", triggering controller review`);
-          triggerControllerAgent(project, false, stalePendingIssue.number);
+          // If pre-controller can't handle it, don't trigger LLM controller from scheduler.
+          // The event-driven path (onAgentFinish, issue updates) will handle it.
         }
       }
     } catch (e) {
-      logger.error(e, 'Issue scan failed');
+      logger.error(e, 'Worker scan failed');
     }
   });
-  logger.info('Issue scan scheduled: every 1 minute');
+  logger.info('Worker scan scheduled: every 3 minutes');
 }
 
 // hasActiveChildren removed — replaced by CPU activity detection in process-manager.ts

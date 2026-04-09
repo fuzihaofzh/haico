@@ -671,7 +671,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       if (!access) return;
 
       const rows = db.prepare(
-        "SELECT id, project_id, engine, decision, controller_agent_id, controller_started, controller_run_id, controller_pid, dispatch_count, dispatch_summary, reasons, actions, dispatch_results, created_at FROM orchestration_runs WHERE project_id = ? ORDER BY id DESC LIMIT ?"
+        "SELECT id, project_id, engine, decision, controller_agent_id, controller_started, controller_run_id, controller_pid, dispatch_count, dispatch_summary, reasons, backoff_ms, backoff_reason, backoff_label, actions, dispatch_results, created_at FROM orchestration_runs WHERE project_id = ? ORDER BY id DESC LIMIT ?"
       ).all(pid, limit) as any[];
 
       const parseJson = <T>(raw: unknown, fallback: T): T => {
@@ -682,6 +682,9 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       return rows.map((row) => ({
         ...row,
         controller_started: !!row.controller_started,
+        backoff_ms: Number(row.backoff_ms || 0),
+        backoff_reason: String(row.backoff_reason || ''),
+        backoff_label: String(row.backoff_label || ''),
         reasons: parseJson<string[]>(row.reasons, []),
         actions: parseJson<any[]>(row.actions, []),
         dispatch_results: parseJson<any[]>(row.dispatch_results, []),

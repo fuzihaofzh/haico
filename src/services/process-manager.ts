@@ -55,6 +55,7 @@ const INTRA_LOW_OUTPUT_CHAR_LIMIT = 200;   // assistant text below this = "low o
 const TOOL_INPUT_LOG_CHAR_LIMIT = 4000;    // large enough for expandable UI without storing unbounded payloads
 const RESUME_MISSING_FILE_RE = /no such file or directory/i;
 const CLOSED_STDIN_SESSION_RE = /stdin is closed for this session|write_stdin failed/i;
+const PROMPT_ENV_MAX_CHARS = 16000;
 
 function resolveProcessCommandConfig(
   db: ReturnType<typeof getDatabase>,
@@ -99,6 +100,22 @@ function cleanupPromptFile(fp: string): void {
       logger.error(e, 'Failed to cleanup prompt file %s', fp);
     }
   }
+}
+
+function buildPromptEnvValue(prompt: string): { value: string; truncated: boolean } {
+  if (prompt.length <= PROMPT_ENV_MAX_CHARS) {
+    return { value: prompt, truncated: false };
+  }
+
+  const notice = '\n...[truncated; read AGENTOPIA_PROMPT_FILE for full prompt]...\n';
+  const remaining = Math.max(0, PROMPT_ENV_MAX_CHARS - notice.length);
+  const headLength = Math.ceil(remaining / 2);
+  const tailLength = Math.floor(remaining / 2);
+
+  return {
+    value: prompt.slice(0, headLength) + notice + prompt.slice(Math.max(0, prompt.length - tailLength)),
+    truncated: true,
+  };
 }
 
 function detachChildProcessIo(child: ChildProcess | undefined): void {
@@ -293,16 +310,24 @@ export function startAgentProcess(
   // resolve consistently even when Agentopia itself was started with a minimal PATH.
   const shellPath = fs.existsSync('/bin/bash') ? '/bin/bash' : '/bin/sh';
   const shellArgs = shellPath.endsWith('bash') ? ['-lc', 'exec ' + command] : ['-c', 'exec ' + command];
+  const promptEnv = buildPromptEnvValue(fullPrompt);
   const childEnv = {
     ...process.env,
     no_proxy: [process.env.no_proxy, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
     NO_PROXY: [process.env.NO_PROXY, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
-    AGENTOPIA_PROMPT: fullPrompt,
+    AGENTOPIA_PROMPT: promptEnv.value,
     AGENTOPIA_PROMPT_FILE: promptFile,
+    AGENTOPIA_PROMPT_TRUNCATED: promptEnv.truncated ? '1' : '0',
     AGENTOPIA_SESSION_ID: sessionId,
     AGENTOPIA_AGENT_ID: agent.id,
     AGENTOPIA_RUN_ID: runId,
   } as NodeJS.ProcessEnv;
+
+  if (promptEnv.truncated) {
+    logger.warn(
+      `Agent ${agent.id} prompt exceeded ${PROMPT_ENV_MAX_CHARS} chars; AGENTOPIA_PROMPT was truncated and full prompt is available via AGENTOPIA_PROMPT_FILE`
+    );
+  }
 
   // nvm aborts shell init when npm_config_prefix is preset, which prevents
   // login shells from restoring Node-based CLIs like `codex` into PATH.

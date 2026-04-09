@@ -13,6 +13,7 @@ export interface LangGraphControllerInput {
   controller: Agent;
   taskPrompt: string;
   triggerIssueNumber?: number;
+  activitySnapshot?: string;
 }
 
 export interface OrchestrationWorkerAction {
@@ -32,6 +33,12 @@ export interface OrchestrationDispatchResult {
 
 export type ControllerDecision = 'execute_controller' | 'finish';
 type WorkerCompletionSignal = 'continue' | 'needs_user' | 'done' | 'unknown';
+type ControllerBackoffPlan = {
+  ms: number;
+  reason: string;
+  label: 'waiting_user' | 'idle';
+} | null;
+type ControllerBackoffLabel = NonNullable<ControllerBackoffPlan>['label'];
 
 interface WorkerOutcomeHint {
   agentId: string;
@@ -45,7 +52,7 @@ interface WorkerOutcomeHint {
 
 interface ReconcileNeedsUserResult {
   movedCount: number;
-  reasons: string[];
+  idleReasons: string[];
 }
 
 const ControllerGraphState = Annotation.Root({
@@ -80,9 +87,25 @@ const ControllerGraphState = Annotation.Root({
     reducer: (_left, right) => right,
     default: () => [],
   }),
+  idleReasons: Annotation<string[]>({
+    reducer: (_left, right) => right,
+    default: () => [],
+  }),
   controllerDecision: Annotation<ControllerDecision>({
     reducer: (_left, right) => right,
     default: () => 'finish',
+  }),
+  backoffMs: Annotation<number>({
+    reducer: (_left, right) => right,
+    default: () => 0,
+  }),
+  backoffReason: Annotation<string>({
+    reducer: (_left, right) => right,
+    default: () => '',
+  }),
+  backoffLabel: Annotation<string>({
+    reducer: (_left, right) => right,
+    default: () => '',
   }),
   triggerIssueNumber: Annotation<number | undefined>(),
   commandTemplate: Annotation<string | undefined>(),
@@ -118,6 +141,32 @@ const CONTINUE_PATTERNS = [
   /继续执行|继续处理|下一步|继续推进|继续做|马上继续/i,
   /\b(continue|next step|proceed|keep working|follow-up)\b/i,
 ];
+const WAITING_USER_BACKOFF_MS = 30 * 60 * 1000;
+const IDLE_CONTROLLER_BACKOFF_MS = 15 * 60 * 1000;
+
+// Track how many times a worker has been restarted after producing an 'unknown' signal.
+// Key: agentId, Value: { count, lastResetMs }
+const unknownRestartCounts = new Map<string, { count: number; lastResetMs: number }>();
+const MAX_UNKNOWN_RESTARTS = 3;
+const UNKNOWN_RESTART_WINDOW_MS = 2 * 60 * 60 * 1000; // reset counter after 2 hours
+
+function getUnknownRestartCount(agentId: string): number {
+  const entry = unknownRestartCounts.get(agentId);
+  if (!entry) return 0;
+  // Reset counter if enough time has passed
+  if (Date.now() - entry.lastResetMs > UNKNOWN_RESTART_WINDOW_MS) {
+    unknownRestartCounts.delete(agentId);
+    return 0;
+  }
+  return entry.count;
+}
+
+function incrementUnknownRestartCount(agentId: string): number {
+  const current = getUnknownRestartCount(agentId);
+  const newCount = current + 1;
+  unknownRestartCounts.set(agentId, { count: newCount, lastResetMs: Date.now() });
+  return newCount;
+}
 
 function parseDbTimestamp(raw: string | null | undefined): number | null {
   if (!raw) return null;
@@ -214,7 +263,7 @@ function collectWorkerOutcomeHints(state: { agents: Agent[]; issues: Issue[] }):
 
 function reconcileNeedsUserOutcomes(project: Project, hints: WorkerOutcomeHint[], agents: Agent[]): ReconcileNeedsUserResult {
   const db = getDatabase();
-  const reasons: string[] = [];
+  const idleReasons: string[] = [];
   let movedCount = 0;
   const agentNameById = new Map(agents.map((a) => [a.id, a.name]));
   const eventStmt = db.prepare(
@@ -269,11 +318,49 @@ function reconcileNeedsUserOutcomes(project: Project, hints: WorkerOutcomeHint[]
       );
 
       movedCount += 1;
-      reasons.push('auto-assigned issue #' + (issueNumber || '?') + ' to user after ' + agentName + ' signaled needs_user');
+      idleReasons.push('auto-assigned issue #' + (issueNumber || '?') + ' to user after ' + agentName + ' signaled needs_user');
     }
   }
 
-  return { movedCount, reasons };
+  return { movedCount, idleReasons };
+}
+
+function createControllerBackoffPlan(state: {
+  idleReasons: string[];
+  controllerReasons: string[];
+  issues: Issue[];
+  dispatchResults: OrchestrationDispatchResult[];
+}): ControllerBackoffPlan {
+  if (state.controllerReasons.length > 0) return null;
+
+  const dispatchCount = state.dispatchResults.filter((result) => result.started).length;
+  if (dispatchCount > 0) return null;
+
+  const idleReasons = state.idleReasons.filter(Boolean);
+  if (idleReasons.length === 0 && state.issues.length === 0) {
+    return {
+      ms: IDLE_CONTROLLER_BACKOFF_MS,
+      reason: 'No active issues remain for controller orchestration',
+      label: 'idle',
+    };
+  }
+
+  const waitingUserReason = idleReasons.find((reason) => reason.includes('waiting on user'));
+  if (waitingUserReason) {
+    return {
+      ms: WAITING_USER_BACKOFF_MS,
+      reason: idleReasons.join('; '),
+      label: 'waiting_user',
+    };
+  }
+
+  if (idleReasons.length === 0) return null;
+
+  return {
+    ms: IDLE_CONTROLLER_BACKOFF_MS,
+    reason: idleReasons.join('; '),
+    label: 'idle',
+  };
 }
 
 const controllerGraph = new StateGraph(ControllerGraphState)
@@ -321,7 +408,7 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     return {
       workerOutcomeHints: hints,
       issues: refreshedIssues,
-      controllerReasons: reconciled.reasons,
+      idleReasons: reconciled.idleReasons,
     };
   })
   .addNode('plan', (state) => {
@@ -329,6 +416,7 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     const activeByAgent = new Map<string, Issue[]>();
     const hintsByAgent = new Map(state.workerOutcomeHints.map((h) => [h.agentId, h]));
     const controllerReasons: string[] = [...state.controllerReasons];
+    const idleReasons: string[] = [...state.idleReasons];
 
     for (const issue of state.issues) {
       if (!issue.assigned_to || issue.assigned_to === 'user' || issue.assigned_to === 'all') continue;
@@ -339,8 +427,14 @@ const controllerGraph = new StateGraph(ControllerGraphState)
 
     const actions: OrchestrationWorkerAction[] = [];
     for (const worker of workers) {
-      if (worker.paused || worker.status === 'running') continue;
       const assignedIssues = activeByAgent.get(worker.id) || [];
+      if (worker.paused) {
+        if (assignedIssues.length > 0) {
+          controllerReasons.push('worker ' + worker.name + ' is paused but still has ' + assignedIssues.length + ' active assigned issue(s)');
+        }
+        continue;
+      }
+      if (worker.status === 'running') continue;
       if (assignedIssues.length === 0) continue;
 
       const hint = hintsByAgent.get(worker.id);
@@ -353,8 +447,19 @@ const controllerGraph = new StateGraph(ControllerGraphState)
         continue;
       }
       if (hint?.signal === 'unknown') {
-        controllerReasons.push('worker ' + worker.name + ' finished without clear issue-state update');
-        continue;
+        const restartCount = getUnknownRestartCount(worker.id);
+        if (restartCount < MAX_UNKNOWN_RESTARTS) {
+          // Under retry limit: re-dispatch worker directly without LLM controller.
+          // The worker will restart and continue working on its issues.
+          incrementUnknownRestartCount(worker.id);
+          idleReasons.push('worker ' + worker.name + ' finished without clear issue-state update (auto-restart ' + (restartCount + 1) + '/' + MAX_UNKNOWN_RESTARTS + ')');
+          // Fall through to add to actions (don't continue)
+        } else {
+          // Exceeded retry limit: stop retrying, let it idle.
+          // Don't push to controllerReasons — LLM controller can't fix this either.
+          idleReasons.push('worker ' + worker.name + ' finished without clear issue-state update (' + MAX_UNKNOWN_RESTARTS + ' restarts exhausted, giving up)');
+          continue;
+        }
       }
 
       const actionReason = hint?.signal === 'continue'
@@ -368,7 +473,9 @@ const controllerGraph = new StateGraph(ControllerGraphState)
       });
     }
 
+    const controllerAgentIds = new Set(state.agents.filter((a) => a.is_controller).map((a) => a.id));
     const unassignedOrBroadcast = state.issues.filter((i) => !i.assigned_to || i.assigned_to === 'all').length;
+    const assignedToController = state.issues.filter((i) => i.assigned_to && controllerAgentIds.has(i.assigned_to)).length;
     const userAssigned = state.issues.filter((i) => i.assigned_to === 'user').length;
     const erroredWorkers = workers.filter((w) => w.status === 'error').length;
     const missingAssignee = state.issues.filter(
@@ -378,8 +485,11 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     if (unassignedOrBroadcast > 0) {
       controllerReasons.push(unassignedOrBroadcast + ' issue(s) are unassigned or broadcast');
     }
+    if (assignedToController > 0) {
+      controllerReasons.push(assignedToController + ' issue(s) are assigned to controller and need handling');
+    }
     if (userAssigned > 0) {
-      controllerReasons.push(userAssigned + ' issue(s) are waiting on user');
+      idleReasons.push(userAssigned + ' issue(s) are waiting on user');
     }
     if (erroredWorkers > 0) {
       controllerReasons.push(erroredWorkers + ' worker(s) are in error state');
@@ -388,10 +498,11 @@ const controllerGraph = new StateGraph(ControllerGraphState)
       controllerReasons.push(missingAssignee + ' issue(s) reference missing assignees');
     }
 
-    const shouldExecuteController = controllerReasons.length > 0 || actions.length === 0;
+    const shouldExecuteController = controllerReasons.length > 0;
     return {
       actions,
       controllerReasons,
+      idleReasons,
       controllerDecision: shouldExecuteController ? ('execute_controller' as ControllerDecision) : ('finish' as ControllerDecision),
     };
   })
@@ -409,6 +520,7 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     const seen = new Set<string>();
     const allowedActions: OrchestrationWorkerAction[] = [];
     const reasons = [...state.controllerReasons];
+    const idleReasons = [...state.idleReasons];
 
     for (const action of state.actions) {
       if (seen.has(action.agentId)) continue;
@@ -437,13 +549,14 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     }
 
     if (allowedActions.length === 0 && state.issues.length > 0 && reasons.length === 0) {
-      reasons.push('No dispatchable worker actions were allowed by policy');
+      idleReasons.push('No dispatchable worker actions were allowed by policy');
     }
 
-    const shouldExecuteController = reasons.length > 0 || allowedActions.length === 0;
+    const shouldExecuteController = reasons.length > 0;
     return {
       actions: allowedActions,
       controllerReasons: reasons,
+      idleReasons,
       controllerDecision: shouldExecuteController ? ('execute_controller' as ControllerDecision) : ('finish' as ControllerDecision),
     };
   })
@@ -514,6 +627,7 @@ const controllerGraph = new StateGraph(ControllerGraphState)
       dispatchResults: results,
       dispatchSummary: summary,
       controllerReasons: reasons,
+      idleReasons: state.idleReasons,
       controllerDecision:
         forceController && state.controllerDecision === 'finish'
           ? ('execute_controller' as ControllerDecision)
@@ -557,12 +671,21 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     };
   })
   .addNode('finish', (state) => {
+    const backoffPlan = createControllerBackoffPlan(state);
     const reasonText = state.controllerReasons.length > 0 ? state.controllerReasons.join('; ') : 'no controller work needed';
     const summary = state.dispatchSummary || 'no worker dispatch';
+    const idleText = state.idleReasons.length > 0 ? '; idle=' + state.idleReasons.join('; ') : '';
+    const backoffText = backoffPlan
+      ? '; backoff=' + backoffPlan.label + ' (' + Math.round(backoffPlan.ms / 60000) + 'm)'
+      : '';
     logger.info(
-      'LangGraph orchestration finished without controller run (project=' + state.project.id + '): ' + summary + '; reasons=' + reasonText
+      'LangGraph orchestration finished without controller run (project=' + state.project.id + '): ' + summary + '; reasons=' + reasonText + idleText + backoffText
     );
-    return {};
+    return {
+      backoffMs: backoffPlan?.ms || 0,
+      backoffReason: backoffPlan?.reason || '',
+      backoffLabel: backoffPlan?.label || '',
+    };
   })
   .addEdge(START, 'collect_context')
   .addEdge('collect_context', 'inspect_worker_outcomes')
@@ -587,8 +710,12 @@ export async function runControllerWithLangGraph(
   dispatchSummary: string;
   dispatchCount: number;
   controllerReasons: string[];
+  idleReasons: string[];
   actions: OrchestrationWorkerAction[];
   dispatchResults: OrchestrationDispatchResult[];
+  backoffMs: number;
+  backoffReason: string;
+  backoffLabel?: ControllerBackoffLabel;
 }> {
   const result = await controllerGraph.invoke({
     project: input.project,
@@ -613,7 +740,11 @@ export async function runControllerWithLangGraph(
     dispatchSummary: result.dispatchSummary || '',
     dispatchCount: dispatchResults.filter((r) => r.started).length,
     controllerReasons: result.controllerReasons || [],
+    idleReasons: result.idleReasons || [],
     actions: result.actions || [],
     dispatchResults,
+    backoffMs: result.backoffMs || 0,
+    backoffReason: result.backoffReason || '',
+    backoffLabel: (result.backoffLabel || undefined) as ControllerBackoffLabel | undefined,
   };
 }

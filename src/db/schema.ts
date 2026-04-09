@@ -136,6 +136,9 @@ export function initializeDatabase(db: Database.Database): void {
       dispatch_count INTEGER DEFAULT 0,
       dispatch_summary TEXT DEFAULT '',
       reasons TEXT DEFAULT '',
+      backoff_ms INTEGER DEFAULT 0,
+      backoff_reason TEXT DEFAULT '',
+      backoff_label TEXT DEFAULT '',
       actions TEXT DEFAULT '',
       dispatch_results TEXT DEFAULT '',
       created_at DATETIME DEFAULT (datetime('now'))
@@ -281,9 +284,23 @@ export function initializeDatabase(db: Database.Database): void {
 
   // Migration: add paused column if missing
   const cols = db.prepare("PRAGMA table_info(agents)").all() as any[];
+  const orchestrationRunCols = db.prepare("PRAGMA table_info(orchestration_runs)").all() as any[];
   if (!cols.find((c: any) => c.name === 'paused')) {
     db.exec("ALTER TABLE agents ADD COLUMN paused BOOLEAN DEFAULT 0");
     logger.info('Migration: added paused column to agents table');
+  }
+
+  if (!orchestrationRunCols.find((c: any) => c.name === 'backoff_ms')) {
+    db.exec("ALTER TABLE orchestration_runs ADD COLUMN backoff_ms INTEGER DEFAULT 0");
+    logger.info('Migration: added backoff_ms column to orchestration_runs table');
+  }
+  if (!orchestrationRunCols.find((c: any) => c.name === 'backoff_reason')) {
+    db.exec("ALTER TABLE orchestration_runs ADD COLUMN backoff_reason TEXT DEFAULT ''");
+    logger.info('Migration: added backoff_reason column to orchestration_runs table');
+  }
+  if (!orchestrationRunCols.find((c: any) => c.name === 'backoff_label')) {
+    db.exec("ALTER TABLE orchestration_runs ADD COLUMN backoff_label TEXT DEFAULT ''");
+    logger.info('Migration: added backoff_label column to orchestration_runs table');
   }
 
   // Migration: add session_token_count and session_max_tokens columns if missing

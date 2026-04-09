@@ -2556,6 +2556,15 @@ function renderOrchestrationDecisionPanel() {
   const reasons = Array.isArray(latest.reasons) ? latest.reasons : [];
   const dispatchResults = Array.isArray(latest.dispatch_results) ? latest.dispatch_results : [];
   const actions = Array.isArray(latest.actions) ? latest.actions : [];
+  const backoffLabel = latest.backoff_label || '';
+  const backoffMinutes = latest.backoff_ms ? Math.round(Number(latest.backoff_ms) / 60000) : 0;
+  const backoffReason = latest.backoff_reason || '';
+  const backoffHtml = backoffLabel
+    ? '<div style="margin-bottom:8px;padding:8px;border:1px solid var(--warning);border-radius:8px;background:rgba(210,153,34,0.08)">' +
+        '<div style="font-size:11px;font-weight:600;color:var(--warning)">Backoff active: ' + esc(backoffLabel) + (backoffMinutes ? ' (' + esc(String(backoffMinutes)) + 'm)' : '') + '</div>' +
+        '<div style="font-size:11px;color:var(--text-secondary);margin-top:4px">' + esc(backoffReason || 'No additional details') + '</div>' +
+      '</div>'
+    : '';
 
   const reasonsHtml = reasons.length
     ? reasons.slice(0, 5).map((r) => '<li style="margin:2px 0">' + esc(r) + '</li>').join('')
@@ -2576,8 +2585,9 @@ function renderOrchestrationDecisionPanel() {
 
   const history = orchestrationRunsData.slice(0, 8).map((r) => {
     const c = decisionColors[r.decision] || 'var(--text-secondary)';
+    const backoffNote = r.backoff_label ? ' · backoff ' + esc(r.backoff_label) : '';
     return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px dashed var(--border)">' +
-      '<span><span style="color:' + c + ';font-weight:600">' + esc(r.decision || '-') + '</span> · ' + esc(r.engine || '-') + '</span>' +
+      '<span><span style="color:' + c + ';font-weight:600">' + esc(r.decision || '-') + '</span> · ' + esc(r.engine || '-') + backoffNote + '</span>' +
       '<span style="color:var(--text-secondary)">' + esc(timeAgo(r.created_at)) + '</span>' +
     '</div>';
   }).join('');
@@ -2593,6 +2603,7 @@ function renderOrchestrationDecisionPanel() {
         '<div style="font-size:12px;margin-bottom:4px">Latest: <strong style="color:' + decisionColor + '">' + esc(latest.decision || '-') + '</strong></div>' +
         '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">engine=' + esc(latest.engine || '-') + ' · ' + esc(timeAgo(latest.created_at)) + '</div>' +
         '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">dispatch=' + esc(String(latest.dispatch_count || 0)) + ' · controller=' + (latest.controller_started ? 'started' : 'not started') + '</div>' +
+        backoffHtml +
         '<div style="font-size:11px;font-weight:600;margin-bottom:4px">Reasons</div>' +
         '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px">' + reasonsHtml + '</ul>' +
         '<div style="font-size:11px;font-weight:600;margin-bottom:4px">Planned actions</div>' +
