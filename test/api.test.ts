@@ -3791,7 +3791,7 @@ JSON
         label: 'waiting_user',
       });
 
-      triggerControllerAgent(project, false);
+      triggerControllerAgent(project, false, 1);
       await sleep(150);
 
       const afterRow = db.prepare('SELECT MAX(id) as id FROM orchestration_runs WHERE project_id = ?').get(isolated.projectId) as { id: number | null };
@@ -3827,7 +3827,7 @@ JSON
       );
 
       clearControllerBackoff(isolated.projectId);
-      triggerControllerAgent(project, false);
+      triggerControllerAgent(project, false, 1);
 
       const firstDeadline = Date.now() + 5000;
       let firstRun: any;
@@ -5707,6 +5707,11 @@ JSON
       await api(app, `/api/issues/${child.id}`, {
         method: 'PUT',
         body: { status: 'done', actor: 'worker-agent' },
+      });
+
+      await api(app, `/api/issues/${parent.id}`, {
+        method: 'PUT',
+        body: { status: 'pending', actor: 'controller-agent' },
       });
 
       const stale = findStalePendingIssue(project.id);

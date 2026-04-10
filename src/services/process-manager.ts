@@ -195,13 +195,6 @@ export function startAgentProcess(
     logger.info(`Agent ${agent.id} new_session_per_run=true, starting new session`);
   }
 
-  // Command changed (model tier routing switched CLI) — cannot resume old session
-  const lastCmd = (agent as any).last_command_template as string | null;
-  if (lastCmd && lastCmd !== commandTemplate) {
-    shouldReset = true;
-    logger.info(`Agent ${agent.id} command changed (${lastCmd} → ${commandTemplate}), forcing new session`);
-  }
-
   // Time-based reset: if last session ended more than resumeTimeout seconds ago, start fresh
   if (resumeTimeout > 0 && agent.session_id && agent.finished_at) {
     const finishedTime = new Date(agent.finished_at + (agent.finished_at.includes('Z') ? '' : 'Z')).getTime();
@@ -292,9 +285,9 @@ export function startAgentProcess(
 
   // Update agent status
   db.prepare(`
-    UPDATE agents SET status = 'running', last_prompt = ?, session_id = ?, last_command_template = ?, started_at = datetime('now'), finished_at = NULL, pid = NULL
+    UPDATE agents SET status = 'running', last_prompt = ?, session_id = ?, started_at = datetime('now'), finished_at = NULL, pid = NULL
     WHERE id = ?
-  `).run(fullPrompt, sessionId, commandTemplate, agent.id);
+  `).run(fullPrompt, sessionId, agent.id);
 
   broadcastToProject(agent.project_id, {
     type: 'agent_status', projectId: agent.project_id,

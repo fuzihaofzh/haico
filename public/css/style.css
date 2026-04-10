@@ -604,11 +604,6 @@ header h1 span { color: var(--accent); }
   font-family: monospace;
 }
 
-.command-profile-intelligence {
-  width: 60px;
-  text-align: center;
-}
-
 .command-profile-actions {
   display: flex;
   gap: 6px;

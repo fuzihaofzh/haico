@@ -14,6 +14,39 @@ let issueScanTask: cron.ScheduledTask | null = null;
 let watchdogTask: cron.ScheduledTask | null = null;
 const pendingWatchdogTimers = new Set<NodeJS.Timeout>();
 
+// Pending issues should normally be waiting on child issues or active blockers.
+// If neither exists anymore, the issue is stale and needs controller review.
+export function findStalePendingIssue(projectId: string): { number: number } | undefined {
+  const db = getDatabase();
+  return db.prepare(`
+    SELECT i.number
+    FROM issues i
+    LEFT JOIN (
+      SELECT parent_id,
+             SUM(CASE WHEN status NOT IN ('done', 'closed') THEN 1 ELSE 0 END) AS active_children
+      FROM issues
+      WHERE project_id = ? AND parent_id IS NOT NULL
+      GROUP BY parent_id
+    ) child_stats ON child_stats.parent_id = i.id
+    LEFT JOIN (
+      SELECT r.to_issue_id AS issue_id,
+             SUM(CASE WHEN blocker.status NOT IN ('done', 'closed') THEN 1 ELSE 0 END) AS active_blockers
+      FROM issue_relations r
+      JOIN issues blocker ON blocker.id = r.from_issue_id
+      JOIN issues blocked ON blocked.id = r.to_issue_id
+      WHERE blocked.project_id = ? AND r.relation_type = 'blocks'
+      GROUP BY r.to_issue_id
+    ) blocker_stats ON blocker_stats.issue_id = i.id
+    WHERE i.project_id = ?
+      AND i.status = 'pending'
+      AND COALESCE(i.assigned_to, '') <> 'user'
+      AND COALESCE(child_stats.active_children, 0) = 0
+      AND COALESCE(blocker_stats.active_blockers, 0) = 0
+    ORDER BY i.priority DESC, i.updated_at ASC, i.created_at ASC
+    LIMIT 1
+  `).get(projectId, projectId, projectId) as { number: number } | undefined;
+}
+
 function startLogCleanup(): void {
   // Run daily at 3:00 AM
   logCleanupTask = cron.schedule('0 3 * * *', () => {

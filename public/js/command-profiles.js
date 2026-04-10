@@ -30,7 +30,7 @@
   function buildDrawerManagerHtml() {
     const rowsHtml = commandProfiles.length
       ? commandProfiles.map((profile) => renderProfileRow(profile)).join('')
-      : '<tr><td colspan="5" class="command-profiles-empty">No command profiles yet.</td></tr>';
+      : '<tr><td colspan="4" class="command-profiles-empty">No command profiles yet.</td></tr>';
 
     const loadingHtml = profilesLoading
       ? '<div class="command-profiles-status">Loading command profiles...</div>'
@@ -42,7 +42,7 @@
     return `
       <div class="setting-group command-profiles-group">
         <label>Command Profiles</label>
-        <div class="command-profiles-note">Reusable CLI presets for agent creation and editing. Intelligence (1-10) is used for automatic model routing.</div>
+        <div class="command-profiles-note">Reusable CLI presets for agent creation and editing.</div>
         ${loadingHtml}
         ${errorHtml}
         <div class="command-profiles-table-wrap">
@@ -52,7 +52,6 @@
                 <th>Name</th>
                 <th>Command</th>
                 <th>Type</th>
-                <th>Intelligence</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -95,16 +94,6 @@
           <select class="command-profile-select" data-field="type">${typeOptions}</select>
         </td>
         <td>
-          <input
-            type="number"
-            class="command-profile-input command-profile-intelligence"
-            data-field="intelligence"
-            value="${profile.intelligence || 5}"
-            min="1" max="10" step="1"
-            title="Intelligence level (1=low, 10=high)"
-          >
-        </td>
-        <td>
           <div class="command-profile-actions">
             <button type="button" class="btn btn-sm" data-command-profile-action="save">Save</button>
             <button type="button" class="btn btn-sm" data-command-profile-action="delete">Delete</button>
@@ -129,9 +118,6 @@
         </td>
         <td>
           <select class="command-profile-select" data-field="type">${typeOptions}</select>
-        </td>
-        <td>
-          <input type="number" class="command-profile-input command-profile-intelligence" data-field="intelligence" value="5" min="1" max="10" step="1" title="Intelligence level (1=low, 10=high)">
         </td>
         <td>
           <div class="command-profile-actions">
@@ -231,12 +217,10 @@
   }
 
   function getRowPayload(row) {
-    const intelligenceRaw = parseInt(row.querySelector('[data-field="intelligence"]')?.value, 10);
     return {
       name: row.querySelector('[data-field="name"]')?.value?.trim() || '',
       command: row.querySelector('[data-field="command"]')?.value?.trim() || '',
       type: row.querySelector('[data-field="type"]')?.value || '',
-      intelligence: Number.isNaN(intelligenceRaw) ? 5 : Math.max(1, Math.min(10, intelligenceRaw)),
     };
   }
 
