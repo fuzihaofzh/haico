@@ -53,6 +53,59 @@ var IssueRenderer = (function() {
     return avatarSvg(nameOf(authorId), size);
   }
 
+  function createAgentNameLookup(agentNames) {
+    var lookup = Object.create(null);
+    agentNames.forEach(function(name) {
+      lookup[name] = true;
+    });
+    return lookup;
+  }
+
+  function highlightMentionsInSegment(text, agentNameLookup) {
+    return text.replace(/(^|[^\w./+-])@([\w-]+)/g, function(match, prefix, name) {
+      if (!agentNameLookup[name]) return match;
+      return prefix + '<span style="color:#61afef;font-weight:500;background:#61afef18;padding:0 4px;border-radius:3px">@' + name + '</span>';
+    });
+  }
+
+  function shouldSkipMentionHighlightNode(node) {
+    if (!node || !node.parentElement || !node.parentElement.closest) return false;
+    // marked may auto-link emails and URLs into anchors; rewriting their text nodes risks
+    // leaking HTML fragments into visible content when @mentions are highlighted.
+    return !!node.parentElement.closest('a, code, pre');
+  }
+
+  function shouldSkipMentionHighlightTag(tagName) {
+    return tagName === 'a' || tagName === 'code' || tagName === 'pre';
+  }
+
+  function highlightMentionsInHtml(html, agentNames) {
+    if (!html || !agentNames.length) return html;
+    var agentNameLookup = createAgentNameLookup(agentNames);
+
+    var skipTagDepth = 0;
+    return html.split(/(<[^>]+>)/g).map(function(part) {
+      if (!part) return part;
+      if (part.charAt(0) === '<') {
+        var tagMatch = part.match(/^<\s*(\/)?\s*([a-z0-9-]+)/i);
+        if (tagMatch) {
+          var isClosingTag = !!tagMatch[1];
+          var tagName = tagMatch[2].toLowerCase();
+          if (shouldSkipMentionHighlightTag(tagName)) {
+            if (isClosingTag) {
+              skipTagDepth = Math.max(0, skipTagDepth - 1);
+            } else if (!/\/\s*>$/.test(part)) {
+              skipTagDepth += 1;
+            }
+          }
+        }
+        return part;
+      }
+      if (skipTagDepth > 0) return part;
+      return highlightMentionsInSegment(part, agentNameLookup);
+    }).join('');
+  }
+
   function renderMd(text, authorId) {
     if (!text) return '';
     var agents = _ctx.agents;
@@ -87,10 +140,7 @@ var IssueRenderer = (function() {
 
     // Highlight @mentions
     var agentNames = agents.map(function(a) { return a.name; });
-    html = html.replace(/@([\w-]+)/g, function(m, name) {
-      var isAgent = agentNames.includes(name);
-      return '<span style="color:' + (isAgent ? '#61afef' : '#e5c07b') + ';font-weight:500;background:' + (isAgent ? '#61afef18' : '#e5c07b18') + ';padding:0 4px;border-radius:3px">' + m + '</span>';
-    });
+    html = highlightMentionsInHtml(html, agentNames);
 
     // Make file paths in <code> clickable — link to Files tab preview
     // Matches paths like src/foo/bar.ts, public/js/app.js, etc.
@@ -409,7 +459,11 @@ var IssueRenderer = (function() {
   }
 
   async function deleteIssue() {
-    if (!await showConfirm('Delete this issue?')) return;
+    if (!await showConfirm('Delete this issue?', {
+      title: 'Delete issue?',
+      confirmLabel: 'Delete issue',
+      tone: 'danger',
+    })) return;
     fetch('/api/issues/' + _ctx.issue.id, { method: 'DELETE' })
       .then(function(res) {
         if (res.ok) { showToast('Issue deleted', 'success'); history.back(); }
@@ -486,7 +540,11 @@ var IssueRenderer = (function() {
   }
 
   async function deleteComment(cid) {
-    if (!await showConfirm('Delete this comment?')) return;
+    if (!await showConfirm('Delete this comment?', {
+      title: 'Delete comment?',
+      confirmLabel: 'Delete comment',
+      tone: 'danger',
+    })) return;
     fetch('/api/comments/' + cid, { method: 'DELETE' })
       .then(function() { _ctx.reload(); });
   }
@@ -614,7 +672,7 @@ var IssueRenderer = (function() {
     document.body.appendChild(div);
   }
 
-  return {
+  var api = {
     render: render,
     renderMd: renderMd,
     labelHtml: labelHtml,
@@ -643,14 +701,24 @@ var IssueRenderer = (function() {
     openFileInFilesTab: openFileInFilesTab,
     _ctx: _ctx,
   };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    api._test = {
+      highlightMentionsInHtml: highlightMentionsInHtml,
+    };
+  }
+
+  return api;
 })();
 
 // Delegated click handler for clickable file paths in comments
-document.addEventListener('click', function(e) {
-  var el = e.target.closest('.file-link');
-  if (!el) return;
-  e.preventDefault();
-  var filePath = el.getAttribute('data-file-path');
-  var agentId = el.getAttribute('data-agent-id');
-  if (filePath) IssueRenderer.openFileInFilesTab(filePath, agentId);
-});
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('click', function(e) {
+    var el = e.target.closest('.file-link');
+    if (!el) return;
+    e.preventDefault();
+    var filePath = el.getAttribute('data-file-path');
+    var agentId = el.getAttribute('data-agent-id');
+    if (filePath) IssueRenderer.openFileInFilesTab(filePath, agentId);
+  });
+}
