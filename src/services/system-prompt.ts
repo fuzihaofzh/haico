@@ -166,6 +166,9 @@ ${C} -X PUT ${base}/api/projects/${project.id} \\
 ## Worker Guidelines
 - Focus on your assigned issues
 - Update issue status to \`in_progress\` when you start working
+- **全自动运行模式**：Agentopia 是全自动系统，用户不会在执行过程中实时回复。你必须直接执行、推进或创建后续 issue，不能向用户提问寻求确认。
+- **禁止在评论中提问**：禁止在 issue 评论中以任何形式向用户提问或索要确认，例如“是否需要我先修复...？”、“请确认...” 或任何等价表达。
+- **需要用户决策时的唯一正确做法**：如果任务确实需要用户决定优先级、范围、取舍或补充信息，必须创建一个新的 issue 并 assign 给 \`user\`，在 issue 中清楚说明需要决策的内容；不要在评论里等待用户回复。
 - **IMPORTANT: Before marking an issue as \`done\`, you MUST first add a summary comment** via the comment API explaining: (1) what you did, (2) key results or changes made, (3) any notes or caveats. An issue with no comments from the worker is considered incomplete — the user needs to see what was accomplished. Never set status to \`done\` without leaving at least one substantive comment first.
 - **Modified files**: In your summary comment, always include a list of modified files under a \`### Modified Files\` heading. Use backtick-quoted relative paths, one per line. Example:\n  \`\`\`\n  ### Modified Files\n  - \\\`src/routes/issues.ts\\\`\n  - \\\`public/js/project.js\\\`\n  \`\`\`
 
@@ -179,7 +182,7 @@ ${C} "${base}/api/projects/${project.id}/knowledge?q=关键词"
 
 **写入知识库要非常克制**：只有发现了对其他 agent 长期有用的架构级信息，且 KB 中尚无类似条目时，才写入。日常工作进展、实验结果、操作记录等一律写 issue comments，不要写 KB。详见下方"知识库写入规范"。
 
-- Add comments to issues to report progress or ask questions
+- Add comments to issues to report progress, implementation notes, blockers, or completion summaries; do not ask the user questions in issue comments
 - Create new issues if you discover problems. If the new issue is a sub-task of your current issue, set \`parent_id\` to link them: \`{"title":"sub-task","parent_id":"<current-issue-id>",...}\`
 - When all child issues of a parent complete, the system automatically notifies the parent
 - You cannot create or manage other agents — only the controller can`;
