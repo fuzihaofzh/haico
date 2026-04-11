@@ -162,12 +162,12 @@
         </div>
         <div style="display:flex;gap:16px">
           <div class="form-group" style="flex:1">
-            <label>Tool Path</label>
+            <label>Agent Tool</label>
             <select id="project-cmd-profile" onchange="handleProjectCommandProfileChange()" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px">
-              <option value="">Loading command profiles...</option>
+              <option value="">Loading Agent Tools...</option>
             </select>
             <input type="hidden" id="project-cmd">
-            <div id="project-cmd-preview" style="font-size:11px;color:var(--text-secondary);margin-top:4px">Choose a tool configured in Settings.</div>
+            <div id="project-cmd-preview" style="font-size:11px;color:var(--text-secondary);margin-top:4px">Choose an Agent Tool configured in Settings.</div>
           </div>
         </div>
         <div class="form-group">
@@ -442,12 +442,12 @@
         <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Direct parent agent. Defaults to the controller if one exists. The hierarchy graph follows this parent-child relation.</div>
       </div>
       <div class="form-group">
-        <label>Tool Path</label>
+        <label>Agent Tool</label>
         <select id="agent-command-profile" onchange="handleCreateAgentCommandProfileChange()">
           <option value="">Use project default</option>
         </select>
         <input type="hidden" id="agent-cmdtpl">
-        <div id="agent-cmdtpl-preview" style="font-size:11px;color:var(--fg-dim);margin-top:2px">Leave blank to use project-level Tool Path setting. Profile selection will also save command type.</div>
+        <div id="agent-cmdtpl-preview" style="font-size:11px;color:var(--fg-dim);margin-top:2px">Leave blank to use the project-level Agent Tool setting. Agent Tool selection will also save command type.</div>
       </div>
       <div class="modal-actions">
         <button class="btn" onclick="hideModal('createAgentModal')">Cancel</button>

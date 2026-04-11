@@ -211,7 +211,7 @@
         <div>
           <div class="settings-page-eyebrow">Workspace</div>
           <h2>Settings</h2>
-          <p>Manage dashboard preferences, account actions, and reusable command profiles.</p>
+          <p>Manage dashboard preferences, account actions, and Agent Tool commands.</p>
         </div>
       </div>
 
@@ -271,8 +271,8 @@
       <section class="card settings-card settings-card-wide">
         <div class="settings-card-header">
           <div>
-            <h3>Command Profiles</h3>
-            <p>Manage reusable CLI presets for agent creation and editing.</p>
+            <h3>Agent Tools</h3>
+            <p>Configure the commands HAICO agents use when they run.</p>
           </div>
         </div>
         <div class="settings-section settings-section-page">
@@ -299,13 +299,36 @@
         <textarea id="proj-task" rows="4" placeholder="Describe your task... The system will create a name and configure everything automatically."></textarea>
       </div>
       <div class="form-group">
-        <label>Tool Path</label>
+        <label>Agent Tool</label>
         <select id="proj-cmd-profile" onchange="handleCreateProjectCommandProfileChange()" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px">
-          <option value="">Loading command profiles...</option>
+          <option value="">Loading Agent Tools...</option>
         </select>
         <input type="hidden" id="proj-cmd" value="">
         <div id="proj-cmd-preview" style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-          Choose a tool configured in Settings.
+          Choose an Agent Tool configured in Settings.
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Working Directory</label>
+        <div class="create-project-path-row">
+          <input type="text" id="proj-workdir" placeholder="Optional absolute path">
+          <button type="button" class="btn btn-sm" onclick="openCreateProjectPathPicker()">Browse</button>
+          <button type="button" class="btn btn-sm" onclick="clearCreateProjectWorkdir()">Clear</button>
+        </div>
+        <div id="proj-workdir-hint" style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+          Optional. If empty, HAICO will use the path inferred from your prompt or leave it unset.
+        </div>
+      </div>
+      <div class="create-project-readiness" id="create-project-readiness">
+        <div class="create-project-readiness-head">
+          <div>
+            <strong>Before you create</strong>
+            <div class="create-project-readiness-subtitle">HAICO checks whether the selected CLI is ready on this machine.</div>
+          </div>
+          <button type="button" class="btn btn-sm" onclick="openCreateProjectSettings()">Open Settings</button>
+        </div>
+        <div id="create-project-readiness-body" class="create-project-readiness-body">
+          <div class="create-project-readiness-empty">Loading setup checks...</div>
         </div>
       </div>
       <input type="hidden" id="proj-name" value="">
@@ -313,6 +336,31 @@
       <div class="modal-actions">
         <button class="btn" onclick="hideCreateModal()">Cancel</button>
         <button class="btn btn-primary" onclick="createProject()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="pathPickerModal">
+    <div class="modal path-picker-modal">
+      <h3>Select Working Directory</h3>
+      <div class="form-group">
+        <label>Browse Root</label>
+        <select id="path-picker-root" onchange="handlePathPickerRootChange()">
+          <option value="">Loading roots...</option>
+        </select>
+      </div>
+      <div class="path-picker-toolbar">
+        <div class="path-picker-current" id="path-picker-current">Loading...</div>
+        <div class="path-picker-actions">
+          <button type="button" class="btn btn-sm" onclick="navigatePathPickerUp()">Up</button>
+          <button type="button" class="btn btn-sm btn-primary" onclick="confirmPathPickerSelection()">Use This Folder</button>
+        </div>
+      </div>
+      <div class="path-picker-list" id="path-picker-list">
+        <div class="create-project-readiness-empty">Loading directories...</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" onclick="closeCreateProjectPathPicker()">Cancel</button>
       </div>
     </div>
   </div>

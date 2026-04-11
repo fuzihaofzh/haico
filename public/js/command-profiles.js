@@ -30,10 +30,10 @@
   function buildDrawerManagerHtml() {
     const rowsHtml = commandProfiles.length
       ? commandProfiles.map((profile) => renderProfileRow(profile)).join('')
-      : '<tr><td colspan="4" class="command-profiles-empty">No command profiles yet.</td></tr>';
+      : '<tr><td colspan="4" class="command-profiles-empty">No Agent Tools yet.</td></tr>';
 
     const loadingHtml = profilesLoading
-      ? '<div class="command-profiles-status">Loading command profiles...</div>'
+      ? '<div class="command-profiles-status">Loading Agent Tools...</div>'
       : '';
     const errorHtml = loadError
       ? `<div class="command-profiles-status command-profiles-status-error">${esc(loadError)}</div>`
@@ -41,15 +41,15 @@
 
     return `
       <div class="setting-group command-profiles-group">
-        <label>Command Profiles</label>
-        <div class="command-profiles-note">Reusable CLI presets for agent creation and editing.</div>
+        <label>Agent Tools</label>
+        <div class="command-profiles-note">Each Agent Tool maps a user-facing tool name to the command HAICO agents should run.</div>
         ${loadingHtml}
         ${errorHtml}
         <div class="command-profiles-table-wrap">
           <table class="command-profiles-table">
             <thead>
               <tr>
-                <th>Name</th>
+                <th>Agent Tool</th>
                 <th>Command</th>
                 <th>Type</th>
                 <th>Actions</th>
@@ -151,14 +151,14 @@
       const res = await fetch('/api/command-profiles', { headers: apiHeaders() });
       const data = res.ok ? await res.json() : null;
       if (!res.ok) {
-        throw new Error(data?.error || 'Failed to load command profiles');
+        throw new Error(data?.error || 'Failed to load Agent Tools');
       }
       commandProfiles = Array.isArray(data?.profiles) ? data.profiles : [];
       profilesLoaded = true;
       dispatchProfilesChanged();
     } catch (error) {
-      console.error('Failed to load command profiles', error);
-      loadError = error?.message || 'Failed to load command profiles';
+      console.error('Failed to load Agent Tools', error);
+      loadError = error?.message || 'Failed to load Agent Tools';
     } finally {
       profilesLoading = false;
       renderDrawerManagers();
@@ -196,7 +196,7 @@
     const includeCustom = opts.includeCustom !== false;
     const projectDefaultLabel = opts.projectDefaultLabel || 'Use project default';
     const customLabel = opts.customLabel || 'Custom command';
-    const emptyLabel = opts.emptyLabel || 'No command profiles configured. Open Settings to add one.';
+    const emptyLabel = opts.emptyLabel || 'No Agent Tools configured. Open Settings to add one.';
 
     const items = [];
     if (includeProjectDefault) {
@@ -227,11 +227,11 @@
   async function submitProfile(action, row, button) {
     const payload = getRowPayload(row);
     if (!payload.name) {
-      showToast('Command profile name is required', 'error');
+      showToast('Agent Tool name is required', 'error');
       return;
     }
     if (!payload.command) {
-      showToast('Command profile command is required', 'error');
+      showToast('Agent command is required', 'error');
       return;
     }
 
@@ -247,19 +247,19 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        showToast(data.error || 'Failed to save command profile', 'error');
+        showToast(data.error || 'Failed to save Agent Tool', 'error');
         return;
       }
-      showToast(action === 'create' ? 'Command profile added' : 'Command profile saved', 'success');
+      showToast(action === 'create' ? 'Agent Tool added' : 'Agent Tool saved', 'success');
       await ensureLoaded(true);
     });
   }
 
   async function deleteProfile(rowId, button) {
     const profile = getProfileById(rowId);
-    const label = profile?.name || 'this command profile';
+    const label = profile?.name || 'this Agent Tool';
     const confirmed = await showConfirm(`Delete ${label}? Existing agents keep their stored command.`, {
-      title: 'Delete command profile?',
+      title: 'Delete Agent Tool?',
       confirmLabel: 'Delete',
       tone: 'danger',
     });
@@ -271,10 +271,10 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        showToast(data.error || 'Failed to delete command profile', 'error');
+        showToast(data.error || 'Failed to delete Agent Tool', 'error');
         return;
       }
-      showToast('Command profile deleted', 'success');
+      showToast('Agent Tool deleted', 'success');
       await ensureLoaded(true);
     });
   }

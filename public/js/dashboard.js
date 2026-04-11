@@ -15,6 +15,11 @@ let _currentReplyIssueId = null; // issue ID for the currently visible reply box
 let _dashboardProjectsById = {};
 let _globalComposeAgentsByProject = {};
 let _dashboardProjectsLoadPromise = null;
+let _createProjectReadiness = null;
+let _createProjectReadinessRequestId = 0;
+let _createProjectDirectoryRoots = [];
+let _createProjectDirectoryRootId = '';
+let _createProjectDirectoryRelativePath = '';
 const INBOX_ITEM_LIMIT = 20;
 let _inboxPagination = { limit: INBOX_ITEM_LIMIT, offset: 0, total: 0, hasMore: false, loading: false };
 let _inboxUnreadCount = 0;
@@ -1199,6 +1204,187 @@ function getCreateProjectCommandProfileManager() {
   return window.HAICOCommandProfiles || null;
 }
 
+function getSelectedCreateProjectProfile() {
+  const manager = getCreateProjectCommandProfileManager();
+  const select = document.getElementById('proj-cmd-profile');
+  return manager?.getById(select?.value || '') || null;
+}
+
+function openCreateProjectSettings() {
+  hideCreateModal();
+  switchView('settings');
+}
+
+function renderCreateProjectCheck(input) {
+  const tone = input.tone || 'warn';
+  const detail = input.detail || '';
+  const action = input.action || '';
+  return `
+    <div class="create-project-check create-project-check-${tone}">
+      <div class="create-project-check-icon" aria-hidden="true"></div>
+      <div class="create-project-check-copy">
+        <div class="create-project-check-title">${esc(input.title || '')}</div>
+        <div class="create-project-check-detail">${detail}</div>
+        ${action ? `<div class="create-project-check-actions">${action}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function getCreateProjectAccountDetail() {
+  if (_currentUser) {
+    const name = _currentUser.display_name || _currentUser.username || 'Current user';
+    return {
+      tone: 'ok',
+      title: 'Account',
+      detail: `Signed in as <strong>${esc(name)}</strong> (${esc(_currentUser.role || 'member')}).`,
+    };
+  }
+
+  return {
+    tone: 'warn',
+    title: 'Account',
+    detail: 'Your session is required to create a project. If HAICO redirects you, sign in again and reopen this dialog.',
+  };
+}
+
+function renderCreateProjectReadinessBody(content) {
+  const body = document.getElementById('create-project-readiness-body');
+  if (body) body.innerHTML = content;
+}
+
+function renderCreateProjectMissingProfileState() {
+  renderCreateProjectReadinessBody([
+    renderCreateProjectCheck(getCreateProjectAccountDetail()),
+    renderCreateProjectCheck({
+      tone: 'error',
+      title: 'Agent Tool',
+      detail: 'No Agent Tool is configured yet. Open <strong>Settings</strong>, add one, then come back here.',
+      action: '<button type="button" class="btn btn-sm" onclick="openCreateProjectSettings()">Open Settings</button>',
+    }),
+    renderCreateProjectCheck({
+      tone: 'warn',
+      title: 'First-time setup',
+      detail: 'After adding the Agent Tool, make sure the CLI is installed locally and logged in. HAICO will re-check that here before project creation.',
+    }),
+  ].join(''));
+}
+
+function renderCreateProjectReadiness(profile, readiness) {
+  const profileName = profile?.name || 'Selected profile';
+  const commandType = readiness?.command_type || profile?.type || 'unknown';
+  const binaryLabel = readiness?.binary || 'selected CLI';
+  const binaryStatus = readiness?.binary_found
+    ? {
+        tone: 'ok',
+        title: 'CLI availability',
+        detail: `${esc(binaryLabel)} is available at <span class="create-project-inline-code">${esc(readiness.binary_path || '')}</span>.`,
+      }
+    : {
+        tone: 'error',
+        title: 'CLI availability',
+        detail: `HAICO could not find <span class="create-project-inline-code">${esc(binaryLabel)}</span> on this machine. Install it and make sure your shell can run it.`,
+      };
+  const authTone = readiness?.auth?.status === 'configured'
+    ? 'ok'
+    : (readiness?.auth?.status === 'missing' ? 'warn' : 'warn');
+  const authDetailParts = [esc(readiness?.auth?.message || 'HAICO cannot verify login state for this tool automatically.')];
+  if (readiness?.auth?.action_command) {
+    authDetailParts.push(`Suggested command: <span class="create-project-inline-code">${esc(readiness.auth.action_command)}</span>`);
+  }
+
+  const issueCards = (readiness?.issues || []).filter((issue) => issue.code !== 'auth_missing').map((issue) => renderCreateProjectCheck({
+    tone: issue.severity === 'blocking' ? 'error' : 'warn',
+    title: issue.title,
+    detail: `${esc(issue.detail)}${issue.action_command ? ` Suggested command: <span class="create-project-inline-code">${esc(issue.action_command)}</span>` : ''}`,
+    action: issue.action_label === 'Open Settings'
+      ? '<button type="button" class="btn btn-sm" onclick="openCreateProjectSettings()">Open Settings</button>'
+      : '',
+  }));
+
+  renderCreateProjectReadinessBody([
+    renderCreateProjectCheck(getCreateProjectAccountDetail()),
+    renderCreateProjectCheck({
+      tone: 'ok',
+      title: 'Agent Tool',
+      detail: `Using <strong>${esc(profileName)}</strong> (${esc(commandType)}): <span class="create-project-inline-code">${esc(profile?.command || '')}</span>`,
+    }),
+    renderCreateProjectCheck(binaryStatus),
+    renderCreateProjectCheck({
+      tone: authTone,
+      title: 'CLI login',
+      detail: authDetailParts.join(' '),
+    }),
+    ...issueCards,
+  ].join(''));
+}
+
+async function refreshCreateProjectReadiness() {
+  const modal = document.getElementById('createModal');
+  if (!modal || !modal.classList.contains('active')) return null;
+
+  const profile = getSelectedCreateProjectProfile();
+  if (!profile?.command) {
+    _createProjectReadiness = null;
+    renderCreateProjectMissingProfileState();
+    return null;
+  }
+
+  const requestId = ++_createProjectReadinessRequestId;
+  renderCreateProjectReadinessBody('<div class="create-project-readiness-empty">Checking local CLI setup...</div>');
+
+  try {
+    const res = await fetch('/api/command-profiles/check', {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify({ command: profile.command, type: profile.type }),
+    });
+    const readiness = await res.json().catch(() => null);
+    if (requestId !== _createProjectReadinessRequestId) return null;
+    _createProjectReadiness = readiness;
+    renderCreateProjectReadiness(profile, readiness || {});
+    return readiness;
+  } catch (error) {
+    if (requestId !== _createProjectReadinessRequestId) return null;
+    _createProjectReadiness = null;
+    renderCreateProjectReadinessBody(renderCreateProjectCheck({
+      tone: 'warn',
+      title: 'Setup check unavailable',
+      detail: `HAICO could not inspect your CLI right now${error?.message ? `: ${esc(error.message)}` : '.'}`,
+    }));
+    return null;
+  }
+}
+
+function populateCreateProjectCommandProfileOptions(selectedProfileId) {
+  const select = document.getElementById('proj-cmd-profile');
+  const hiddenInput = document.getElementById('proj-cmd');
+  const preview = document.getElementById('proj-cmd-preview');
+  if (!select || !hiddenInput) return;
+
+  const manager = getCreateProjectCommandProfileManager();
+  const profiles = manager?.getProfiles() || [];
+
+  if (!profiles.length) {
+    select.innerHTML = '<option value="">No Agent Tools configured</option>';
+    select.disabled = true;
+    hiddenInput.value = '';
+    if (preview) preview.innerHTML = 'No Agent Tool is configured yet. Open Settings and add one.';
+    return;
+  }
+
+  const nextProfileId = selectedProfileId && profiles.some((profile) => profile.id === selectedProfileId)
+    ? selectedProfileId
+    : profiles[0].id;
+
+  select.disabled = false;
+  select.innerHTML = profiles.map((profile) =>
+    `<option value="${profile.id}">${esc(profile.name)} (${esc(profile.type)})</option>`
+  ).join('');
+  select.value = nextProfileId;
+  handleCreateProjectCommandProfileChange();
+}
+
 async function hydrateCreateProjectCommandProfileControls() {
   const select = document.getElementById('proj-cmd-profile');
   const hiddenInput = document.getElementById('proj-cmd');
@@ -1207,26 +1393,20 @@ async function hydrateCreateProjectCommandProfileControls() {
 
   const manager = getCreateProjectCommandProfileManager();
   if (!manager) {
-    select.innerHTML = '<option value="">Command profiles unavailable</option>';
+    select.innerHTML = '<option value="">Agent Tools unavailable</option>';
     select.disabled = true;
     hiddenInput.value = '';
-    if (preview) preview.textContent = 'Open Settings and configure a command profile first.';
+    if (preview) preview.textContent = 'Open Settings and configure an Agent Tool first.';
     return;
   }
 
   await manager.ensureLoaded();
-  manager.populateSelect(select, {
-    includeProjectDefault: false,
-    includeCustom: false,
-    emptyLabel: 'No command profiles configured - open Settings first',
-  });
-
-  const profiles = manager.getProfiles();
-  select.disabled = profiles.length === 0;
-  if (profiles.length > 0 && !manager.getById(select.value)) {
-    select.value = profiles[0].id;
+  const currentProfileId = select.value;
+  populateCreateProjectCommandProfileOptions(currentProfileId);
+  if (!(manager.getProfiles() || []).length) {
+    _createProjectReadiness = null;
+    renderCreateProjectMissingProfileState();
   }
-  handleCreateProjectCommandProfileChange();
 }
 
 function handleCreateProjectCommandProfileChange() {
@@ -1241,27 +1421,162 @@ function handleCreateProjectCommandProfileChange() {
   if (preview) {
     preview.textContent = selectedProfile
       ? `Command: ${selectedProfile.command} (${selectedProfile.type})`
-      : 'No command profiles configured. Open Settings and add a tool first.';
+      : 'No Agent Tool is configured yet. Open Settings and add one first.';
   }
+  refreshCreateProjectReadiness().catch((error) => {
+    console.error('Failed to refresh create project readiness', error);
+  });
 }
 
 function showCreateModal() {
   document.getElementById('createModal').classList.add('active');
+  renderCreateProjectReadinessBody('<div class="create-project-readiness-empty">Loading setup checks...</div>');
   hydrateCreateProjectCommandProfileControls().catch((error) => {
     console.error('Failed to load project command profile controls', error);
+    renderCreateProjectMissingProfileState();
   });
 }
 function hideCreateModal() { document.getElementById('createModal').classList.remove('active'); }
+
+function clearCreateProjectWorkdir() {
+  const input = document.getElementById('proj-workdir');
+  if (input) input.value = '';
+}
+
+async function ensureCreateProjectDirectoryRootsLoaded() {
+  if (_createProjectDirectoryRoots.length > 0) return _createProjectDirectoryRoots;
+  const res = await fetch('/api/projects/directory-roots', { headers: apiHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load directory roots');
+  _createProjectDirectoryRoots = Array.isArray(data.roots) ? data.roots : [];
+  return _createProjectDirectoryRoots;
+}
+
+function renderCreateProjectPathPicker(entries, currentPath) {
+  const list = document.getElementById('path-picker-list');
+  const current = document.getElementById('path-picker-current');
+  if (current) current.textContent = currentPath || '/';
+  if (!list) return;
+  if (!entries.length) {
+    list.innerHTML = '<div class="create-project-readiness-empty">No subdirectories here.</div>';
+    return;
+  }
+  list.innerHTML = entries.map((entry) => `
+    <button type="button" class="path-picker-entry" onclick="navigateCreateProjectPathPicker(${JSON.stringify(entry.relative_path || '')})">
+      <div>
+        <div class="path-picker-entry-name">${esc(entry.name)}</div>
+        <div class="path-picker-entry-path">${esc(entry.absolute_path || '')}</div>
+      </div>
+      <div class="create-project-inline-code">dir</div>
+    </button>
+  `).join('');
+}
+
+async function loadCreateProjectPathPicker(pathValue) {
+  const rootSelect = document.getElementById('path-picker-root');
+  if (!rootSelect) return;
+  const roots = await ensureCreateProjectDirectoryRootsLoaded();
+  if (!roots.length) throw new Error('No browse roots available');
+
+  const workdirValue = String(pathValue || document.getElementById('proj-workdir')?.value || '').trim();
+  let matchedRoot = roots.find((root) => workdirValue && (workdirValue === root.path || workdirValue.startsWith(`${root.path}/`))) || roots[0];
+  if (!_createProjectDirectoryRootId || !roots.some((root) => root.id === _createProjectDirectoryRootId)) {
+    _createProjectDirectoryRootId = matchedRoot.id;
+  }
+  if (workdirValue && matchedRoot.id === _createProjectDirectoryRootId) {
+    _createProjectDirectoryRelativePath = workdirValue === matchedRoot.path
+      ? ''
+      : workdirValue.slice(matchedRoot.path.length).replace(/^\/+/, '');
+  }
+
+  rootSelect.innerHTML = roots.map((root) =>
+    `<option value="${esc(root.id)}">${esc(root.label)} · ${esc(root.path)}</option>`
+  ).join('');
+  rootSelect.value = _createProjectDirectoryRootId;
+
+  const params = new URLSearchParams({
+    root_id: _createProjectDirectoryRootId,
+    path: _createProjectDirectoryRelativePath || '',
+  });
+  const res = await fetch(`/api/projects/browse-directories?${params.toString()}`, { headers: apiHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to browse directories');
+  _createProjectDirectoryRelativePath = data.relative_path || '';
+  renderCreateProjectPathPicker(Array.isArray(data.entries) ? data.entries : [], data.absolute_path || '');
+}
+
+function openCreateProjectPathPicker() {
+  document.getElementById('pathPickerModal')?.classList.add('active');
+  const list = document.getElementById('path-picker-list');
+  if (list) list.innerHTML = '<div class="create-project-readiness-empty">Loading directories...</div>';
+  loadCreateProjectPathPicker().catch((error) => {
+    if (list) list.innerHTML = `<div class="create-project-readiness-empty">${esc(error.message || 'Failed to load directories')}</div>`;
+  });
+}
+
+function closeCreateProjectPathPicker() {
+  document.getElementById('pathPickerModal')?.classList.remove('active');
+}
+
+function handlePathPickerRootChange() {
+  _createProjectDirectoryRootId = document.getElementById('path-picker-root')?.value || '';
+  _createProjectDirectoryRelativePath = '';
+  loadCreateProjectPathPicker().catch((error) => {
+    const list = document.getElementById('path-picker-list');
+    if (list) list.innerHTML = `<div class="create-project-readiness-empty">${esc(error.message || 'Failed to load directories')}</div>`;
+  });
+}
+
+function navigateCreateProjectPathPicker(relativePath) {
+  _createProjectDirectoryRelativePath = relativePath || '';
+  loadCreateProjectPathPicker().catch((error) => {
+    const list = document.getElementById('path-picker-list');
+    if (list) list.innerHTML = `<div class="create-project-readiness-empty">${esc(error.message || 'Failed to load directories')}</div>`;
+  });
+}
+
+function navigatePathPickerUp() {
+  if (!_createProjectDirectoryRelativePath) return;
+  const parts = _createProjectDirectoryRelativePath.split('/').filter(Boolean);
+  parts.pop();
+  navigateCreateProjectPathPicker(parts.join('/'));
+}
+
+async function confirmPathPickerSelection() {
+  const params = new URLSearchParams({
+    root_id: _createProjectDirectoryRootId,
+    path: _createProjectDirectoryRelativePath || '',
+  });
+  const res = await fetch(`/api/projects/browse-directories?${params.toString()}`, { headers: apiHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(data.error || 'Failed to use this folder', 'error');
+    return;
+  }
+  const input = document.getElementById('proj-workdir');
+  if (input) input.value = data.absolute_path || '';
+  closeCreateProjectPathPicker();
+}
 
 async function createProject() {
   const btn = document.querySelector('#createModal button[onclick="createProject()"]');
   await withLoading(btn, async () => {
     const task = document.getElementById('proj-task').value.trim();
-    const commandProfileManager = getCreateProjectCommandProfileManager();
-    const selectedProfile = commandProfileManager?.getById(document.getElementById('proj-cmd-profile')?.value || '') || null;
+    const selectedProfile = getSelectedCreateProjectProfile();
     const toolPath = selectedProfile?.command || document.getElementById('proj-cmd').value.trim();
+    const explicitWorkdir = document.getElementById('proj-workdir')?.value.trim() || '';
     if (!task) { showToast('Please describe the task to execute', 'error'); return; }
-    if (!selectedProfile || !toolPath) { showToast('Please configure and select a command profile in Settings first', 'error'); return; }
+    if (!selectedProfile || !toolPath) {
+      renderCreateProjectMissingProfileState();
+      showToast('Please choose an Agent Tool configured in Settings first', 'error');
+      return;
+    }
+
+    const readiness = await refreshCreateProjectReadiness();
+    if (readiness && readiness.ready === false) {
+      showToast('Finish the setup items in the dialog before creating the project', 'error');
+      return;
+    }
 
     // Step 1: Call AI to generate project metadata
     btn.textContent = 'Generating...';
@@ -1276,13 +1591,23 @@ async function createProject() {
       name = gen.name || 'project';
       description = gen.description || task.slice(0, 100);
       taskDesc = gen.task_description || task;
-      workDir = gen.working_directory || null;
+      workDir = explicitWorkdir || gen.working_directory || null;
       ctrlRole = gen.controller_role || null;
     } else {
+      const err = await genRes.json().catch(() => ({}));
+      if (err.readiness) {
+        _createProjectReadiness = err.readiness;
+        renderCreateProjectReadiness(selectedProfile, err.readiness);
+      }
+      if (err.error_code === 'missing_cli' || err.error_code === 'auth_required') {
+        showToast(err.error || 'The selected CLI needs setup before project creation', 'error');
+        return;
+      }
       // Fallback if AI fails
       name = task.slice(0, 30).replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'project';
       description = task.slice(0, 100);
       taskDesc = task;
+      workDir = explicitWorkdir || null;
     }
 
     // Step 2: Create the project
@@ -1307,6 +1632,36 @@ async function createProject() {
       showToast(err.error || 'Failed to create', 'error');
     }
   });
+}
+
+window.addEventListener('haico:user-ready', () => {
+  const modal = document.getElementById('createModal');
+    if (modal?.classList.contains('active')) {
+      const profile = getSelectedCreateProjectProfile();
+      if (profile && _createProjectReadiness) renderCreateProjectReadiness(profile, _createProjectReadiness);
+      else if (profile) refreshCreateProjectReadiness().catch(() => {});
+      else renderCreateProjectMissingProfileState();
+  }
+});
+
+window.addEventListener('haico:command-profiles-changed', () => {
+  const modal = document.getElementById('createModal');
+  if (modal?.classList.contains('active')) {
+    hydrateCreateProjectCommandProfileControls().catch((error) => {
+      console.error('Failed to reload command profiles for create project modal', error);
+    });
+  }
+});
+
+if (typeof window !== 'undefined') {
+  window.openCreateProjectSettings = openCreateProjectSettings;
+  window.openCreateProjectPathPicker = openCreateProjectPathPicker;
+  window.closeCreateProjectPathPicker = closeCreateProjectPathPicker;
+  window.handlePathPickerRootChange = handlePathPickerRootChange;
+  window.navigateCreateProjectPathPicker = navigateCreateProjectPathPicker;
+  window.navigatePathPickerUp = navigatePathPickerUp;
+  window.confirmPathPickerSelection = confirmPathPickerSelection;
+  window.clearCreateProjectWorkdir = clearCreateProjectWorkdir;
 }
 
 async function toggleProjectStatus(projectId, currentStatus) {

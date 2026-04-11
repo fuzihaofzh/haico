@@ -352,7 +352,7 @@ async function hydrateCreateAgentCommandProfileControls(commandTemplate, command
   const selectedProfile = manager?.getById(select.value) || null;
   input.value = selectedProfile?.command || String(commandTemplate || '').trim();
   input.dataset.commandType = selectedProfile?.type || commandType || '';
-  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
 }
 
 function handleCreateAgentCommandProfileChange() {
@@ -365,18 +365,18 @@ function handleCreateAgentCommandProfileChange() {
   if (selectedProfile) {
     input.value = selectedProfile.command || '';
     input.dataset.commandType = selectedProfile.type || '';
-    updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+    updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
     return;
   }
 
   if (select.value === '') {
     input.value = '';
     input.dataset.commandType = '';
-    updateCommandPreview('agent-cmdtpl-preview', '', '', 'Using project-level Tool Path setting.');
+    updateCommandPreview('agent-cmdtpl-preview', '', '', 'Using project-level Agent Tool setting.');
     return;
   }
 
-  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Select a tool configured in Settings.');
+  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Select an Agent Tool configured in Settings.');
 }
 
 function handleCreateAgentCommandInputChange() {
@@ -401,7 +401,7 @@ async function hydrateAgentCommandProfileControls(agentId, agent) {
   const selectedProfile = manager?.getById(select.value) || null;
   input.value = selectedProfile?.command || String(agent?.command_template || '').trim();
   input.dataset.commandType = selectedProfile?.type || agent?.command_type || '';
-  updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+  updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
 }
 
 function handleAgentCommandProfileChange(agentId) {
@@ -414,18 +414,18 @@ function handleAgentCommandProfileChange(agentId) {
   if (selectedProfile) {
     input.value = selectedProfile.command || '';
     input.dataset.commandType = selectedProfile.type || '';
-    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
     return;
   }
 
   if (select.value === '') {
     input.value = '';
     input.dataset.commandType = '';
-    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, '', '', 'Using project-level Tool Path setting.');
+    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, '', '', 'Using project-level Agent Tool setting.');
     return;
   }
 
-  updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Select a tool configured in Settings.');
+  updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Select an Agent Tool configured in Settings.');
 }
 
 function handleAgentCommandInputChange(agentId) {
@@ -467,7 +467,7 @@ async function hydrateProjectCommandProfileControls(commandTemplate, commandType
   const profiles = await populateCommandProfileSelect(select, {
     includeProjectDefault: false,
     includeCustom: false,
-    emptyLabel: 'No command profiles configured - open Settings first',
+    emptyLabel: 'No Agent Tools configured - open Settings first',
   });
   setCommandProfileSelection(select, commandTemplate, commandType);
 
@@ -476,7 +476,7 @@ async function hydrateProjectCommandProfileControls(commandTemplate, commandType
   input.value = selectedProfile?.command || String(commandTemplate || '').trim();
   input.dataset.commandType = selectedProfile?.type || commandType || '';
   select.disabled = !canManageProject() || (profiles.length === 0 && !input.value);
-  updateCommandPreview('project-cmd-preview', input.value, input.dataset.commandType, 'Choose a tool configured in Settings.');
+  updateCommandPreview('project-cmd-preview', input.value, input.dataset.commandType, 'Choose an Agent Tool configured in Settings.');
 }
 
 function handleProjectCommandProfileChange() {
@@ -490,7 +490,7 @@ function handleProjectCommandProfileChange() {
     input.value = selectedProfile.command || '';
     input.dataset.commandType = selectedProfile.type || '';
   }
-  updateCommandPreview('project-cmd-preview', input.value, input.dataset.commandType, 'Choose a tool configured in Settings.');
+  updateCommandPreview('project-cmd-preview', input.value, input.dataset.commandType, 'Choose an Agent Tool configured in Settings.');
 }
 
 function buildProjectCommandConfigPayload() {
@@ -530,7 +530,7 @@ async function refreshCreateAgentCommandProfileControls() {
   const selectedProfile = manager?.getById(select.value) || null;
   input.value = selectedProfile?.command || commandTemplate;
   input.dataset.commandType = selectedProfile?.type || selectedType || '';
-  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
 }
 
 async function refreshProjectCommandProfileControls() {
@@ -563,7 +563,7 @@ async function refreshVisibleAgentCommandProfileControls() {
     const selectedProfile = manager?.getById(select.value) || null;
     input.value = selectedProfile?.command || commandTemplate;
     input.dataset.commandType = selectedProfile?.type || selectedType || '';
-    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Tool Path setting.');
+    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
   }
 }
 
@@ -912,7 +912,7 @@ async function saveOverview() {
   };
   if (!body.name) { showToast('Name cannot be empty', 'error'); return; }
   if (!body.task_description) { showToast('Task description cannot be empty', 'error'); return; }
-  if (!body.command_template) { showToast('Select a command profile in Settings before saving', 'error'); return; }
+  if (!body.command_template) { showToast('Select an Agent Tool in Settings before saving', 'error'); return; }
   const btn = document.querySelector('button[onclick="saveOverview()"]');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
@@ -1301,7 +1301,7 @@ async function viewAgent(agentId) {
               <input type="text" id="ad-workdir-${agentId}" value="${esc(agent.working_directory || '')}" placeholder="(default)" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
             </div>
             <div style="flex:1;min-width:200px">
-              <div style="${L}">Tool Path</div>
+              <div style="${L}">Agent Tool</div>
               <select id="ad-cmdprof-${agentId}" onchange="handleAgentCommandProfileChange('${agentId}')" ${readOnlyAttr} style="${B};width:100%;font-size:12px;color:var(--fg)">
                 <option value="">Loading...</option>
               </select>

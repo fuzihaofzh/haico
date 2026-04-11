@@ -5,6 +5,7 @@ import {
   normalizeCommandProfileType,
   resolveCommandType,
 } from '../services/command-profiles';
+import { inspectToolReadiness } from '../services/tool-readiness';
 
 function normalizeProfileName(value: unknown): string {
   return String(value || '').trim();
@@ -38,6 +39,17 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
          ORDER BY lower(name), created_at`
       ).all();
       return { profiles };
+    });
+
+    profileRoutes.post<{
+      Body: { command?: string; type?: string | null };
+    }>('/api/command-profiles/check', async (request) => {
+      const command = normalizeProfileCommand(request.body?.command);
+      const type = resolveCommandType(request.body?.type, command);
+      return inspectToolReadiness({
+        commandTemplate: command,
+        commandType: type,
+      });
     });
 
     profileRoutes.post<{

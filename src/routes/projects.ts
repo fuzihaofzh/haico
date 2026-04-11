@@ -10,6 +10,7 @@ import { stopAgentProcess, isAgentRunning } from '../services/process-manager';
 import { config } from '../config';
 import { isLegacyAuthUser } from '../middleware/auth';
 import { buildControllerCommandConfig, resolveCommandType } from '../services/command-profiles';
+import { classifyToolExecutionFailure, inspectToolReadiness } from '../services/tool-readiness';
 import {
   ensureProjectAccess,
   getProjectPermission,
@@ -430,6 +431,17 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     try {
       const lowerTool = tool.toLowerCase();
       const resolvedCommandType = resolveCommandType(command_type, tool);
+      const readiness = inspectToolReadiness({
+        commandTemplate: tool,
+        commandType: resolvedCommandType,
+      });
+      if (!readiness.binary_found) {
+        return reply.code(400).send({
+          error: readiness.issues.find((issue) => issue.code === 'missing_cli')?.detail || `Tool "${readiness.binary}" is not installed`,
+          error_code: 'missing_cli',
+          readiness,
+        });
+      }
       const toolBinary = tool.split(/\s+/).filter(Boolean)[0] || tool;
       let cmd: string;
 
@@ -463,7 +475,23 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       const parsed = JSON.parse(jsonMatch[0]);
       return { ...parsed };
     } catch (e: any) {
-      return reply.code(500).send({ error: 'Failed to generate: ' + (e.message || '').slice(0, 200) });
+      const resolvedCommandType = resolveCommandType(command_type, tool);
+      const readiness = inspectToolReadiness({
+        commandTemplate: tool,
+        commandType: resolvedCommandType,
+      });
+      const failure = classifyToolExecutionFailure({
+        error: e,
+        commandType: resolvedCommandType,
+        binary: readiness.binary,
+      });
+      const statusCode = failure.code === 'execution_failed' ? 500 : 400;
+      return reply.code(statusCode).send({
+        error: failure.message,
+        error_code: failure.code,
+        action_command: failure.action_command,
+        readiness,
+      });
     }
   });
   // Project cost summary with per-run breakdowns and time-series support

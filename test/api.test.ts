@@ -503,6 +503,35 @@ describe('HAICO API', () => {
   let controllerId: string;
 
   describe('Projects', () => {
+    it('POST /api/command-profiles/check reports missing CLI clearly', async () => {
+      const { status, body } = await api(app, '/api/command-profiles/check', {
+        method: 'POST',
+        body: {
+          command: 'haico-cli-that-does-not-exist',
+          type: 'codex',
+        },
+      });
+      assert.equal(status, 200);
+      assert.equal(body.binary_found, false);
+      assert.equal(body.ready, false);
+      assert.ok(Array.isArray(body.issues));
+      assert.equal(body.issues[0].code, 'missing_cli');
+    });
+
+    it('POST /api/generate-project classifies missing CLI as setup error', async () => {
+      const { status, body } = await api(app, '/api/generate-project', {
+        method: 'POST',
+        body: {
+          description: 'Create a test project',
+          tool_path: 'haico-cli-that-does-not-exist',
+          command_type: 'codex',
+        },
+      });
+      assert.equal(status, 400);
+      assert.equal(body.error_code, 'missing_cli');
+      assert.equal(body.readiness.binary_found, false);
+    });
+
     it('POST /api/projects creates project + controller', async () => {
       const { status, body } = await api(app, '/api/projects', {
         method: 'POST',
