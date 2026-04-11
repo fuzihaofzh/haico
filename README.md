@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://haico.dev/images/haico-og-preview-1200.png" alt="HAICO overview showing desktop and mobile views" width="100%" />
+</p>
+
 <div align="center">
 
 # Human-Agent Interactive Collaboration Orchestrator (HAICO)
@@ -18,10 +22,6 @@
 </div>
 
 ---
-
-<p align="center">
-  <img src="./docs/images/haico-global-inbox-nord-light.png" alt="HAICO global inbox showing cross-project issues, approvals, and live agent status" width="100%" />
-</p>
 
 <p align="center">
   <em>One control plane for humans and autonomous agents: triage issues, review approvals, monitor spend, and keep every project in sync.</em>
@@ -67,14 +67,14 @@ HAICO creates a **shared workspace** where humans and AI agents collaborate as a
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="./docs/images/haico-beacon-clinical-operations-overview-nord-light.png" alt="HAICO project overview dashboard" />
+      <img src="https://haico.dev/images/haico-beacon-clinical-operations-overview-nord-light.png" alt="HAICO project overview dashboard" />
       <br />
       <strong>Project Overview</strong>
       <br />
       Agent health, issue progress, and spend in one view.
     </td>
     <td width="50%" valign="top">
-      <img src="./docs/images/haico-beacon-clinical-operations-agents-nord-light.png" alt="HAICO agent collaboration tree" />
+      <img src="https://haico.dev/images/haico-beacon-clinical-operations-agents-nord-light.png" alt="HAICO agent collaboration tree" />
       <br />
       <strong>Agent Collaboration Tree</strong>
       <br />
@@ -83,14 +83,14 @@ HAICO creates a **shared workspace** where humans and AI agents collaborate as a
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="./docs/images/haico-beacon-clinical-operations-issues-nord-light.png" alt="HAICO built-in issue tracker" />
+      <img src="https://haico.dev/images/haico-beacon-clinical-operations-issues-nord-light.png" alt="HAICO built-in issue tracker" />
       <br />
       <strong>Built-In Issue Tracker</strong>
       <br />
       Track work status without leaving the workspace.
     </td>
     <td width="50%" valign="top">
-      <img src="./docs/images/haico-beacon-adverse-event-handoff-issue-detail-nord-light.png" alt="HAICO issue detail workflow view" />
+      <img src="https://haico.dev/images/haico-beacon-adverse-event-handoff-issue-detail-nord-light.png" alt="HAICO issue detail workflow view" />
       <br />
       <strong>Issue Detail Workflow</strong>
       <br />
@@ -99,14 +99,14 @@ HAICO creates a **shared workspace** where humans and AI agents collaborate as a
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="./docs/images/haico-usage-dashboard-nord-light.png" alt="HAICO usage and cost dashboard" />
+      <img src="https://haico.dev/images/haico-usage-dashboard-nord-light.png" alt="HAICO usage and cost dashboard" />
       <br />
       <strong>Usage Visibility</strong>
       <br />
       Monitor spend before autonomous runs drift out of bounds.
     </td>
     <td width="50%" valign="top">
-      <img src="./docs/images/haico-approval-queue-nord-light.png" alt="HAICO approval queue for high-risk agent actions" />
+      <img src="https://haico.dev/images/haico-approval-queue-nord-light.png" alt="HAICO approval queue for high-risk agent actions" />
       <br />
       <strong>Approval Queue</strong>
       <br />
