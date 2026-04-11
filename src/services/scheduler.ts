@@ -1,11 +1,11 @@
 import cron from 'node-cron';
 import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
-// Controller is purely event-driven now — no scheduler triggers needed
-import { tryHandleWithoutLLM } from './pre-controller';
 import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, isAgentInCooldown, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
 import { buildSystemPrompt } from './system-prompt';
+import { triggerControllerAgent } from './controller';
+import { findControllerRecoveryIssue, listDispatchableIssuesForAgent } from './issue-dispatch';
 import { config } from '../config';
 import logger from '../logger';
 
@@ -14,8 +14,6 @@ let issueScanTask: cron.ScheduledTask | null = null;
 let watchdogTask: cron.ScheduledTask | null = null;
 const pendingWatchdogTimers = new Set<NodeJS.Timeout>();
 
-// Pending issues should normally be waiting on child issues or active blockers.
-// If neither exists anymore, the issue is stale and needs controller review.
 export function findStalePendingIssue(projectId: string): { number: number } | undefined {
   const db = getDatabase();
   return db.prepare(`
@@ -66,99 +64,71 @@ function startLogCleanup(): void {
   logger.info(`Log cleanup scheduled: retain ${config.logRetentionDays} days`);
 }
 
-// Periodic worker scan: every 3 minutes, auto-start idle/error workers that have
-// assigned issues. This is the ONLY periodic scan — controller is purely event-driven.
+// Periodic recovery scan: every 3 minutes, revive idle/error workers that still have
+// dispatchable issues and enqueue controller recovery for controller-owned work.
+export function runIssueScanOnce(): void {
+  const db = getDatabase();
+  const projects = db.prepare("SELECT * FROM projects WHERE status = 'active'").all() as Project[];
+
+  for (const project of projects) {
+    const recoverableWorkers = db.prepare(`
+      SELECT a.* FROM agents a
+      WHERE a.project_id = ? AND a.is_controller = 0 AND a.status IN ('idle', 'error') AND a.paused = 0
+    `).all(project.id) as Agent[];
+
+    for (const worker of recoverableWorkers) {
+      const issues = listDispatchableIssuesForAgent(db, project.id, worker.id);
+      if (issues.length === 0) continue;
+      if (isAgentRunning(worker.id)) continue;
+      if (isAgentInCooldown(worker.id)) continue;
+
+      if (worker.status === 'error') {
+        const recentErrors = db.prepare(
+          "SELECT COUNT(*) as cnt FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' AND created_at > datetime('now', '-10 minutes')"
+        ).get(worker.id) as any;
+        if (recentErrors.cnt >= 3) {
+          const lastError = db.prepare(
+            "SELECT created_at FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' ORDER BY created_at DESC LIMIT 1"
+          ).get(worker.id) as any;
+          const lastErrorAge = lastError ? Date.now() - new Date(lastError.created_at + 'Z').getTime() : Infinity;
+          if (lastErrorAge < 60 * 60 * 1000) {
+            logger.info(`Skipping auto-restart for errored agent "${worker.name}": ${recentErrors.cnt} errors in last 10 min, backing off until 1h after last error`);
+            continue;
+          }
+        }
+      }
+
+      try {
+        const parts: string[] = [];
+        if (worker.role) parts.push(`Role: ${worker.role}`);
+        if (project.task_description) parts.push(`Task: ${project.task_description}`);
+        const issueBatch = getAgentIssueBatch(issues);
+        parts.push(buildAssignedIssuesPrompt(issueBatch));
+        markCurrentBatchInProgress(db, issueBatch);
+
+        const prompt = parts.join('\n\n');
+        const commandTemplate = worker.command_template || project.command_template || config.defaultCommandTemplate;
+        const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
+        const systemPrompt = isRawShell ? undefined : buildSystemPrompt(worker, project);
+
+        logger.info(`Issue scan: auto-starting worker "${worker.name}" with ${issueBatch.currentBatch.length}/${issueBatch.activeIssues.length} dispatchable issue(s) for project "${project.name}"`);
+        startAgentProcess(worker, prompt, commandTemplate, systemPrompt);
+      } catch (e) {
+        logger.error(e, `Issue scan: failed to auto-start worker "${worker.name}"`);
+      }
+    }
+
+    const controllerRecovery = findControllerRecoveryIssue(db, project.id);
+    if (controllerRecovery) {
+      triggerControllerAgent(project, false, controllerRecovery.number);
+    }
+  }
+}
+
 function startIssueScan(): void {
   issueScanTask = cron.schedule('*/3 * * * *', () => {
     try {
-      const db = getDatabase();
-      const projects = db.prepare("SELECT * FROM projects WHERE status = 'active'").all() as Project[];
-
-      for (const project of projects) {
-        // Check if there are any open/in_progress issues in this project
-        const hasOpenIssues = db.prepare(
-          "SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress') LIMIT 1"
-        ).get(project.id);
-
-        if (!hasOpenIssues) continue;
-
-        // Directly start idle/error workers that have assigned open/in_progress issues
-        // Error agents are auto-retried — crashes and transient failures are common
-        const idleWorkersWithIssues = db.prepare(`
-          SELECT a.* FROM agents a
-          WHERE a.project_id = ? AND a.is_controller = 0 AND a.status IN ('idle', 'error') AND a.paused = 0
-          AND EXISTS (
-            SELECT 1 FROM issues i
-            WHERE i.project_id = ? AND i.assigned_to = a.id AND i.status IN ('open', 'in_progress')
-          )
-        `).all(project.id, project.id) as Agent[];
-
-        for (const worker of idleWorkersWithIssues) {
-          if (isAgentRunning(worker.id)) continue;
-          if (isAgentInCooldown(worker.id)) continue;
-          // Error circuit breaker: if agent errored 3+ times in last 10 minutes,
-          // back off for 1 hour from the last error before retrying
-          if (worker.status === 'error') {
-            const recentErrors = db.prepare(
-              "SELECT COUNT(*) as cnt FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' AND created_at > datetime('now', '-10 minutes')"
-            ).get(worker.id) as any;
-            if (recentErrors.cnt >= 3) {
-              const lastError = db.prepare(
-                "SELECT created_at FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' ORDER BY created_at DESC LIMIT 1"
-              ).get(worker.id) as any;
-              const lastErrorAge = lastError ? Date.now() - new Date(lastError.created_at + 'Z').getTime() : Infinity;
-              if (lastErrorAge < 60 * 60 * 1000) {
-                logger.info(`Skipping auto-restart for errored agent "${worker.name}": ${recentErrors.cnt} errors in last 10 min, backing off until 1h after last error`);
-                continue;
-              }
-            }
-          }
-          try {
-            // Build prompt same as /api/agents/:id/start
-            const parts: string[] = [];
-            if (worker.role) parts.push(`Role: ${worker.role}`);
-            if (project.task_description) parts.push(`Task: ${project.task_description}`);
-            const issues = db.prepare(
-              "SELECT * FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
-            ).all(project.id, worker.id) as any[];
-            if (issues.length > 0) {
-              const issueBatch = getAgentIssueBatch(issues);
-              parts.push(buildAssignedIssuesPrompt(issueBatch));
-              markCurrentBatchInProgress(db, issueBatch);
-            }
-            const prompt = parts.join('\n\n');
-            if (!prompt) continue;
-            const commandTemplate = worker.command_template || project.command_template || config.defaultCommandTemplate;
-            const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-            const systemPrompt = isRawShell ? undefined : buildSystemPrompt(worker, project);
-            const issueBatch = getAgentIssueBatch(issues);
-            logger.info(`Worker scan: auto-starting idle worker "${worker.name}" with ${issueBatch.currentBatch.length}/${issueBatch.activeIssues.length} assigned issue(s) in current batch for project "${project.name}"`);
-            startAgentProcess(worker, prompt, commandTemplate, systemPrompt);
-          } catch (e) {
-            logger.error(e, `Worker scan: failed to auto-start worker "${worker.name}"`);
-          }
-        }
-
-        // Stale in_progress issues: try pre-controller to restart idle worker directly
-        // (no LLM controller involved — just restart the assigned worker)
-        const staleIssue = db.prepare(`
-          SELECT i.number FROM issues i
-          JOIN agents a ON i.assigned_to = a.id
-          WHERE i.project_id = ? AND i.status = 'in_progress'
-            AND a.status IN ('idle', 'error') AND a.paused = 0 AND a.is_controller = 0
-            AND i.updated_at < datetime('now', '-10 minutes')
-          ORDER BY i.priority DESC
-          LIMIT 1
-        `).get(project.id) as { number: number } | undefined;
-
-        if (staleIssue) {
-          if (tryHandleWithoutLLM(project.id, staleIssue.number)) {
-            logger.info(`Worker scan: stale issue #${staleIssue.number} handled by pre-controller (direct worker restart)`);
-          }
-          // If pre-controller can't handle it, don't trigger LLM controller from scheduler.
-          // The event-driven path (onAgentFinish, issue updates) will handle it.
-        }
-      }
+      runIssueScanOnce();
     } catch (e) {
       logger.error(e, 'Worker scan failed');
     }

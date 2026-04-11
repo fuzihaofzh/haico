@@ -65,14 +65,16 @@ export function buildAssignedIssuesPrompt(
 }
 
 export function markCurrentBatchInProgress(db: Database.Database, batch: AgentIssueBatch): void {
-  const openIds = batch.currentBatch
-    .filter((issue) => issue.status === 'open')
+  const resumableIds = batch.currentBatch
+    .filter((issue) => issue.status === 'open' || issue.status === 'pending')
     .map((issue) => issue.id);
 
-  if (openIds.length === 0) return;
+  if (resumableIds.length === 0) return;
 
-  const placeholders = openIds.map(() => '?').join(', ');
+  const placeholders = resumableIds.map(() => '?').join(', ');
   db.prepare(
-    `UPDATE issues SET status = 'in_progress', updated_at = datetime('now') WHERE id IN (${placeholders}) AND status = 'open'`
-  ).run(...openIds);
+    `UPDATE issues
+     SET status = 'in_progress', updated_at = datetime('now')
+     WHERE id IN (${placeholders}) AND status IN ('open', 'pending')`
+  ).run(...resumableIds);
 }

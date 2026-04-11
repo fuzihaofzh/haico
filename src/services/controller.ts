@@ -336,12 +336,31 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
     ).get(project.id, triggerIssueNumber) as { id: string; status: string } | undefined;
 
     if (triggerIssue && triggerIssue.status === 'pending') {
-      const activeChildren = db.prepare(
-        "SELECT COUNT(*) as cnt FROM issues WHERE parent_id = ? AND status NOT IN ('done', 'closed')"
-      ).get(triggerIssue.id) as { cnt: number };
+      const depState = db.prepare(`
+        SELECT
+          (
+            SELECT COUNT(*) FROM issues child
+            WHERE child.project_id = ? AND child.parent_id = ? AND child.status NOT IN ('done', 'closed')
+          ) AS active_children,
+          (
+            SELECT COUNT(*)
+            FROM issue_relations r
+            JOIN issues blocker ON blocker.id = r.from_issue_id
+            JOIN issues blocked ON blocked.id = r.to_issue_id
+            WHERE blocked.project_id = ?
+              AND r.to_issue_id = ?
+              AND r.relation_type = 'blocks'
+              AND blocker.status NOT IN ('done', 'closed')
+          ) AS active_blockers
+      `).get(project.id, triggerIssue.id, project.id, triggerIssue.id) as {
+        active_children: number;
+        active_blockers: number;
+      };
 
-      if (activeChildren.cnt > 0) {
-        logger.info(`Skipping controller trigger: issue #${triggerIssueNumber} is pending with ${activeChildren.cnt} active children in project "${project.name}"`);
+      if ((depState?.active_children ?? 0) > 0 || (depState?.active_blockers ?? 0) > 0) {
+        logger.info(
+          `Skipping controller trigger: issue #${triggerIssueNumber} is pending with active_children=${depState?.active_children ?? 0}, active_blockers=${depState?.active_blockers ?? 0} in project "${project.name}"`
+        );
         return;
       }
     }
@@ -368,14 +387,32 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
          ) LIMIT 1`
       ).get(project.id, project.id);
 
-      // Check 3: any pending parent issues whose children are ALL done?
+      // Check 3: any pending issues whose dependencies are all cleared?
       const stalePending = db.prepare(
-        `SELECT 1 FROM issues p
+        `SELECT 1
+         FROM issues p
+         LEFT JOIN (
+           SELECT parent_id,
+                  SUM(CASE WHEN status NOT IN ('done', 'closed') THEN 1 ELSE 0 END) AS active_children
+           FROM issues
+           WHERE project_id = ? AND parent_id IS NOT NULL
+           GROUP BY parent_id
+         ) child_stats ON child_stats.parent_id = p.id
+         LEFT JOIN (
+           SELECT r.to_issue_id AS issue_id,
+                  SUM(CASE WHEN blocker.status NOT IN ('done', 'closed') THEN 1 ELSE 0 END) AS active_blockers
+           FROM issue_relations r
+           JOIN issues blocker ON blocker.id = r.from_issue_id
+           JOIN issues blocked ON blocked.id = r.to_issue_id
+           WHERE blocked.project_id = ? AND r.relation_type = 'blocks'
+           GROUP BY r.to_issue_id
+         ) blocker_stats ON blocker_stats.issue_id = p.id
          WHERE p.project_id = ? AND p.status = 'pending'
-         AND EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = p.id)
-         AND NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = p.id AND c.status NOT IN ('done','closed'))
+           AND COALESCE(p.assigned_to, '') <> 'user'
+           AND COALESCE(child_stats.active_children, 0) = 0
+           AND COALESCE(blocker_stats.active_blockers, 0) = 0
          LIMIT 1`
-      ).get(project.id);
+      ).get(project.id, project.id, project.id);
 
       if (!errorWorkersWithIssues && !stalePending) {
         logger.info(`Skipping controller trigger: no unassigned issues, no errored workers with active issues, and no stale pending issues in project "${project.name}"`);

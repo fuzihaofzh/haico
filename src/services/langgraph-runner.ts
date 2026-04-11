@@ -7,6 +7,7 @@ import logger from '../logger';
 import { startAgentProcess } from './process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
 import { buildSystemPrompt } from './system-prompt';
+import { listDispatchableIssuesForAgent, listOrchestrationIssues } from './issue-dispatch';
 
 export interface LangGraphControllerInput {
   project: Project;
@@ -368,16 +369,7 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     const db = getDatabase();
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(state.project.id) as Project | undefined;
     const agents = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY created_at').all(state.project.id) as Agent[];
-    // Exclude pending/done/closed issues — they don't need dispatch.
-    // When triggered by a specific issue, still filter by status to avoid dispatching
-    // workers for pending issues (which are waiting on child issues).
-    const issues = state.triggerIssueNumber
-      ? db.prepare(
-          "SELECT * FROM issues WHERE project_id = ? AND number = ? AND status IN ('open', 'in_progress')"
-        ).all(state.project.id, state.triggerIssueNumber) as Issue[]
-      : db.prepare(
-          "SELECT * FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
-        ).all(state.project.id) as Issue[];
+    const issues = listOrchestrationIssues(db, state.project.id, state.triggerIssueNumber);
 
     if (!project) {
       return {
@@ -394,10 +386,7 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     const hints = collectWorkerOutcomeHints(state);
     const reconciled = reconcileNeedsUserOutcomes(state.project, hints, state.agents);
     const db = getDatabase();
-    // Re-fetch active issues (exclude pending — handled by system-level parent-child logic)
-    const refreshedIssues = db.prepare(
-      "SELECT * FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
-    ).all(state.project.id) as Issue[];
+    const refreshedIssues = listOrchestrationIssues(db, state.project.id);
 
     if (hints.length > 0 || reconciled.movedCount > 0) {
       logger.info(
@@ -578,9 +567,7 @@ const controllerGraph = new StateGraph(ControllerGraphState)
         continue;
       }
 
-      const assignedIssues = db.prepare(
-        "SELECT * FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
-      ).all(state.project.id, agent.id) as Issue[];
+      const assignedIssues = listDispatchableIssuesForAgent(db, state.project.id, agent.id);
       if (assignedIssues.length === 0) {
         results.push({ agentId: action.agentId, started: false, message: 'no active assigned issues at dispatch time' });
         continue;

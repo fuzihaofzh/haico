@@ -3869,6 +3869,125 @@ JSON
       clearControllerBackoff(isolated.projectId);
     });
 
+    it('issue scan resumes idle worker for ready pending issue after blocker resolves', async () => {
+      const { getDatabase } = await import('../src/db/database');
+      const { runIssueScanOnce } = await import('../src/services/scheduler');
+      const isolated = await createIsolatedOrchestrationProject('scan-pending-worker');
+
+      const { status: workerStatus, body: worker } = await api(app, `/api/projects/${isolated.projectId}/agents`, {
+        method: 'POST',
+        body: {
+          name: `scan-worker-${Date.now()}`,
+          role: 'scan recovery worker',
+          command_template: 'echo',
+        },
+      });
+      assert.equal(workerStatus, 201);
+
+      const db = getDatabase();
+      const blockerId = `scan-blocker-${Date.now()}`;
+      const blockedId = `scan-blocked-${Date.now()}`;
+      const relationId = `scan-rel-${Date.now()}`;
+      const issueRow = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(isolated.projectId) as { n: number | null };
+      const blockerNumber = (issueRow?.n || 0) + 1;
+      const blockedNumber = blockerNumber + 1;
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 minutes'))
+      `).run(
+        blockerId,
+        isolated.projectId,
+        blockerNumber,
+        'resolved blocker',
+        'done blocker',
+        'test',
+        worker.id,
+        1,
+        'done',
+        'test'
+      );
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 minutes'))
+      `).run(
+        blockedId,
+        isolated.projectId,
+        blockedNumber,
+        'blocked pending recovery',
+        'resume me after blocker resolves',
+        'test',
+        worker.id,
+        1,
+        'pending',
+        'test'
+      );
+
+      db.prepare(
+        'INSERT INTO issue_relations (id, from_issue_id, to_issue_id, relation_type, created_by) VALUES (?, ?, ?, ?, ?)'
+      ).run(relationId, blockerId, blockedId, 'blocks', 'test');
+
+      runIssueScanOnce();
+
+      const deadline = Date.now() + 3000;
+      let updatedIssue: any;
+      let updatedAgent: any;
+      while (Date.now() < deadline) {
+        updatedIssue = db.prepare('SELECT status FROM issues WHERE id = ?').get(blockedId) as any;
+        updatedAgent = db.prepare('SELECT last_prompt FROM agents WHERE id = ?').get(worker.id) as any;
+        if (updatedIssue?.status === 'in_progress' && String(updatedAgent?.last_prompt || '').includes('blocked pending recovery')) break;
+        await sleep(50);
+      }
+
+      assert.equal(updatedIssue?.status, 'in_progress');
+      assert.match(String(updatedAgent?.last_prompt || ''), /blocked pending recovery/);
+    });
+
+    it('issue scan triggers controller recovery for ready pending controller issue', async () => {
+      const { getDatabase } = await import('../src/db/database');
+      const { runIssueScanOnce } = await import('../src/services/scheduler');
+      const isolated = await createIsolatedOrchestrationProject('scan-pending-controller');
+
+      const db = getDatabase();
+      const issueId = `scan-controller-${Date.now()}`;
+      const issueRow = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(isolated.projectId) as { n: number | null };
+      const issueNumber = (issueRow?.n || 0) + 1;
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 minutes'))
+      `).run(
+        issueId,
+        isolated.projectId,
+        issueNumber,
+        'controller pending recovery',
+        'controller should resume this pending issue',
+        'test',
+        isolated.controllerId,
+        5,
+        'pending',
+        'test'
+      );
+
+      const beforeRow = db.prepare('SELECT MAX(id) as id FROM orchestration_runs WHERE project_id = ?').get(isolated.projectId) as { id: number | null };
+      runIssueScanOnce();
+
+      const deadline = Date.now() + 5000;
+      let latest: any;
+      while (Date.now() < deadline) {
+        latest = db.prepare(
+          'SELECT id, decision, controller_started FROM orchestration_runs WHERE project_id = ? ORDER BY id DESC LIMIT 1'
+        ).get(isolated.projectId) as any;
+        if (latest && latest.id !== beforeRow?.id) break;
+        await sleep(50);
+      }
+
+      assert.ok(latest && latest.id !== beforeRow?.id, 'issue scan 应触发 controller recovery');
+      assert.equal(latest.decision, 'execute_controller');
+      assert.equal(latest.controller_started, 1);
+    });
+
     it('large prompts are truncated in AGENTOPIA_PROMPT env but full prompt remains in prompt file', async () => {
       const agentId = await createMockWorker(`large-prompt-worker-${Date.now()}`);
       const marker = 'TAIL_SESSION';

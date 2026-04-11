@@ -3,6 +3,7 @@ import { Agent, Project, Issue } from '../types';
 import { startAgentProcess, isAgentRunning, isAgentInCooldown } from './process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
 import { buildSystemPrompt } from './system-prompt';
+import { getPendingDependencyState, listDispatchableIssuesForAgent } from './issue-dispatch';
 import { config } from '../config';
 import logger from '../logger';
 
@@ -29,22 +30,17 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
     return true;
   }
 
-  // 规则2b: issue is pending (waiting for child issues)
-  // 如果所有子 issue 都已完成，需要 LLM controller 来汇总并交付用户
+  // 规则2b: issue is pending (waiting for child issues / blockers)
+  // 只有在所有依赖都已解除时才恢复执行，否则继续等待。
   if (issue.status === 'pending') {
-    const childStats = db.prepare(
-      `SELECT COUNT(*) as total,
-       SUM(CASE WHEN status IN ('done','closed') THEN 1 ELSE 0 END) as completed
-       FROM issues WHERE parent_id = ?`
-    ).get(issue.id) as { total: number; completed: number };
-
-    if (childStats.total > 0 && childStats.total === childStats.completed) {
-      logger.info(`Pre-controller: pending issue #${triggerIssueNumber} has all ${childStats.total} children completed, needs LLM controller`);
-      return false; // 交给 LLM controller 汇总
+    const deps = getPendingDependencyState(db, projectId, issue.id);
+    if (deps.activeChildren > 0 || deps.activeBlockers > 0) {
+      logger.info(
+        `Pre-controller: issue #${triggerIssueNumber} is pending (active_children=${deps.activeChildren}, active_blockers=${deps.activeBlockers}), skipping LLM`
+      );
+      return true;
     }
-
-    logger.info(`Pre-controller: issue #${triggerIssueNumber} is pending (${childStats.completed}/${childStats.total} children done), skipping LLM`);
-    return true;
+    logger.info(`Pre-controller: pending issue #${triggerIssueNumber} is ready to resume`);
   }
 
   // 规则3: issue 已完成 (done/closed) → 检查是否还有其他需要 controller 处理的 issue
@@ -95,9 +91,7 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
       const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
       if (!project) return false;
 
-      const allAssigned = db.prepare(
-        "SELECT * FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
-      ).all(projectId, agent.id) as Issue[];
+      const allAssigned = listDispatchableIssuesForAgent(db, projectId, agent.id);
       const issueBatch = getAgentIssueBatch(allAssigned);
 
       const parts: string[] = [];

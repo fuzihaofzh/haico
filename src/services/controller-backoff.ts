@@ -30,13 +30,31 @@ export function buildControllerActivitySnapshot(projectId: string): string {
     WHERE project_id = ? AND status IN ('open', 'in_progress')`
   ).get(projectId) as any;
 
-  // Count pending issues with all children done (stale pending)
+  // Count pending issues whose children/blockers are no longer active.
   const stalePendingCount = db.prepare(
-    `SELECT COUNT(*) AS cnt FROM issues p
+    `SELECT COUNT(*) AS cnt
+     FROM issues p
+     LEFT JOIN (
+       SELECT parent_id,
+              SUM(CASE WHEN status NOT IN ('done', 'closed') THEN 1 ELSE 0 END) AS active_children
+       FROM issues
+       WHERE project_id = ? AND parent_id IS NOT NULL
+       GROUP BY parent_id
+     ) child_stats ON child_stats.parent_id = p.id
+     LEFT JOIN (
+       SELECT r.to_issue_id AS issue_id,
+              SUM(CASE WHEN blocker.status NOT IN ('done', 'closed') THEN 1 ELSE 0 END) AS active_blockers
+       FROM issue_relations r
+       JOIN issues blocker ON blocker.id = r.from_issue_id
+       JOIN issues blocked ON blocked.id = r.to_issue_id
+       WHERE blocked.project_id = ? AND r.relation_type = 'blocks'
+       GROUP BY r.to_issue_id
+     ) blocker_stats ON blocker_stats.issue_id = p.id
      WHERE p.project_id = ? AND p.status = 'pending'
-     AND EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = p.id)
-     AND NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = p.id AND c.status NOT IN ('done','closed'))`
-  ).get(projectId) as any;
+       AND COALESCE(p.assigned_to, '') <> 'user'
+       AND COALESCE(child_stats.active_children, 0) = 0
+       AND COALESCE(blocker_stats.active_blockers, 0) = 0`
+  ).get(projectId, projectId, projectId) as any;
 
   // Count done/closed issues (structural change when issues complete)
   const doneCount = db.prepare(
