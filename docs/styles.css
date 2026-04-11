@@ -265,15 +265,23 @@ a {
 .hero-badges {
   flex-wrap: wrap;
   margin-top: 20px;
+  gap: 18px;
 }
 
-.hero-badges span {
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(36, 90, 147, 0.16);
-  color: var(--text);
-  font-size: 0.92rem;
+.hero-badges > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--accent);
+  font-size: 0.94rem;
+  font-weight: 600;
+}
+
+.hero-badges > span svg {
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
+  flex: 0 0 auto;
 }
 
 .hero-visual {
