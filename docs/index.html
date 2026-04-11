@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HAICO | Human-Agent Interactive Collaboration</title>
+    <meta
+      name="description"
+      content="HAICO is the platform for human-agent collaboration, with issues, approvals, knowledge, and live visibility in one workspace."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <a class="brand" href="#top" aria-label="HAICO homepage">
+          <span class="brand-mark">H</span>
+          <span class="brand-text">HAICO</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="#positioning">Why HAICO</a>
+          <a href="#tour">Product Tour</a>
+          <a href="#workflow">Workflow</a>
+          <a href="#install">Install</a>
+        </nav>
+        <div class="site-actions">
+          <a class="button button-secondary button-icon" href="https://github.com/fuzihaofzh/haico" aria-label="View HAICO on GitHub">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 2C6.477 2 2 6.596 2 12.267c0 4.537 2.865 8.386 6.839 9.745.5.095.682-.223.682-.495 0-.244-.009-.89-.014-1.747-2.782.621-3.369-1.393-3.369-1.393-.455-1.186-1.11-1.502-1.11-1.502-.908-.636.069-.623.069-.623 1.004.073 1.532 1.057 1.532 1.057.892 1.566 2.341 1.114 2.91.852.091-.664.35-1.114.636-1.37-2.221-.261-4.555-1.14-4.555-5.073 0-1.12.389-2.036 1.029-2.753-.103-.262-.446-1.317.098-2.746 0 0 .84-.276 2.75 1.051A9.325 9.325 0 0 1 12 6.836a9.31 9.31 0 0 1 2.504.349c1.909-1.327 2.748-1.05 2.748-1.05.546 1.428.203 2.483.1 2.745.64.717 1.028 1.633 1.028 2.753 0 3.943-2.337 4.809-4.566 5.065.359.319.679.948.679 1.911 0 1.38-.012 2.493-.012 2.833 0 .274.18.594.688.493C19.138 20.649 22 16.802 22 12.267 22 6.596 17.523 2 12 2Z"
+                fill="currentColor"
+              />
+            </svg>
+            <span>GitHub</span>
+          </a>
+          <a class="button button-primary" href="#tour">Product Tour</a>
+        </div>
+      </header>
+
+      <main id="top">
+        <section class="hero section">
+          <div class="hero-copy" data-reveal>
+            <p class="eyebrow">Human-agent operations</p>
+            <h1>Platform for human-agent collaboration.</h1>
+            <p class="hero-text">
+              Collaborate with agents the way you collaborate with teammates, with shared context, tracked work,
+              approvals, and live visibility in one workspace.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="#install">Install HAICO</a>
+              <a class="button button-ghost" href="#tour">See Product Tour</a>
+            </div>
+            <div class="hero-badges">
+              <span>Approval gates</span>
+              <span>Issue-led execution</span>
+              <span>Spend visibility</span>
+            </div>
+          </div>
+
+          <div class="hero-visual" data-reveal>
+            <div class="hero-orbit hero-orbit-a"></div>
+            <div class="hero-orbit hero-orbit-b"></div>
+            <div class="hero-screenshot-card hero-screenshot-main">
+              <div class="visual-label">
+                <span>Global inbox</span>
+                <span>Cross-project control</span>
+              </div>
+              <img
+                src="./images/haico-global-inbox-nord-light.png"
+                alt="HAICO global inbox showing issues, approvals, and project activity"
+              />
+            </div>
+            <div class="floating-panel floating-panel-top">
+              <strong>Human review gates</strong>
+              <span>Escalate higher-risk actions before they run.</span>
+            </div>
+            <div class="floating-panel floating-panel-bottom">
+              <strong>Controller-worker execution</strong>
+              <span>Turn work into issues and run scoped agents in parallel.</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="section signal-strip" data-reveal>
+          <article class="signal-card">
+            <span class="signal-kicker">Operating model</span>
+            <h2>Beyond chat sessions.</h2>
+            <p>HAICO turns agent runs into structured work with issues, files, approvals, and memory.</p>
+          </article>
+          <article class="signal-card">
+            <span class="signal-kicker">Control</span>
+            <h2>Visibility before drift.</h2>
+            <p>Track progress, risk, and spend before autonomous work moves out of bounds.</p>
+          </article>
+          <article class="signal-card">
+            <span class="signal-kicker">Team model</span>
+            <h2>Agents work like teammates.</h2>
+            <p>Assign, review, and hand off work in the same loop teams use with humans.</p>
+          </article>
+        </section>
+
+        <section class="section positioning" id="positioning">
+          <div class="section-heading" data-reveal>
+            <p class="eyebrow">Why HAICO</p>
+            <h2>Built for teams running real work with agents.</h2>
+            <p>One system for planning, execution, and review.</p>
+          </div>
+
+          <div class="comparison-grid">
+            <article class="comparison-card comparison-card-muted" data-reveal>
+              <span class="comparison-label">Without HAICO</span>
+              <h3>Work fragments across chats, terminals, and scripts.</h3>
+              <ul>
+                <li>Context breaks between sessions</li>
+                <li>Risk shows up after execution</li>
+                <li>Tracking and spend scatter across tools</li>
+              </ul>
+            </article>
+            <article class="comparison-card comparison-card-strong" data-reveal>
+              <span class="comparison-label">With HAICO</span>
+              <h3>Work stays visible, structured, and governable.</h3>
+              <ul>
+                <li>Controllers turn projects into trackable issues</li>
+                <li>Workers run with clear scope and hierarchy</li>
+                <li>Humans step in through approvals and dashboards</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="section product-tour" id="tour">
+          <div class="section-heading" data-reveal>
+            <p class="eyebrow">Product tour</p>
+            <h2>One workspace for live work.</h2>
+            <p>From inbox triage to approval review, every surface keeps execution legible.</p>
+          </div>
+
+          <div class="tour-showcase" data-reveal>
+            <article class="tour-stage">
+              <button
+                class="tour-stage-frame"
+                type="button"
+                aria-label="Open large preview for current product tour image"
+              >
+                <div class="tour-stage-topline">
+                  <span class="tour-tag tour-stage-kicker">Inbox</span>
+                  <span class="tour-stage-counter">01 / 07</span>
+                </div>
+                <img
+                  class="tour-stage-image"
+                  src="./images/haico-global-inbox-nord-light.png"
+                  alt="HAICO global inbox dashboard"
+                />
+              </button>
+
+              <div class="tour-dots" role="tablist" aria-label="Product tour slides">
+                <button
+                  class="tour-dot is-active"
+                  type="button"
+                  data-tour-image="./images/haico-global-inbox-nord-light.png"
+                  data-tour-alt="HAICO global inbox dashboard"
+                  data-tour-kicker="Inbox"
+                  data-tour-title="Global inbox"
+                  data-tour-body="Triage issues, approvals, and cross-project activity in one feed."
+                  aria-label="Show slide 1: Global inbox"
+                >
+                  <span class="sr-only">Global inbox</span>
+                </button>
+                <button
+                  class="tour-dot"
+                  type="button"
+                  data-tour-image="./images/haico-beacon-clinical-operations-overview-nord-light.png"
+                  data-tour-alt="HAICO project overview dashboard"
+                  data-tour-kicker="Overview"
+                  data-tour-title="Project overview"
+                  data-tour-body="See project health, pace, and spend at a glance."
+                  aria-label="Show slide 2: Project overview"
+                >
+                  <span class="sr-only">Project overview</span>
+                </button>
+                <button
+                  class="tour-dot"
+                  type="button"
+                  data-tour-image="./images/haico-beacon-clinical-operations-agents-nord-light.png"
+                  data-tour-alt="HAICO agent collaboration tree"
+                  data-tour-kicker="Agents"
+                  data-tour-title="Collaboration tree"
+                  data-tour-body="Inspect controller-worker structure and live execution."
+                  aria-label="Show slide 3: Collaboration tree"
+                >
+                  <span class="sr-only">Collaboration tree</span>
+                </button>
+                <button
+                  class="tour-dot"
+                  type="button"
+                  data-tour-image="./images/haico-beacon-clinical-operations-issues-nord-light.png"
+                  data-tour-alt="HAICO issue tracker"
+                  data-tour-kicker="Issues"
+                  data-tour-title="Built-in tracker"
+                  data-tour-body="Track work state without leaving the workspace."
+                  aria-label="Show slide 4: Built-in tracker"
+                >
+                  <span class="sr-only">Built-in tracker</span>
+                </button>
+                <button
+                  class="tour-dot"
+                  type="button"
+                  data-tour-image="./images/haico-beacon-adverse-event-handoff-issue-detail-nord-light.png"
+                  data-tour-alt="HAICO issue detail workflow"
+                  data-tour-kicker="Threads"
+                  data-tour-title="Issue detail workflow"
+                  data-tour-body="Review state, owners, comments, and output in one thread."
+                  aria-label="Show slide 5: Issue detail workflow"
+                >
+                  <span class="sr-only">Issue detail workflow</span>
+                </button>
+                <button
+                  class="tour-dot"
+                  type="button"
+                  data-tour-image="./images/haico-usage-dashboard-nord-light.png"
+                  data-tour-alt="HAICO usage and spend dashboard"
+                  data-tour-kicker="Usage"
+                  data-tour-title="Spend visibility"
+                  data-tour-body="See cost before autonomous work compounds."
+                  aria-label="Show slide 6: Spend visibility"
+                >
+                  <span class="sr-only">Spend visibility</span>
+                </button>
+                <button
+                  class="tour-dot"
+                  type="button"
+                  data-tour-image="./images/haico-approval-queue-nord-light.png"
+                  data-tour-alt="HAICO approval queue"
+                  data-tour-kicker="Approvals"
+                  data-tour-title="Human review gate"
+                  data-tour-body="Hold higher-risk actions for human review."
+                  aria-label="Show slide 7: Human review gate"
+                >
+                  <span class="sr-only">Human review gate</span>
+                </button>
+              </div>
+
+              <div class="tour-stage-copy">
+                <h3 class="tour-stage-title">Global inbox</h3>
+                <p class="tour-stage-body">Triage issues, approvals, and cross-project activity in one feed.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section workflow" id="workflow">
+          <div class="section-heading section-heading-on-dark" data-reveal>
+            <p class="eyebrow">Workflow</p>
+            <h2>A tighter execution loop.</h2>
+            <p>Brief the work, launch agents, review what matters.</p>
+          </div>
+
+          <div class="workflow-grid">
+            <article class="workflow-step" data-reveal>
+              <span class="step-number">01</span>
+              <h3>Define the mission</h3>
+              <p>Create a project with goals, limits, and context.</p>
+            </article>
+            <article class="workflow-step" data-reveal>
+              <span class="step-number">02</span>
+              <h3>Launch the controller</h3>
+              <p>Turn the brief into issues and execution lanes.</p>
+            </article>
+            <article class="workflow-step" data-reveal>
+              <span class="step-number">03</span>
+              <h3>Run workers in parallel</h3>
+              <p>Delegate scoped work with shared state and memory.</p>
+            </article>
+            <article class="workflow-step" data-reveal>
+              <span class="step-number">04</span>
+              <h3>Keep humans in the loop</h3>
+              <p>Review approvals, monitor progress, and step in when needed.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section capability-stack">
+          <div class="section-heading" data-reveal>
+            <p class="eyebrow">Capabilities</p>
+            <h2>Core primitives for governed agent work.</h2>
+          </div>
+
+          <div class="capability-grid">
+            <article class="capability-card" data-reveal>
+              <h3>Controller and worker hierarchy</h3>
+              <p>Run delegated agents with explicit parent-child scope.</p>
+            </article>
+            <article class="capability-card" data-reveal>
+              <h3>Persistent knowledge</h3>
+              <p>Keep shared context and agent memory across sessions.</p>
+            </article>
+            <article class="capability-card" data-reveal>
+              <h3>Operational guardrails</h3>
+              <p>Use approvals, cooldowns, and budgets to manage risk.</p>
+            </article>
+            <article class="capability-card" data-reveal>
+              <h3>Live operations surface</h3>
+              <p>Inspect issues, timelines, files, terminals, and spend in one UI.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section install" id="install">
+          <div class="install-copy" data-reveal>
+            <p class="eyebrow">Install</p>
+            <h2>Start locally in one command.</h2>
+            <p>Install HAICO, open the dashboard, and launch a governed workflow in minutes.</p>
+          </div>
+
+          <div class="install-panel" data-reveal>
+            <div class="terminal-header">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <pre><code>npm install -g haico
+haico
+
+# open http://localhost:4567
+# optional:
+haico --port 8080 --host 0.0.0.0 --db ./haico.db</code></pre>
+          </div>
+        </section>
+
+        <section class="section closing-cta" data-reveal>
+          <div class="closing-copy">
+            <p class="eyebrow">Run HAICO</p>
+            <h2>For teams where humans and agents work side by side.</h2>
+            <p>Use HAICO when the work is too important for isolated agent sessions.</p>
+          </div>
+          <div class="closing-actions">
+            <a class="button button-primary button-icon" href="https://github.com/fuzihaofzh/haico">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 2C6.477 2 2 6.596 2 12.267c0 4.537 2.865 8.386 6.839 9.745.5.095.682-.223.682-.495 0-.244-.009-.89-.014-1.747-2.782.621-3.369-1.393-3.369-1.393-.455-1.186-1.11-1.502-1.11-1.502-.908-.636.069-.623.069-.623 1.004.073 1.532 1.057 1.532 1.057.892 1.566 2.341 1.114 2.91.852.091-.664.35-1.114.636-1.37-2.221-.261-4.555-1.14-4.555-5.073 0-1.12.389-2.036 1.029-2.753-.103-.262-.446-1.317.098-2.746 0 0 .84-.276 2.75 1.051A9.325 9.325 0 0 1 12 6.836a9.31 9.31 0 0 1 2.504.349c1.909-1.327 2.748-1.05 2.748-1.05.546 1.428.203 2.483.1 2.745.64.717 1.028 1.633 1.028 2.753 0 3.943-2.337 4.809-4.566 5.065.359.319.679.948.679 1.911 0 1.38-.012 2.493-.012 2.833 0 .274.18.594.688.493C19.138 20.649 22 16.802 22 12.267 22 6.596 17.523 2 12 2Z"
+                  fill="currentColor"
+                />
+              </svg>
+              <span>View on GitHub</span>
+            </a>
+            <a class="button button-secondary button-icon" href="https://www.npmjs.com/package/haico">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="2" y="6" width="20" height="12" rx="2" fill="#CB3837" />
+                <path
+                  d="M5.2 9.4h3.8v5.2H7.7v-3.9H6.5v3.9H5.2V9.4Zm4.8 0h4.8v5.2h-1.3v-3.9h-1.3v3.9H10V9.4Zm5.7 0h3.1v6.5h-1.3v-1.3h-1.8V9.4Zm1.3 1.3v2.6h1v-2.6h-1Z"
+                  fill="#fff"
+                />
+              </svg>
+              <span>View on npm</span>
+            </a>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div>
+          <span class="footer-brand">HAICO</span>
+          <p>Platform for human-agent collaboration.</p>
+        </div>
+        <div class="footer-links">
+          <a href="#top">Top</a>
+          <a href="#tour">Tour</a>
+          <a class="footer-icon-link" href="https://github.com/fuzihaofzh/haico" aria-label="GitHub">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 2C6.477 2 2 6.596 2 12.267c0 4.537 2.865 8.386 6.839 9.745.5.095.682-.223.682-.495 0-.244-.009-.89-.014-1.747-2.782.621-3.369-1.393-3.369-1.393-.455-1.186-1.11-1.502-1.11-1.502-.908-.636.069-.623.069-.623 1.004.073 1.532 1.057 1.532 1.057.892 1.566 2.341 1.114 2.91.852.091-.664.35-1.114.636-1.37-2.221-.261-4.555-1.14-4.555-5.073 0-1.12.389-2.036 1.029-2.753-.103-.262-.446-1.317.098-2.746 0 0 .84-.276 2.75 1.051A9.325 9.325 0 0 1 12 6.836a9.31 9.31 0 0 1 2.504.349c1.909-1.327 2.748-1.05 2.748-1.05.546 1.428.203 2.483.1 2.745.64.717 1.028 1.633 1.028 2.753 0 3.943-2.337 4.809-4.566 5.065.359.319.679.948.679 1.911 0 1.38-.012 2.493-.012 2.833 0 .274.18.594.688.493C19.138 20.649 22 16.802 22 12.267 22 6.596 17.523 2 12 2Z"
+                fill="currentColor"
+              />
+            </svg>
+          </a>
+          <a class="footer-icon-link" href="https://www.npmjs.com/package/haico" aria-label="npm">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="2" y="6" width="20" height="12" rx="2" fill="#CB3837" />
+              <path
+                d="M5.2 9.4h3.8v5.2H7.7v-3.9H6.5v3.9H5.2V9.4Zm4.8 0h4.8v5.2h-1.3v-3.9h-1.3v3.9H10V9.4Zm5.7 0h3.1v6.5h-1.3v-1.3h-1.8V9.4Zm1.3 1.3v2.6h1v-2.6h-1Z"
+                fill="#fff"
+              />
+            </svg>
+          </a>
+        </div>
+      </footer>
+    </div>
+
+    <div class="preview-modal" hidden aria-hidden="true">
+      <div class="preview-backdrop" data-preview-close></div>
+      <div class="preview-panel" role="dialog" aria-modal="true" aria-labelledby="preview-title">
+        <button class="preview-close" type="button" aria-label="Close preview" data-preview-close>Close</button>
+        <div class="preview-image-wrap">
+          <img class="preview-image" alt="" />
+        </div>
+        <div class="preview-copy">
+          <p class="eyebrow">Expanded preview</p>
+          <h3 id="preview-title"></h3>
+          <p class="preview-body"></p>
+        </div>
+      </div>
+    </div>
+
+    <script src="./main.js"></script>
+  </body>
+</html>
