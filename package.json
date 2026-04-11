@@ -1,10 +1,10 @@
 {
   "name": "haico",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Human-Agent Interactive Collaboration Orchestrator (HAICO)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fuzihaofzh/haico.git"
+    "url": "git+https://github.com/fuzihaofzh/haico.git"
   },
   "homepage": "https://haico.dev",
   "license": "MIT",
