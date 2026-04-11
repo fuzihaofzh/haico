@@ -36,7 +36,7 @@ async function loadIssue() {
   if (projectRes.status === 'fulfilled' && projectRes.value.ok) { const p = await projectRes.value.json(); document.getElementById('project-link').textContent = p.name; projectColor = p.color; }
   issueProjectColor = projectColor;
   document.getElementById('issue-title-breadcrumb').textContent = `#${data.number} ${data.title}`;
-  document.title = `#${data.number} ${data.title} - Agentopia`;
+  document.title = `#${data.number} ${data.title} - HAICO`;
 
   IssueRenderer.render(issueData, agentsData, document.getElementById('issue-page'), {
     reload: loadIssue,

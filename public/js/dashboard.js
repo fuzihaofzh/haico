@@ -1196,7 +1196,7 @@ function hideModal(id) {
 }
 
 function getCreateProjectCommandProfileManager() {
-  return window.AgentopiaCommandProfiles || null;
+  return window.HAICOCommandProfiles || null;
 }
 
 async function hydrateCreateProjectCommandProfileControls() {
@@ -1500,7 +1500,7 @@ async function loadUsageByProject() {
 let _agentBoardFilter = 'running';
 let _agentBoardData = [];
 let _costAlertDismissed = false;
-const COST_ALERT_THRESHOLD = parseFloat(localStorage.getItem('agentopia-cost-threshold') || '10');
+const COST_ALERT_THRESHOLD = parseFloat(localStorage.getItem('haico-cost-threshold') || '10');
 
 function getDashboardViewLoaders(view) {
   const activeView = normalizeDashboardView(view || _dashboardView);
@@ -1511,8 +1511,8 @@ function getDashboardViewLoaders(view) {
     return [loadUsageByProject(), checkCostAlert()];
   }
   if (activeView === 'settings') {
-    if (window.AgentopiaCommandProfiles && typeof window.AgentopiaCommandProfiles.ensureLoaded === 'function') {
-      return [Promise.resolve(window.AgentopiaCommandProfiles.ensureLoaded())];
+    if (window.HAICOCommandProfiles && typeof window.HAICOCommandProfiles.ensureLoaded === 'function') {
+      return [Promise.resolve(window.HAICOCommandProfiles.ensureLoaded())];
     }
     return [];
   }
@@ -1589,8 +1589,8 @@ setInterval(() => {
   if (_dashboardView !== 'usage') return;
   loadDashboard('usage');
 }, 60000);
-window.addEventListener('agentopia:user-ready', () => { ensureDashboardProjectsLoaded(); });
-window.addEventListener('agentopia:command-profiles-changed', () => {
+window.addEventListener('haico:user-ready', () => { ensureDashboardProjectsLoaded(); });
+window.addEventListener('haico:command-profiles-changed', () => {
   hydrateCreateProjectCommandProfileControls().catch((error) => {
     console.error('Failed to refresh project command profile controls', error);
   });
@@ -1981,7 +1981,7 @@ function showBrowserNotification(newItems) {
   let body = titles.join('\n');
   if (newItems.length > 3) body += `\n...and ${newItems.length - 3} more`;
   try {
-    new Notification('Agentopia', { body, icon: '/favicon.ico' });
+    new Notification('HAICO', { body, icon: '/favicon.ico' });
   } catch (_) { /* silent */ }
 }
 

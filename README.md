@@ -1,16 +1,16 @@
 <div align="center">
 
-# Agentopia
+# Human-Agent Interactive Collaboration Orchestrator (HAICO)
 
-### The Multi-Agent Collaboration Platform
+### Human-Agent Interactive Collaboration Orchestrator for multi-agent collaboration
 
 **Orchestrate teams of autonomous AI agents that communicate, coordinate, and conquer complex tasks together.**
 
-[![npm version](https://img.shields.io/npm/v/agentopia?color=cb3837&logo=npm)](https://www.npmjs.com/package/agentopia)
+[![npm version](https://img.shields.io/npm/v/haico?color=cb3837&logo=npm)](https://www.npmjs.com/package/haico)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/fuzihaofzh/agentopia/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/fuzihaofzh/haico/pulls)
 
 [Quick Start](#-quick-start) · [Features](#-features) · [How It Works](#-how-it-works) · [API Reference](#-api-reference) · [Contributing](#-contributing)
 
@@ -24,7 +24,7 @@ You have a complex project. You spin up an AI agent. It works alone, gets confus
 
 ## The Solution
 
-Agentopia creates a **shared workspace** where multiple AI agents operate as a team — with a controller that decomposes tasks, workers that execute them, and a built-in issue tracker that keeps everyone in sync. Think of it as **GitHub Issues + Agent Orchestration** in one platform.
+HAICO creates a **shared workspace** where multiple AI agents operate as a team — with a controller that decomposes tasks, workers that execute them, and a built-in issue tracker that keeps everyone in sync. Think of it as **GitHub Issues + Agent Orchestration** in one platform.
 
 ```
                     ┌──────────────┐
@@ -47,9 +47,9 @@ Agentopia creates a **shared workspace** where multiple AI agents operate as a t
 
 ---
 
-## Why Agentopia?
+## Why HAICO?
 
-| | Single Agent | Agentopia |
+| | Single Agent | HAICO |
 |---|---|---|
 | **Task Complexity** | Gets lost on multi-step projects | Controller decomposes, workers execute in parallel |
 | **Context Window** | One agent carries everything | Each agent focuses on its assigned scope |
@@ -95,22 +95,22 @@ Agentopia creates a **shared workspace** where multiple AI agents operate as a t
 ### Option 1: Global Install (recommended)
 
 ```bash
-npm install -g agentopia
-agentopia
+npm install -g haico
+haico
 ```
 
 That's it. Open `http://localhost:4567`.
 
 ```bash
 # CLI options
-agentopia --port 8080 --host 0.0.0.0 --db ./my-project.db --no-auth
+haico --port 8080 --host 0.0.0.0 --db ./my-project.db --no-auth
 ```
 
 ### Option 2: Clone & Run
 
 ```bash
-git clone https://github.com/fuzihaofzh/agentopia.git
-cd agentopia
+git clone https://github.com/fuzihaofzh/haico.git
+cd haico
 npm install
 
 # Development (auto-reload)
@@ -126,11 +126,11 @@ On first visit, you'll be prompted to create an admin account.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENTOPIA_PORT` | `4567` | Server port |
-| `AGENTOPIA_HOST` | `0.0.0.0` | Bind address |
-| `AGENTOPIA_DB_PATH` | `./agentopia.db` | SQLite database path |
-| `AGENTOPIA_ORCHESTRATOR_ENGINE` | `langgraph` | `native` or `langgraph` |
-| `AGENTOPIA_NO_AUTH` | `false` | Disable authentication |
+| `HAICO_PORT` | `4567` | Server port |
+| `HAICO_HOST` | `0.0.0.0` | Bind address |
+| `HAICO_DB_PATH` | `./haico.db` | SQLite database path |
+| `HAICO_ORCHESTRATOR_ENGINE` | `langgraph` | `native` or `langgraph` |
+| `HAICO_NO_AUTH` | `false` | Disable authentication |
 
 ---
 
@@ -282,6 +282,6 @@ npm test
 
 **Built for people who believe one agent is never enough.**
 
-[GitHub](https://github.com/fuzihaofzh/agentopia) · [npm](https://www.npmjs.com/package/agentopia)
+[GitHub](https://github.com/fuzihaofzh/haico) · [npm](https://www.npmjs.com/package/haico)
 
 </div>

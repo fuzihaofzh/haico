@@ -6,10 +6,10 @@ import { FastifyInstance } from 'fastify';
 
 // Use isolated test DB
 const TEST_DB = path.join(__dirname, 'test.db');
-process.env.AGENTOPIA_DB_PATH = TEST_DB;
-process.env.AGENTOPIA_PORT = '0'; // won't matter, we use inject
+process.env.HAICO_DB_PATH = TEST_DB;
+process.env.HAICO_PORT = '0'; // won't matter, we use inject
 
-const authConfigDir = path.join(require('os').homedir(), '.agentopia');
+const authConfigDir = path.join(require('os').homedir(), '.haico');
 const authConfigPath = path.join(authConfigDir, 'config.json');
 
 // Helper: use Fastify inject (in-process, no real network needed)
@@ -36,7 +36,7 @@ async function api(app: FastifyInstance, url: string, opts: { method?: string; b
 
 let app: FastifyInstance;
 
-describe('Agentopia API', () => {
+describe('HAICO API', () => {
   before(async () => {
     // Clean slate
     for (const f of [TEST_DB, TEST_DB + '-wal', TEST_DB + '-shm', authConfigPath]) {
@@ -132,12 +132,12 @@ describe('Agentopia API', () => {
       assert.equal(loginRes.statusCode, 200);
       const setCookie = loginRes.headers['set-cookie'] as string;
       assert.ok(setCookie, 'Should set a cookie');
-      assert.ok(setCookie.includes('agentopia-auth='), 'Cookie should be agentopia-auth');
+      assert.ok(setCookie.includes('haico-auth='), 'Cookie should be haico-auth');
       assert.ok(setCookie.includes('HttpOnly'), 'Cookie should be HttpOnly');
       assert.ok(setCookie.includes('SameSite=Lax'), 'Cookie should have SameSite');
       assert.ok(!setCookie.includes('Max-Age'), 'Cookie should NOT have Max-Age (session cookie)');
 
-      const match = setCookie.match(/agentopia-auth=([^;]+)/);
+      const match = setCookie.match(/haico-auth=([^;]+)/);
       assert.ok(match, 'Should extract token');
       sessionToken = match![1];
 
@@ -157,7 +157,7 @@ describe('Agentopia API', () => {
     it('POST /api/auth/change-password rejects wrong current password', async () => {
       const { status } = await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'wrongpass', password: 'newpass1234' },
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 401);
     });
@@ -165,7 +165,7 @@ describe('Agentopia API', () => {
     it('POST /api/auth/change-password rejects short new password', async () => {
       const { status } = await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'test1234', password: 'ab' },
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 400);
     });
@@ -173,7 +173,7 @@ describe('Agentopia API', () => {
     it('POST /api/auth/change-password works with correct current password', async () => {
       const { status, body } = await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'test1234', password: 'newpass1234' },
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.ok, true);
@@ -196,10 +196,10 @@ describe('Agentopia API', () => {
         payload: { password: 'newpass1234' },
         headers: { 'content-type': 'application/json' },
       });
-      const cookie2 = (loginRes2.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
+      const cookie2 = (loginRes2.headers['set-cookie'] as string).match(/haico-auth=([^;]+)/)![1];
       await api(app, '/api/auth/change-password', {
         method: 'POST', body: { current: 'newpass1234', password: 'test1234' },
-        headers: { cookie: `agentopia-auth=${cookie2}` },
+        headers: { cookie: `haico-auth=${cookie2}` },
       });
 
       // Refresh sessionToken for subsequent tests
@@ -208,13 +208,13 @@ describe('Agentopia API', () => {
         payload: { password: 'test1234' },
         headers: { 'content-type': 'application/json' },
       });
-      sessionToken = (refreshRes.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
+      sessionToken = (refreshRes.headers['set-cookie'] as string).match(/haico-auth=([^;]+)/)![1];
     });
 
     it('GET /change-password returns HTML', async () => {
       const res = await inject(app, {
         url: '/change-password',
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes('Change'));
@@ -232,19 +232,19 @@ describe('Agentopia API', () => {
         payload: { password: 'test1234' },
         headers: { 'content-type': 'application/json' },
       });
-      const oldToken = (loginRes.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
+      const oldToken = (loginRes.headers['set-cookie'] as string).match(/haico-auth=([^;]+)/)![1];
 
       // Change password
       const changeRes = await app.inject({
         method: 'POST', url: '/api/auth/change-password',
         payload: { current: 'test1234', password: 'changed1234' },
-        headers: { 'content-type': 'application/json', cookie: `agentopia-auth=${oldToken}` },
+        headers: { 'content-type': 'application/json', cookie: `haico-auth=${oldToken}` },
       });
       assert.equal(changeRes.statusCode, 200);
 
       // Old token should be invalid (passwordHash changed)
       // Use page route to test cookie-based auth redirect
-      const oldRes = await inject(app, { url: '/change-password', headers: { cookie: `agentopia-auth=${oldToken}` } });
+      const oldRes = await inject(app, { url: '/change-password', headers: { cookie: `haico-auth=${oldToken}` } });
       assert.equal(oldRes.statusCode, 302, 'Old token should be invalidated after password change (redirects to /login)');
 
       // Restore password for remaining tests
@@ -253,11 +253,11 @@ describe('Agentopia API', () => {
         payload: { password: 'changed1234' },
         headers: { 'content-type': 'application/json' },
       });
-      const newToken = (newLogin.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
+      const newToken = (newLogin.headers['set-cookie'] as string).match(/haico-auth=([^;]+)/)![1];
       await app.inject({
         method: 'POST', url: '/api/auth/change-password',
         payload: { current: 'changed1234', password: 'test1234' },
-        headers: { 'content-type': 'application/json', cookie: `agentopia-auth=${newToken}` },
+        headers: { 'content-type': 'application/json', cookie: `haico-auth=${newToken}` },
       });
 
       // Refresh sessionToken for subsequent tests
@@ -266,12 +266,12 @@ describe('Agentopia API', () => {
         payload: { password: 'test1234' },
         headers: { 'content-type': 'application/json' },
       });
-      sessionToken = (refreshRes.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
+      sessionToken = (refreshRes.headers['set-cookie'] as string).match(/haico-auth=([^;]+)/)![1];
     });
 
     it('invalid cookie token is rejected', async () => {
       // Use page route to test cookie-based auth redirect
-      const res = await inject(app, { url: '/change-password', headers: { cookie: 'agentopia-auth=invalid-token-value' } });
+      const res = await inject(app, { url: '/change-password', headers: { cookie: 'haico-auth=invalid-token-value' } });
       assert.equal(res.statusCode, 302, 'Invalid token should be rejected (redirects to /login)');
     });
 
@@ -344,7 +344,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/auth/me returns current user', async () => {
       const { status, body } = await api(app, '/api/auth/me', {
-        headers: { cookie: `agentopia-auth=${adminToken}` },
+        headers: { cookie: `haico-auth=${adminToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.username, 'testadmin');
@@ -367,7 +367,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/auth/users lists users (admin only)', async () => {
       const { status, body } = await api(app, '/api/auth/users', {
-        headers: { cookie: `agentopia-auth=${adminToken}` },
+        headers: { cookie: `haico-auth=${adminToken}` },
       });
       assert.equal(status, 200);
       assert.ok(Array.isArray(body.users));
@@ -376,7 +376,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/auth/users returns 403 for non-admin', async () => {
       const { status } = await api(app, '/api/auth/users', {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(status, 403);
     });
@@ -384,7 +384,7 @@ describe('Agentopia API', () => {
     it('PUT /api/auth/users/:id updates role (admin only)', async () => {
       const { status, body } = await api(app, `/api/auth/users/${memberUserId}`, {
         method: 'PUT',
-        headers: { cookie: `agentopia-auth=${adminToken}` },
+        headers: { cookie: `haico-auth=${adminToken}` },
         body: { role: 'admin' },
       });
       assert.equal(status, 200);
@@ -394,7 +394,7 @@ describe('Agentopia API', () => {
     it('DELETE /api/auth/users/:id deletes user (admin only)', async () => {
       const { status } = await api(app, `/api/auth/users/${memberUserId}`, {
         method: 'DELETE',
-        headers: { cookie: `agentopia-auth=${adminToken}` },
+        headers: { cookie: `haico-auth=${adminToken}` },
       });
       assert.equal(status, 200);
     });
@@ -402,7 +402,7 @@ describe('Agentopia API', () => {
     it('DELETE /api/auth/users/:id rejects deleting self', async () => {
       const { status } = await api(app, `/api/auth/users/${adminUserId}`, {
         method: 'DELETE',
-        headers: { cookie: `agentopia-auth=${adminToken}` },
+        headers: { cookie: `haico-auth=${adminToken}` },
       });
       assert.equal(status, 400);
     });
@@ -432,7 +432,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/auth/me returns legacy admin from single-password cookie', async () => {
       const { status, body } = await api(app, '/api/auth/me', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.id, 'legacy');
@@ -442,7 +442,7 @@ describe('Agentopia API', () => {
 
     it('legacy single-password admin can list users', async () => {
       const { status, body } = await api(app, '/api/auth/users', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(Array.isArray(body.users));
@@ -458,13 +458,13 @@ describe('Agentopia API', () => {
       const adminToken = adminLogin.body.token;
 
       const adminUsers = await api(app, '/api/auth/users', {
-        headers: { cookie: `agentopia-auth=${adminToken}` },
+        headers: { cookie: `haico-auth=${adminToken}` },
       });
       assert.equal(adminUsers.status, 200);
       assert.ok(Array.isArray(adminUsers.body.users));
 
       const memberUsers = await api(app, '/api/auth/users', {
-        headers: { cookie: `agentopia-auth=${fallbackMemberToken}` },
+        headers: { cookie: `haico-auth=${fallbackMemberToken}` },
       });
       assert.equal(memberUsers.status, 403);
       assert.equal(memberUsers.body.error, 'Admin access required');
@@ -473,7 +473,7 @@ describe('Agentopia API', () => {
     it('legacy single-password admin can update another user role', async () => {
       const { status, body } = await api(app, `/api/auth/users/${fallbackMemberId}`, {
         method: 'PUT',
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
         body: { role: 'admin' },
       });
       assert.equal(status, 200);
@@ -484,13 +484,13 @@ describe('Agentopia API', () => {
     it('legacy single-password admin can delete another user', async () => {
       const { status, body } = await api(app, `/api/auth/users/${fallbackMemberId}`, {
         method: 'DELETE',
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.ok, true);
 
       const users = await api(app, '/api/auth/users', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(users.status, 200);
       assert.ok(!users.body.users.some((user: any) => user.id === fallbackMemberId));
@@ -595,7 +595,7 @@ describe('Agentopia API', () => {
 
       const created = await api(app, '/api/projects', {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: {
           name: `shared-project-${suffix}`,
           description: 'permission summary test',
@@ -612,13 +612,13 @@ describe('Agentopia API', () => {
 
       const shareRes = await api(app, `/api/projects/${sharedProjectId}/members`, {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: { username: memberUsername },
       });
       assert.equal(shareRes.status, 201);
 
       const ownerList = await api(app, '/api/projects', {
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
       });
       assert.equal(ownerList.status, 200);
       const ownerProject = ownerList.body.find((project: any) => project.id === sharedProjectId);
@@ -629,7 +629,7 @@ describe('Agentopia API', () => {
       assert.equal(ownerProject.member_count, 2);
 
       const memberList = await api(app, '/api/projects', {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(memberList.status, 200);
       const memberProject = memberList.body.find((project: any) => project.id === sharedProjectId);
@@ -640,7 +640,7 @@ describe('Agentopia API', () => {
       assert.equal(memberProject.member_count, 2);
 
       const memberDetail = await api(app, `/api/projects/${sharedProjectId}`, {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(memberDetail.status, 200);
       assert.equal(memberDetail.body.permission_level, 'member');
@@ -674,7 +674,7 @@ describe('Agentopia API', () => {
 
       const created = await api(app, '/api/projects', {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: {
           name: `delete-permission-${suffix}`,
           description: 'delete permission test',
@@ -686,21 +686,21 @@ describe('Agentopia API', () => {
 
       const shareRes = await api(app, `/api/projects/${created.body.id}/members`, {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: { username: editorUsername, role: 'editor' },
       });
       assert.equal(shareRes.status, 201);
 
       const editorDelete = await api(app, `/api/projects/${created.body.id}`, {
         method: 'DELETE',
-        headers: { cookie: `agentopia-auth=${editorToken}` },
+        headers: { cookie: `haico-auth=${editorToken}` },
       });
       assert.equal(editorDelete.status, 403);
       assert.match(editorDelete.body.error, /owners or admins/);
 
       const ownerDelete = await api(app, `/api/projects/${created.body.id}`, {
         method: 'DELETE',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
       });
       assert.equal(ownerDelete.status, 200);
     });
@@ -749,7 +749,7 @@ describe('Agentopia API', () => {
 
       const sharedProject = await api(app, '/api/projects', {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: {
           name: `perm-shared-${suffix}`,
           description: 'shared project',
@@ -762,7 +762,7 @@ describe('Agentopia API', () => {
 
       const hiddenProject = await api(app, '/api/projects', {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: {
           name: `perm-hidden-${suffix}`,
           description: 'hidden project',
@@ -775,14 +775,14 @@ describe('Agentopia API', () => {
 
       const shareRes = await api(app, `/api/projects/${sharedProjectId}/members`, {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: { username: memberUsername },
       });
       assert.equal(shareRes.status, 201);
 
       const sharedAgent = await api(app, `/api/projects/${sharedProjectId}/agents`, {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: { name: 'perm-shared-worker', role: 'shared worker' },
       });
       assert.equal(sharedAgent.status, 201);
@@ -790,7 +790,7 @@ describe('Agentopia API', () => {
 
       const hiddenAgent = await api(app, `/api/projects/${hiddenProjectId}/agents`, {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: { name: 'perm-hidden-worker', role: 'hidden worker' },
       });
       assert.equal(hiddenAgent.status, 201);
@@ -798,21 +798,21 @@ describe('Agentopia API', () => {
 
       const knowledgeRes = await api(app, `/api/projects/${sharedProjectId}/knowledge`, {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: { title: 'Boundary knowledge', content: 'visible to shared member', importance: 'high' },
       });
       assert.equal(knowledgeRes.status, 201);
       sharedKnowledgeId = knowledgeRes.body.id;
 
       const ownedKnowledgeRes = await api(app, `/api/agents/${sharedAgentId}/knowledge-memory`, {
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
       });
       assert.equal(ownedKnowledgeRes.status, 200);
       sharedOwnedKnowledgeId = ownedKnowledgeRes.body.id;
 
       const messageRes = await api(app, `/api/agents/${sharedAgentId}/messages/send`, {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: { to: sharedAgentId, subject: 'Boundary ping', body: 'read-only member can see this inbox' },
       });
       assert.equal(messageRes.status, 201);
@@ -820,7 +820,7 @@ describe('Agentopia API', () => {
 
       const sharedIssue = await api(app, `/api/projects/${sharedProjectId}/issues`, {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: {
           title: 'Boundary shared issue',
           body: 'boundary-visible-token',
@@ -833,7 +833,7 @@ describe('Agentopia API', () => {
 
       const hiddenIssue = await api(app, `/api/projects/${hiddenProjectId}/issues`, {
         method: 'POST',
-        headers: { cookie: `agentopia-auth=${ownerToken}` },
+        headers: { cookie: `haico-auth=${ownerToken}` },
         body: {
           title: 'Boundary hidden issue',
           body: 'boundary-visible-token',
@@ -847,43 +847,43 @@ describe('Agentopia API', () => {
 
     it('shared member can read shared project resources but cannot perform write actions', async () => {
       const sharedAgent = await api(app, `/api/agents/${sharedAgentId}`, {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(sharedAgent.status, 200);
 
       const sharedKnowledge = await api(app, `/api/knowledge/${sharedKnowledgeId}`, {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(sharedKnowledge.status, 200);
 
       const sharedOwnedKnowledge = await api(app, `/api/agents/${sharedAgentId}/knowledge-memory`, {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(sharedOwnedKnowledge.status, 200);
       assert.equal(sharedOwnedKnowledge.body.id, sharedOwnedKnowledgeId);
 
       const sharedInbox = await api(app, `/api/agents/${sharedAgentId}/messages`, {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(sharedInbox.status, 200);
       assert.ok(sharedInbox.body.messages.some((message: any) => message.id === sharedMessageId));
 
       const markRead = await api(app, `/api/agents/${sharedAgentId}/messages/${sharedMessageId}`, {
         method: 'PUT',
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(markRead.status, 403);
 
       const updateKnowledge = await api(app, `/api/knowledge/${sharedKnowledgeId}`, {
         method: 'PUT',
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
         body: { title: 'member cannot edit' },
       });
       assert.equal(updateKnowledge.status, 403);
 
       const updateOwnedKnowledge = await api(app, `/api/agents/${sharedAgentId}/knowledge-memory`, {
         method: 'PUT',
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
         body: { content: 'member cannot edit owned knowledge' },
       });
       assert.equal(updateOwnedKnowledge.status, 403);
@@ -891,60 +891,60 @@ describe('Agentopia API', () => {
 
     it('non-member cannot access shared project resources by project id or direct entity id', async () => {
       const projectDetail = await api(app, `/api/projects/${sharedProjectId}`, {
-        headers: { cookie: `agentopia-auth=${outsiderToken}` },
+        headers: { cookie: `haico-auth=${outsiderToken}` },
       });
       assert.equal(projectDetail.status, 403);
 
       const agentDetail = await api(app, `/api/agents/${sharedAgentId}`, {
-        headers: { cookie: `agentopia-auth=${outsiderToken}` },
+        headers: { cookie: `haico-auth=${outsiderToken}` },
       });
       assert.equal(agentDetail.status, 403);
 
       const knowledgeDetail = await api(app, `/api/knowledge/${sharedKnowledgeId}`, {
-        headers: { cookie: `agentopia-auth=${outsiderToken}` },
+        headers: { cookie: `haico-auth=${outsiderToken}` },
       });
       assert.equal(knowledgeDetail.status, 403);
 
       const ownedKnowledge = await api(app, `/api/agents/${sharedAgentId}/knowledge-memory`, {
-        headers: { cookie: `agentopia-auth=${outsiderToken}` },
+        headers: { cookie: `haico-auth=${outsiderToken}` },
       });
       assert.equal(ownedKnowledge.status, 403);
 
       const ownedKnowledgeDetail = await api(app, `/api/knowledge/${sharedOwnedKnowledgeId}`, {
-        headers: { cookie: `agentopia-auth=${outsiderToken}` },
+        headers: { cookie: `haico-auth=${outsiderToken}` },
       });
       assert.equal(ownedKnowledgeDetail.status, 403);
 
       const inbox = await api(app, `/api/agents/${sharedAgentId}/messages`, {
-        headers: { cookie: `agentopia-auth=${outsiderToken}` },
+        headers: { cookie: `haico-auth=${outsiderToken}` },
       });
       assert.equal(inbox.status, 403);
     });
 
     it('dashboard, notifications, my-issues and inbox search only include accessible projects', async () => {
       const dashboard = await api(app, '/api/dashboard/summary', {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(dashboard.status, 200);
       assert.ok(sharedProjectId in dashboard.body.last_activity, 'shared project should remain visible');
       assert.ok(!(hiddenProjectId in dashboard.body.last_activity), 'hidden project should be filtered out');
 
       const search = await api(app, '/api/inbox/search?q=boundary-visible-token', {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(search.status, 200);
       assert.ok(search.body.some((issue: any) => issue.id === sharedSearchIssueId));
       assert.ok(!search.body.some((issue: any) => issue.id === hiddenSearchIssueId));
 
       const notifications = await api(app, '/api/notifications', {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(notifications.status, 200);
       assert.ok(notifications.body.user_issues.some((issue: any) => issue.id === sharedSearchIssueId));
       assert.ok(!notifications.body.user_issues.some((issue: any) => issue.id === hiddenSearchIssueId));
 
       const myIssues = await api(app, '/api/my-issues', {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(myIssues.status, 200);
       assert.ok(myIssues.body.some((issue: any) => issue.id === sharedSearchIssueId));
@@ -953,7 +953,7 @@ describe('Agentopia API', () => {
 
     it('direct agent resources from hidden projects stay filtered for shared members', async () => {
       const hiddenAgent = await api(app, `/api/agents/${hiddenAgentId}`, {
-        headers: { cookie: `agentopia-auth=${memberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(hiddenAgent.status, 403);
     });
@@ -1400,7 +1400,7 @@ describe('Agentopia API', () => {
     });
 
     it('GET filters by status', async () => {
-      const { body } = await api(app, `/api/projects/${projectId}/issues?status=open`);
+      const { body } = await api(app, `/api/projects/${projectId}/issues?status=in_progress`);
       assert.ok(body.issues.some((i: any) => i.id === issueId));
     });
 
@@ -2057,7 +2057,7 @@ describe('Agentopia API', () => {
     let tmpDir: string;
 
     before(async () => {
-      tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'agentopia-files-'));
+      tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'haico-files-'));
       fs.mkdirSync(path.join(tmpDir, 'nested'));
       fs.writeFileSync(path.join(tmpDir, 'visible.txt'), 'hello from file api');
       fs.writeFileSync(path.join(tmpDir, '.hidden.txt'), 'hidden');
@@ -2578,7 +2578,7 @@ describe('Agentopia API', () => {
   describe('Dashboard Summary', () => {
     it('GET /api/dashboard/summary returns aggregate stats (with auth)', async () => {
       const { status, body } = await api(app, '/api/dashboard/summary', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(typeof body.agents === 'object');
@@ -2599,7 +2599,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/dashboard/usage-by-project returns data (with auth)', async () => {
       const { status, body } = await api(app, '/api/dashboard/usage-by-project?period=day', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(typeof body === 'object' && body !== null, 'usage-by-project should return an object');
@@ -2618,7 +2618,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/dashboard/activity-stream returns event list (with auth)', async () => {
       const { status, body } = await api(app, '/api/dashboard/activity-stream', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(Array.isArray(body), 'activity-stream should return an array');
@@ -2630,7 +2630,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/dashboard/activity-stream supports project_id filter', async () => {
       const { status, body } = await api(app, `/api/dashboard/activity-stream?project_id=${projectId}`, {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(Array.isArray(body));
@@ -2641,7 +2641,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/dashboard/activity-stream supports limit parameter', async () => {
       const { status, body } = await api(app, '/api/dashboard/activity-stream?limit=2', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(Array.isArray(body));
@@ -2663,13 +2663,13 @@ describe('Agentopia API', () => {
           description: 'Verify agent_name appears in activity stream',
           risk_level: 'high',
         },
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(createStatus, 201, 'approval should be created');
 
       // Fetch activity stream and verify no 500 error
       const { status, body } = await api(app, '/api/dashboard/activity-stream', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200, 'activity-stream should not return 500');
       assert.ok(Array.isArray(body));
@@ -2684,7 +2684,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/dashboard/agents returns agent list (with auth)', async () => {
       const { status, body } = await api(app, '/api/dashboard/agents', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(Array.isArray(body), 'agents should return an array');
@@ -2699,7 +2699,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/dashboard/agents supports status filter', async () => {
       const { status, body } = await api(app, '/api/dashboard/agents?status=idle', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.ok(Array.isArray(body));
@@ -2717,7 +2717,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/dashboard/today-cost returns cost data (with auth)', async () => {
       const { status, body } = await api(app, '/api/dashboard/today-cost', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(typeof body.today_cost_usd, 'number', 'should have today_cost_usd');
@@ -2733,7 +2733,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/dashboard/usage-by-project supports hour period', async () => {
       const { status, body } = await api(app, '/api/dashboard/usage-by-project?period=hour', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.period, 'hour');
@@ -2742,7 +2742,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/dashboard/usage-by-project supports week period', async () => {
       const { status, body } = await api(app, '/api/dashboard/usage-by-project?period=week', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.period, 'week');
@@ -2751,7 +2751,7 @@ describe('Agentopia API', () => {
 
     it('GET /api/dashboard/usage-by-project supports month period', async () => {
       const { status, body } = await api(app, '/api/dashboard/usage-by-project?period=month', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(status, 200);
       assert.equal(body.period, 'month');
@@ -2904,7 +2904,7 @@ describe('Agentopia API', () => {
 
     it('dashboard aggregates also use de-duplicated totals', async () => {
       const usage = await api(app, '/api/dashboard/usage-by-project?period=day', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(usage.status, 200);
       const projectEntry = usage.body.projects.find((project: any) => project.id === dedupeProjectId);
@@ -2932,7 +2932,7 @@ describe('Agentopia API', () => {
       const expectedTotal = Array.from(latestByRun.values()).reduce((sum, value) => sum + value, 0);
 
       const summaryAfter = await api(app, '/api/dashboard/summary', {
-        headers: { cookie: `agentopia-auth=${sessionToken}` },
+        headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(summaryAfter.status, 200);
       assert.equal(summaryAfter.body.total_cost_usd, expectedTotal);
@@ -3127,7 +3127,7 @@ describe('Agentopia API', () => {
 
   describe('Breadcrumb Navigation', () => {
     it('issue.html has breadcrumb with Issues link', async () => {
-      const res = await inject(app, { url: '/issues/nonexistent', headers: { cookie: `agentopia-auth=${sessionToken}` } });
+      const res = await inject(app, { url: '/issues/nonexistent', headers: { cookie: `haico-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes('id="issues-link"'), 'Should have issues-link element');
       assert.ok(res.body.includes('id="project-link"'), 'Should have project-link element');
@@ -3135,14 +3135,14 @@ describe('Agentopia API', () => {
     });
 
     it('project.html has breadcrumb with section span', async () => {
-      const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `agentopia-auth=${sessionToken}` } });
+      const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `haico-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes('id="breadcrumb-section"'), 'Should have breadcrumb-section element');
       assert.ok(res.body.includes('id="project-name"'), 'Should have project-name element');
     });
 
     it('project.html exposes the Files tab alongside the existing project tabs', async () => {
-      const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `agentopia-auth=${sessionToken}` } });
+      const res = await inject(app, { url: `/projects/${projectId}`, headers: { cookie: `haico-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(res.body.includes("switchTab('git')"), 'Should have Git tab');
       assert.ok(res.body.includes("switchTab('overview')"), 'Should have Overview tab');
@@ -3154,7 +3154,7 @@ describe('Agentopia API', () => {
     });
 
     it('agent.html no longer renders the embedded Files workspace tab', async () => {
-      const res = await inject(app, { url: `/agents/${workerId}`, headers: { cookie: `agentopia-auth=${sessionToken}` } });
+      const res = await inject(app, { url: `/agents/${workerId}`, headers: { cookie: `haico-auth=${sessionToken}` } });
       assert.equal(res.statusCode, 200);
       assert.ok(!res.body.includes('data-panel="files"'), 'Agent page should not render the old Files workspace tab');
       assert.ok(!res.body.includes('workspace-files-panel'), 'Agent page should not render the old Files workspace panel');
@@ -3572,14 +3572,14 @@ describe('Agentopia API', () => {
     let restoreMockClaude: (() => void) | null = null;
 
     before(() => {
-      const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'agentopia-mock-claude-'));
+      const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'haico-mock-claude-'));
       const binPath = path.join(tmpDir, 'claude');
       fs.writeFileSync(binPath, `#!/bin/sh
 set -eu
 
-prompt="\${AGENTOPIA_PROMPT:-}"
-prompt_file="\${AGENTOPIA_PROMPT_FILE:-}"
-prompt_truncated="\${AGENTOPIA_PROMPT_TRUNCATED:-0}"
+prompt="\${HAICO_PROMPT:-}"
+prompt_file="\${HAICO_PROMPT_FILE:-}"
+prompt_truncated="\${HAICO_PROMPT_TRUNCATED:-0}"
 
 if [ "$prompt_truncated" = "1" ] && [ -n "$prompt_file" ] && [ -f "$prompt_file" ]; then
   prompt="$(cat "$prompt_file")"
@@ -4031,6 +4031,237 @@ JSON
       assert.match(String(updatedAgent?.last_prompt || ''), /blocked pending recovery/);
     });
 
+    it('issue scan does not repeatedly wake the same worker for the same unchanged issue batch', async () => {
+      const { getDatabase } = await import('../src/db/database');
+      const { runIssueScanOnce } = await import('../src/services/scheduler');
+      const { resetAgentWakeupState } = await import('../src/services/agent-wakeup-guard');
+      const isolated = await createIsolatedOrchestrationProject('scan-dedup-worker');
+
+      const { status: workerStatus, body: worker } = await api(app, `/api/projects/${isolated.projectId}/agents`, {
+        method: 'POST',
+        body: {
+          name: `scan-dedup-worker-${Date.now()}`,
+          role: 'scan dedup worker',
+          command_template: 'echo',
+        },
+      });
+      assert.equal(workerStatus, 201);
+
+      const db = getDatabase();
+      const issueId = `scan-dedup-issue-${Date.now()}`;
+      const issueRow = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(isolated.projectId) as { n: number | null };
+      const issueNumber = (issueRow?.n || 0) + 1;
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-10 minutes'))
+      `).run(
+        issueId,
+        isolated.projectId,
+        issueNumber,
+        'dedup open issue',
+        'should only auto-wake once while unchanged',
+        'test',
+        worker.id,
+        1,
+        'open',
+        'test'
+      );
+
+      resetAgentWakeupState(worker.id);
+
+      runIssueScanOnce();
+
+      const firstDeadline = Date.now() + 3000;
+      let firstPromptCount = 0;
+      while (Date.now() < firstDeadline) {
+        firstPromptCount = (db.prepare(
+          "SELECT COUNT(*) as c FROM conversation_logs WHERE agent_id = ? AND stream = 'stdin'"
+        ).get(worker.id) as any)?.c || 0;
+        if (firstPromptCount >= 1) break;
+        await sleep(50);
+      }
+      assert.equal(firstPromptCount, 1, 'first scan should start the worker once');
+
+      const idleDeadline = Date.now() + 3000;
+      let workerState: any;
+      while (Date.now() < idleDeadline) {
+        workerState = db.prepare('SELECT status FROM agents WHERE id = ?').get(worker.id) as any;
+        if (workerState?.status === 'idle') break;
+        await sleep(50);
+      }
+      assert.equal(workerState?.status, 'idle', 'echo worker should have finished before second scan');
+
+      runIssueScanOnce();
+      await sleep(300);
+
+      const secondPromptCount = (db.prepare(
+        "SELECT COUNT(*) as c FROM conversation_logs WHERE agent_id = ? AND stream = 'stdin'"
+      ).get(worker.id) as any)?.c || 0;
+      assert.equal(secondPromptCount, 1, 'second scan should not re-wake the same unchanged issue batch');
+    });
+
+    it('issue assignment auto-start includes all dispatchable assigned issues, including ready pending ones', async () => {
+      const { getDatabase } = await import('../src/db/database');
+      const isolated = await createIsolatedOrchestrationProject('issue-autostart-batch');
+
+      const { status: workerStatus, body: worker } = await api(app, `/api/projects/${isolated.projectId}/agents`, {
+        method: 'POST',
+        body: {
+          name: `issue-autostart-worker-${Date.now()}`,
+          role: 'issue autostart batch worker',
+          command_template: 'echo',
+        },
+      });
+      assert.equal(workerStatus, 201);
+
+      const db = getDatabase();
+      const nextIssueNumber = () => {
+        const row = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(isolated.projectId) as { n: number | null };
+        return (row?.n || 0) + 1;
+      };
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-12 minutes'), datetime('now', '-12 minutes'))
+      `).run(
+        `ready-pending-${Date.now()}`,
+        isolated.projectId,
+        nextIssueNumber(),
+        'ready pending issue',
+        'should be included in assigned issue batch',
+        'test',
+        worker.id,
+        3,
+        'pending',
+        'test'
+      );
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-11 minutes'), datetime('now', '-11 minutes'))
+      `).run(
+        `existing-open-${Date.now()}`,
+        isolated.projectId,
+        nextIssueNumber(),
+        'existing open issue',
+        'already assigned before trigger',
+        'test',
+        worker.id,
+        2,
+        'open',
+        'test'
+      );
+
+      const createRes = await api(app, `/api/projects/${isolated.projectId}/issues`, {
+        method: 'POST',
+        body: {
+          title: 'trigger assigned issue',
+          body: 'this user-created issue should wake the worker with the full batch',
+          created_by: 'user',
+          assigned_to: worker.id,
+        },
+      });
+      assert.equal(createRes.status, 201);
+
+      const idleState = await waitForAgentStatus(worker.id, (status) => status === 'idle', 3000);
+      assert.equal(idleState.status, 'idle', 'echo worker should finish quickly');
+
+      const { body: workerAfter } = await api(app, `/api/agents/${worker.id}`);
+      const prompt = String(workerAfter.last_prompt || '');
+      assert.match(prompt, /Current batch \(2\/3 assigned issue\(s\)\)/);
+      assert.match(prompt, /ready pending issue/);
+      assert.match(prompt, /existing open issue/);
+      assert.match(prompt, /trigger assigned issue/);
+      assert.match(prompt, /#\d+ \[pending\] \[p3\] ready pending issue/);
+    });
+
+    it('worker finish immediately starts the next changed issue batch without waiting for scheduler', async () => {
+      const { getDatabase } = await import('../src/db/database');
+      const { autoStartAgentForDispatchableIssues } = await import('../src/services/assigned-issue-autostart');
+      const { resetAgentWakeupState } = await import('../src/services/agent-wakeup-guard');
+      const isolated = await createIsolatedOrchestrationProject('issue-finish-next-batch');
+
+      const workerScriptDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'haico-finish-worker-'));
+      const workerScriptPath = path.join(workerScriptDir, 'worker.sh');
+      fs.writeFileSync(workerScriptPath, '#!/bin/sh\nsleep 0.4\n', { mode: 0o755 });
+
+      try {
+        const { status: workerStatus, body: worker } = await api(app, `/api/projects/${isolated.projectId}/agents`, {
+          method: 'POST',
+          body: {
+            name: `finish-next-batch-worker-${Date.now()}`,
+            role: 'finish next batch worker',
+            command_template: workerScriptPath,
+          },
+        });
+        assert.equal(workerStatus, 201);
+
+        const db = getDatabase();
+        const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(isolated.projectId) as any;
+        const nextIssueNumber = () => {
+          const row = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(isolated.projectId) as { n: number | null };
+          return (row?.n || 0) + 1;
+        };
+        const createAssignedIssue = (id: string, title: string, priority: number, createdAtOffsetMinutes: number) => {
+          db.prepare(`
+            INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, labels, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), datetime('now', ?))
+          `).run(
+            id,
+            isolated.projectId,
+            nextIssueNumber(),
+            title,
+            `${title} body`,
+            'test',
+            worker.id,
+            priority,
+            'open',
+            'test',
+            `${createdAtOffsetMinutes} minutes`,
+            `${createdAtOffsetMinutes} minutes`
+          );
+        };
+
+        const firstIssueId = `finish-batch-1-${Date.now()}`;
+        const secondIssueId = `finish-batch-2-${Date.now()}`;
+        const thirdIssueId = `finish-batch-3-${Date.now()}`;
+        createAssignedIssue(firstIssueId, 'finish batch issue 1', 5, -12);
+        createAssignedIssue(secondIssueId, 'finish batch issue 2', 4, -11);
+        createAssignedIssue(thirdIssueId, 'finish batch issue 3', 3, -10);
+
+        resetAgentWakeupState(worker.id);
+        const startResult = autoStartAgentForDispatchableIssues(db, project, worker, {
+          source: 'test-finish-next-batch',
+          allowStatuses: ['idle'],
+        });
+        assert.equal(startResult.started, true);
+
+        await waitForAgentStatus(worker.id, (status) => status === 'running', 3000);
+
+        db.prepare("UPDATE issues SET status = 'done', updated_at = datetime('now') WHERE id = ?").run(firstIssueId);
+
+        const secondPromptDeadline = Date.now() + 5000;
+        let stdinCount = 0;
+        let workerAfter: any;
+        while (Date.now() < secondPromptDeadline) {
+          stdinCount = (db.prepare(
+            "SELECT COUNT(*) as c FROM conversation_logs WHERE agent_id = ? AND stream = 'stdin'"
+          ).get(worker.id) as any)?.c || 0;
+          workerAfter = db.prepare('SELECT last_prompt, status FROM agents WHERE id = ?').get(worker.id) as any;
+          if (stdinCount >= 2 && String(workerAfter?.last_prompt || '').includes('finish batch issue 3')) break;
+          await sleep(50);
+        }
+
+        assert.equal(stdinCount, 2, 'worker should be restarted for the next batch immediately after finish');
+        assert.match(String(workerAfter?.last_prompt || ''), /Current batch \(2\/2 assigned issue\(s\)\)/);
+        assert.match(String(workerAfter?.last_prompt || ''), /finish batch issue 2/);
+        assert.match(String(workerAfter?.last_prompt || ''), /finish batch issue 3/);
+      } finally {
+        fs.rmSync(workerScriptDir, { recursive: true, force: true });
+      }
+    });
+
     it('issue scan triggers controller recovery for ready pending controller issue', async () => {
       const { getDatabase } = await import('../src/db/database');
       const { runIssueScanOnce } = await import('../src/services/scheduler');
@@ -4075,7 +4306,7 @@ JSON
       assert.equal(latest.controller_started, 1);
     });
 
-    it('large prompts are truncated in AGENTOPIA_PROMPT env but full prompt remains in prompt file', async () => {
+    it('large prompts are truncated in HAICO_PROMPT env but full prompt remains in prompt file', async () => {
       const agentId = await createMockWorker(`large-prompt-worker-${Date.now()}`);
       const marker = 'TAIL_SESSION';
       const hugePrompt = 'A'.repeat(18000) + marker;
@@ -4224,7 +4455,7 @@ JSON
     it('GET /login returns HTML', async () => {
       const res = await inject(app, { url: '/login' });
       assert.equal(res.statusCode, 200);
-      assert.ok(res.body.includes('Agentopia'));
+      assert.ok(res.body.includes('HAICO'));
     });
   });
 
@@ -4315,13 +4546,13 @@ JSON
         headers: { 'content-type': 'application/json' },
       });
       assert.equal(loginRes.statusCode, 200);
-      const token = (loginRes.headers['set-cookie'] as string).match(/agentopia-auth=([^;]+)/)![1];
+      const token = (loginRes.headers['set-cookie'] as string).match(/haico-auth=([^;]+)/)![1];
 
       // Authenticated request should succeed, never redirect to /setup
       const res = await app.inject({
         method: 'GET',
         url: '/api/dashboard/summary',
-        headers: { cookie: `agentopia-auth=${token}` },
+        headers: { cookie: `haico-auth=${token}` },
       });
       assert.equal(res.statusCode, 200, 'Authenticated request should succeed');
       if (res.headers.location) {
@@ -4333,7 +4564,7 @@ JSON
     it('unauthenticated request redirects to /login, not /setup (password was set)', async () => {
       // When password is set, unauthenticated page requests should redirect to /login, not /setup
       // Use page route to test cookie-based auth redirect
-      const res = await inject(app, { url: '/change-password', headers: { cookie: 'agentopia-auth=invalid' } });
+      const res = await inject(app, { url: '/change-password', headers: { cookie: 'haico-auth=invalid' } });
       assert.equal(res.statusCode, 302, 'Should redirect unauthenticated request');
       assert.equal(res.headers.location, '/login', 'Should redirect to /login, not /setup');
     });
@@ -4362,7 +4593,7 @@ JSON
 
     it('login works with DB-based auth (not affected by file system state)', async () => {
       // Auth config is now in DB, not file — login should always work
-      // regardless of the state of the legacy ~/.agentopia/config.json file
+      // regardless of the state of the legacy ~/.haico/config.json file
       const { status, body } = await api(app, '/api/auth', {
         method: 'POST', body: { password: 'test1234' },
       });
@@ -6320,6 +6551,167 @@ JSON
     });
   });
 
+  describe('Agent wakeup guard', () => {
+    it('suppresses repeated auto-wake for the same unchanged issue batch', async () => {
+      const {
+        buildAgentWakeupSignature,
+        getAgentWakeupDecision,
+        recordAgentWakeup,
+        resetAgentWakeupState,
+      } = await import('../src/services/agent-wakeup-guard');
+
+      const agent = { id: 'wake-agent-1', status: 'idle', paused: false } as any;
+      const issues = [
+        {
+          id: 'iss-1',
+          project_id: 'proj-1',
+          number: 1,
+          title: 'alpha',
+          body: 'alpha',
+          created_by: 'user',
+          assigned_to: agent.id,
+          priority: 5,
+          status: 'open',
+          labels: '',
+          milestone_id: null,
+          parent_id: null,
+          created_at: '2026-04-01 10:00:00',
+          updated_at: '2026-04-01 10:00:00',
+        },
+      ];
+
+      resetAgentWakeupState(agent.id);
+      const first = getAgentWakeupDecision(agent, issues, { source: 'test' });
+      assert.equal(first.allowed, true);
+      recordAgentWakeup(agent.id, first.signature, 'test', first.activityKey);
+
+      const second = getAgentWakeupDecision(agent, issues, { source: 'test' });
+      assert.equal(second.allowed, false);
+      assert.match(second.reason, /same unchanged issue batch already auto-started/i);
+    });
+
+    it('allows auto-wake again once the issue activity changes', async () => {
+      const {
+        getAgentWakeupDecision,
+        recordAgentWakeup,
+        resetAgentWakeupState,
+      } = await import('../src/services/agent-wakeup-guard');
+
+      const agent = { id: 'wake-agent-2', status: 'idle', paused: false } as any;
+      const baseIssue = {
+        id: 'iss-2',
+        project_id: 'proj-1',
+        number: 2,
+        title: 'beta',
+        body: 'beta',
+        created_by: 'user',
+        assigned_to: agent.id,
+        priority: 5,
+        status: 'open',
+        labels: '',
+        milestone_id: null,
+        parent_id: null,
+        created_at: '2026-04-01 10:00:00',
+      };
+      const toDbTimestamp = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+      const firstUpdatedAt = toDbTimestamp(Date.now() - 60_000);
+      const changedUpdatedAt = toDbTimestamp(Date.now() + 60_000);
+
+      resetAgentWakeupState(agent.id);
+      const first = getAgentWakeupDecision(agent, [{ ...baseIssue, updated_at: firstUpdatedAt }], { source: 'test' });
+      assert.equal(first.allowed, true);
+      recordAgentWakeup(agent.id, first.signature, 'test', first.activityKey);
+
+      const changed = getAgentWakeupDecision(agent, [{ ...baseIssue, updated_at: changedUpdatedAt }], { source: 'test' });
+      assert.equal(changed.allowed, true, 'updated_at change should count as new activity and allow another wake');
+    });
+
+    it('allows a cooled-down retry for the same unchanged issue batch after an error', async () => {
+      const {
+        getAgentWakeupDecision,
+        recordAgentWakeup,
+        resetAgentWakeupState,
+      } = await import('../src/services/agent-wakeup-guard');
+
+      const nowMs = Date.now();
+      const agent = { id: 'wake-agent-3', status: 'error', paused: false } as any;
+      const issues = [
+        {
+          id: 'iss-3',
+          project_id: 'proj-1',
+          number: 3,
+          title: 'gamma',
+          body: 'gamma',
+          created_by: 'user',
+          assigned_to: agent.id,
+          priority: 5,
+          status: 'in_progress',
+          labels: '',
+          milestone_id: null,
+          parent_id: null,
+          created_at: '2026-04-01 10:00:00',
+          updated_at: '2026-04-01 10:00:00',
+        },
+      ];
+
+      resetAgentWakeupState(agent.id);
+      const signatureInfo = buildAgentWakeupSignature(issues);
+      recordAgentWakeup(agent.id, signatureInfo.signature, 'test', signatureInfo.activityKey, nowMs - (6 * 60 * 1000));
+
+      const retry = getAgentWakeupDecision(agent, issues, {
+        source: 'test',
+        allowStatuses: ['idle', 'error'],
+        nowMs,
+      });
+      assert.equal(retry.allowed, true, 'errored unchanged batch should be allowed a cooled-down retry');
+      assert.match(retry.reason, /retrying unchanged issue batch after error/i);
+    });
+
+    it('suppresses unchanged error batch after retry budget is exhausted', async () => {
+      const {
+        buildAgentWakeupSignature,
+        getAgentWakeupDecision,
+        recordAgentWakeup,
+        resetAgentWakeupState,
+      } = await import('../src/services/agent-wakeup-guard');
+
+      const nowMs = Date.now();
+      const agent = { id: 'wake-agent-4', status: 'error', paused: false } as any;
+      const issues = [
+        {
+          id: 'iss-4',
+          project_id: 'proj-1',
+          number: 4,
+          title: 'delta',
+          body: 'delta',
+          created_by: 'user',
+          assigned_to: agent.id,
+          priority: 5,
+          status: 'in_progress',
+          labels: '',
+          milestone_id: null,
+          parent_id: null,
+          created_at: '2026-04-01 10:00:00',
+          updated_at: '2026-04-01 10:00:00',
+        },
+      ];
+
+      resetAgentWakeupState(agent.id);
+      const signatureInfo = buildAgentWakeupSignature(issues);
+      recordAgentWakeup(agent.id, signatureInfo.signature, 'test', signatureInfo.activityKey, nowMs - (18 * 60 * 1000));
+      recordAgentWakeup(agent.id, signatureInfo.signature, 'test', signatureInfo.activityKey, nowMs - (12 * 60 * 1000));
+      recordAgentWakeup(agent.id, signatureInfo.signature, 'test', signatureInfo.activityKey, nowMs - (6 * 60 * 1000));
+
+      const blocked = getAgentWakeupDecision(agent, issues, {
+        source: 'test',
+        allowStatuses: ['idle', 'error'],
+        nowMs,
+      });
+      assert.equal(blocked.allowed, false, 'unchanged errored batch should stop auto-retrying after the retry budget');
+      assert.match(blocked.reason, /still errors; waiting for issue activity or manual intervention/i);
+    });
+  });
+
   describe('Run completion classification', () => {
     let classifyAgentExitStatus: (input: {
       currentStatus?: string | null;
@@ -6406,6 +6798,17 @@ JSON
       const prompt = buildSystemPrompt(worker, project);
       assert.ok(prompt.includes('禁止在评论中提问'), 'worker prompt must forbid questions in comments');
       assert.ok(prompt.includes('是否需要我先修复') || prompt.includes('请确认'), 'worker prompt should include example phrases that are forbidden');
+    });
+
+    it('worker prompt forbids silent completion without issue updates', () => {
+      const db = getDatabase();
+      const worker = db.prepare('SELECT * FROM agents WHERE is_controller = 0 LIMIT 1').get() as any;
+      const project = db.prepare('SELECT * FROM projects LIMIT 1').get() as any;
+      if (!worker || !project) return;
+      const prompt = buildSystemPrompt(worker, project);
+      assert.ok(prompt.includes('禁止静默结束'), 'worker prompt must explicitly forbid silent completion');
+      assert.ok(prompt.includes('更新 issue 状态'), 'worker prompt must require a status update or equivalent issue activity');
+      assert.ok(prompt.includes('不允许在 issue 没有任何状态变化、没有任何评论、没有任何后续 issue 的情况下直接结束'), 'worker prompt must forbid ending with no issue trace');
     });
 
     it('worker prompt requires creating issue for user decisions', () => {

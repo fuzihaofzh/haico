@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const TEST_DB = path.join(__dirname, 'langgraph-runner.test.db');
-process.env.AGENTOPIA_DB_PATH = TEST_DB;
+process.env.HAICO_DB_PATH = TEST_DB;
 
 let getDatabase: any;
 let closeDatabase: any;

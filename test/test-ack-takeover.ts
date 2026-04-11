@@ -5,8 +5,8 @@ import path from 'path';
 import { FastifyInstance } from 'fastify';
 
 const TEST_DB = path.join(__dirname, 'test-ack-takeover.db');
-process.env.AGENTOPIA_DB_PATH = TEST_DB;
-process.env.AGENTOPIA_PORT = '0';
+process.env.HAICO_DB_PATH = TEST_DB;
+process.env.HAICO_PORT = '0';
 
 async function api(app: any, url: string, opts: any = {}) {
   const res = await app.inject({ method: opts.method || 'GET', url, payload: opts.body, headers: { 'content-type': 'application/json' } });

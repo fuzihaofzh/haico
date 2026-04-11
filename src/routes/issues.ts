@@ -3,11 +3,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { startAgentProcess, isAgentRunning } from '../services/process-manager';
+import { autoStartAgentForDispatchableIssues } from '../services/assigned-issue-autostart';
 import { buildSystemPrompt } from '../services/system-prompt';
 import { enqueueControllerTrigger } from '../services/controller';
 import { tryHandleWithoutLLM } from '../services/pre-controller';
+import { getAgentWakeupDecision, recordAgentWakeup } from '../services/agent-wakeup-guard';
 import { broadcastToProject } from '../services/websocket';
 import { config } from '../config';
+import logger from '../logger';
 import {
   ensureCommentAccess,
   ensureIssueAccess,
@@ -47,6 +50,7 @@ function parseMentionsAndStartAgents(
 
   const db = getDatabase();
   const agents = db.prepare('SELECT * FROM agents WHERE project_id = ?').all(projectId) as Agent[];
+  const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(issueId) as any;
   const eventStmt = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
 
   for (const agentName of mentions) {
@@ -57,11 +61,20 @@ function parseMentionsAndStartAgents(
     if (!agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
       const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
       if (project && project.status !== 'paused') {
+        const wakeDecision = issue
+          ? getAgentWakeupDecision(agent, [issue], { source: 'issue-mention', allowStatuses: ['idle', 'error'] })
+          : { allowed: agent.status === 'idle', reason: 'issue-mention: no issue context', signature: '', activityKey: '', activeIssueCount: 0, currentBatchIssueNumbers: [] };
+        if (!wakeDecision.allowed) {
+          logger.info(`Mention auto-start skipped for agent "${agent.name}" on issue #${issueNumber}: ${wakeDecision.reason}`);
+          continue;
+        }
+
         const prompt = `You were mentioned (@${agentName}) in issue #${issueNumber} "${issueTitle}". Review the issue and take action.\n\nContext: ${text.slice(0, 500)}`;
         const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
         const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
         const systemPrompt = isRaw ? undefined : buildSystemPrompt(agent, project);
         startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
+        recordAgentWakeup(agent.id, wakeDecision.signature, 'issue-mention', wakeDecision.activityKey);
 
         // Record system event
         eventStmt.run(
@@ -338,11 +351,13 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         if (agent && !agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
           if (project && project.status !== 'paused') {
-            const prompt = `New issue #${number} "${title}" has been assigned to you. Review and take action.\n\nDescription: ${(body || '').slice(0, 500)}`;
-            const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
-            const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-            const systemPrompt = isRaw ? undefined : buildSystemPrompt(agent, project);
-            startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
+            const result = autoStartAgentForDispatchableIssues(db, project, agent, {
+              source: 'issue-create-assignment',
+              allowStatuses: ['idle', 'error'],
+            });
+            if (!result.started) {
+              logger.info(`Assigned issue auto-start skipped for agent "${agent.name}" on issue #${number}: ${result.reason}`);
+            }
           }
         }
       }
@@ -569,11 +584,13 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
         if (agent && !agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
           const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(updated.project_id) as Project | undefined;
           if (project) {
-            const prompt = `You have been assigned issue #${updated.number} "${updated.title}". Review it and take action.\n\nDescription: ${updated.body?.slice(0, 500) || '(none)'}`;
-            const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
-            const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-            const systemPrompt = isRaw ? undefined : buildSystemPrompt(agent, project);
-            startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
+            const result = autoStartAgentForDispatchableIssues(db, project, agent, {
+              source: 'issue-update-assignment',
+              allowStatuses: ['idle', 'error'],
+            });
+            if (!result.started) {
+              logger.info(`Reassignment auto-start skipped for agent "${agent.name}" on issue #${updated.number}: ${result.reason}`);
+            }
           }
         }
       }
@@ -887,11 +904,13 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
                 skipActivityCheck: true,
               });
             } else {
-              const prompt = `User just commented on issue #${iss.number} "${iss.title}" assigned to you. Review the comment and respond.\n\nComment: ${body}`;
-              const commandTemplate = agentToStart.command_template || project.command_template || config.defaultCommandTemplate;
-              const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-              const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agentToStart, project);
-              startAgentProcess(agentToStart, prompt, commandTemplate, systemPrompt);
+              const result = autoStartAgentForDispatchableIssues(db, project, agentToStart, {
+                source: 'user-comment-reassignment',
+                allowStatuses: ['idle', 'error'],
+              });
+              if (!result.started) {
+                logger.info(`User comment auto-start skipped for agent "${agentToStart.name}" on issue #${iss.number}: ${result.reason}`);
+              }
             }
           }
         }

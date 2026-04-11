@@ -1090,7 +1090,7 @@
     }
   }
 
-  window.AgentopiaFilesPanel = {
+  window.HAICOFilesPanel = {
     create(options) {
       return new FilesPanel(options);
     },

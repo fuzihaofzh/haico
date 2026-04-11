@@ -224,7 +224,7 @@ export function clearAllPtyCleanupTimers(): void {
 }
 
 export interface ProjectEvent {
-  type: 'agent_status' | 'issue_created' | 'issue_updated' | 'comment_added' | 'agent_message' | 'approval_created' | 'approval_decided';
+  type: 'agent_status' | 'issue_created' | 'issue_updated' | 'comment_added' | 'agent_message' | 'approval_created' | 'approval_decided' | 'payment_approval_created' | 'payment_approval_decided' | 'payment_approval_resolved' | 'executive_summary_created' | 'executive_summary_updated' | 'executive_summary_deleted' | 'executive_summary_block_updated' | 'executive_summary_generated' | 'executive_summary_finalized';
   projectId: string;
   data: Record<string, any>;
 }

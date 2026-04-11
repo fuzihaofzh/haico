@@ -2,8 +2,9 @@ import { getDatabase } from '../db/database';
 import { Agent, Project, Issue } from '../types';
 import { startAgentProcess, isAgentRunning, isAgentInCooldown } from './process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
+import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
 import { buildSystemPrompt } from './system-prompt';
-import { getPendingDependencyState, listDispatchableIssuesForAgent } from './issue-dispatch';
+import { findControllerRecoveryIssue, getPendingDependencyState, listDispatchableIssuesForAgent } from './issue-dispatch';
 import { config } from '../config';
 import logger from '../logger';
 
@@ -45,12 +46,7 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
 
   // 规则3: issue 已完成 (done/closed) → 检查是否还有其他需要 controller 处理的 issue
   if (issue.status === 'done' || issue.status === 'closed') {
-    const pendingForController = db.prepare(
-      `SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress')
-       AND (assigned_to IS NULL OR assigned_to = 'all' OR assigned_to = 'user' OR assigned_to IN (
-         SELECT id FROM agents WHERE project_id = ? AND is_controller = 1
-       )) LIMIT 1`
-    ).get(projectId, projectId);
+    const pendingForController = findControllerRecoveryIssue(db, projectId);
 
     if (!pendingForController) {
       logger.info(`Pre-controller: issue #${triggerIssueNumber} is ${issue.status}, no pending controller issues, skipping LLM`);
@@ -92,6 +88,11 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
       if (!project) return false;
 
       const allAssigned = listDispatchableIssuesForAgent(db, projectId, agent.id);
+      const wakeDecision = getAgentWakeupDecision(agent, allAssigned, { source: 'pre-controller' });
+      if (!wakeDecision.allowed) {
+        logger.info(`Pre-controller: auto-start suppressed for ${agent.name}: ${wakeDecision.reason}`);
+        return true;
+      }
       const issueBatch = getAgentIssueBatch(allAssigned);
 
       const parts: string[] = [];
@@ -107,9 +108,13 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
       const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
       const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
       const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agent, project);
+      const recordedWakeup = buildAgentWakeupSignature(
+        listDispatchableIssuesForAgent(db, projectId, agent.id)
+      );
 
       logger.info(`Pre-controller: directly starting ${agent.name} for ${issueBatch.currentBatch.length}/${issueBatch.activeIssues.length} issue(s) in current batch (triggered by #${triggerIssueNumber}), bypassing LLM controller`);
       startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
+      recordAgentWakeup(agent.id, recordedWakeup.signature, 'pre-controller', recordedWakeup.activityKey);
       return true;
     }
   }

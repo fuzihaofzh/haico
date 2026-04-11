@@ -9,6 +9,7 @@ import { getDatabase } from '../db/database';
 import { Agent, Project, CreateAgentInput, StartAgentInput } from '../types';
 import { startAgentProcess, stopAgentProcess, isAgentRunning } from '../services/process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from '../services/agent-issue-batch';
+import { listDispatchableIssuesForAgent } from '../services/issue-dispatch';
 import { buildSystemPrompt } from '../services/system-prompt';
 import { config } from '../config';
 import { broadcastToProject } from '../services/websocket';
@@ -359,10 +360,8 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       if (agent.role) parts.push(`Role: ${agent.role}`);
       if (project.task_description) parts.push(`Task: ${project.task_description}`);
 
-      // Include open issues assigned to this agent
-      const issues = db.prepare(
-        "SELECT * FROM issues WHERE project_id = ? AND assigned_to = ? AND status IN ('open', 'in_progress') ORDER BY priority DESC, created_at"
-      ).all(project.id, agent.id) as any[];
+      // Include all dispatchable issues assigned to this agent, including ready pending ones.
+      const issues = listDispatchableIssuesForAgent(db, project.id, agent.id);
       if (issues.length > 0) {
         const issueBatch = getAgentIssueBatch(issues);
         parts.push(buildAssignedIssuesPrompt(issueBatch));
@@ -433,7 +432,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       if (agent.pid) {
         // Guard: never kill our own process or parent (PID reuse after restart)
         if (agent.pid === process.pid || agent.pid === process.ppid) {
-          fastify.log.error(`Refusing to kill PID ${agent.pid} — it is the Agentopia server itself (pid=${process.pid}, ppid=${process.ppid})`);
+          fastify.log.error(`Refusing to kill PID ${agent.pid} — it is the HAICO server itself (pid=${process.pid}, ppid=${process.ppid})`);
         } else {
           fastify.log.warn(`Killing stale PID ${agent.pid} for agent "${agent.name}" (not in memory map)`);
           try { process.kill(agent.pid, 'SIGTERM'); } catch {}

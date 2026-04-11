@@ -110,10 +110,15 @@ var IssueRenderer = (function() {
     if (!text) return '';
     var agents = _ctx.agents;
     var issue = _ctx.issue;
+    var normalizedText = String(text)
+      .replace(/\r\n?/g, '\n')
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '  ');
 
     // Protect LaTeX blocks from markdown processing
     var latexBlocks = [];
-    var processed = text;
+    var processed = normalizedText;
     // Block math: $$...$$
     processed = processed.replace(/\$\$([\s\S]+?)\$\$/g, function(_, tex) {
       var idx = latexBlocks.length;
@@ -133,9 +138,9 @@ var IssueRenderer = (function() {
 
     var html = '';
     if (typeof marked !== 'undefined') {
-      try { html = marked.parse(processed); } catch(e) { html = '<pre style="white-space:pre-wrap">' + esc(text) + '</pre>'; }
+      try { html = marked.parse(processed, { gfm: true }); } catch(e) { html = '<pre style="white-space:pre-wrap">' + esc(normalizedText) + '</pre>'; }
     } else {
-      html = '<pre style="white-space:pre-wrap">' + esc(text) + '</pre>';
+      html = '<pre style="white-space:pre-wrap">' + esc(normalizedText) + '</pre>';
     }
 
     // Highlight @mentions

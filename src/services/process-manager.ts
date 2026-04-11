@@ -10,7 +10,7 @@ import { resolveCommandType } from './command-profiles';
 import logger from '../logger';
 
 const runningProcesses = new Map<string, ChildProcess>();
-const PROMPT_DIR = path.join(os.tmpdir(), 'agentopia-prompts');
+const PROMPT_DIR = path.join(os.tmpdir(), 'haico-prompts');
 
 // Track last activity (output) time per agent — used by watchdog to detect stuck agents
 const lastActivityTime = new Map<string, number>();
@@ -107,7 +107,7 @@ function buildPromptEnvValue(prompt: string): { value: string; truncated: boolea
     return { value: prompt, truncated: false };
   }
 
-  const notice = '\n...[truncated; read AGENTOPIA_PROMPT_FILE for full prompt]...\n';
+  const notice = '\n...[truncated; read HAICO_PROMPT_FILE for full prompt]...\n';
   const remaining = Math.max(0, PROMPT_ENV_MAX_CHARS - notice.length);
   const headLength = Math.ceil(remaining / 2);
   const tailLength = Math.floor(remaining / 2);
@@ -307,7 +307,7 @@ export function startAgentProcess(
   }
 
   // Use a login bash shell when available so agent wrappers like `cld`/`spc`
-  // resolve consistently even when Agentopia itself was started with a minimal PATH.
+  // resolve consistently even when HAICO itself was started with a minimal PATH.
   const shellPath = fs.existsSync('/bin/bash') ? '/bin/bash' : '/bin/sh';
   const shellArgs = shellPath.endsWith('bash') ? ['-lc', 'exec ' + command] : ['-c', 'exec ' + command];
   const promptEnv = buildPromptEnvValue(fullPrompt);
@@ -315,17 +315,17 @@ export function startAgentProcess(
     ...process.env,
     no_proxy: [process.env.no_proxy, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
     NO_PROXY: [process.env.NO_PROXY, 'localhost', '127.0.0.1'].filter(Boolean).join(','),
-    AGENTOPIA_PROMPT: promptEnv.value,
-    AGENTOPIA_PROMPT_FILE: promptFile,
-    AGENTOPIA_PROMPT_TRUNCATED: promptEnv.truncated ? '1' : '0',
-    AGENTOPIA_SESSION_ID: sessionId,
-    AGENTOPIA_AGENT_ID: agent.id,
-    AGENTOPIA_RUN_ID: runId,
+    HAICO_PROMPT: promptEnv.value,
+    HAICO_PROMPT_FILE: promptFile,
+    HAICO_PROMPT_TRUNCATED: promptEnv.truncated ? '1' : '0',
+    HAICO_SESSION_ID: sessionId,
+    HAICO_AGENT_ID: agent.id,
+    HAICO_RUN_ID: runId,
   } as NodeJS.ProcessEnv;
 
   if (promptEnv.truncated) {
     logger.warn(
-      `Agent ${agent.id} prompt exceeded ${PROMPT_ENV_MAX_CHARS} chars; AGENTOPIA_PROMPT was truncated and full prompt is available via AGENTOPIA_PROMPT_FILE`
+      `Agent ${agent.id} prompt exceeded ${PROMPT_ENV_MAX_CHARS} chars; HAICO_PROMPT was truncated and full prompt is available via HAICO_PROMPT_FILE`
     );
   }
 
@@ -581,12 +581,12 @@ export function startAgentProcess(
     }
     if (code === 0 && requiresCompletionSignal && !sawClosedStdinSessionError && !sawCompletionSignal && !hadFinalResult) {
       logger.info(`Agent ${agent.id} exited with code 0 but without a completion signal; marking run as error`);
-      logAndBroadcast('Agentopia: agent exited without emitting a completion event; marking this run as error\n', 'stderr');
+      logAndBroadcast('HAICO: agent exited without emitting a completion event; marking this run as error\n', 'stderr');
     }
 
     if (status === 'error' && existingSessionId && !sawStdout && RESUME_MISSING_FILE_RE.test(stderrSample)) {
       logger.info(`Agent ${agent.id} resume failed with missing file, retrying with a fresh session`);
-      logAndBroadcast('Agentopia: 旧 session 恢复失败，自动改为新 session 重试...\n', 'stderr');
+      logAndBroadcast('HAICO: 旧 session 恢复失败，自动改为新 session 重试...\n', 'stderr');
       db.prepare("UPDATE agents SET session_id = NULL, status = 'idle', pid = NULL WHERE id = ?").run(agent.id);
       const freshAgent = { ...agent, session_id: null };
       startAgentProcess(freshAgent, prompt, commandTemplate, systemPrompt);
@@ -603,7 +603,7 @@ export function startAgentProcess(
           // First API connection failure: auto-retry after 5 minutes to avoid wasting tokens
           const retryDelayMs = 5 * 60 * 1000; // 5 minutes
           logger.info(`Agent ${agent.id} API connection failed (attempt ${apiErrCount}), auto-retrying in 5 minutes`);
-          logAndBroadcast('Agentopia: API连接失败，5分钟后自动重试...\n', 'stderr');
+          logAndBroadcast('HAICO: API连接失败，5分钟后自动重试...\n', 'stderr');
           // Set status to 'waiting' during retry delay — visible in UI, prevents scheduler re-trigger
           db.prepare(`
             UPDATE agents SET status = 'waiting', pid = NULL, finished_at = datetime('now') WHERE id = ?
@@ -626,7 +626,7 @@ export function startAgentProcess(
         } else {
           // Second+ API connection failure: give up, report error
           logger.info(`Agent ${agent.id} API connection failed ${apiErrCount} times, giving up`);
-          logAndBroadcast('Agentopia: API连接持续失败，请检查网络/API配置后手动重启agent\n', 'stderr');
+          logAndBroadcast('HAICO: API连接持续失败，请检查网络/API配置后手动重启agent\n', 'stderr');
           agentApiConnectErrorCount.delete(agent.id);
           // Fall through to normal error handling below
         }
@@ -915,7 +915,7 @@ export function stopAllProcesses(): Promise<void> {
           logger.info(`Force killing agent ${agentId} (pid=${child.pid}) and ${descendants.length} descendants: [${descendants.join(',')}]`);
           for (const dpid of descendants) {
             if (dpid === process.pid || dpid === process.ppid) {
-              logger.error(`stopAllProcesses: refusing to kill PID ${dpid} — it is the Agentopia server (pid=${process.pid}, ppid=${process.ppid})`);
+              logger.error(`stopAllProcesses: refusing to kill PID ${dpid} — it is the HAICO server (pid=${process.pid}, ppid=${process.ppid})`);
               continue;
             }
             try { process.kill(dpid, 'SIGKILL'); } catch {}

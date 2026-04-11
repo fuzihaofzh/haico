@@ -295,6 +295,60 @@ export function initializeDatabase(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_approval_project ON approval_requests(project_id, status);
     CREATE INDEX IF NOT EXISTS idx_approval_agent ON approval_requests(agent_id);
+
+    CREATE TABLE IF NOT EXISTS payment_approval_requests (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
+      requested_by TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      amount REAL NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      beneficiary TEXT NOT NULL DEFAULT '',
+      risk_level TEXT DEFAULT 'high' CHECK(risk_level IN ('low', 'medium', 'high', 'critical')),
+      required_approvals INTEGER NOT NULL DEFAULT 2,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected', 'cancelled')),
+      resolved_at DATETIME,
+      created_at DATETIME DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_payment_approval_project ON payment_approval_requests(project_id, status);
+
+    CREATE TABLE IF NOT EXISTS payment_approval_decisions (
+      id TEXT PRIMARY KEY,
+      payment_approval_id TEXT NOT NULL REFERENCES payment_approval_requests(id) ON DELETE CASCADE,
+      decided_by TEXT NOT NULL,
+      decision TEXT NOT NULL CHECK(decision IN ('approve', 'reject')),
+      note TEXT DEFAULT '',
+      created_at DATETIME DEFAULT (datetime('now')),
+      UNIQUE(payment_approval_id, decided_by)
+    );
+    CREATE INDEX IF NOT EXISTS idx_payment_decision_approval ON payment_approval_decisions(payment_approval_id);
+
+    CREATE TABLE IF NOT EXISTS executive_summaries (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      status TEXT DEFAULT 'draft' CHECK(status IN ('draft', 'final', 'archived')),
+      created_by TEXT DEFAULT 'user',
+      created_at DATETIME DEFAULT (datetime('now')),
+      updated_at DATETIME DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_exec_summary_project ON executive_summaries(project_id, status);
+    CREATE INDEX IF NOT EXISTS idx_exec_summary_period ON executive_summaries(project_id, period_end DESC);
+
+    CREATE TABLE IF NOT EXISTS executive_summary_blocks (
+      id TEXT PRIMARY KEY,
+      summary_id TEXT NOT NULL REFERENCES executive_summaries(id) ON DELETE CASCADE,
+      block_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT DEFAULT '',
+      order_index INTEGER DEFAULT 0,
+      UNIQUE(summary_id, block_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_exec_blocks_summary ON executive_summary_blocks(summary_id);
   `);
 
   // Migration: add paused column if missing

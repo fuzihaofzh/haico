@@ -129,7 +129,7 @@
   }
 
   function dispatchProfilesChanged() {
-    window.dispatchEvent(new CustomEvent('agentopia:command-profiles-changed', {
+    window.dispatchEvent(new CustomEvent('haico:command-profiles-changed', {
       detail: commandProfiles.slice(),
     }));
   }
@@ -297,7 +297,7 @@
     }
   });
 
-  window.AgentopiaCommandProfiles = {
+  window.HAICOCommandProfiles = {
     CUSTOM_PROFILE_VALUE,
     ensureLoaded,
     getProfiles: () => commandProfiles.slice(),

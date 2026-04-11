@@ -58,12 +58,12 @@ test('issue197 settings page regression', async () => {
   expect(await isVisible('.notif-sound-toggle')).toBeTruthy();
   expect(await isVisible('[data-command-profiles-root]')).toBeTruthy();
 
-  const originalTheme = await page.evaluate(() => localStorage.getItem('agentopia-theme'));
+  const originalTheme = await page.evaluate(() => localStorage.getItem('haico-theme'));
   const nextTheme = originalTheme === 'dracula' ? 'solarized-light' : 'dracula';
   await page.selectOption('#theme-select', nextTheme);
-  await page.waitForFunction((theme) => localStorage.getItem('agentopia-theme') === theme, nextTheme);
+  await page.waitForFunction((theme) => localStorage.getItem('haico-theme') === theme, nextTheme);
   const appliedTheme = await page.evaluate(() => ({
-    theme: localStorage.getItem('agentopia-theme'),
+    theme: localStorage.getItem('haico-theme'),
     value: document.getElementById('theme-select').value,
     bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
   }));
@@ -72,13 +72,13 @@ test('issue197 settings page regression', async () => {
   expect(appliedTheme.bg.length).toBeGreaterThan(0);
 
   const soundBefore = await page.evaluate(() => ({
-    value: localStorage.getItem('agentopia-notification-sound'),
+    value: localStorage.getItem('haico-notification-sound'),
     on: document.querySelector('.notif-sound-toggle').classList.contains('on'),
   }));
   await page.click('.notif-sound-toggle');
   await page.waitForTimeout(100);
   const soundAfterFirst = await page.evaluate(() => ({
-    value: localStorage.getItem('agentopia-notification-sound'),
+    value: localStorage.getItem('haico-notification-sound'),
     on: document.querySelector('.notif-sound-toggle').classList.contains('on'),
   }));
   expect(
@@ -87,7 +87,7 @@ test('issue197 settings page regression', async () => {
   await page.click('.notif-sound-toggle');
   await page.waitForTimeout(100);
   const soundAfterSecond = await page.evaluate(() => ({
-    value: localStorage.getItem('agentopia-notification-sound'),
+    value: localStorage.getItem('haico-notification-sound'),
     on: document.querySelector('.notif-sound-toggle').classList.contains('on'),
   }));
   expect(soundAfterSecond.on).toBe(soundBefore.on);

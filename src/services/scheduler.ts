@@ -3,6 +3,7 @@ import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
 import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, isAgentInCooldown, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
+import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
 import { buildSystemPrompt } from './system-prompt';
 import { triggerControllerAgent } from './controller';
 import { findControllerRecoveryIssue, listDispatchableIssuesForAgent } from './issue-dispatch';
@@ -84,7 +85,7 @@ export function runIssueScanOnce(): void {
 
       if (worker.status === 'error') {
         const recentErrors = db.prepare(
-          "SELECT COUNT(*) as cnt FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' AND created_at > datetime('now', '-10 minutes')"
+          "SELECT COUNT(DISTINCT NULLIF(run_id, '')) as cnt FROM conversation_logs WHERE agent_id = ? AND stream = 'stderr' AND created_at > datetime('now', '-10 minutes')"
         ).get(worker.id) as any;
         if (recentErrors.cnt >= 3) {
           const lastError = db.prepare(
@@ -92,13 +93,22 @@ export function runIssueScanOnce(): void {
           ).get(worker.id) as any;
           const lastErrorAge = lastError ? Date.now() - new Date(lastError.created_at + 'Z').getTime() : Infinity;
           if (lastErrorAge < 60 * 60 * 1000) {
-            logger.info(`Skipping auto-restart for errored agent "${worker.name}": ${recentErrors.cnt} errors in last 10 min, backing off until 1h after last error`);
+            logger.info(`Skipping auto-restart for errored agent "${worker.name}": ${recentErrors.cnt} error run(s) in last 10 min, backing off until 1h after last error`);
             continue;
           }
         }
       }
 
       try {
+        const wakeDecision = getAgentWakeupDecision(worker, issues, {
+          source: 'scheduler',
+          allowStatuses: ['idle', 'error'],
+        });
+        if (!wakeDecision.allowed) {
+          logger.info(`Issue scan: suppressed worker "${worker.name}" auto-start: ${wakeDecision.reason}`);
+          continue;
+        }
+
         const parts: string[] = [];
         if (worker.role) parts.push(`Role: ${worker.role}`);
         if (project.task_description) parts.push(`Task: ${project.task_description}`);
@@ -110,9 +120,13 @@ export function runIssueScanOnce(): void {
         const commandTemplate = worker.command_template || project.command_template || config.defaultCommandTemplate;
         const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
         const systemPrompt = isRawShell ? undefined : buildSystemPrompt(worker, project);
+        const recordedWakeup = buildAgentWakeupSignature(
+          listDispatchableIssuesForAgent(db, project.id, worker.id)
+        );
 
         logger.info(`Issue scan: auto-starting worker "${worker.name}" with ${issueBatch.currentBatch.length}/${issueBatch.activeIssues.length} dispatchable issue(s) for project "${project.name}"`);
         startAgentProcess(worker, prompt, commandTemplate, systemPrompt);
+        recordAgentWakeup(worker.id, recordedWakeup.signature, 'scheduler', recordedWakeup.activityKey);
       } catch (e) {
         logger.error(e, `Issue scan: failed to auto-start worker "${worker.name}"`);
       }
@@ -160,7 +174,7 @@ function startWatchdog(): void {
             logger.warn(`Watchdog: agent "${agent.name}" produced Final Result ${ageMin} min ago but process still running, force-killing`);
             db.prepare(
               "INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'stderr')"
-            ).run(agent.id, '', `[Agentopia] Watchdog: process force-killed — Final Result received ${ageMin} min ago but child process stuck`);
+            ).run(agent.id, '', `[HAICO] Watchdog: process force-killed — Final Result received ${ageMin} min ago but child process stuck`);
             clearCpuSnapshot(agent.id);
             db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
             stopAgentProcess(agent.id);
@@ -194,12 +208,12 @@ function startWatchdog(): void {
             logger.warn(`Watchdog: agent "${agent.name}" has no output for ${idleMin} min, killing (pid=${agent.pid})`);
             db.prepare(
               "INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, 'stderr')"
-            ).run(agent.id, '', `[Agentopia] Watchdog: process killed after ${idleMin} minutes with no output`);
+            ).run(agent.id, '', `[HAICO] Watchdog: process killed after ${idleMin} minutes with no output`);
             db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agent.id);
             stopAgentProcess(agent.id);
           }
         } else {
-          // DB says running but process is gone — orphaned state (e.g., Agentopia restarted)
+          // DB says running but process is gone — orphaned state (e.g., HAICO restarted)
           const startedAt = agent.started_at
             ? new Date(agent.started_at + (agent.started_at.includes('Z') ? '' : 'Z')).getTime()
             : 0;

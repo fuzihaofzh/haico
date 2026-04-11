@@ -7,8 +7,8 @@ import os from 'os';
 import logger from '../logger';
 import { User } from '../types';
 
-const COOKIE_NAME = 'agentopia-auth';
-const CONFIG_DIR = path.join(os.homedir(), '.agentopia');
+const COOKIE_NAME = 'haico-auth';
+const CONFIG_DIR = path.join(os.homedir(), '.haico');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 
 // --- Password hashing with scrypt ---
@@ -199,7 +199,7 @@ const THEME_SCRIPT = `<script>
     'solarized-light': { bg:'#fdf6e3', fg:'#073642', headerBg:'#eee8d5', border:'#c9bba3', textSecondary:'#586e75', accent:'#268bd2', error:'#dc322f' }
   };
   var name = null;
-  try { name = localStorage.getItem('agentopia-theme'); } catch(e) {}
+  try { name = localStorage.getItem('haico-theme'); } catch(e) {}
   var t = themes[name] || themes['solarized-light'];
   var r = document.documentElement;
   r.style.setProperty('--bg', t.bg);
@@ -233,13 +233,13 @@ const SETUP_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agentopia — Setup</title>
+  <title>HAICO — Setup</title>
   <style>${PAGE_STYLE}</style>
   ${THEME_SCRIPT}
 </head>
 <body>
   <div class="card">
-    <h1><span>Agentopia</span></h1>
+    <h1><span>HAICO</span></h1>
     <p class="subtitle">Set a password to protect your platform</p>
     <form id="form">
       <label for="password">Password</label>
@@ -270,7 +270,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agentopia — Login</title>
+  <title>HAICO — Login</title>
   <style>${PAGE_STYLE}
     input[type="text"] { width: 100%; padding: 0.75rem; border: 1px solid var(--border, #30363d); border-radius: 8px; background: var(--bg, #0d1117); color: var(--fg, #e6edf3); font-size: 1rem; outline: none; margin-bottom: 0.75rem; font-family: inherit; }
     input[type="text"]:focus { border-color: var(--accent, #58a6ff); }
@@ -279,7 +279,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
 </head>
 <body>
   <div class="card">
-    <h1><span>Agentopia</span></h1>
+    <h1><span>HAICO</span></h1>
     <form id="form">
       <div id="username-field">
         <label for="username">Username</label>
@@ -319,13 +319,13 @@ const REGISTER_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agentopia — Register</title>
+  <title>HAICO — Register</title>
   <style>${PAGE_STYLE}</style>
   ${THEME_SCRIPT}
 </head>
 <body>
   <div class="card">
-    <h1><span>Agentopia</span></h1>
+    <h1><span>HAICO</span></h1>
     <p class="subtitle">Create your account</p>
     <form id="form">
       <label for="username">Username</label>
@@ -363,13 +363,13 @@ const CHANGE_PASSWORD_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agentopia — Change Password</title>
+  <title>HAICO — Change Password</title>
   <style>${PAGE_STYLE}</style>
   ${THEME_SCRIPT}
 </head>
 <body>
   <div class="card">
-    <h1><span>Agentopia</span></h1>
+    <h1><span>HAICO</span></h1>
     <p class="subtitle">Change your password</p>
     <form id="form">
       <label for="current">Current password</label>
@@ -712,8 +712,8 @@ export function setupAuth(app: FastifyInstance): void {
   app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
     const url = request.url;
 
-    // AGENTOPIA_NO_AUTH=true: skip all authentication
-    if (process.env.AGENTOPIA_NO_AUTH === 'true') {
+    // HAICO_NO_AUTH=true: skip all authentication
+    if (process.env.HAICO_NO_AUTH === 'true') {
       return;
     }
 

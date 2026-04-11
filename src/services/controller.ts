@@ -254,10 +254,10 @@ ${workers.map((a: any) => {
 **步骤 1 — 分析并回复：** 先在该 issue 下添加一条评论，说明你理解的问题以及大致的解决计划（例如：将拆分为哪些子任务、分配给哪些 agent）。这条评论让用户知道他们的 issue 已被接收并正在处理。
 
 **步骤 2 — 创建子任务：** 根据需求类型创建子 issue（设置 \`parent_id\` 指向用户 issue），并分配给对应 agent：
-- 代码开发/Bug修复 → 分配给开发 agent（agentopia-developer）
-- 产品需求分析 → 分配给产品 agent（agentopia-product）
-- 测试验证 → 分配给测试 agent（agentopia-tester）
-- 需要调研/分析 → 分配给助手 agent（agentopia-assistant）
+- 代码开发/Bug修复 → 分配给开发 agent（haico-developer）
+- 产品需求分析 → 分配给产品 agent（haico-product）
+- 测试验证 → 分配给测试 agent（haico-tester）
+- 需要调研/分析 → 分配给助手 agent（haico-assistant）
 然后将用户 issue 状态设为 \`pending\`。
 
 **步骤 3 — 测试验证：** 当开发类子任务完成后，检查该父 issue 下是否已存在测试验证子 issue。如果没有，**必须**创建一个测试验证子 issue（设 \`parent_id\` 指向父 issue），分配给测试 agent，验证开发成果。**不要在没有测试验证的情况下直接关闭父 issue。**

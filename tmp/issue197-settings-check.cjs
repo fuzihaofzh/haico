@@ -83,12 +83,12 @@ async function main() {
   assert(await visible('[data-command-profiles-root]'), 'Command Profiles 区域未显示');
 
   console.log('STEP theme toggle');
-  const originalTheme = await page.evaluate(() => localStorage.getItem('agentopia-theme'));
+  const originalTheme = await page.evaluate(() => localStorage.getItem('haico-theme'));
   const nextTheme = originalTheme === 'dracula' ? 'solarized-light' : 'dracula';
   await page.selectOption('#theme-select', nextTheme);
-  await page.waitForFunction((theme) => localStorage.getItem('agentopia-theme') === theme, nextTheme);
+  await page.waitForFunction((theme) => localStorage.getItem('haico-theme') === theme, nextTheme);
   const appliedTheme = await page.evaluate(() => ({
-    stored: localStorage.getItem('agentopia-theme'),
+    stored: localStorage.getItem('haico-theme'),
     selected: document.getElementById('theme-select').value,
   }));
   assert(appliedTheme.stored === nextTheme, 'Theme localStorage 未更新');
@@ -96,14 +96,14 @@ async function main() {
 
   console.log('STEP notification sound toggle');
   const soundBefore = await page.evaluate(() => ({
-    value: localStorage.getItem('agentopia-notification-sound'),
+    value: localStorage.getItem('haico-notification-sound'),
     on: document.querySelector('.notif-sound-toggle').classList.contains('on'),
   }));
   await page.click('.notif-sound-toggle');
   await page.waitForFunction(
     (prevValue, prevOn) => {
       const el = document.querySelector('.notif-sound-toggle');
-      return localStorage.getItem('agentopia-notification-sound') !== prevValue
+      return localStorage.getItem('haico-notification-sound') !== prevValue
         || el.classList.contains('on') !== prevOn;
     },
     soundBefore.value,

@@ -9,7 +9,7 @@ async function main() {
     logger: true,
   });
 
-  logger.info(`Agentopia server running at http://${config.host}:${config.port} (pid: ${process.pid})`);
+  logger.info(`HAICO server running at http://${config.host}:${config.port} (pid: ${process.pid})`);
 
   let shuttingDown = false;
   const shutdown = (signal: string) => {
@@ -41,7 +41,7 @@ process.on('beforeExit', (code) => {
 
 process.on('exit', (code) => {
   // This is synchronous-only — last chance to log
-  console.error(`[Agentopia] process.exit with code=${code} pid=${process.pid} at ${new Date().toISOString()}`);
+  console.error(`[HAICO] process.exit with code=${code} pid=${process.pid} at ${new Date().toISOString()}`);
 });
 
 main().catch((err) => {

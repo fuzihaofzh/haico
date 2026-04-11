@@ -5,10 +5,10 @@ function normalizeOrchestratorEngine(value: string | undefined): 'native' | 'lan
 }
 
 export const config = {
-  port: parseInt(process.env.AGENTOPIA_PORT || '4567', 10),
-  host: process.env.AGENTOPIA_HOST || '0.0.0.0',
-  dbPath: process.env.AGENTOPIA_DB_PATH || path.join(process.cwd(), 'agentopia.db'),
+  port: parseInt(process.env.HAICO_PORT || '4567', 10),
+  host: process.env.HAICO_HOST || '0.0.0.0',
+  dbPath: process.env.HAICO_DB_PATH || path.join(process.cwd(), 'haico.db'),
   defaultCommandTemplate: 'cld',
-  defaultOrchestratorEngine: normalizeOrchestratorEngine(process.env.AGENTOPIA_ORCHESTRATOR_ENGINE),
+  defaultOrchestratorEngine: normalizeOrchestratorEngine(process.env.HAICO_ORCHESTRATOR_ENGINE),
   logRetentionDays: 30,
 };

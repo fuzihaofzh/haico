@@ -6,13 +6,13 @@ async function initUserMenu() {
   try {
     const res = await fetch('/api/auth/me', { cache: 'no-cache' });
     if (!res.ok) {
-      console.warn('[Agentopia] initUserMenu: /api/auth/me returned', res.status, '— avatar will not show');
+      console.warn('[HAICO] initUserMenu: /api/auth/me returned', res.status, '— avatar will not show');
       return;
     }
     _currentUser = await res.json();
-    window.dispatchEvent(new CustomEvent('agentopia:user-ready', { detail: _currentUser }));
+    window.dispatchEvent(new CustomEvent('haico:user-ready', { detail: _currentUser }));
   } catch (e) {
-    console.warn('[Agentopia] initUserMenu: fetch failed —', e.message || e);
+    console.warn('[HAICO] initUserMenu: fetch failed —', e.message || e);
     return;
   }
 
@@ -441,7 +441,7 @@ const themes = {
 
 function applyTheme(name) {
   // Backward compat: 'nord' was renamed to 'nord-dark'
-  if (name === 'nord') { name = 'nord-dark'; localStorage.setItem('agentopia-theme', name); }
+  if (name === 'nord') { name = 'nord-dark'; localStorage.setItem('haico-theme', name); }
   const t = themes[name] || themes['github-dark'];
   const r = document.documentElement;
   r.style.setProperty('--bg', t.bg);
@@ -458,7 +458,7 @@ function applyTheme(name) {
 }
 
 function changeTheme(name) {
-  localStorage.setItem('agentopia-theme', name);
+  localStorage.setItem('haico-theme', name);
   applyTheme(name);
 }
 
@@ -556,7 +556,7 @@ function _playDingSound(ctx) {
 
 function playNotificationSound() {
   // Check setting
-  if (localStorage.getItem('agentopia-notification-sound') === 'off') return;
+  if (localStorage.getItem('haico-notification-sound') === 'off') return;
 
   // Throttle: no more than once per 5 seconds
   var now = Date.now();
@@ -583,9 +583,9 @@ function playNotificationSound() {
 }
 
 function toggleNotificationSound() {
-  const current = localStorage.getItem('agentopia-notification-sound') !== 'off';
+  const current = localStorage.getItem('haico-notification-sound') !== 'off';
   const newVal = current ? 'off' : 'on';
-  localStorage.setItem('agentopia-notification-sound', newVal);
+  localStorage.setItem('haico-notification-sound', newVal);
   // Update all toggles on the page
   document.querySelectorAll('.notif-sound-toggle').forEach(function(el) {
     el.classList.toggle('on', newVal === 'on');
@@ -594,7 +594,7 @@ function toggleNotificationSound() {
 
 // Init notification sound toggles on page load
 document.addEventListener('DOMContentLoaded', function() {
-  const isOn = localStorage.getItem('agentopia-notification-sound') !== 'off';
+  const isOn = localStorage.getItem('haico-notification-sound') !== 'off';
   document.querySelectorAll('.notif-sound-toggle').forEach(function(el) {
     el.classList.toggle('on', isOn);
   });
@@ -602,7 +602,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Init theme
 (function() {
-  const saved = localStorage.getItem('agentopia-theme') || 'solarized-light';
+  const saved = localStorage.getItem('haico-theme') || 'solarized-light';
   applyTheme(saved);
   const sel = document.getElementById('theme-select');
   if (sel) sel.value = saved;

@@ -6,6 +6,7 @@ import { getDatabase } from '../db/database';
 import logger from '../logger';
 import { startAgentProcess } from './process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
+import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
 import { buildSystemPrompt } from './system-prompt';
 import { listDispatchableIssuesForAgent, listOrchestrationIssues } from './issue-dispatch';
 
@@ -424,6 +425,11 @@ const controllerGraph = new StateGraph(ControllerGraphState)
         continue;
       }
       if (worker.status === 'running') continue;
+      if (worker.status === 'waiting') {
+        idleReasons.push('worker ' + worker.name + ' is waiting for retry/backoff');
+        continue;
+      }
+      if (worker.status !== 'idle') continue;
       if (assignedIssues.length === 0) continue;
 
       const hint = hintsByAgent.get(worker.id);
@@ -579,9 +585,23 @@ const controllerGraph = new StateGraph(ControllerGraphState)
       const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agent, state.project);
 
       try {
+        const wakeDecision = getAgentWakeupDecision(agent, assignedIssues, { source: 'langgraph' });
+        if (!wakeDecision.allowed) {
+          results.push({
+            agentId: action.agentId,
+            started: false,
+            message: wakeDecision.reason,
+          });
+          continue;
+        }
+
         const process = startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
         const issueBatch = getAgentIssueBatch(assignedIssues);
         markCurrentBatchInProgress(db, issueBatch);
+        const recordedWakeup = buildAgentWakeupSignature(
+          listDispatchableIssuesForAgent(db, state.project.id, agent.id)
+        );
+        recordAgentWakeup(agent.id, recordedWakeup.signature, 'langgraph', recordedWakeup.activityKey);
 
         logger.info(
           'LangGraph dispatched worker agent (project=' + state.project.id + ', agent=' + agent.id + ', issues=' + issueBatch.currentBatch.length + '/' + issueBatch.activeIssues.length + ', runId=' + process.runId + ')'

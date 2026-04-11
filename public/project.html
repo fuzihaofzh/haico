@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agentopia - Project</title>
+  <title>HAICO - Project</title>
   <link rel="stylesheet" href="/public/css/style.css?v=6">
   <link rel="stylesheet" href="/public/css/issues.css">
   <link rel="stylesheet" href="/public/css/codicon.css">
@@ -11,7 +11,7 @@
 <body class="project-shell">
   <!-- Outlook-style Sidebar -->
   <nav class="vertical-sidebar" aria-label="Dashboard navigation">
-    <a href="/" class="sidebar-logo" aria-label="Agentopia Dashboard">A</a>
+    <a href="/" class="sidebar-logo" aria-label="HAICO Dashboard">H</a>
     <button type="button" class="sidebar-nav-item" data-sidebar-view="inbox" onclick="navigateProjectSidebar('inbox')" aria-label="Inbox">
       <span class="sidebar-nav-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none">
@@ -50,7 +50,7 @@
   <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
   <div class="drawer" id="drawer">
     <div class="drawer-header">
-      <h3><span style="color:var(--accent)">Agentopia</span></h3>
+      <h3><span style="color:var(--accent)">HAICO</span></h3>
       <button class="drawer-close" onclick="closeDrawer()">&times;</button>
     </div>
     <div class="drawer-content">
@@ -95,7 +95,7 @@
     <button class="menu-btn" onclick="toggleDrawer()">
       <span></span><span></span><span></span>
     </button>
-    <h1><a href="/" style="color:var(--accent);text-decoration:none">Agentopia</a></h1>
+    <h1><a href="/" style="color:var(--accent);text-decoration:none">HAICO</a></h1>
     <div class="breadcrumb" style="margin-left:12px">
       <a href="/">Projects</a> / <a id="project-name" href="#" onclick="switchTab('overview');return false" style="color:var(--link);text-decoration:none">Loading...</a><span id="breadcrumb-section"></span>
     </div>
@@ -117,6 +117,7 @@
           <span class="meta-chip" id="project-access-summary"></span>
           <span class="meta-chip" id="project-owner-summary"></span>
           <button class="btn btn-sm" id="btn-view-members" onclick="openProjectMembersModal(false)">Members</button>
+          <a class="btn btn-sm" id="btn-open-ops-console" href="#" style="display:none;text-decoration:none">Operations Console</a>
           <button class="btn btn-sm btn-primary" id="btn-share-project" onclick="openProjectMembersModal(true)" style="display:none">Share Settings</button>
         </div>
         <div class="project-inline-note" id="project-debug-note" style="display:none"></div>
@@ -281,6 +282,7 @@
     <!-- Workflow Tab -->
     <div id="tab-workflow" style="display:none">
       <div style="display:grid;grid-template-columns:1fr;gap:16px">
+        <div id="treasury-workflow-layer"></div>
         <!-- Workflow Graph -->
         <div id="workflow-graph-container" class="card" style="padding:16px">
           <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">Real-time Workflow</div>
@@ -519,6 +521,7 @@
   <script src="/public/js/command-profiles.js?v=3"></script>
   <script src="/public/vendor/marked.js"></script>
   <script src="/public/js/files-panel.js"></script>
+  <script src="/public/js/treasury-workflow.js?v=1"></script>
   <script src="/public/js/project.js?v=2"></script>
 </body>
 </html>

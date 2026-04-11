@@ -183,7 +183,7 @@ async function loadAgentInfo() {
     document.getElementById('agent-name').textContent = agent.name;
     document.getElementById('agent-link').textContent = agent.name;
     document.getElementById('agent-link').href = `/agents/${agentId}`;
-    document.title = `Agentopia - ${agent.name} Terminal`;
+    document.title = `HAICO - ${agent.name} Terminal`;
 
     // Load project info
     const pres = await fetch(`/api/projects/${agent.project_id}`, { headers: apiHeaders() });

@@ -19,6 +19,10 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('project.html'));
   });
 
+  fastify.get('/projects/:id/operations-console', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('operations-console.html'));
+  });
+
   fastify.get('/agents/:id', async (_request, reply) => {
     return reply.type('text/html').send(serveHtml('agent.html'));
   });

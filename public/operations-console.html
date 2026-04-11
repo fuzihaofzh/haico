@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HAICO - Operations Console</title>
+  <link rel="stylesheet" href="/public/css/style.css?v=6">
+  <link rel="stylesheet" href="/public/css/operations-console.css?v=1">
+</head>
+<body class="project-shell ops-console-body">
+  <nav class="vertical-sidebar" aria-label="Operations navigation">
+    <a href="/" class="sidebar-logo" aria-label="HAICO Dashboard">H</a>
+    <button type="button" class="sidebar-nav-item" onclick="window.location.href='/'" aria-label="Projects">
+      <span class="sidebar-nav-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M2.25 12.75V12C2.25 10.7574 3.25736 9.75 4.5 9.75H19.5C20.7426 9.75 21.75 10.7574 21.75 12V12.75M13.0607 6.31066L10.9393 4.18934C10.658 3.90804 10.2765 3.75 9.87868 3.75H4.5C3.25736 3.75 2.25 4.75736 2.25 6V18C2.25 19.2426 3.25736 20.25 4.5 20.25H19.5C20.7426 20.25 21.75 19.2426 21.75 18V9C21.75 7.75736 20.7426 6.75 19.5 6.75H14.1213C13.7235 6.75 13.342 6.59197 13.0607 6.31066Z" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="sidebar-nav-label">Projects</span>
+    </button>
+    <button type="button" class="sidebar-nav-item active" aria-label="Operations Console">
+      <span class="sidebar-nav-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M3.75 6.75C3.75 5.50736 4.75736 4.5 6 4.5H18C19.2426 4.5 20.25 5.50736 20.25 6.75V17.25C20.25 18.4926 19.2426 19.5 18 19.5H6C4.75736 19.5 3.75 18.4926 3.75 17.25V6.75Z" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M7.5 9.75H16.5M7.5 14.25H12.75M15.75 14.25H16.5" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="sidebar-nav-label">Ops</span>
+    </button>
+  </nav>
+
+  <header>
+    <h1><a href="/" style="color:var(--accent);text-decoration:none">HAICO</a></h1>
+    <div class="breadcrumb ops-breadcrumb">
+      <a href="/">Projects</a>
+      <span>/</span>
+      <a id="ops-project-link" href="#">Project</a>
+      <span>/</span>
+      <span class="ops-breadcrumb-current">Operations Console</span>
+    </div>
+    <div class="header-right ops-header-right">
+      <span id="ops-connection" class="ops-connection-badge">Live sync</span>
+      <span id="ops-clock" class="ops-clock">--:--:-- UTC</span>
+    </div>
+  </header>
+
+  <main class="ops-console">
+    <section class="ops-hero card">
+      <div class="ops-hero-copy">
+        <div class="ops-eyebrow">Atlas Freight Command</div>
+        <h2 id="ops-project-title">Operations Console</h2>
+        <p class="ops-hero-text">
+          A shared operating surface for route planners, dispatchers, and customer updates.
+          Weather risk, ETA drift, reroute readiness, and outbound messaging stay synchronized from one source of truth.
+        </p>
+      </div>
+      <div class="ops-summary-grid" id="ops-summary-grid"></div>
+    </section>
+
+    <section class="ops-layout">
+      <aside class="ops-panel lane-panel card">
+        <div class="panel-heading">
+          <div>
+            <div class="panel-eyebrow">Lane Watch</div>
+            <h3>Weather-driven reroute board</h3>
+          </div>
+          <div class="lane-filter-group">
+            <button type="button" class="lane-filter active" data-filter="all">All</button>
+            <button type="button" class="lane-filter" data-filter="critical">Critical</button>
+            <button type="button" class="lane-filter" data-filter="watch">Watch</button>
+          </div>
+        </div>
+        <div class="lane-list" id="lane-list"></div>
+      </aside>
+
+      <section class="ops-panel detail-panel card" id="detail-panel">
+        <div class="detail-empty" id="detail-empty">Select a lane to inspect live risk and ETA sync details.</div>
+        <div id="lane-detail" style="display:none"></div>
+      </section>
+
+      <aside class="ops-rail">
+        <section class="ops-panel rail-panel card">
+          <div class="panel-heading">
+            <div>
+              <div class="panel-eyebrow">Dispatch Sync</div>
+              <h3>Dispatch timeline</h3>
+            </div>
+            <span class="panel-meta" id="dispatch-sync-status">Awaiting selection</span>
+          </div>
+          <div class="timeline-list" id="dispatch-timeline"></div>
+        </section>
+
+        <section class="ops-panel rail-panel card customer-panel">
+          <div class="panel-heading">
+            <div>
+              <div class="panel-eyebrow">Customer Feed</div>
+              <h3>Outbound update stream</h3>
+            </div>
+            <span class="panel-meta" id="customer-sync-status">No lane selected</span>
+          </div>
+          <div class="customer-feed" id="customer-feed"></div>
+        </section>
+      </aside>
+    </section>
+  </main>
+
+  <script src="/public/js/operations-console.js?v=1"></script>
+</body>
+</html>

@@ -16,9 +16,11 @@ import { registerMessageRoutes } from './routes/messages';
 import { registerCommandProfileRoutes } from './routes/command-profiles';
 import { registerTemplateRoutes } from './routes/templates';
 import { registerApprovalRoutes } from './routes/approvals';
+import { registerExecutiveSummaryRoutes } from './routes/executive-summaries';
 import { setupWebSocket } from './services/websocket';
 import { initializeScheduler } from './services/scheduler';
 import { setOnAgentFinish, stopAllProcesses } from './services/process-manager';
+import { autoStartAgentForDispatchableIssues } from './services/assigned-issue-autostart';
 import { enqueueControllerTrigger, clearCoalescingTimers } from './services/controller';
 import { stopAllSchedulers } from './services/scheduler';
 import { killAllPtySessions } from './services/terminal';
@@ -59,6 +61,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   registerCommandProfileRoutes(fastify);
   registerTemplateRoutes(fastify);
   registerApprovalRoutes(fastify);
+  registerExecutiveSummaryRoutes(fastify);
   registerUIRoutes(fastify);
   setupWebSocket(fastify);
 
@@ -71,6 +74,27 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
       if (!project || project.status !== 'active') return;
 
       if (!agent.is_controller) {
+        if (!agent.paused && agent.status === 'idle') {
+          const restartResult = autoStartAgentForDispatchableIssues(db, project, agent, {
+            source: 'agent-finish',
+            allowStatuses: ['idle'],
+          });
+
+          if (restartResult.started) {
+            fastify.log.info(
+              `Worker "${agent.name}" finished and was immediately restarted for ${restartResult.currentBatchIssueNumbers.length}/${restartResult.activeIssueCount} dispatchable issue(s)`
+            );
+            return;
+          }
+
+          if (restartResult.activeIssueCount > 0) {
+            fastify.log.info(
+              `Worker "${agent.name}" finished with ${restartResult.activeIssueCount} dispatchable issue(s), but immediate restart was suppressed: ${restartResult.reason}`
+            );
+            return;
+          }
+        }
+
         // Worker finished — enqueue a normal-priority controller trigger.
         // The coalescing system will batch this with other events and the
         // necessity check in triggerControllerAgent will skip if there's nothing to do.
@@ -91,12 +115,12 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   await fastify.listen({ port, host });
 
   // If port 0 was requested, the OS assigned a random port. Update config.port
-  // and process.env.AGENTOPIA_PORT so that system prompts and spawned agents get
+  // and process.env.HAICO_PORT so that system prompts and spawned agents get
   // the real port.
   const addr = fastify.server.address();
   if (addr && typeof addr === 'object' && addr.port) {
     config.port = addr.port;
-    process.env.AGENTOPIA_PORT = String(addr.port);
+    process.env.HAICO_PORT = String(addr.port);
   }
 
   return fastify;

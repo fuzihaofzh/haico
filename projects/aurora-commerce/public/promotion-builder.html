@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aurora Promotion Builder</title>
+    <link rel="stylesheet" href="/ops/promotion-builder.css" />
+    <script defer src="/ops/promotion-builder.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Aurora Commerce Cloud</p>
+          <h1>Adaptive Promotion Builder</h1>
+          <p class="hero-copy">
+            Tune campaign mechanics, checkout guardrails, and fulfillment posture from one operator view built for
+            weekly launch cycles.
+          </p>
+        </div>
+        <div class="hero-status">
+          <span class="status-pill">Catalog Aligned</span>
+          <span class="status-pill">Checkout Ready</span>
+          <span class="status-pill">Fulfillment Aware</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="builder-pane">
+          <div class="section-card">
+            <div class="section-heading">
+              <p class="section-kicker">Campaign Lens</p>
+              <h2>Set launch intent</h2>
+            </div>
+            <div id="objective-options" class="choice-grid"></div>
+          </div>
+
+          <div class="section-card">
+            <div class="section-heading">
+              <p class="section-kicker">Offer Mechanics</p>
+              <h2>Shape conversion and margin</h2>
+            </div>
+            <div class="field-grid">
+              <label class="field">
+                <span>Mechanic</span>
+                <select id="mechanic"></select>
+              </label>
+              <label class="field">
+                <span>Headline discount</span>
+                <strong id="discountPercent-value"></strong>
+                <input id="discountPercent" type="range" min="5" max="35" step="1" />
+              </label>
+              <label class="field">
+                <span>Spend threshold</span>
+                <strong id="thresholdAmount-value"></strong>
+                <input id="thresholdAmount" type="range" min="60" max="220" step="5" />
+              </label>
+              <label class="field">
+                <span>Media budget</span>
+                <strong id="budgetK-value"></strong>
+                <input id="budgetK" type="range" min="20" max="220" step="5" />
+              </label>
+            </div>
+          </div>
+
+          <div class="section-card">
+            <div class="section-heading">
+              <p class="section-kicker">Operational Guardrails</p>
+              <h2>Protect weekly launch cadence</h2>
+            </div>
+            <div class="field-grid">
+              <label class="field">
+                <span>Protected inventory buffer</span>
+                <strong id="inventoryBufferPercent-value"></strong>
+                <input id="inventoryBufferPercent" type="range" min="8" max="30" step="1" />
+              </label>
+              <label class="field">
+                <span>VIP preview window</span>
+                <strong id="vipWindowHours-value"></strong>
+                <input id="vipWindowHours" type="range" min="0" max="36" step="1" />
+              </label>
+            </div>
+            <div class="toggle-grid">
+              <label class="toggle">
+                <input id="stackable" type="checkbox" />
+                <span>Allow stackable pricing</span>
+              </label>
+              <label class="toggle">
+                <input id="autoApply" type="checkbox" />
+                <span>Auto-apply discount at checkout</span>
+              </label>
+              <label class="toggle">
+                <input id="giftWithPurchase" type="checkbox" />
+                <span>Include gift-with-purchase</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="section-card">
+            <div class="section-heading">
+              <p class="section-kicker">Execution Routing</p>
+              <h2>Match channels and fulfillment</h2>
+            </div>
+            <div class="subsection">
+              <h3>Channel preset</h3>
+              <div id="channel-options" class="choice-grid compact"></div>
+            </div>
+            <div class="subsection">
+              <h3>Fulfillment preset</h3>
+              <div id="fulfillment-options" class="choice-grid compact"></div>
+            </div>
+            <div class="subsection">
+              <h3>Launch day</h3>
+              <div id="launch-day-options" class="segmented-control"></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="preview-pane">
+          <div class="preview-header">
+            <p class="section-kicker">Live Preview</p>
+            <h2>Launch brief and operating envelope</h2>
+            <p id="preview-status" class="preview-status">Syncing scenario…</p>
+          </div>
+
+          <div id="metric-cards" class="metric-grid"></div>
+          <div id="ops-panels" class="panel-grid"></div>
+
+          <div class="section-card preview-card">
+            <div class="section-heading">
+              <p class="section-kicker">Launch Brief</p>
+              <h2 id="launch-brief-title">Preparing scenario…</h2>
+            </div>
+            <p id="launch-brief-summary" class="brief-summary"></p>
+            <ul id="launch-brief-timeline" class="brief-timeline"></ul>
+          </div>
+
+          <div class="dual-grid">
+            <div class="section-card preview-card">
+              <div class="section-heading">
+                <p class="section-kicker">Acceptance</p>
+                <h2>Ready-to-ship checks</h2>
+              </div>
+              <ul id="acceptance-list" class="status-list"></ul>
+            </div>
+
+            <div class="section-card preview-card">
+              <div class="section-heading">
+                <p class="section-kicker">Guardrails</p>
+                <h2>Where operators should watch</h2>
+              </div>
+              <ul id="guardrail-list" class="status-list"></ul>
+            </div>
+          </div>
+
+          <div class="section-card preview-card">
+            <div class="section-heading">
+              <p class="section-kicker">Recommendations</p>
+              <h2>Next best moves</h2>
+            </div>
+            <ul id="recommendation-list" class="recommendation-list"></ul>
+          </div>
+        </aside>
+      </main>
+    </div>
+  </body>
+</html>

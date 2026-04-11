@@ -116,6 +116,30 @@ function updateProjectCostSummary(cost) {
   costValue.textContent = '';
 }
 
+function projectHasOperationsConsole(project) {
+  if (!project) return false;
+  if (project.id === 'project-atlas') return true;
+  const haystack = `${project.name || ''} ${project.task_description || ''}`.toLowerCase();
+  return haystack.includes('atlas freight command')
+    || haystack.includes('route planners')
+    || haystack.includes('dispatchers')
+    || haystack.includes('customer updates');
+}
+
+function refreshOperationsConsoleEntry() {
+  const entry = document.getElementById('btn-open-ops-console');
+  if (!entry) return;
+
+  if (!projectHasOperationsConsole(projectData)) {
+    entry.style.display = 'none';
+    entry.removeAttribute('href');
+    return;
+  }
+
+  entry.href = `/projects/${encodeURIComponent(projectId)}/operations-console`;
+  entry.style.display = '';
+}
+
 const PROJECT_ACCESS_META = {
   owner: {
     badge: 'OWNER',
@@ -240,7 +264,7 @@ function syncParentAgentSelect(selectId, currentAgentId, selectedParentId, disab
 }
 
 function getCommandProfileManager() {
-  return window.AgentopiaCommandProfiles || null;
+  return window.HAICOCommandProfiles || null;
 }
 
 async function populateCommandProfileSelect(select, options) {
@@ -543,7 +567,7 @@ async function refreshVisibleAgentCommandProfileControls() {
   }
 }
 
-window.addEventListener('agentopia:command-profiles-changed', () => {
+window.addEventListener('haico:command-profiles-changed', () => {
   refreshProjectCommandProfileControls().catch((error) => {
     console.error('Failed to refresh project command profile controls', error);
   });
@@ -806,8 +830,9 @@ async function loadProject(options) {
   document.getElementById('project-title').textContent = projectData.name;
   document.getElementById('project-status').textContent = projectData.status;
   document.getElementById('project-status').className = `status-badge status-${projectData.status}`;
-  document.title = `Agentopia - ${projectData.name}`;
+  document.title = `HAICO - ${projectData.name}`;
   renderProjectAccessSummary();
+  refreshOperationsConsoleEntry();
   applyProjectManageState();
 
   // Editable fields (only set on first load to avoid overwriting user edits)
@@ -1082,7 +1107,7 @@ async function loadAgents(options) {
       const key = a.id + ':' + (a.finished_at || '');
       if (!window._notifiedErrors.has(key)) {
         window._notifiedErrors.add(key);
-        new Notification('Agentopia: Agent Error', { body: `${a.name} failed. ${(errorLogs[a.id] || '').slice(0, 100)}`, tag: 'agentopia-error-' + a.id });
+        new Notification('HAICO: Agent Error', { body: `${a.name} failed. ${(errorLogs[a.id] || '').slice(0, 100)}`, tag: 'haico-error-' + a.id });
       }
     }
   }
@@ -2086,8 +2111,8 @@ function switchTab(tab) {
 }
 
 function ensureProjectFilesPanel() {
-  if (projectFilesPanel || !window.AgentopiaFilesPanel) return;
-  projectFilesPanel = window.AgentopiaFilesPanel.create({
+  if (projectFilesPanel || !window.HAICOFilesPanel) return;
+  projectFilesPanel = window.HAICOFilesPanel.create({
     publicApiName: 'ProjectFiles',
     shellId: 'project-files-shell',
     treeId: 'project-file-tree',
@@ -2902,9 +2927,11 @@ async function deleteKnowledge(id) {
 // ─── Workflow Tab (#615) ───
 
 let _workflowData = null;
+let _workflowApprovalsData = [];
 
 async function loadWorkflowTab() {
-  await Promise.all([loadWorkflowGraph(), loadWorkflowActivity(), loadWorkflowApprovals()]);
+  await Promise.all([loadWorkflowGraph(), loadWorkflowApprovals()]);
+  await Promise.all([loadTreasuryWorkflowLayer(), loadWorkflowActivity()]);
 }
 
 async function loadWorkflowGraph() {
@@ -2917,6 +2944,31 @@ async function loadWorkflowGraph() {
     renderWorkflowGraph(container, _workflowData);
   } catch (e) {
     container.innerHTML = '<div class="empty-state">Failed to load workflow status.</div>';
+  }
+}
+
+async function loadTreasuryWorkflowLayer() {
+  var container = document.getElementById('treasury-workflow-layer');
+  if (!container) return;
+  if (!window.HAICOTreasuryWorkflow || typeof window.HAICOTreasuryWorkflow.render !== 'function') {
+    container.innerHTML = '<div class="empty-state">Treasury workflow layer unavailable.</div>';
+    return;
+  }
+
+  try {
+    if (!_workflowData) {
+      await loadWorkflowGraph();
+    }
+    const activeIssues = await getProjectActiveIssues({ force: true });
+    const model = window.HAICOTreasuryWorkflow.buildModel({
+      project: projectData,
+      workflow: _workflowData,
+      approvals: _workflowApprovalsData,
+      activeIssues: activeIssues,
+    });
+    container.innerHTML = window.HAICOTreasuryWorkflow.render(model);
+  } catch (e) {
+    container.innerHTML = '<div class="empty-state">Failed to load treasury workflow layer.</div>';
   }
 }
 
@@ -3135,6 +3187,7 @@ async function loadWorkflowApprovals() {
     var res = await fetch('/api/projects/' + projectId + '/approvals?status=pending', { headers: apiHeaders() });
     if (!res.ok) throw new Error('failed');
     var approvals = await res.json();
+    _workflowApprovalsData = Array.isArray(approvals) ? approvals : [];
 
     if (approvals.length === 0) {
       panel.style.display = 'none';
@@ -3160,6 +3213,7 @@ async function loadWorkflowApprovals() {
       '</div>';
     }).join('');
   } catch (e) {
+    _workflowApprovalsData = [];
     panel.style.display = 'none';
   }
 }
@@ -3201,7 +3255,7 @@ async function loadProjectBootstrap(options) {
 }
 
 loadProjectBootstrap({ force: true });
-window.addEventListener('agentopia:user-ready', () => { renderProjectAccessSummary(); });
+window.addEventListener('haico:user-ready', () => { renderProjectAccessSummary(); });
 
 // Slow fallback polling (WS handles real-time)
 setInterval(() => { loadAgents({ force: true }); }, 30000);
@@ -3233,16 +3287,23 @@ _projectEvents.on('comment_added', function() {
 
 _projectEvents.on('approval_created', function() {
   loadWorkflowApprovals();
+  if (document.getElementById('tab-workflow') && document.getElementById('tab-workflow').style.display !== 'none') {
+    loadTreasuryWorkflowLayer();
+  }
 });
 
 _projectEvents.on('approval_decided', function() {
   loadWorkflowApprovals();
+  if (document.getElementById('tab-workflow') && document.getElementById('tab-workflow').style.display !== 'none') {
+    loadTreasuryWorkflowLayer();
+  }
 });
 
 // Auto-refresh workflow tab on relevant events
 _projectEvents.on('agent_status', function() {
   if (document.getElementById('tab-workflow') && document.getElementById('tab-workflow').style.display !== 'none') {
     loadWorkflowGraph();
+    loadTreasuryWorkflowLayer();
   }
 });
 
@@ -3250,6 +3311,7 @@ _projectEvents.on('issue_created', function() {
   if (document.getElementById('tab-workflow') && document.getElementById('tab-workflow').style.display !== 'none') {
     loadWorkflowGraph();
     loadWorkflowActivity();
+    loadTreasuryWorkflowLayer();
   }
 });
 
@@ -3257,6 +3319,7 @@ _projectEvents.on('issue_updated', function() {
   if (document.getElementById('tab-workflow') && document.getElementById('tab-workflow').style.display !== 'none') {
     loadWorkflowGraph();
     loadWorkflowActivity();
+    loadTreasuryWorkflowLayer();
   }
 });
 

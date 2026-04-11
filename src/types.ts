@@ -136,6 +136,55 @@ export interface ApprovalRequest {
   created_at: string;
 }
 
+export interface PaymentApprovalRequest {
+  id: string;
+  project_id: string;
+  issue_id: string | null;
+  requested_by: string;
+  title: string;
+  description: string;
+  amount: number;
+  currency: string;
+  beneficiary: string;
+  risk_level: 'low' | 'medium' | 'high' | 'critical';
+  required_approvals: number;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface PaymentApprovalDecision {
+  id: string;
+  payment_approval_id: string;
+  decided_by: string;
+  decision: 'approve' | 'reject';
+  note: string;
+  created_at: string;
+}
+
+export type ExecutiveSummaryStatus = 'draft' | 'final' | 'archived';
+
+export interface ExecutiveSummaryBlock {
+  id: string;
+  key: string;
+  title: string;
+  content: string;
+  order_index: number;
+}
+
+export interface ExecutiveSummary {
+  id: string;
+  project_id: string;
+  title: string;
+  period_start: string;
+  period_end: string;
+  status: ExecutiveSummaryStatus;
+  created_by: string;
+  blocks: ExecutiveSummaryBlock[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface User {
   id: string;
   username: string;

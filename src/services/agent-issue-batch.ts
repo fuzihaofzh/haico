@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { v4 as uuidv4 } from 'uuid';
 import { Issue } from '../types';
 
 export const MAX_ASSIGNED_ISSUES_PER_RUN = 2;
@@ -45,7 +46,7 @@ export function buildAssignedIssuesPrompt(
   const currentLabel = options?.currentLabel ?? `Current batch (${batch.currentBatch.length}/${batch.activeIssues.length} assigned issue(s))`;
   const queuedLabel = options?.queuedLabel ?? `Queued for later (${batch.queuedIssues.length} more assigned issue(s))`;
   const stopInstruction = options?.stopInstruction
-    ?? 'Only work on the current batch in this run. When the current batch is complete, stop; Agentopia will restart you for the next batch if more assigned issues remain.';
+    ?? 'Only work on the current batch in this run. When the current batch is complete, stop; HAICO will restart you for the next batch if more assigned issues remain.';
 
   const parts: string[] = [];
   parts.push(currentLabel + ':\n' + batch.currentBatch.map((issue) => formatCurrentIssue(issue, bodyCharLimit)).join('\n'));
@@ -65,9 +66,9 @@ export function buildAssignedIssuesPrompt(
 }
 
 export function markCurrentBatchInProgress(db: Database.Database, batch: AgentIssueBatch): void {
-  const resumableIds = batch.currentBatch
-    .filter((issue) => issue.status === 'open' || issue.status === 'pending')
-    .map((issue) => issue.id);
+  const resumableIssues = batch.currentBatch
+    .filter((issue) => issue.status === 'open' || issue.status === 'pending');
+  const resumableIds = resumableIssues.map((issue) => issue.id);
 
   if (resumableIds.length === 0) return;
 
@@ -77,4 +78,18 @@ export function markCurrentBatchInProgress(db: Database.Database, batch: AgentIs
      SET status = 'in_progress', updated_at = datetime('now')
      WHERE id IN (${placeholders}) AND status IN ('open', 'pending')`
   ).run(...resumableIds);
+
+  const eventStmt = db.prepare(
+    'INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)'
+  );
+  for (const issue of resumableIssues) {
+    eventStmt.run(
+      uuidv4(),
+      issue.id,
+      'system',
+      `changed status from ${issue.status} to in_progress (agent started current batch)`,
+      'status_change',
+      JSON.stringify({ from: issue.status, to: 'in_progress', source: 'agent_batch_start' })
+    );
+  }
 }

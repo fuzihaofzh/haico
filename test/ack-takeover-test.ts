@@ -17,8 +17,8 @@ import path from 'path';
 import { FastifyInstance } from 'fastify';
 
 const TEST_DB = path.join(__dirname, 'ack-takeover-test.db');
-process.env.AGENTOPIA_DB_PATH = TEST_DB;
-process.env.AGENTOPIA_PORT = '0';
+process.env.HAICO_DB_PATH = TEST_DB;
+process.env.HAICO_PORT = '0';
 
 async function api(app: FastifyInstance, url: string, opts: { method?: string; body?: any } = {}) {
   const headers: Record<string, string> = {};

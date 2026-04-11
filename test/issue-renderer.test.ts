@@ -53,7 +53,7 @@ function loadIssueRenderer(): RendererApi {
 
 const renderer = loadIssueRenderer();
 renderer._ctx.issue = { project_id: 'project-1' };
-renderer._ctx.agents = [{ id: 'agent-1', name: 'agentopia-developer' }];
+renderer._ctx.agents = [{ id: 'agent-1', name: 'haico-developer' }];
 
 const emailHtml = renderer.renderMd('zihaofu@cuhk.edu.hk', 'user').trim();
 assert.equal(
@@ -71,19 +71,19 @@ assert.equal(
   'URL 中的 @ 字符不应触发 mention 高亮',
 );
 
-const mentionHtml = renderer.renderMd('@agentopia-developer hello', 'user').trim();
+const mentionHtml = renderer.renderMd('@haico-developer hello', 'user').trim();
 assert.ok(
-  mentionHtml.includes('<span style="color:#61afef;font-weight:500;background:#61afef18;padding:0 4px;border-radius:3px">@agentopia-developer</span>'),
+  mentionHtml.includes('<span style="color:#61afef;font-weight:500;background:#61afef18;padding:0 4px;border-radius:3px">@haico-developer</span>'),
   '真实 agent mention 仍应高亮',
 );
 
-const mixedHtml = renderer.renderMd('联系 zihaofu@cuhk.edu.hk 和 @agentopia-developer', 'user').trim();
+const mixedHtml = renderer.renderMd('联系 zihaofu@cuhk.edu.hk 和 @haico-developer', 'user').trim();
 assert.ok(
   mixedHtml.includes('<a href="mailto:zihaofu@cuhk.edu.hk">zihaofu@cuhk.edu.hk</a>'),
   '混合文本中的邮箱应保持完整 mailto 链接',
 );
 assert.ok(
-  mixedHtml.includes('<span style="color:#61afef;font-weight:500;background:#61afef18;padding:0 4px;border-radius:3px">@agentopia-developer</span>'),
+  mixedHtml.includes('<span style="color:#61afef;font-weight:500;background:#61afef18;padding:0 4px;border-radius:3px">@haico-developer</span>'),
   '混合文本中的真实 mention 仍应高亮',
 );
 assert.ok(!mixedHtml.includes('&quot;'), '混合文本渲染不应泄漏 HTML 转义字符');
@@ -107,16 +107,16 @@ assert.ok(
 assert.ok(!urlWithAt.includes('<span'), 'URL 中的 @ 不应产生 mention span');
 
 // 3. 真实 agent mention 应高亮
-const mentionOnly = renderer.renderMd('@agentopia-developer', 'user').trim();
+const mentionOnly = renderer.renderMd('@haico-developer', 'user').trim();
 assert.ok(
-  mentionOnly.includes('@agentopia-developer</span>'),
+  mentionOnly.includes('@haico-developer</span>'),
   '真实 agent mention 应被高亮',
 );
 
 // 4. 邮箱 + mention 混合在同一行
-const mixedLine = renderer.renderMd('联系 zihaofu@cuhk.edu.hk 和 @agentopia-developer', 'user').trim();
+const mixedLine = renderer.renderMd('联系 zihaofu@cuhk.edu.hk 和 @haico-developer', 'user').trim();
 assert.ok(mixedLine.includes('mailto:zihaofu@cuhk.edu.hk'), '混合行中邮箱应保持完整 mailto');
-assert.ok(mixedLine.includes('@agentopia-developer</span>'), '混合行中 mention 应高亮');
+assert.ok(mixedLine.includes('@haico-developer</span>'), '混合行中 mention 应高亮');
 assert.ok(!mixedLine.includes('&quot;'), '混合行不应泄漏转义字符');
 
 // 5. 完整 issue body 场景（#241 原始内容）
@@ -126,13 +126,13 @@ const issueBody = `测试邮箱地址：zihaofu@cuhk.edu.hk
 
 带URL：https://example.com/@alice
 
-真实mention：@agentopia-developer`;
+真实mention：@haico-developer`;
 const bodyHtml = renderer.renderMd(issueBody, 'user');
 assert.ok(!bodyHtml.includes('&quot;'), '#241 body: 不应泄漏 HTML 转义字符');
 assert.ok(bodyHtml.includes('mailto:zihaofu@cuhk.edu.hk'), '#241 body: 第一个邮箱应完整');
 assert.ok(bodyHtml.includes('mailto:test@example.com'), '#241 body: 第二个邮箱应完整');
 assert.ok(bodyHtml.includes('href="https://example.com/@alice"'), '#241 body: URL 中 @ 不应破坏链接');
-assert.ok(bodyHtml.includes('@agentopia-developer</span>'), '#241 body: 真实 mention 应高亮');
+assert.ok(bodyHtml.includes('@haico-developer</span>'), '#241 body: 真实 mention 应高亮');
 
 // 6. highlightMentionsInHtml 独立测试
 const { highlightMentionsInHtml } = (renderer as any)._test;
@@ -140,7 +140,7 @@ const { highlightMentionsInHtml } = (renderer as any)._test;
 // 6a. 邮箱在 <a> 标签内，@ 不应触发 mention
 const emailAnchorHtml = highlightMentionsInHtml(
   '<p><a href="mailto:zihaofu@cuhk.edu.hk">zihaofu@cuhk.edu.hk</a></p>',
-  ['agentopia-developer'],
+  ['haico-developer'],
 );
 assert.ok(!emailAnchorHtml.includes('<span'), '邮箱 <a> 内 @ 不应触发 mention');
 
@@ -153,29 +153,29 @@ assert.ok(!urlAnchorHtml.includes('<span'), 'URL <a> 内 @ 不应触发 mention'
 
 // 6c. <code> 标签内 @ 不应触发 mention
 const codeHtml = highlightMentionsInHtml(
-  '<p><code>@agentopia-developer</code></p>',
-  ['agentopia-developer'],
+  '<p><code>@haico-developer</code></p>',
+  ['haico-developer'],
 );
 assert.ok(!codeHtml.includes('<span'), '<code> 内 @ 不应触发 mention');
 
 // 6d. <pre> 标签内 @ 不应触发 mention
 const preHtml = highlightMentionsInHtml(
-  '<pre>@agentopia-developer</pre>',
-  ['agentopia-developer'],
+  '<pre>@haico-developer</pre>',
+  ['haico-developer'],
 );
 assert.ok(!preHtml.includes('<span'), '<pre> 内 @ 不应触发 mention');
 
 // 6e. 普通文本中真实 mention 应高亮
 const plainMention = highlightMentionsInHtml(
-  '<p>hello @agentopia-developer</p>',
-  ['agentopia-developer'],
+  '<p>hello @haico-developer</p>',
+  ['haico-developer'],
 );
 assert.ok(plainMention.includes('<span'), '普通文本 mention 应高亮');
 
 // 6f. 非代理名的 @ 不应高亮
 const nonAgentMention = highlightMentionsInHtml(
   '<p>hello @some-random-user</p>',
-  ['agentopia-developer'],
+  ['haico-developer'],
 );
 assert.ok(!nonAgentMention.includes('<span'), '非代理名 @ 不应高亮');
 

@@ -1,15 +1,21 @@
 {
-  "name": "agentopia",
-  "version": "1.5.0",
-  "description": "Multi-Agent Collaboration Platform",
+  "name": "haico",
+  "version": "1.5.1",
+  "description": "Human-Agent Interactive Collaboration Orchestrator (HAICO)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fuzihaofzh/agentopia.git"
+    "url": "https://github.com/fuzihaofzh/haico.git"
   },
-  "homepage": "https://github.com/fuzihaofzh/agentopia",
+  "homepage": "https://github.com/fuzihaofzh/haico",
   "license": "MIT",
+  "files": [
+    "bin/",
+    "dist/",
+    "public/",
+    "README.md"
+  ],
   "bin": {
-    "agentopia": "bin/agentopia.js"
+    "haico": "bin/haico.js"
   },
   "main": "dist/index.js",
   "scripts": {

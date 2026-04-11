@@ -20,7 +20,7 @@ Test timeout of 120000ms exceeded.
 ```yaml
 - generic [active] [ref=e1]:
   - navigation "Dashboard navigation" [ref=e2]:
-    - link "Agentopia Dashboard" [ref=e3] [cursor=pointer]:
+    - link "HAICO Dashboard" [ref=e3] [cursor=pointer]:
       - /url: /
       - text: A
     - button "Inbox" [ref=e4] [cursor=pointer]:
@@ -36,8 +36,8 @@ Test timeout of 120000ms exceeded.
       - img [ref=e21]
       - generic [ref=e24]: Settings
   - banner [ref=e25]:
-    - heading "Agentopia" [level=1] [ref=e26]:
-      - link "Agentopia" [ref=e27] [cursor=pointer]:
+    - heading "HAICO" [level=1] [ref=e26]:
+      - link "HAICO" [ref=e27] [cursor=pointer]:
         - /url: /
     - generic [ref=e28]:
       - button "+ New Project" [ref=e29] [cursor=pointer]
@@ -52,7 +52,7 @@ Test timeout of 120000ms exceeded.
         - generic [ref=e40]:
           - generic [ref=e42]:
             - heading "Appearance" [level=3] [ref=e43]
-            - paragraph [ref=e44]: Choose the theme used across Agentopia.
+            - paragraph [ref=e44]: Choose the theme used across HAICO.
           - generic [ref=e46]:
             - generic [ref=e47]: Theme
             - combobox [ref=e48]:
