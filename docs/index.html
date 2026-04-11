@@ -8,6 +8,25 @@
       name="description"
       content="HAICO is the platform for human-agent collaboration, with issues, approvals, knowledge, and live visibility in one workspace."
     />
+    <link rel="canonical" href="https://haico.dev/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="HAICO" />
+    <meta property="og:title" content="HAICO | Human-Agent Interactive Collaboration" />
+    <meta
+      property="og:description"
+      content="HAICO is the platform for human-agent collaboration, with issues, approvals, knowledge, and live visibility in one workspace."
+    />
+    <meta property="og:url" content="https://haico.dev/" />
+    <meta property="og:image" content="https://haico.dev/images/haico-og-preview-1200.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="HAICO | Human-Agent Interactive Collaboration" />
+    <meta
+      name="twitter:description"
+      content="HAICO is the platform for human-agent collaboration, with issues, approvals, knowledge, and live visibility in one workspace."
+    />
+    <meta name="twitter:image" content="https://haico.dev/images/haico-og-preview-1200.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -75,6 +94,9 @@
                 src="./images/haico-global-inbox-nord-light.png"
                 alt="HAICO global inbox showing issues, approvals, and project activity"
               />
+            </div>
+            <div class="hero-mobile-device">
+              <img src="./images/haico-mobile-inbox-real.jpg" alt="HAICO mobile inbox view" />
             </div>
             <div class="floating-panel floating-panel-top">
               <strong>Human review gates</strong>
@@ -149,13 +171,13 @@
                 aria-label="Open large preview for current product tour image"
               >
                 <div class="tour-stage-topline">
-                  <span class="tour-tag tour-stage-kicker">Inbox</span>
-                  <span class="tour-stage-counter">01 / 07</span>
+                  <span class="tour-tag tour-stage-kicker">Overview</span>
+                  <span class="tour-stage-counter">01 / 08</span>
                 </div>
                 <img
                   class="tour-stage-image"
-                  src="./images/haico-global-inbox-nord-light.png"
-                  alt="HAICO global inbox dashboard"
+                  src="./images/haico-og-preview-1200.png"
+                  alt="HAICO overview showing desktop and mobile views"
                 />
               </button>
 
@@ -163,12 +185,26 @@
                 <button
                   class="tour-dot is-active"
                   type="button"
+                  data-tour-image="./images/haico-og-preview-1200.png"
+                  data-tour-alt="HAICO overview showing desktop and mobile views"
+                  data-tour-kicker="Overview"
+                  data-tour-title="Desktop and mobile overview"
+                  data-tour-body="See the desktop workspace and mobile inbox together in one view."
+                  data-tour-fit="contain"
+                  data-tour-position="center center"
+                  aria-label="Show slide 1: Desktop and mobile overview"
+                >
+                  <span class="sr-only">Desktop and mobile overview</span>
+                </button>
+                <button
+                  class="tour-dot"
+                  type="button"
                   data-tour-image="./images/haico-global-inbox-nord-light.png"
                   data-tour-alt="HAICO global inbox dashboard"
                   data-tour-kicker="Inbox"
                   data-tour-title="Global inbox"
                   data-tour-body="Triage issues, approvals, and cross-project activity in one feed."
-                  aria-label="Show slide 1: Global inbox"
+                  aria-label="Show slide 2: Global inbox"
                 >
                   <span class="sr-only">Global inbox</span>
                 </button>
@@ -180,7 +216,7 @@
                   data-tour-kicker="Overview"
                   data-tour-title="Project overview"
                   data-tour-body="See project health, pace, and spend at a glance."
-                  aria-label="Show slide 2: Project overview"
+                  aria-label="Show slide 3: Project overview"
                 >
                   <span class="sr-only">Project overview</span>
                 </button>
@@ -192,7 +228,7 @@
                   data-tour-kicker="Agents"
                   data-tour-title="Collaboration tree"
                   data-tour-body="Inspect controller-worker structure and live execution."
-                  aria-label="Show slide 3: Collaboration tree"
+                  aria-label="Show slide 4: Collaboration tree"
                 >
                   <span class="sr-only">Collaboration tree</span>
                 </button>
@@ -204,7 +240,7 @@
                   data-tour-kicker="Issues"
                   data-tour-title="Built-in tracker"
                   data-tour-body="Track work state without leaving the workspace."
-                  aria-label="Show slide 4: Built-in tracker"
+                  aria-label="Show slide 5: Built-in tracker"
                 >
                   <span class="sr-only">Built-in tracker</span>
                 </button>
@@ -216,7 +252,7 @@
                   data-tour-kicker="Threads"
                   data-tour-title="Issue detail workflow"
                   data-tour-body="Review state, owners, comments, and output in one thread."
-                  aria-label="Show slide 5: Issue detail workflow"
+                  aria-label="Show slide 6: Issue detail workflow"
                 >
                   <span class="sr-only">Issue detail workflow</span>
                 </button>
@@ -228,7 +264,7 @@
                   data-tour-kicker="Usage"
                   data-tour-title="Spend visibility"
                   data-tour-body="See cost before autonomous work compounds."
-                  aria-label="Show slide 6: Spend visibility"
+                  aria-label="Show slide 7: Spend visibility"
                 >
                   <span class="sr-only">Spend visibility</span>
                 </button>
@@ -240,15 +276,15 @@
                   data-tour-kicker="Approvals"
                   data-tour-title="Human review gate"
                   data-tour-body="Hold higher-risk actions for human review."
-                  aria-label="Show slide 7: Human review gate"
+                  aria-label="Show slide 8: Human review gate"
                 >
                   <span class="sr-only">Human review gate</span>
                 </button>
               </div>
 
               <div class="tour-stage-copy">
-                <h3 class="tour-stage-title">Global inbox</h3>
-                <p class="tour-stage-body">Triage issues, approvals, and cross-project activity in one feed.</p>
+                <h3 class="tour-stage-title">Desktop and mobile overview</h3>
+                <p class="tour-stage-body">See the desktop workspace and mobile inbox together in one view.</p>
               </div>
             </article>
           </div>

@@ -71,6 +71,8 @@ const renderTourSlide = (index) => {
 
   tourStageImage.src = activeItem.dataset.tourImage || "";
   tourStageImage.alt = activeItem.dataset.tourAlt || "";
+  tourStageImage.style.objectFit = activeItem.dataset.tourFit || "cover";
+  tourStageImage.style.objectPosition = activeItem.dataset.tourPosition || "center top";
   tourStageKicker.textContent = activeItem.dataset.tourKicker || "";
   tourStageTitle.textContent = activeItem.dataset.tourTitle || "";
   tourStageBody.textContent = activeItem.dataset.tourBody || "";

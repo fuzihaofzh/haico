@@ -1,0 +1,98 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="74" y1="42" x2="1126" y2="588" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6FAFC"/>
+      <stop offset="0.55" stop-color="#EDF3F7"/>
+      <stop offset="1" stop-color="#F7FAFC"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(166 114) rotate(29) scale(330 230)">
+      <stop stop-color="#7AA3D5" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#7AA3D5" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1004 96) rotate(136) scale(286 214)">
+      <stop stop-color="#D08770" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#D08770" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" stroke="#245A93" stroke-opacity="0.04"/>
+    </pattern>
+    <filter id="shadowLg" x="503" y="76" width="684" height="404" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="26"/>
+      <feGaussianBlur stdDeviation="20"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0313726 0 0 0 0 0.0666667 0 0 0 0 0.113725 0 0 0 0.28 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
+    <filter id="shadowMd" x="872" y="244" width="266" height="376" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="18"/>
+      <feGaussianBlur stdDeviation="16"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0313726 0 0 0 0 0.0666667 0 0 0 0 0.113725 0 0 0 0.24 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
+    <clipPath id="shotClip">
+      <rect x="543" y="116" width="604" height="324" rx="28"/>
+    </clipPath>
+    <clipPath id="phoneClip">
+      <rect x="929" y="276" width="146" height="286" rx="20"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1200" height="630" rx="36" fill="url(#bg)"/>
+  <rect width="1200" height="630" rx="36" fill="url(#glowA)"/>
+  <rect width="1200" height="630" rx="36" fill="url(#glowB)"/>
+  <rect width="1200" height="630" rx="36" fill="url(#grid)"/>
+  <rect x="20" y="20" width="1160" height="590" rx="32" stroke="#245A93" stroke-opacity="0.12" stroke-width="1.25"/>
+
+  <g opacity="0.96">
+    <rect x="70" y="58" width="154" height="56" rx="18" fill="white" fill-opacity="0.78" stroke="#245A93" stroke-opacity="0.12" stroke-width="1.25"/>
+    <rect x="86" y="74" width="28" height="28" rx="10" fill="#245A93"/>
+    <text x="100" y="94" fill="white" font-size="16" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-weight="700" text-anchor="middle">H</text>
+    <text x="130" y="94" fill="#122033" font-size="18" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-weight="700" letter-spacing="0.08em">HAICO</text>
+  </g>
+
+  <g>
+    <text x="70" y="230" fill="#122033" font-size="64" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-weight="700">
+      <tspan x="70" dy="0">Platform for</tspan>
+      <tspan x="70" dy="72">human-agent</tspan>
+      <tspan x="70" dy="72">collaboration.</tspan>
+    </text>
+
+    <text x="74" y="446" fill="#5A6B80" font-size="22" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="500">
+      <tspan x="74" dy="0">Collaborate with agents the way you</tspan>
+      <tspan x="74" dy="34">collaborate with teammates.</tspan>
+    </text>
+
+    <text x="74" y="526" fill="#245A93" fill-opacity="0.95" font-size="18" font-family="'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace" font-weight="500">
+      <tspan x="74" dy="0">INBOX</tspan>
+      <tspan dx="18">ISSUES</tspan>
+      <tspan dx="18">APPROVALS</tspan>
+      <tspan dx="18">LIVE OPS</tspan>
+    </text>
+  </g>
+
+  <g filter="url(#shadowLg)">
+    <rect x="543" y="116" width="604" height="324" rx="28" fill="#F6FAFC" stroke="#F8FBFF" stroke-opacity="0.9" stroke-width="1.25"/>
+    <g clip-path="url(#shotClip)">
+      <image href="haico-global-inbox-nord-light.png" x="543" y="116" width="604" height="347" preserveAspectRatio="xMidYMid meet"/>
+    </g>
+  </g>
+
+  <g filter="url(#shadowMd)">
+    <rect x="925" y="272" width="154" height="294" rx="26" fill="#2A3A4C" stroke="#5E7186" stroke-opacity="0.24" stroke-width="1"/>
+    <rect x="926" y="273" width="152" height="292" rx="24" fill="#32475D"/>
+    <g clip-path="url(#phoneClip)">
+      <image href="haico-mobile-inbox-real.jpg" x="929" y="276" width="146" height="286" preserveAspectRatio="xMidYMid slice"/>
+    </g>
+    <rect x="978" y="283" width="48" height="6" rx="3" fill="#223446"/>
+    <rect x="987" y="553" width="30" height="2" rx="1" fill="white" fill-opacity="0.18"/>
+  </g>
+
+  <text x="1128" y="94" fill="#122033" fill-opacity="0.88" font-size="18" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="700" text-anchor="end">haico.dev</text>
+</svg>
