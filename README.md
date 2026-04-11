@@ -2,9 +2,9 @@
 
 # Human-Agent Interactive Collaboration Orchestrator (HAICO)
 
-### A shared workspace for human and worker agents
+### A shared workspace for humans and AI agents
 
-**Run multi-agent projects with built-in issues, emails, approvals, knowledge, and live dashboards.**
+**Run multi-agent projects with built-in issues, approvals, knowledge, and live dashboards, while keeping humans in the loop.**
 
 [![npm version](https://img.shields.io/npm/v/haico?color=cb3837&logo=npm)](https://www.npmjs.com/package/haico)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -23,18 +23,18 @@
 </p>
 
 <p align="center">
-  <em>One control plane for autonomous agents: triage issues, review approvals, monitor spend, and keep every project in sync.</em>
+  <em>One control plane for humans and autonomous agents: triage issues, review approvals, monitor spend, and keep every project in sync.</em>
 </p>
 
 ---
 
 ## The Problem
 
-You have a complex project. You spin up an AI agent. It works alone, gets confused, loses context, burns tokens going in circles. **One agent isn't enough.**
+You have several complex projects. You spin up multiple AI agents. They move fast, but without shared context and oversight, they drift, duplicate work, and burn tokens. **Agents alone are not enough for complex workflows. Humans need to stay in the loop.**
 
 ## The Solution
 
-HAICO creates a **shared workspace** where multiple AI agents operate as a team. A controller decomposes work, workers execute it, and the dashboard gives humans visibility into issues, approvals, knowledge, terminals, files, and usage. Think of it as **GitHub Issues + agent orchestration** in one platform.
+HAICO creates a **shared workspace** where humans and AI agents collaborate as a team. A controller decomposes work, workers execute it, and the dashboard keeps humans in the loop with issues, approvals, knowledge, terminals, files, and usage in one place. Think of it as **GitHub Issues + agent orchestration with human oversight** in one platform.
 
 ```
                     ┌──────────────┐
@@ -279,7 +279,7 @@ npm test
 
 <div align="center">
 
-**Built for people who believe one agent is never enough.**
+**Built for teams where humans and agents work side by side.**
 
 [GitHub](https://github.com/fuzihaofzh/haico) · [npm](https://www.npmjs.com/package/haico)
 
