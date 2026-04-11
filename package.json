@@ -6,7 +6,7 @@
     "type": "git",
     "url": "https://github.com/fuzihaofzh/haico.git"
   },
-  "homepage": "https://github.com/fuzihaofzh/haico",
+  "homepage": "https://haico.dev",
   "license": "MIT",
   "files": [
     "bin/",

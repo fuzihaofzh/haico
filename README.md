@@ -7,12 +7,13 @@
 **Run multi-agent projects with built-in issues, approvals, knowledge, and live dashboards, while keeping humans in the loop.**
 
 [![npm version](https://img.shields.io/npm/v/haico?color=cb3837&logo=npm)](https://www.npmjs.com/package/haico)
+[![Website](https://img.shields.io/badge/Website-haico.dev-245a93?logo=googlechrome&logoColor=white)](https://haico.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/fuzihaofzh/haico/pulls)
 
-[Quick Start](#quick-start) · [Product Tour](#product-tour) · [Key Features](#key-features) · [How It Works](#how-it-works) · [Contributing](#contributing)
+[Website](https://haico.dev) · [Quick Start](#quick-start) · [Product Tour](#product-tour) · [Key Features](#key-features) · [How It Works](#how-it-works) · [Contributing](#contributing)
 
 </div>
 
@@ -24,6 +25,10 @@
 
 <p align="center">
   <em>One control plane for humans and autonomous agents: triage issues, review approvals, monitor spend, and keep every project in sync.</em>
+</p>
+
+<p align="center">
+  <strong>Official website:</strong> <a href="https://haico.dev">haico.dev</a>
 </p>
 
 ---
