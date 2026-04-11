@@ -2,9 +2,9 @@
 
 # Human-Agent Interactive Collaboration Orchestrator (HAICO)
 
-### Human-Agent Interactive Collaboration Orchestrator for multi-agent collaboration
+### A shared workspace for human and worker agents
 
-**Orchestrate teams of autonomous AI agents that communicate, coordinate, and conquer complex tasks together.**
+**Run multi-agent projects with built-in issues, emails, approvals, knowledge, and live dashboards.**
 
 [![npm version](https://img.shields.io/npm/v/haico?color=cb3837&logo=npm)](https://www.npmjs.com/package/haico)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -12,9 +12,19 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/fuzihaofzh/haico/pulls)
 
-[Quick Start](#-quick-start) · [Features](#-features) · [How It Works](#-how-it-works) · [API Reference](#-api-reference) · [Contributing](#-contributing)
+[Quick Start](#quick-start) · [Product Tour](#product-tour) · [Key Features](#key-features) · [How It Works](#how-it-works) · [Contributing](#contributing)
 
 </div>
+
+---
+
+<p align="center">
+  <img src="./docs/images/haico-global-inbox-nord-light.png" alt="HAICO global inbox showing cross-project issues, approvals, and live agent status" width="100%" />
+</p>
+
+<p align="center">
+  <em>One control plane for autonomous agents: triage issues, review approvals, monitor spend, and keep every project in sync.</em>
+</p>
 
 ---
 
@@ -24,7 +34,7 @@ You have a complex project. You spin up an AI agent. It works alone, gets confus
 
 ## The Solution
 
-HAICO creates a **shared workspace** where multiple AI agents operate as a team — with a controller that decomposes tasks, workers that execute them, and a built-in issue tracker that keeps everyone in sync. Think of it as **GitHub Issues + Agent Orchestration** in one platform.
+HAICO creates a **shared workspace** where multiple AI agents operate as a team. A controller decomposes work, workers execute it, and the dashboard gives humans visibility into issues, approvals, knowledge, terminals, files, and usage. Think of it as **GitHub Issues + agent orchestration** in one platform.
 
 ```
                     ┌──────────────┐
@@ -44,6 +54,61 @@ HAICO creates a **shared workspace** where multiple AI agents operate as a team 
                     Knowledge Base & Agent Knowledge
                     Real-time Web Dashboard
 ```
+
+---
+
+## Product Tour
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/images/haico-beacon-clinical-operations-overview-nord-light.png" alt="HAICO project overview dashboard" />
+      <br />
+      <strong>Project Overview</strong>
+      <br />
+      Agent health, issue progress, and spend in one view.
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/images/haico-beacon-clinical-operations-agents-nord-light.png" alt="HAICO agent collaboration tree" />
+      <br />
+      <strong>Agent Collaboration Tree</strong>
+      <br />
+      Trace controller-worker relationships and live execution.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/images/haico-beacon-clinical-operations-issues-nord-light.png" alt="HAICO built-in issue tracker" />
+      <br />
+      <strong>Built-In Issue Tracker</strong>
+      <br />
+      Track work status without leaving the workspace.
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/images/haico-beacon-adverse-event-handoff-issue-detail-nord-light.png" alt="HAICO issue detail workflow view" />
+      <br />
+      <strong>Issue Detail Workflow</strong>
+      <br />
+      Review assignees, comments, status, and agent output.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/images/haico-usage-dashboard-nord-light.png" alt="HAICO usage and cost dashboard" />
+      <br />
+      <strong>Usage Visibility</strong>
+      <br />
+      Monitor spend before autonomous runs drift out of bounds.
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/images/haico-approval-queue-nord-light.png" alt="HAICO approval queue for high-risk agent actions" />
+      <br />
+      <strong>Approval Queue</strong>
+      <br />
+      Pause higher-risk actions for human review.
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -72,6 +137,7 @@ HAICO creates a **shared workspace** where multiple AI agents operate as a team 
 - Shared knowledge base — high-importance entries auto-injected into agent prompts
 - Per-agent owned knowledge items that persist across sessions
 - Direct messaging between agents
+- Human approval gates for higher-risk agent actions
 
 **Operations**
 - Process lifecycle management with watchdog detection for stuck agents
@@ -154,73 +220,6 @@ Start the controller. It will:
 
 ### 4. Monitor Everything
 The web dashboard gives you full visibility — real-time terminal output, issue timelines, knowledge base, file browser, and cost tracking.
-
----
-
-## API Reference
-
-Agents interact with the platform through REST APIs. All endpoints are under `/api`.
-
-<details>
-<summary><b>Projects</b></summary>
-
-```
-GET    /api/projects              # List all projects
-POST   /api/projects              # Create project
-GET    /api/projects/:id          # Get project details
-PUT    /api/projects/:id          # Update project
-```
-</details>
-
-<details>
-<summary><b>Agents</b></summary>
-
-```
-GET    /api/projects/:id/agents   # List agents in project
-POST   /api/projects/:id/agents   # Create agent
-POST   /api/agents/:id/start      # Start agent
-POST   /api/agents/:id/stop       # Stop agent
-PUT    /api/agents/:id            # Update agent config
-GET    /api/agents/:id/status     # Get agent status
-GET    /api/agents/:id/logs       # Get agent logs
-DELETE /api/agents/:id            # Delete agent
-```
-</details>
-
-<details>
-<summary><b>Issues</b></summary>
-
-```
-GET    /api/projects/:id/issues   # List issues (?status=, ?assigned_to=)
-POST   /api/projects/:id/issues   # Create issue
-GET    /api/issues/:id            # Get issue + comments
-PUT    /api/issues/:id            # Update issue
-POST   /api/issues/:id/comments   # Add comment
-POST   /api/issues/:id/relations  # Add dependency
-```
-</details>
-
-<details>
-<summary><b>Knowledge Base</b></summary>
-
-```
-GET    /api/projects/:id/knowledge   # Query (?q=, ?tag=, ?importance=)
-POST   /api/projects/:id/knowledge   # Add entry
-PUT    /api/knowledge/:id            # Update entry
-GET    /api/agents/:id/knowledge-memory  # Get owned agent knowledge
-PUT    /api/agents/:id/knowledge-memory  # Upsert owned agent knowledge
-```
-</details>
-
-<details>
-<summary><b>Messages</b></summary>
-
-```
-POST   /api/agents/:id/messages/send   # Send message to another agent
-GET    /api/agents/:id/messages        # Get messages (?status=unread)
-PUT    /api/agents/:id/messages/:mid   # Mark as read
-```
-</details>
 
 ---
 
