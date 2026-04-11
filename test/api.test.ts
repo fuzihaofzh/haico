@@ -715,7 +715,7 @@ describe('Agentopia API', () => {
     let sharedAgentId: string;
     let hiddenAgentId: string;
     let sharedKnowledgeId: string;
-    let sharedMemoryId: string;
+    let sharedOwnedKnowledgeId: string;
     let sharedMessageId: string;
     let sharedSearchIssueId: string;
     let hiddenSearchIssueId: string;
@@ -804,13 +804,11 @@ describe('Agentopia API', () => {
       assert.equal(knowledgeRes.status, 201);
       sharedKnowledgeId = knowledgeRes.body.id;
 
-      const memoryRes = await api(app, `/api/agents/${sharedAgentId}/memories`, {
-        method: 'POST',
+      const ownedKnowledgeRes = await api(app, `/api/agents/${sharedAgentId}/knowledge-memory`, {
         headers: { cookie: `agentopia-auth=${ownerToken}` },
-        body: { content: 'shared project memory', scope: 'project', tags: 'perm' },
       });
-      assert.equal(memoryRes.status, 201);
-      sharedMemoryId = memoryRes.body.id;
+      assert.equal(ownedKnowledgeRes.status, 200);
+      sharedOwnedKnowledgeId = ownedKnowledgeRes.body.id;
 
       const messageRes = await api(app, `/api/agents/${sharedAgentId}/messages/send`, {
         method: 'POST',
@@ -858,11 +856,11 @@ describe('Agentopia API', () => {
       });
       assert.equal(sharedKnowledge.status, 200);
 
-      const sharedMemories = await api(app, `/api/agents/${sharedAgentId}/memories`, {
+      const sharedOwnedKnowledge = await api(app, `/api/agents/${sharedAgentId}/knowledge-memory`, {
         headers: { cookie: `agentopia-auth=${memberToken}` },
       });
-      assert.equal(sharedMemories.status, 200);
-      assert.ok(sharedMemories.body.memories.some((memory: any) => memory.id === sharedMemoryId));
+      assert.equal(sharedOwnedKnowledge.status, 200);
+      assert.equal(sharedOwnedKnowledge.body.id, sharedOwnedKnowledgeId);
 
       const sharedInbox = await api(app, `/api/agents/${sharedAgentId}/messages`, {
         headers: { cookie: `agentopia-auth=${memberToken}` },
@@ -883,11 +881,12 @@ describe('Agentopia API', () => {
       });
       assert.equal(updateKnowledge.status, 403);
 
-      const deleteMemory = await api(app, `/api/agents/${sharedAgentId}/memories/${sharedMemoryId}`, {
-        method: 'DELETE',
+      const updateOwnedKnowledge = await api(app, `/api/agents/${sharedAgentId}/knowledge-memory`, {
+        method: 'PUT',
         headers: { cookie: `agentopia-auth=${memberToken}` },
+        body: { content: 'member cannot edit owned knowledge' },
       });
-      assert.equal(deleteMemory.status, 403);
+      assert.equal(updateOwnedKnowledge.status, 403);
     });
 
     it('non-member cannot access shared project resources by project id or direct entity id', async () => {
@@ -906,10 +905,15 @@ describe('Agentopia API', () => {
       });
       assert.equal(knowledgeDetail.status, 403);
 
-      const memoryList = await api(app, `/api/agents/${sharedAgentId}/memories`, {
+      const ownedKnowledge = await api(app, `/api/agents/${sharedAgentId}/knowledge-memory`, {
         headers: { cookie: `agentopia-auth=${outsiderToken}` },
       });
-      assert.equal(memoryList.status, 403);
+      assert.equal(ownedKnowledge.status, 403);
+
+      const ownedKnowledgeDetail = await api(app, `/api/knowledge/${sharedOwnedKnowledgeId}`, {
+        headers: { cookie: `agentopia-auth=${outsiderToken}` },
+      });
+      assert.equal(ownedKnowledgeDetail.status, 403);
 
       const inbox = await api(app, `/api/agents/${sharedAgentId}/messages`, {
         headers: { cookie: `agentopia-auth=${outsiderToken}` },
@@ -1680,6 +1684,28 @@ describe('Agentopia API', () => {
       const recent = body.recent_comments.find((comment: any) => comment.issue_id === issue.id);
       assert.ok(recent, 'preview test comment should appear in recent comments');
       assert.ok(recent.body.length <= 150, 'recent comment body should be truncated to notification preview length');
+    });
+
+    it('GET /api/notifications includes issues only commented on by user in default scope', async () => {
+      const { body: issue } = await api(app, `/api/projects/${projectId}/issues`, {
+        method: 'POST',
+        body: {
+          title: 'Notification Comment-Only Issue',
+          body: 'comment-only body',
+          created_by: workerId,
+          assigned_to: workerId,
+        },
+      });
+
+      await api(app, `/api/issues/${issue.id}/comments`, {
+        method: 'POST',
+        body: { author_id: 'user', body: 'user is involved by comment only' },
+      });
+
+      const { body } = await api(app, '/api/notifications');
+      const found = body.user_issues.find((i: any) => i.id === issue.id);
+      assert.ok(found, 'comment-only user issue should appear in notifications');
+      assert.equal(found.is_actionable, 0, 'comment-only user issue should not become actionable unless assigned to user');
     });
 
     it('GET /api/notifications supports since_updated_at incremental refresh', async () => {
@@ -3753,6 +3779,67 @@ JSON
       clearControllerBackoff(isolated.projectId);
     });
 
+    it('needs_user auto-handoff clears acknowledged_at so inbox marks it action-required again', async () => {
+      const { getDatabase } = await import('../src/db/database');
+      const { reconcileNeedsUserOutcomes } = await import('../src/services/langgraph-runner');
+      const isolated = await createIsolatedOrchestrationProject('needs-user-ack');
+
+      const { status: workerStatus, body: worker } = await api(app, `/api/projects/${isolated.projectId}/agents`, {
+        method: 'POST',
+        body: {
+          name: `needs-user-worker-${Date.now()}`,
+          role: 'needs user regression worker',
+          command_template: 'echo',
+        },
+      });
+      assert.equal(workerStatus, 201);
+
+      const db = getDatabase();
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(isolated.projectId) as any;
+      const agents = db.prepare('SELECT * FROM agents WHERE project_id = ?').all(isolated.projectId) as any[];
+      const issueId = `needs-user-ack-${Date.now()}`;
+      const issueRow = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(isolated.projectId) as { n: number | null };
+      const issueNumber = (issueRow?.n || 0) + 1;
+
+      db.prepare(`
+        INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, status, acknowledged_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 minutes'), datetime('now', '-10 minutes'))
+      `).run(
+        issueId,
+        isolated.projectId,
+        issueNumber,
+        'needs_user acknowledged regression',
+        'worker is waiting on the user',
+        'user',
+        worker.id,
+        1,
+        'open'
+      );
+
+      const result = reconcileNeedsUserOutcomes(project, [{
+        agentId: worker.id,
+        signal: 'needs_user',
+        summary: 'latest output indicates user decision/confirmation is needed',
+        excerpt: 'waiting for user confirmation',
+        issueCount: 1,
+        issueIds: [issueId],
+        issueNumbers: [issueNumber],
+      }] as any, agents);
+
+      assert.equal(result.movedCount, 1);
+
+      const updated = db.prepare(
+        'SELECT assigned_to, acknowledged_at FROM issues WHERE id = ?'
+      ).get(issueId) as { assigned_to: string | null; acknowledged_at: string | null } | undefined;
+      assert.equal(updated?.assigned_to, 'user');
+      assert.equal(updated?.acknowledged_at, null);
+
+      const { body: notifications } = await api(app, '/api/notifications');
+      const found = notifications.user_issues.find((issue: any) => issue.id === issueId);
+      assert.ok(found, 'auto-handed-off issue should appear in notifications');
+      assert.equal(found.acknowledged_at, null, 'auto-handed-off issue should be unread/action-required again');
+    });
+
     it('controller trigger respects unchanged backoff snapshot', async () => {
       const { getDatabase } = await import('../src/db/database');
       const { triggerControllerAgent } = await import('../src/services/controller');
@@ -4342,9 +4429,11 @@ JSON
       const { getDatabase } = await import('../src/db/database');
       const db = getDatabase();
       const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(ctxProjectId) as any;
+      const issue = db.prepare('SELECT id FROM issues WHERE project_id = ? AND number = 1').get(ctxProjectId) as any;
 
       const prompt = buildControllerTaskPrompt(project, 1);
       assert.ok(prompt.includes('Issue Alpha'), 'Should include Issue Alpha (issue #1)');
+      assert.ok(prompt.includes(issue.id), 'Should include trigger issue UUID');
       assert.ok(!prompt.includes('Issue Beta'), 'Should NOT include Issue Beta');
       assert.ok(!prompt.includes('Issue Gamma'), 'Should NOT include Issue Gamma');
       assert.ok(prompt.includes('Trigger Context'), 'Should have trigger context hint');
@@ -4946,17 +5035,16 @@ JSON
     });
   });
 
-  describe('Agent记忆系统 (#399)', () => {
+  describe('Agent Owned Knowledge (#399)', () => {
     let memProjId: string;
     let memAgentId: string;
     let memAgent2Id: string;
-    let privateMemId: string;
-    let sharedMemId: string;
+    let ownedKnowledgeId: string;
 
     before(async () => {
       const { body: proj } = await api(app, '/api/projects', {
         method: 'POST',
-        body: { name: 'mem-test-proj', description: 'Memory test', task_description: 'Test agent memories' },
+        body: { name: 'mem-test-proj', description: 'Knowledge test', task_description: 'Test agent owned knowledge' },
       });
       memProjId = proj.id;
 
@@ -4973,100 +5061,70 @@ JSON
       memAgent2Id = a2.id;
     });
 
-    it('POST /api/agents/:id/memories saves a private memory', async () => {
-      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories`, {
-        method: 'POST',
-        body: { content: 'Private secret', tags: 'private', scope: 'private' },
-      });
-      assert.equal(status, 201);
-      assert.ok(body.id);
-      assert.equal(body.scope, 'private');
-      privateMemId = body.id;
-    });
-
-    it('POST /api/agents/:id/memories saves a project-scoped memory', async () => {
-      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories`, {
-        method: 'POST',
-        body: { content: 'Shared project memory', tags: 'shared', scope: 'project' },
-      });
-      assert.equal(status, 201);
-      assert.equal(body.scope, 'project');
-      sharedMemId = body.id;
-    });
-
-    it('POST rejects missing content', async () => {
-      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories`, {
-        method: 'POST',
-        body: { tags: 'test' },
-      });
-      assert.equal(status, 400);
-      assert.equal(body.error, 'content is required');
-    });
-
-    it('POST rejects invalid scope', async () => {
-      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories`, {
-        method: 'POST',
-        body: { content: 'test', scope: 'invalid' },
-      });
-      assert.equal(status, 400);
-    });
-
-    it('GET /api/agents/:id/memories lists own + project memories', async () => {
-      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories`);
+    it('GET /api/agents/:id/knowledge-memory returns seeded owner knowledge', async () => {
+      const { status, body } = await api(app, `/api/agents/${memAgentId}/knowledge-memory`);
       assert.equal(status, 200);
-      assert.ok(Array.isArray(body.memories));
-      assert.ok(body.memories.some((m: any) => m.id === privateMemId));
-      assert.ok(body.memories.some((m: any) => m.id === sharedMemId));
+      assert.equal(body.owner_agent_id, memAgentId);
+      assert.equal(body.title, 'Agent Memory');
+      assert.ok(String(body.tags || '').includes('agent-profile'));
+      ownedKnowledgeId = body.id;
     });
 
-    it('GET ?scope=project filters to project scope only', async () => {
-      const { body } = await api(app, `/api/agents/${memAgentId}/memories?scope=project`);
-      assert.ok(body.memories.every((m: any) => m.scope === 'project'));
-    });
-
-    it('other agent sees project-scope memory but not private memory', async () => {
-      const { body } = await api(app, `/api/agents/${memAgent2Id}/memories`);
-      assert.ok(body.memories.some((m: any) => m.id === sharedMemId), 'should see shared memory');
-      assert.ok(!body.memories.some((m: any) => m.id === privateMemId), 'should NOT see private memory');
-    });
-
-    it('GET /api/agents/:id/memories?q= FTS search works', async () => {
-      const { body } = await api(app, `/api/agents/${memAgentId}/memories?q=Shared`);
-      assert.ok(body.memories.length >= 1);
-      assert.ok(body.memories.some((m: any) => m.id === sharedMemId));
-    });
-
-    it('GET /api/projects/:pid/memories returns project-scope memories', async () => {
-      const { status, body } = await api(app, `/api/projects/${memProjId}/memories`);
-      assert.equal(status, 200);
-      assert.ok(body.memories.some((m: any) => m.id === sharedMemId));
-      assert.ok(!body.memories.some((m: any) => m.id === privateMemId), 'project endpoint should not include private');
-    });
-
-    it('GET /api/projects/:pid/memories?q= FTS search', async () => {
-      const { body } = await api(app, `/api/projects/${memProjId}/memories?q=Shared+project`);
-      assert.ok(body.memories.length >= 1);
-    });
-
-    it('DELETE /api/agents/:id/memories/:memId removes memory', async () => {
-      const { status, body } = await api(app, `/api/agents/${memAgentId}/memories/${privateMemId}`, {
-        method: 'DELETE',
+    it('PUT /api/agents/:id/knowledge-memory upserts owner knowledge', async () => {
+      const { status, body } = await api(app, `/api/agents/${memAgentId}/knowledge-memory`, {
+        method: 'PUT',
+        body: {
+          content: 'Primary task: maintain memory flow\nCommands: npm test\nArchitecture: prompt builder lives in src/services/system-prompt.ts',
+          tags: 'commands,architecture',
+          category: 'reference',
+          importance: 'medium',
+          verified_by: memAgentId,
+        },
       });
       assert.equal(status, 200);
-      assert.equal(body.success, true);
-
-      const { body: list } = await api(app, `/api/agents/${memAgentId}/memories`);
-      assert.ok(!list.memories.some((m: any) => m.id === privateMemId));
+      assert.equal(body.id, ownedKnowledgeId);
+      assert.equal(body.owner_agent_id, memAgentId);
+      assert.ok(body.content.includes('Primary task: maintain memory flow'));
+      assert.ok(String(body.tags || '').includes('agent-profile'));
     });
 
-    it('DELETE nonexistent memory returns 404', async () => {
-      const { status } = await api(app, `/api/agents/${memAgentId}/memories/nonexistent-id`, {
-        method: 'DELETE',
-      });
-      assert.equal(status, 404);
+    it('GET /api/projects/:pid/knowledge hides owner knowledge by default', async () => {
+      const { status, body } = await api(app, `/api/projects/${memProjId}/knowledge`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.entries));
+      assert.ok(!body.entries.some((entry: any) => entry.id === ownedKnowledgeId));
     });
 
-    it('system prompt includes agent memories', async () => {
+    it('GET /api/projects/:pid/knowledge?owner_agent_id= filters to owner knowledge', async () => {
+      const { status, body } = await api(app, `/api/projects/${memProjId}/knowledge?owner_agent_id=${memAgentId}`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.entries));
+      assert.ok(body.entries.some((entry: any) => entry.id === ownedKnowledgeId));
+      assert.ok(body.entries.every((entry: any) => entry.owner_agent_id === memAgentId));
+    });
+
+    it('GET /api/projects/:pid/knowledge?include_owned=true includes owner knowledge', async () => {
+      const { status, body } = await api(app, `/api/projects/${memProjId}/knowledge?include_owned=true`);
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.entries));
+      assert.ok(body.entries.some((entry: any) => entry.id === ownedKnowledgeId));
+    });
+
+    it('other agent gets a separate owned knowledge entry', async () => {
+      const { status, body } = await api(app, `/api/agents/${memAgent2Id}/knowledge-memory`);
+      assert.equal(status, 200);
+      assert.equal(body.owner_agent_id, memAgent2Id);
+      assert.notEqual(body.id, ownedKnowledgeId);
+    });
+
+    it('legacy memory routes are no longer registered', async () => {
+      const listRes = await api(app, `/api/agents/${memAgentId}/memories`);
+      assert.equal(listRes.status, 404);
+      const projectRes = await api(app, `/api/projects/${memProjId}/memories`);
+      assert.equal(projectRes.status, 404);
+    });
+
+    it('system prompt includes agent-owned knowledge item', async () => {
       const { buildSystemPrompt } = await import('../src/services/system-prompt');
       const { getDatabase } = await import('../src/db/database');
       const db = getDatabase();
@@ -5074,9 +5132,149 @@ JSON
       const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(memProjId) as any;
       if (agent && project) {
         const prompt = buildSystemPrompt(agent, project);
-        assert.ok(prompt.includes('Memories') || prompt.includes('memories') || prompt.includes('Shared project memory'));
+        assert.ok(prompt.includes('Your Owned Knowledge Base Item'));
+        assert.ok(prompt.includes('Primary task: maintain memory flow'));
+        assert.ok(prompt.includes('/knowledge-memory'));
+        assert.ok(prompt.includes('在准备结束当前任务、准备把 issue 标记为 `done`、准备输出 final result 之前，必须先更新这条 knowledge。'));
+        assert.ok(prompt.includes('agent-profile'));
       }
     });
+
+    it('system prompt explains issue number lookup versus UUID issue APIs', async () => {
+      const { buildSystemPrompt } = await import('../src/services/system-prompt');
+      const { getDatabase } = await import('../src/db/database');
+      const db = getDatabase();
+      const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(memAgentId) as any;
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(memProjId) as any;
+      if (agent && project) {
+        const prompt = buildSystemPrompt(agent, project);
+        assert.ok(prompt.includes('/api/issues/{issue_id}'));
+        assert.ok(prompt.includes('/issues/number/{issue_number}'));
+        assert.ok(prompt.includes('issue_id') && prompt.includes('UUID'));
+      }
+    });
+  });
+
+  it('legacy agent_memories rows migrate into owner knowledge and are dropped during init', async () => {
+    const legacyDbPath = path.join(__dirname, `legacy-agent-memories-${Date.now()}.db`);
+    const cleanupLegacyFiles = () => {
+      for (const file of [legacyDbPath, `${legacyDbPath}-wal`, `${legacyDbPath}-shm`]) {
+        try { fs.unlinkSync(file); } catch {}
+      }
+    };
+
+    cleanupLegacyFiles();
+
+    const BetterSqlite3 = (await import('better-sqlite3')).default;
+    const { initializeDatabase } = await import('../src/db/schema');
+    const legacyDb = new BetterSqlite3(legacyDbPath);
+
+    try {
+      legacyDb.exec(`
+        PRAGMA foreign_keys = ON;
+
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT DEFAULT '',
+          task_description TEXT NOT NULL,
+          command_template TEXT DEFAULT 'echo',
+          command_type TEXT DEFAULT NULL,
+          orchestrator_engine TEXT DEFAULT 'langgraph',
+          schedule_hours TEXT DEFAULT '',
+          status TEXT DEFAULT 'active',
+          created_at DATETIME DEFAULT (datetime('now')),
+          updated_at DATETIME DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE agents (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          role TEXT DEFAULT '',
+          is_controller BOOLEAN DEFAULT 0,
+          parent_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+          session_id TEXT,
+          working_directory TEXT,
+          custom_instructions TEXT DEFAULT '',
+          new_session_per_run BOOLEAN DEFAULT 0,
+          session_run_count INTEGER DEFAULT 0,
+          session_max_runs INTEGER DEFAULT 10,
+          session_token_count INTEGER DEFAULT 0,
+          session_max_tokens INTEGER DEFAULT 400000,
+          session_resume_timeout INTEGER DEFAULT 300,
+          command_template TEXT DEFAULT NULL,
+          command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
+          status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error')),
+          paused BOOLEAN DEFAULT 0,
+          pid INTEGER,
+          last_prompt TEXT,
+          started_at DATETIME,
+          finished_at DATETIME,
+          created_at DATETIME DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE knowledge_entries (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          content TEXT NOT NULL DEFAULT '',
+          tags TEXT DEFAULT '',
+          importance TEXT DEFAULT 'medium' CHECK(importance IN ('high', 'medium', 'low')),
+          created_by TEXT DEFAULT 'user',
+          created_at DATETIME DEFAULT (datetime('now')),
+          updated_at DATETIME DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE agent_memories (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          session_id TEXT,
+          content TEXT NOT NULL,
+          tags TEXT DEFAULT '',
+          scope TEXT DEFAULT 'private' CHECK(scope IN ('private', 'project')),
+          created_at DATETIME DEFAULT (datetime('now')),
+          expires_at DATETIME
+        );
+
+        CREATE VIRTUAL TABLE memories_fts USING fts5(content, tags, content=agent_memories, content_rowid=rowid);
+
+        INSERT INTO projects (id, name, task_description) VALUES ('legacy-project', 'legacy-project', 'legacy memory migration');
+        INSERT INTO agents (id, project_id, name, role, working_directory, custom_instructions)
+        VALUES ('legacy-agent', 'legacy-project', 'legacy-agent', 'legacy worker', '/tmp/legacy', 'stay focused');
+        INSERT INTO agent_memories (id, agent_id, project_id, content, tags, scope)
+        VALUES ('legacy-memory-1', 'legacy-agent', 'legacy-project', 'Remember the old deployment path', 'deploy,legacy', 'private');
+      `);
+
+      initializeDatabase(legacyDb);
+
+      const migratedEntry = legacyDb.prepare(
+        `SELECT owner_agent_id, title, content, tags
+         FROM knowledge_entries
+         WHERE project_id = ? AND owner_agent_id = ?`
+      ).get('legacy-project', 'legacy-agent') as any;
+      assert.ok(migratedEntry);
+      assert.equal(migratedEntry.owner_agent_id, 'legacy-agent');
+      assert.equal(migratedEntry.title, 'Agent Memory');
+      assert.match(migratedEntry.content, /历史记忆迁移/);
+      assert.match(migratedEntry.content, /Remember the old deployment path/);
+      assert.match(String(migratedEntry.tags || ''), /agent-profile/);
+      assert.match(String(migratedEntry.tags || ''), /deploy/);
+
+      const legacyTable = legacyDb.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'agent_memories'"
+      ).get() as { name: string } | undefined;
+      assert.equal(legacyTable, undefined);
+
+      const legacyFts = legacyDb.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memories_fts'"
+      ).get() as { name: string } | undefined;
+      assert.equal(legacyFts, undefined);
+    } finally {
+      legacyDb.close();
+      cleanupLegacyFiles();
+    }
   });
 
   describe('Issue依赖关系 (#400)', () => {
@@ -5752,6 +5950,28 @@ JSON
       assert.equal(parentAfter.status, 'pending', 'Parent should remain pending');
     });
 
+    it('infers parent_id from leading parent issue marker in body', async () => {
+      const { body: parent } = await api(app, `/api/projects/${pendingProjectId}/issues`, {
+        method: 'POST',
+        body: { title: 'Implicit Parent', body: 'implicit parent candidate', created_by: 'controller-agent', assigned_to: 'worker-agent' },
+      });
+
+      const { body: child, status } = await api(app, `/api/projects/${pendingProjectId}/issues`, {
+        method: 'POST',
+        body: {
+          title: 'Implicit Child',
+          body: `父 issue: #${parent.number}\n\ncontroller forgot parent_id but left a marker`,
+          created_by: 'controller-agent',
+          assigned_to: 'worker-agent',
+        },
+      });
+      assert.equal(status, 201);
+      assert.equal(child.parent_id, parent.id, 'Body marker should auto-link the child to the parent issue');
+
+      const { body: parentAfter } = await api(app, `/api/issues/${parent.id}`);
+      assert.equal(parentAfter.status, 'pending', 'Implicitly linked parent should be pushed to pending');
+    });
+
     it('PUT /api/issues/:id status=pending succeeds (no SQLITE_CONSTRAINT_CHECK)', async () => {
       // Create a fresh issue and set it to pending via API
       const { body: freshIssue } = await api(app, `/api/projects/${pendingProjectId}/issues`, {
@@ -6160,6 +6380,62 @@ JSON
         hadFinalResult: false,
       });
       assert.equal(status, 'error');
+    });
+  });
+
+  describe('Worker prompt forbids asking user questions (#247/#248)', () => {
+    const { buildSystemPrompt } = require('../src/services/system-prompt');
+    const { getDatabase } = require('../src/db/database');
+
+    it('worker prompt contains 全自动运行模式 constraint', () => {
+      const db = getDatabase();
+      // Find a non-controller worker agent
+      const worker = db.prepare('SELECT * FROM agents WHERE is_controller = 0 LIMIT 1').get() as any;
+      const project = db.prepare('SELECT * FROM projects LIMIT 1').get() as any;
+      if (!worker || !project) return; // skip if no data
+      const prompt = buildSystemPrompt(worker, project);
+      assert.ok(prompt.includes('全自动运行模式'), 'worker prompt must explain fully-autonomous mode');
+      assert.ok(prompt.includes('不能向用户提问寻求确认'), 'worker prompt must forbid asking user for confirmation');
+    });
+
+    it('worker prompt contains 禁止在评论中提问 constraint', () => {
+      const db = getDatabase();
+      const worker = db.prepare('SELECT * FROM agents WHERE is_controller = 0 LIMIT 1').get() as any;
+      const project = db.prepare('SELECT * FROM projects LIMIT 1').get() as any;
+      if (!worker || !project) return;
+      const prompt = buildSystemPrompt(worker, project);
+      assert.ok(prompt.includes('禁止在评论中提问'), 'worker prompt must forbid questions in comments');
+      assert.ok(prompt.includes('是否需要我先修复') || prompt.includes('请确认'), 'worker prompt should include example phrases that are forbidden');
+    });
+
+    it('worker prompt requires creating issue for user decisions', () => {
+      const db = getDatabase();
+      const worker = db.prepare('SELECT * FROM agents WHERE is_controller = 0 LIMIT 1').get() as any;
+      const project = db.prepare('SELECT * FROM projects LIMIT 1').get() as any;
+      if (!worker || !project) return;
+      const prompt = buildSystemPrompt(worker, project);
+      assert.ok(prompt.includes('需要用户决策时的唯一正确做法'), 'worker prompt must instruct to create issue for user decisions');
+      assert.ok(prompt.includes('assign 给 `user`') || prompt.includes('assign 给 \\`user\\`'), 'worker prompt must mention assigning to user');
+    });
+
+    it('worker prompt does not contain old "ask questions" wording', () => {
+      const db = getDatabase();
+      const worker = db.prepare('SELECT * FROM agents WHERE is_controller = 0 LIMIT 1').get() as any;
+      const project = db.prepare('SELECT * FROM projects LIMIT 1').get() as any;
+      if (!worker || !project) return;
+      const prompt = buildSystemPrompt(worker, project);
+      assert.ok(!prompt.includes('ask questions'), 'old "ask questions" wording must be removed');
+    });
+
+    it('controller prompt does not include worker-specific no-question constraints', () => {
+      const db = getDatabase();
+      const controller = db.prepare('SELECT * FROM agents WHERE is_controller = 1 LIMIT 1').get() as any;
+      const project = db.prepare('SELECT * FROM projects LIMIT 1').get() as any;
+      if (!controller || !project) return;
+      const prompt = buildSystemPrompt(controller, project);
+      // Controller prompt should NOT contain the worker-specific no-question constraints
+      assert.ok(!prompt.includes('禁止在评论中提问'), 'controller prompt should not have worker-specific comment restriction');
+      assert.ok(!prompt.includes('全自动运行模式'), 'controller prompt should not have worker-specific autonomous mode constraint');
     });
   });
 });

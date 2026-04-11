@@ -155,13 +155,20 @@ function startSession(isNew) {
 }
 
 async function reconnect(newSession) {
-  if (newSession && !await showConfirm('Start a new session? This will kill the existing one.')) return;
+  if (newSession && !await showConfirm('Start a new session? This will kill the existing one.', {
+    title: 'Start a new terminal session?',
+    confirmLabel: 'Start new session',
+  })) return;
   term.clear();
   connectWebSocket(newSession);
 }
 
 async function killSession() {
-  if (!await showConfirm('Kill the terminal process?')) return;
+  if (!await showConfirm('Kill the terminal process?', {
+    title: 'Kill terminal process?',
+    confirmLabel: 'Kill process',
+    tone: 'danger',
+  })) return;
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'kill' }));
   }

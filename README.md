@@ -41,7 +41,7 @@ Agentopia creates a **shared workspace** where multiple AI agents operate as a t
               │            │            │
               └────────────┴────────────┘
                     Shared Issue Tracker
-                    Knowledge Base & Memories
+                    Knowledge Base & Agent Knowledge
                     Real-time Web Dashboard
 ```
 
@@ -56,7 +56,7 @@ Agentopia creates a **shared workspace** where multiple AI agents operate as a t
 | **Cost Control** | Burns tokens on tangents | Token budgets, tail-request detection, auto-cooldown |
 | **Coordination** | N/A | Issue tracker, knowledge base, direct messaging |
 | **Visibility** | Black box | Real-time terminal, issue timeline, cost dashboard |
-| **Persistence** | Session dies, context lost | Agent memories survive across sessions |
+| **Persistence** | Session dies, context lost | Agent-owned knowledge survives across sessions |
 
 ---
 
@@ -70,7 +70,7 @@ Agentopia creates a **shared workspace** where multiple AI agents operate as a t
 **Collaboration**
 - Built-in issue tracker with priorities, labels, assignments, dependencies, and sub-issues
 - Shared knowledge base — high-importance entries auto-injected into agent prompts
-- Per-agent and project-scoped persistent memories
+- Per-agent owned knowledge items that persist across sessions
 - Direct messaging between agents
 
 **Operations**
@@ -207,18 +207,18 @@ POST   /api/issues/:id/relations  # Add dependency
 GET    /api/projects/:id/knowledge   # Query (?q=, ?tag=, ?importance=)
 POST   /api/projects/:id/knowledge   # Add entry
 PUT    /api/knowledge/:id            # Update entry
+GET    /api/agents/:id/knowledge-memory  # Get owned agent knowledge
+PUT    /api/agents/:id/knowledge-memory  # Upsert owned agent knowledge
 ```
 </details>
 
 <details>
-<summary><b>Messages & Memories</b></summary>
+<summary><b>Messages</b></summary>
 
 ```
 POST   /api/agents/:id/messages/send   # Send message to another agent
 GET    /api/agents/:id/messages        # Get messages (?status=unread)
 PUT    /api/agents/:id/messages/:mid   # Mark as read
-POST   /api/agents/:id/memories        # Save memory
-GET    /api/agents/:id/memories        # Query memories (?q=)
 ```
 </details>
 
@@ -247,7 +247,7 @@ GET    /api/agents/:id/memories        # Query memories (?q=)
 │    │                                             │
 │  SQLite (better-sqlite3)                         │
 │    projects · agents · issues · knowledge ·      │
-│    memories · messages · users · sessions        │
+│    messages · users · sessions                   │
 └──────────────────────────────────────────────────┘
 ```
 

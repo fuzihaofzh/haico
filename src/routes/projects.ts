@@ -17,6 +17,7 @@ import {
   listAccessibleProjectIds,
   listAccessibleProjects,
 } from '../services/project-permissions';
+import { ensureAgentKnowledgeEntry } from '../services/agent-knowledge';
 
 function normalizeOrchestratorEngine(value: unknown): OrchestratorEngine | null {
   if (value === undefined) return null;
@@ -805,6 +806,13 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       ctrlCommandConfig.commandTemplate,
       ctrlCommandConfig.commandType
     );
+    ensureAgentKnowledgeEntry(db, {
+      id: controllerId,
+      project_id: id,
+      role: ctrlRole,
+      working_directory: working_directory || null,
+      custom_instructions: '',
+    });
 
     // Create default assistant agent
     const assistantId = uuidv4();
@@ -812,6 +820,13 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
       INSERT INTO agents (id, project_id, name, role, is_controller, working_directory, status)
       VALUES (?, ?, ?, ?, 0, ?, 'idle')
     `).run(assistantId, id, `${name || 'project'}-assistant`, 'Assistant to the controller. Handles analysis, code execution, data processing, and research tasks delegated by the controller.', working_directory || null);
+    ensureAgentKnowledgeEntry(db, {
+      id: assistantId,
+      project_id: id,
+      role: 'Assistant to the controller. Handles analysis, code execution, data processing, and research tasks delegated by the controller.',
+      working_directory: working_directory || null,
+      custom_instructions: '',
+    });
 
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project;
 

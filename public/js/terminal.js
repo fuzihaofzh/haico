@@ -582,7 +582,10 @@ async function retryAgent() {
 }
 
 async function stopAgent() {
-  if (!await showConfirm('Stop this agent?')) return;
+  if (!await showConfirm('Stop this agent?', {
+    title: 'Stop agent?',
+    confirmLabel: 'Stop',
+  })) return;
   const btn = document.getElementById('btn-stop');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${agentId}/stop`, { method: 'POST', headers: apiHeaders(), body: '{}' });

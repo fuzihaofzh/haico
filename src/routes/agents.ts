@@ -15,6 +15,7 @@ import { broadcastToProject } from '../services/websocket';
 import { ensureAgentAccess, ensureProjectAccess } from '../services/project-permissions';
 import { validateParentAgentAssignment } from '../services/agent-hierarchy';
 import { buildControllerCommandConfig, resolveCommandType } from '../services/command-profiles';
+import { ensureAgentKnowledgeEntry } from '../services/agent-knowledge';
 
 const TOOL_CALL_REPORT_CHAR_LIMIT = 4000;
 const MAX_AGENT_FILE_SIZE = 1024 * 1024;
@@ -190,7 +191,9 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
       finalCommandType
     );
 
-    return reply.code(201).send(db.prepare('SELECT * FROM agents WHERE id = ?').get(id));
+    const createdAgent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Agent;
+    ensureAgentKnowledgeEntry(db, createdAgent);
+    return reply.code(201).send(createdAgent);
   });
 
   // Get agent

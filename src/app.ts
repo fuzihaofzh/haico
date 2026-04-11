@@ -12,7 +12,6 @@ import { registerAgentRoutes } from './routes/agents';
 import { registerIssueRoutes } from './routes/issues';
 import { registerUIRoutes } from './routes/ui';
 import { registerKnowledgeRoutes } from './routes/knowledge';
-import { registerMemoryRoutes } from './routes/memories';
 import { registerMessageRoutes } from './routes/messages';
 import { registerCommandProfileRoutes } from './routes/command-profiles';
 import { registerTemplateRoutes } from './routes/templates';
@@ -56,7 +55,6 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   registerAgentRoutes(fastify);
   registerIssueRoutes(fastify);
   registerKnowledgeRoutes(fastify);
-  registerMemoryRoutes(fastify);
   registerMessageRoutes(fastify);
   registerCommandProfileRoutes(fastify);
   registerTemplateRoutes(fastify);

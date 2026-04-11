@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../db/database';
-import { ensureKnowledgeAccess, ensureProjectAccess } from '../services/project-permissions';
+import { ensureAgentAccess, ensureKnowledgeAccess, ensureProjectAccess } from '../services/project-permissions';
 import {
   calculateKnowledgeExpiresAt,
   DEFAULT_KNOWLEDGE_CATEGORY,
@@ -15,8 +15,20 @@ import {
   normalizeKnowledgeCategory,
   normalizeKnowledgeStatus,
 } from '../services/knowledge-lifecycle';
+import { ensureAgentKnowledgeEntry, upsertAgentKnowledgeEntry } from '../services/agent-knowledge';
 
 const VALID_IMPORTANCE = ['high', 'medium', 'low'];
+
+function parseBooleanFlag(value: unknown): boolean {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
+function parseOwnerAgentId(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+}
 
 function parseKnowledgeCategory(value: unknown): KnowledgeCategory | null {
   if (value === undefined || value === null || String(value).trim() === '') {
@@ -39,13 +51,59 @@ function resolveKnowledgeActor(body: any, existing?: any): string {
 }
 
 export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
+  fastify.get<{ Params: { id: string } }>(
+    '/api/agents/:id/knowledge-memory',
+    async (request, reply) => {
+      const db = getDatabase();
+      const access = ensureAgentAccess(db, request, reply, request.params.id);
+      if (!access) return;
+
+      const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as any;
+      if (!agent) return reply.status(404).send({ error: 'Agent not found' });
+
+      return ensureAgentKnowledgeEntry(db, agent);
+    }
+  );
+
+  fastify.put<{ Params: { id: string }; Body: { content?: string; tags?: string; importance?: string; category?: string; verified_by?: string } }>(
+    '/api/agents/:id/knowledge-memory',
+    async (request, reply) => {
+      const db = getDatabase();
+      const access = ensureAgentAccess(db, request, reply, request.params.id, true);
+      if (!access) return;
+
+      const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(request.params.id) as any;
+      if (!agent) return reply.status(404).send({ error: 'Agent not found' });
+
+      const body = request.body as any;
+      if (!body?.content || !String(body.content).trim()) {
+        return reply.status(400).send({ error: 'content is required' });
+      }
+      if (body.importance && !VALID_IMPORTANCE.includes(body.importance)) {
+        return reply.status(400).send({ error: `Invalid importance. Must be one of: ${VALID_IMPORTANCE.join(', ')}` });
+      }
+      const category = parseKnowledgeCategory(body.category);
+      if (body.category !== undefined && !category) {
+        return reply.status(400).send({ error: `Invalid category. Must be one of: ${KNOWLEDGE_CATEGORIES.join(', ')}` });
+      }
+
+      return upsertAgentKnowledgeEntry(db, agent, {
+        content: String(body.content),
+        tags: body.tags,
+        category: category || undefined,
+        importance: body.importance,
+        actor: body.verified_by || agent.id,
+      });
+    }
+  );
+
   // List knowledge entries for a project (supports FTS5 full-text search via ?q=)
-  fastify.get<{ Params: { pid: string }; Querystring: { tag?: string; importance?: string; q?: string; status?: string; category?: string } }>(
+  fastify.get<{ Params: { pid: string }; Querystring: { tag?: string; importance?: string; q?: string; status?: string; category?: string; owner_agent_id?: string; include_owned?: string } }>(
     '/api/projects/:pid/knowledge',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
-      const { tag, importance, q, status: statusQuery, category: categoryQuery } = request.query;
+      const { tag, importance, q, status: statusQuery, category: categoryQuery, owner_agent_id: ownerAgentIdRaw, include_owned: includeOwnedRaw } = request.query;
       const access = ensureProjectAccess(db, request, reply, pid);
       if (!access) return;
 
@@ -59,6 +117,14 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
       const category = categoryQuery ? parseKnowledgeCategory(categoryQuery) : null;
       if (categoryQuery && !category) {
         return reply.status(400).send({ error: `Invalid category. Must be one of: ${KNOWLEDGE_CATEGORIES.join(', ')}` });
+      }
+      const ownerAgentId = parseOwnerAgentId(ownerAgentIdRaw);
+      const includeOwned = parseBooleanFlag(includeOwnedRaw);
+      if (ownerAgentId) {
+        const ownerAgent = db.prepare('SELECT id FROM agents WHERE id = ? AND project_id = ?').get(ownerAgentId, pid) as { id: string } | undefined;
+        if (!ownerAgent) {
+          return reply.status(400).send({ error: 'owner_agent_id must reference an agent in this project' });
+        }
       }
 
       markExpiredKnowledgeEntries(db, pid);
@@ -87,6 +153,12 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
           sql += " AND (',' || ke.tags || ',' LIKE ?)";
           params.push(`%,${tag},%`);
         }
+        if (ownerAgentId) {
+          sql += ' AND ke.owner_agent_id = ?';
+          params.push(ownerAgentId);
+        } else if (!includeOwned) {
+          sql += ' AND ke.owner_agent_id IS NULL';
+        }
         sql += ' ORDER BY rank';
         const entries = db.prepare(sql).all(...params);
         return { entries };
@@ -112,6 +184,12 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
         sql += " AND (',' || tags || ',' LIKE ?)";
         params.push(`%,${tag},%`);
       }
+      if (ownerAgentId) {
+        sql += ' AND owner_agent_id = ?';
+        params.push(ownerAgentId);
+      } else if (!includeOwned) {
+        sql += ' AND owner_agent_id IS NULL';
+      }
 
       sql += ' ORDER BY importance ASC, updated_at DESC';
       const entries = db.prepare(sql).all(...params);
@@ -120,12 +198,12 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
   );
 
   // Create knowledge entry
-  fastify.post<{ Params: { pid: string }; Body: { title: string; content: string; tags?: string; importance?: string; category?: string; created_by?: string } }>(
+  fastify.post<{ Params: { pid: string }; Body: { title: string; content: string; tags?: string; importance?: string; category?: string; created_by?: string; owner_agent_id?: string } }>(
     '/api/projects/:pid/knowledge',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
-      const { title, content, tags, importance, category: categoryRaw, created_by } = request.body as any;
+      const { title, content, tags, importance, category: categoryRaw, created_by, owner_agent_id: ownerAgentIdRaw } = request.body as any;
       const access = ensureProjectAccess(db, request, reply, pid, true);
       if (!access) return;
 
@@ -137,15 +215,28 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
       if (!category) {
         return reply.status(400).send({ error: `Invalid category. Must be one of: ${KNOWLEDGE_CATEGORIES.join(', ')}` });
       }
+      const ownerAgentId = parseOwnerAgentId(ownerAgentIdRaw);
+      if (ownerAgentId) {
+        const ownerAgent = db.prepare('SELECT id FROM agents WHERE id = ? AND project_id = ?').get(ownerAgentId, pid) as { id: string } | undefined;
+        if (!ownerAgent) {
+          return reply.status(400).send({ error: 'owner_agent_id must reference an agent in this project' });
+        }
+        const existingOwnerEntry = db.prepare(
+          'SELECT id FROM knowledge_entries WHERE project_id = ? AND owner_agent_id = ? LIMIT 1'
+        ).get(pid, ownerAgentId) as { id: string } | undefined;
+        if (existingOwnerEntry) {
+          return reply.status(409).send({ error: 'Knowledge entry for this owner already exists' });
+        }
+      }
 
       const id = uuidv4();
-      const actor = created_by || 'user';
+      const actor = created_by || ownerAgentId || 'user';
       const expiresAt = calculateKnowledgeExpiresAt(category);
       db.prepare(
         `INSERT INTO knowledge_entries
-          (id, project_id, title, content, tags, importance, category, expires_at, last_verified_at, verified_by, status, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, 'active', ?)`
-      ).run(id, pid, title, content || '', tags || '', importance || 'medium', category, expiresAt, actor, actor);
+          (id, project_id, owner_agent_id, title, content, tags, importance, category, expires_at, last_verified_at, verified_by, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, 'active', ?)`
+      ).run(id, pid, ownerAgentId, title, content || '', tags || '', importance || 'medium', category, expiresAt, actor, actor);
 
       const entry = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(id);
       return reply.status(201).send(entry);

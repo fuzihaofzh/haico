@@ -217,27 +217,81 @@ function showToast(message, type) {
   setTimeout(function() { toast.remove(); }, 3000);
 }
 
-function showConfirm(message) {
+function showConfirm(message, options) {
+  const opts = options || {};
+  const tone = opts.tone === 'danger' ? 'danger' : 'default';
+  const title = opts.title || (tone === 'danger' ? 'Confirm deletion' : 'Confirm action');
+  const confirmLabel = opts.confirmLabel || (tone === 'danger' ? 'Delete' : 'Confirm');
+  const cancelLabel = opts.cancelLabel || 'Cancel';
+  const messageHtml = esc(message || '').replace(/\n/g, '<br>');
+
   return new Promise(resolve => {
     let overlay = document.getElementById('confirm-overlay');
     if (!overlay) {
       overlay = document.createElement('div');
       overlay.id = 'confirm-overlay';
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+      overlay.className = 'modal-overlay confirm-overlay';
       document.body.appendChild(overlay);
     }
-    overlay.style.display = 'flex';
-    overlay.innerHTML = `<div style="background:var(--bg-secondary,#1e1e2e);border:1px solid var(--border,#333);border-radius:8px;padding:20px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
-      <div style="margin-bottom:16px;font-size:14px;line-height:1.5">${esc(message)}</div>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn btn-sm" id="confirm-cancel" style="padding:6px 16px">Cancel</button>
-        <button class="btn btn-sm" id="confirm-ok" style="padding:6px 16px;background:var(--accent);color:#fff">OK</button>
+
+    const close = (value) => {
+      overlay.classList.remove('active');
+      overlay.innerHTML = '';
+      overlay.removeEventListener('click', handleOverlayClick);
+      document.removeEventListener('keydown', handleKeydown, true);
+      resolve(value);
+    };
+
+    const handleOverlayClick = (event) => {
+      if (event.target === overlay) close(false);
+    };
+
+    const handleKeydown = (event) => {
+      if (!overlay.classList.contains('active')) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close(false);
+        return;
+      }
+      if (event.key === 'Enter' && !event.shiftKey) {
+        const active = document.activeElement;
+        const tag = active && active.tagName ? active.tagName.toLowerCase() : '';
+        if (tag === 'textarea') return;
+        const confirmButton = document.getElementById('confirm-ok');
+        if (confirmButton) {
+          event.preventDefault();
+          confirmButton.click();
+        }
+      }
+    };
+
+    overlay.innerHTML = `<div class="modal confirm-modal confirm-modal-${tone}" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div class="confirm-modal-header">
+        <div class="confirm-modal-eyebrow">${tone === 'danger' ? 'Danger zone' : 'Confirmation'}</div>
+        <h3 id="confirm-title" class="confirm-modal-title">${esc(title)}</h3>
+      </div>
+      <div class="confirm-modal-body">
+        <div class="confirm-modal-message">${messageHtml}</div>
+      </div>
+      <div class="modal-actions confirm-modal-actions">
+        <button class="btn btn-sm" id="confirm-cancel" type="button">${esc(cancelLabel)}</button>
+        <button class="btn btn-sm ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}" id="confirm-ok" type="button">${esc(confirmLabel)}</button>
       </div>
     </div>`;
-    const close = val => { overlay.style.display = 'none'; resolve(val); };
-    document.getElementById('confirm-ok').onclick = () => close(true);
-    document.getElementById('confirm-cancel').onclick = () => close(false);
-    overlay.onclick = e => { if (e.target === overlay) close(false); };
+
+    overlay.classList.add('active');
+    overlay.addEventListener('click', handleOverlayClick);
+    document.addEventListener('keydown', handleKeydown, true);
+
+    const confirmButton = document.getElementById('confirm-ok');
+    const cancelButton = document.getElementById('confirm-cancel');
+    if (confirmButton) confirmButton.onclick = () => close(true);
+    if (cancelButton) cancelButton.onclick = () => close(false);
+
+    requestAnimationFrame(() => {
+      if (tone === 'danger' && cancelButton) cancelButton.focus();
+      else if (confirmButton) confirmButton.focus();
+    });
   });
 }
 

@@ -15,7 +15,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx watch --exclude '*.db' --exclude '*.db-*' --exclude 'test/**' src/index.ts",
+    "dev": "nodemon --legacy-watch --signal SIGTERM --watch src --watch public --watch package.json --ext ts,js,json,html,css --exec \"node --import tsx src/index.ts\"",
     "test": "npm run build && npx tsx test/api.test.ts",
     "postinstall": "node -e \"const fs=require('fs'),p=require('path');[['docx-preview/dist/docx-preview.min.js','js/docx-preview.min.js'],['xlsx/dist/xlsx.full.min.js','js/xlsx.full.min.js'],['jszip/dist/jszip.min.js','js/jszip.min.js'],['@vscode/codicons/dist/codicon.css','css/codicon.css'],['@vscode/codicons/dist/codicon.ttf','css/codicon.ttf']].forEach(([s,d])=>{try{fs.copyFileSync(p.join('node_modules',s),p.join('public',d))}catch(e){}})\""
   },

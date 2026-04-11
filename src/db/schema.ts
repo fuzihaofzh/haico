@@ -6,6 +6,34 @@ import {
   detectCommandTypeFromCommand,
   resolveCommandType,
 } from '../services/command-profiles';
+import {
+  hasLegacyAgentMemoriesTable,
+  seedMissingAgentKnowledgeEntriesFromLegacyMemories,
+} from '../services/agent-knowledge';
+
+function cleanupLegacyAgentMemoriesArtifacts(db: Database.Database): void {
+  const legacyMemoriesTableExists = hasLegacyAgentMemoriesTable(db);
+  const legacyMemoriesFtsExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memories_fts'"
+  ).get() as { name: string } | undefined;
+  const legacyMemoriesTriggers = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name IN ('memories_ai', 'memories_ad', 'memories_au')"
+  ).all() as Array<{ name: string }>;
+
+  if (!legacyMemoriesTableExists && !legacyMemoriesFtsExists && legacyMemoriesTriggers.length === 0) {
+    return;
+  }
+
+  db.exec(`
+    DROP TRIGGER IF EXISTS memories_ai;
+    DROP TRIGGER IF EXISTS memories_ad;
+    DROP TRIGGER IF EXISTS memories_au;
+    DROP TABLE IF EXISTS memories_fts;
+    DROP TABLE IF EXISTS agent_memories;
+    DROP TABLE IF EXISTS agent_memories_old;
+  `);
+  logger.info('Migration: removed legacy agent_memories artifacts');
+}
 
 export function initializeDatabase(db: Database.Database): void {
   db.pragma('journal_mode = WAL');
@@ -193,6 +221,7 @@ export function initializeDatabase(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS knowledge_entries (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      owner_agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       content TEXT NOT NULL DEFAULT '',
       tags TEXT DEFAULT '',
@@ -207,20 +236,6 @@ export function initializeDatabase(db: Database.Database): void {
       updated_at DATETIME DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_knowledge_project ON knowledge_entries(project_id);
-
-    CREATE TABLE IF NOT EXISTS agent_memories (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      session_id TEXT,
-      content TEXT NOT NULL,
-      tags TEXT DEFAULT '',
-      scope TEXT DEFAULT 'private' CHECK(scope IN ('private', 'project')),
-      created_at DATETIME DEFAULT (datetime('now')),
-      expires_at DATETIME
-    );
-    CREATE INDEX IF NOT EXISTS idx_memories_agent ON agent_memories(agent_id);
-    CREATE INDEX IF NOT EXISTS idx_memories_project_scope ON agent_memories(project_id, scope);
 
     CREATE TABLE IF NOT EXISTS issue_relations (
       id TEXT PRIMARY KEY,
@@ -480,6 +495,10 @@ export function initializeDatabase(db: Database.Database): void {
   // Migration: add Knowledge Base lifecycle fields if missing
   const knowledgeCols = db.prepare("PRAGMA table_info(knowledge_entries)").all() as any[];
   const hasKnowledgeCol = (name: string) => knowledgeCols.some((c: any) => c.name === name);
+  if (!hasKnowledgeCol('owner_agent_id')) {
+    db.exec("ALTER TABLE knowledge_entries ADD COLUMN owner_agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE");
+    logger.info('Migration: added owner_agent_id column to knowledge_entries table');
+  }
   if (!hasKnowledgeCol('category')) {
     db.exec("ALTER TABLE knowledge_entries ADD COLUMN category TEXT DEFAULT 'architecture'");
     logger.info('Migration: added category column to knowledge_entries table');
@@ -526,7 +545,17 @@ export function initializeDatabase(db: Database.Database): void {
     WHERE verified_by IS NULL OR trim(verified_by) = '';
 
     CREATE INDEX IF NOT EXISTS idx_knowledge_project_status ON knowledge_entries(project_id, status);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_owner ON knowledge_entries(owner_agent_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_agent_owner_unique
+      ON knowledge_entries(project_id, owner_agent_id)
+      WHERE owner_agent_id IS NOT NULL;
   `);
+
+  const seededAgentKnowledgeEntries = seedMissingAgentKnowledgeEntriesFromLegacyMemories(db);
+  if (seededAgentKnowledgeEntries > 0) {
+    logger.info(`Migration: seeded ${seededAgentKnowledgeEntries} agent-owned knowledge entry/entries`);
+  }
+  cleanupLegacyAgentMemoriesArtifacts(db);
 
   // Migration: fix issues CHECK constraint to include 'pending' status
   // SQLite doesn't support ALTER CHECK, so we rebuild the table if the constraint is missing.
@@ -683,31 +712,6 @@ export function initializeDatabase(db: Database.Database): void {
     logger.info('Migration: rebuilt conversation_logs table to fix FK references');
   }
 
-  const memoriesTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_memories'").get() as any;
-  if (memoriesTableSql && memoriesTableSql.sql.includes('agents_old')) {
-    db.pragma('foreign_keys = OFF');
-    db.exec(`
-      ALTER TABLE agent_memories RENAME TO agent_memories_old;
-      CREATE TABLE agent_memories (
-        id TEXT PRIMARY KEY,
-        agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        session_id TEXT,
-        content TEXT NOT NULL,
-        tags TEXT DEFAULT '',
-        scope TEXT DEFAULT 'private' CHECK(scope IN ('private', 'project')),
-        created_at DATETIME DEFAULT (datetime('now')),
-        expires_at DATETIME
-      );
-      INSERT INTO agent_memories SELECT * FROM agent_memories_old;
-      DROP TABLE agent_memories_old;
-      CREATE INDEX IF NOT EXISTS idx_memories_agent ON agent_memories(agent_id);
-      CREATE INDEX IF NOT EXISTS idx_memories_project_scope ON agent_memories(project_id, scope);
-    `);
-    db.pragma('foreign_keys = ON');
-    logger.info('Migration: rebuilt agent_memories table to fix FK references');
-  }
-
   const approvalRequestsTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='approval_requests'").get() as any;
   if (approvalRequestsTableSql && (
     approvalRequestsTableSql.sql.includes('agents_old')
@@ -809,31 +813,6 @@ export function initializeDatabase(db: Database.Database): void {
       END;
     `);
     logger.info('Migration: created FTS5 virtual table for knowledge full-text search');
-  }
-
-  // Migration: create FTS5 virtual table for agent memories full-text search
-  const memFtsExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories_fts'").get();
-  if (!memFtsExists) {
-    db.exec(`
-      CREATE VIRTUAL TABLE memories_fts USING fts5(content, tags, content=agent_memories, content_rowid=rowid);
-    `);
-    db.exec(`
-      INSERT INTO memories_fts(rowid, content, tags)
-      SELECT rowid, content, tags FROM agent_memories;
-    `);
-    db.exec(`
-      CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON agent_memories BEGIN
-        INSERT INTO memories_fts(rowid, content, tags) VALUES (new.rowid, new.content, new.tags);
-      END;
-      CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON agent_memories BEGIN
-        INSERT INTO memories_fts(memories_fts, rowid, content, tags) VALUES('delete', old.rowid, old.content, old.tags);
-      END;
-      CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON agent_memories BEGIN
-        INSERT INTO memories_fts(memories_fts, rowid, content, tags) VALUES('delete', old.rowid, old.content, old.tags);
-        INSERT INTO memories_fts(rowid, content, tags) VALUES (new.rowid, new.content, new.tags);
-      END;
-    `);
-    logger.info('Migration: created FTS5 virtual table for agent memories full-text search');
   }
 
   // Migration: add user_id column to sessions if missing

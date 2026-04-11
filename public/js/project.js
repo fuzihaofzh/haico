@@ -903,7 +903,11 @@ async function saveOverview() {
 
 async function deleteProject() {
   if (!canDeleteProject()) { showToast('Only project owners or admins can delete projects', 'error'); return; }
-  if (!await showConfirm('Delete this project and all agents/issues?')) return;
+  if (!await showConfirm('Delete this project and all agents/issues?', {
+    title: 'Delete project?',
+    confirmLabel: 'Delete project',
+    tone: 'danger',
+  })) return;
   const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
   if (res.ok) { showToast('Project deleted', 'success'); window.location.href = '/'; }
   else {
@@ -977,7 +981,11 @@ async function removeProjectMember(userId, encodedDisplayName) {
 
   const displayName = decodeURIComponent(encodedDisplayName || '');
 
-  const confirmed = await showConfirm(`Remove ${displayName} from this project?\n\nThey will no longer see this project after removal.`);
+  const confirmed = await showConfirm(`Remove ${displayName} from this project?\n\nThey will no longer see this project after removal.`, {
+    title: 'Remove project member?',
+    confirmLabel: 'Remove',
+    tone: 'danger',
+  });
   if (!confirmed) return;
 
   const res = await fetch(`/api/projects/${projectId}/members/${userId}`, {
@@ -1696,7 +1704,11 @@ function closeAgentDetail() {
 async function deleteAgent(id) {
   if (!requireProjectManageAccess('Insufficient permission to delete agent')) return;
   const agent = agentsData.find(a => a.id === id);
-  if (!await showConfirm(`Delete agent "${agent?.name || id}"?`)) return;
+  if (!await showConfirm(`Delete agent "${agent?.name || id}"?`, {
+    title: 'Delete agent?',
+    confirmLabel: 'Delete agent',
+    tone: 'danger',
+  })) return;
   const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
   if (res.ok) {
     if (currentAgentId === id) closeAgentDetail();
@@ -1747,7 +1759,10 @@ async function unpauseAgent(id) {
 
 async function stopAgentById(id) {
   if (!requireProjectManageAccess('Insufficient permission to stop agent')) return;
-  if (!await showConfirm('Stop this agent?')) return;
+  if (!await showConfirm('Stop this agent?', {
+    title: 'Stop agent?',
+    confirmLabel: 'Stop',
+  })) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${id}/stop`, { method: 'POST', headers: apiHeaders(), body: '{}' });
@@ -2872,7 +2887,11 @@ async function saveKnowledge() {
 
 async function deleteKnowledge(id) {
   if (!requireProjectManageAccess('Insufficient permission to delete knowledge')) return;
-  if (!await showConfirm('Delete this knowledge entry?')) return;
+  if (!await showConfirm('Delete this knowledge entry?', {
+    title: 'Delete knowledge entry?',
+    confirmLabel: 'Delete',
+    tone: 'danger',
+  })) return;
   try {
     const res = await fetch(`/api/knowledge/${id}`, { method: 'DELETE', headers: apiHeaders() });
     if (res.ok) { showToast('Deleted', 'success'); loadKnowledge(); }

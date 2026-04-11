@@ -258,9 +258,11 @@
   async function deleteProfile(rowId, button) {
     const profile = getProfileById(rowId);
     const label = profile?.name || 'this command profile';
-    const confirmed = typeof showConfirm === 'function'
-      ? await showConfirm(`Delete ${label}? Existing agents keep their stored command.`)
-      : window.confirm(`Delete ${label}? Existing agents keep their stored command.`);
+    const confirmed = await showConfirm(`Delete ${label}? Existing agents keep their stored command.`, {
+      title: 'Delete command profile?',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
     if (!confirmed) return;
 
     await withLoading(button, async () => {

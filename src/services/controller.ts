@@ -206,7 +206,7 @@ export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?:
         }).join('\n')
       : '';
 
-    return `#${i.number} [${priorityLabel(i.priority)}] [${i.status}] ${i.title} -> ${assignee}${labels}${parentInfo}${childInfo}\n   ${i.body || ''}${commentsText}`;
+    return `#${i.number} (ID: ${i.id}) [${priorityLabel(i.priority)}] [${i.status}] ${i.title} -> ${assignee}${labels}${parentInfo}${childInfo}\n   ${i.body || ''}${commentsText}`;
   };
 
   const doneRecent = db.prepare(

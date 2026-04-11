@@ -262,7 +262,7 @@ function collectWorkerOutcomeHints(state: { agents: Agent[]; issues: Issue[] }):
   return hints;
 }
 
-function reconcileNeedsUserOutcomes(project: Project, hints: WorkerOutcomeHint[], agents: Agent[]): ReconcileNeedsUserResult {
+export function reconcileNeedsUserOutcomes(project: Project, hints: WorkerOutcomeHint[], agents: Agent[]): ReconcileNeedsUserResult {
   const db = getDatabase();
   const idleReasons: string[] = [];
   let movedCount = 0;
@@ -285,7 +285,7 @@ function reconcileNeedsUserOutcomes(project: Project, hints: WorkerOutcomeHint[]
       if (!issueRow || issueRow.assigned_to === 'user') continue;
 
       db.prepare(
-        "UPDATE issues SET assigned_to = 'user', updated_at = datetime('now') WHERE id = ?"
+        "UPDATE issues SET assigned_to = 'user', acknowledged_at = NULL, updated_at = datetime('now') WHERE id = ?"
       ).run(issueId);
 
       const metaBase = {

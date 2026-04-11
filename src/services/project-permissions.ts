@@ -244,24 +244,6 @@ export function ensureKnowledgeAccess(
   );
 }
 
-export function ensureMemoryAccess(
-  db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
-  memoryId: string,
-  requireManage = false
-) {
-  return ensureEntityAccess<{ id: string; project_id: string; agent_id: string }>(
-    db,
-    request,
-    reply,
-    'SELECT id, project_id, agent_id FROM agent_memories WHERE id = ?',
-    memoryId,
-    'Memory not found',
-    requireManage
-  );
-}
-
 export function ensureMessageAccess(
   db: Database.Database,
   request: FastifyRequest,

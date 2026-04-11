@@ -4,6 +4,7 @@ import { config } from '../config';
 import { getDirectChildAgents, loadProjectHierarchyAgents } from './agent-hierarchy';
 import { resolveCommandType } from './command-profiles';
 import { markExpiredKnowledgeEntries } from './knowledge-lifecycle';
+import { ensureAgentKnowledgeEntry } from './agent-knowledge';
 
 const BASE_URL = () => `http://localhost:${config.port}`;
 
@@ -81,9 +82,14 @@ ${C} -X POST ${base}/api/projects/${project.id}/issues \\
   -d '{"title":"Issue title","body":"Description","created_by":"${agent.id}","assigned_to":"AGENT_ID_or_user_or_all","labels":"bug,urgent"}'
 \`\`\`
 
-**View issue detail + comments:**
+**View issue detail + comments by UUID** (\`issue_id\` means the long UUID, not \`#123\`):
 \`\`\`bash
 ${C} ${base}/api/issues/{issue_id}
+\`\`\`
+
+**View issue detail by issue number** (when you only have \`#123\` from a prompt or comment):
+\`\`\`bash
+${C} ${base}/api/projects/${project.id}/issues/number/{issue_number}
 \`\`\`
 
 **Update issue (status, assignment, etc.):**
@@ -93,6 +99,7 @@ ${C} -X PUT ${base}/api/issues/{issue_id} \\
   -d '{"status":"done","actor":"${agent.id}"}'
 \`\`\`
 Status values: \`open\`, \`in_progress\`, \`pending\` (waiting for sub-issues), \`done\`, \`closed\`
+If you only know an issue number, fetch it via the by-number endpoint first and then use the returned UUID for update/comment APIs.
 
 **Add a comment to an issue:**
 \`\`\`bash
@@ -184,6 +191,7 @@ ${C} "${base}/api/projects/${project.id}/knowledge?q=关键词"
 
 - Add comments to issues to report progress, implementation notes, blockers, or completion summaries; do not ask the user questions in issue comments
 - Create new issues if you discover problems. If the new issue is a sub-task of your current issue, set \`parent_id\` to link them: \`{"title":"sub-task","parent_id":"<current-issue-id>",...}\`
+- Do not use a \`blocks\` relation as a substitute for \`parent_id\`. If issue B is a decomposition of issue A, issue B must carry \`parent_id = A\` even if you also add dependency links.
 - When all child issues of a parent complete, the system automatically notifies the parent
 - You cannot create or manage other agents — only the controller can`;
   }
@@ -194,6 +202,7 @@ ${C} "${base}/api/projects/${project.id}/knowledge?q=关键词"
     `SELECT title, content
      FROM knowledge_entries
      WHERE project_id = ?
+       AND owner_agent_id IS NULL
        AND importance = 'high'
        AND status = 'active'
        AND (expires_at IS NULL OR expires_at >= datetime('now'))
@@ -267,31 +276,34 @@ ${C} "${base}/api/projects/${project.id}/knowledge?q=search+terms"
 3. KB 里已经有类似条目了吗？→ 有则更新，不要新建
 4. 设为 high importance 是必要的吗？→ 非核心信息用 medium（不会注入 prompt）`;
 
-  // Agent memories: inject recent relevant memories
-  const agentMemories = db.prepare(`
-    SELECT content, tags, scope, created_at FROM agent_memories
-    WHERE project_id = ? AND (agent_id = ? OR scope = 'project')
-      AND (expires_at IS NULL OR expires_at > datetime('now'))
-    ORDER BY created_at DESC LIMIT 10
-  `).all(project.id, agent.id) as any[];
+  const agentKnowledgeEntry = ensureAgentKnowledgeEntry(db, agent);
+  const agentKnowledgeSection = `
+## Your Owned Knowledge Base Item
+### ${agentKnowledgeEntry.title}
+${agentKnowledgeEntry.content || '(empty)'}
 
-  const memoriesSection = `
-## Agent Memories
-${agentMemories.length > 0
-    ? agentMemories.map(m => `- [${m.scope}] ${m.content}${m.tags ? ` (tags: ${m.tags})` : ''}`).join('\n')
-    : '(none)'}
+**必须长期维护这条 owner knowledge：**
+- 这是你的专属知识项，只注入给你自己，不会注入给其他 agent。
+- 这条知识应该记录：你的主要职责、常做任务、常用资源路径、常用命令、关键代码架构认知、长期有效的注意事项。
+- 开始工作前，先读取这条 knowledge；如果已有相关内容，优先复用，不要每次都重新摸索。
+- **在准备结束当前任务、准备把 issue 标记为 \`done\`、准备输出 final result 之前，必须先更新这条 knowledge。**
+- 不要把一次性进展、实验日志、临时结论写进这条 knowledge；这些内容应该写到 issue comments。
 
-**Save a memory** (persists across sessions):
+**Read your owned knowledge item:**
 \`\`\`bash
-${C} -X POST ${base}/api/agents/${agent.id}/memories \\
-  -H "Content-Type: application/json" \\
-  -d '{"content":"What to remember","tags":"tag1,tag2","scope":"private"}'
+${C} "${base}/api/agents/${agent.id}/knowledge-memory"
 \`\`\`
-scope: \`private\` (only this agent), \`project\` (shared with all agents)
 
-**Search memories:**
+**Update your owned knowledge item** (upsert; same item will be rewritten in place):
 \`\`\`bash
-${C} "${base}/api/agents/${agent.id}/memories?q=search+terms"
+${C} -X PUT ${base}/api/agents/${agent.id}/knowledge-memory \\
+  -H "Content-Type: application/json" \\
+  -d '{"content":"Updated long-term knowledge","tags":"agent-profile,commands,architecture","category":"reference","importance":"medium","verified_by":"${agent.id}"}'
+\`\`\`
+
+**Query your owned knowledge via project KB filter:**
+\`\`\`bash
+${C} "${base}/api/projects/${project.id}/knowledge?owner_agent_id=${agent.id}"
 \`\`\``;
 
   // Direct messages: inject unread messages
@@ -353,7 +365,7 @@ ${issueSection}
 ${managementSection}
 ${customSection}
 ${knowledgeSection}
-${memoriesSection}
+${agentKnowledgeSection}
 ${messagesSection}
 ${toolExecutionSection}
 ${languageSection}

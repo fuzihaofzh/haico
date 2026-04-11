@@ -1084,15 +1084,18 @@ async function openGlobalCompose(defaults) {
     }
 
     const preferredProjectId = opts.projectId || _inboxProject;
-    const selectedProject = projects.find((project) => project.id === preferredProjectId) || projects[0];
-    projectSelect.innerHTML = projects.map((project) =>
+    const selectedProject = preferredProjectId
+      ? projects.find((project) => project.id === preferredProjectId) || null
+      : null;
+    projectSelect.innerHTML = '<option value="">— Select a project —</option>' + projects.map((project) =>
       `<option value="${esc(project.id)}">${esc(project.name)}</option>`
     ).join('');
-    projectSelect.value = selectedProject.id;
+    projectSelect.value = selectedProject?.id || '';
     projectSelect.disabled = false;
     const recipientsLoaded = await updateGlobalComposeRecipients(opts.assignedTo);
     if (sendButton) sendButton.disabled = !recipientsLoaded;
-    subjectInput.focus();
+    if (selectedProject) subjectInput.focus();
+    else projectSelect.focus();
   } catch (e) {
     projectSelect.innerHTML = '<option value="">Failed to load projects</option>';
     setGlobalComposeStatus(e.message || 'Failed to load compose data', 'error');

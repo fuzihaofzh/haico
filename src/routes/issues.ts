@@ -21,6 +21,11 @@ import {
 const NOTIFICATION_PREVIEW_CHARS = 150;
 const DEFAULT_INBOX_PAGE_LIMIT = 20;
 const MAX_INBOX_PAGE_LIMIT = 100;
+const USER_RELATED_ISSUE_WHERE = `(
+  i.assigned_to = 'user'
+  OR i.created_by = 'user'
+  OR i.id IN (SELECT DISTINCT issue_id FROM issue_comments WHERE author_id = 'user')
+)`;
 
 // Parse @agent-name mentions from text and auto-start mentioned agents
 function parseMentionsAndStartAgents(
@@ -149,6 +154,27 @@ function resolvePriority(createdBy: string, projectId: string): number {
   return 1;
 }
 
+function resolveImplicitParentId(projectId: string, body?: string): string | undefined {
+  if (!body) return undefined;
+  const firstNonEmptyLine = body
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .find(Boolean);
+  if (!firstNonEmptyLine) return undefined;
+
+  const match = /^(?:父\s*issue|parent\s*issue)\s*:\s*#(\d+)\b/i.exec(firstNonEmptyLine);
+  if (!match) return undefined;
+
+  const parentNumber = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(parentNumber)) return undefined;
+
+  const db = getDatabase();
+  const parent = db.prepare(
+    'SELECT id FROM issues WHERE project_id = ? AND number = ?'
+  ).get(projectId, parentNumber) as { id: string } | undefined;
+  return parent?.id;
+}
+
 function buildSqlPlaceholders(values: readonly unknown[]): string {
   return values.map(() => '?').join(', ');
 }
@@ -260,14 +286,15 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       if (!access) return;
       const id = uuidv4();
       const priority = resolvePriority(created_by, request.params.pid);
+      const resolvedParentId = parent_id || resolveImplicitParentId(request.params.pid, body);
 
       // Auto-increment number per project
       const last = db.prepare('SELECT MAX(number) as n FROM issues WHERE project_id = ?').get(request.params.pid) as { n: number | null };
       const number = (last?.n || 0) + 1;
 
       // Validate parent_id if provided
-      if (parent_id) {
-        const parent = db.prepare('SELECT id, project_id FROM issues WHERE id = ?').get(parent_id) as any;
+      if (resolvedParentId) {
+        const parent = db.prepare('SELECT id, project_id FROM issues WHERE id = ?').get(resolvedParentId) as any;
         if (!parent) return reply.code(400).send({ error: 'Parent issue not found' });
         if (parent.project_id !== request.params.pid) return reply.code(400).send({ error: 'Parent issue must be in the same project' });
       }
@@ -275,26 +302,26 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       db.prepare(`
         INSERT INTO issues (id, project_id, number, title, body, created_by, assigned_to, priority, labels, parent_id, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
-      `).run(id, request.params.pid, number, title, body || '', created_by, assigned_to || null, priority, labels || '', parent_id || null);
+      `).run(id, request.params.pid, number, title, body || '', created_by, assigned_to || null, priority, labels || '', resolvedParentId || null);
 
       const created = db.prepare('SELECT * FROM issues WHERE id = ?').get(id) as any;
 
       // Auto-set parent issue to 'pending' when a child issue is created
-      if (parent_id) {
-        const parent = db.prepare('SELECT id, status FROM issues WHERE id = ?').get(parent_id) as any;
+      if (resolvedParentId) {
+        const parent = db.prepare('SELECT id, status FROM issues WHERE id = ?').get(resolvedParentId) as any;
         if (parent && !['done', 'closed', 'pending'].includes(parent.status)) {
-          db.prepare("UPDATE issues SET status = 'pending', updated_at = datetime('now') WHERE id = ?").run(parent_id);
+          db.prepare("UPDATE issues SET status = 'pending', updated_at = datetime('now') WHERE id = ?").run(resolvedParentId);
           const eventStmt = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
-          eventStmt.run(uuidv4(), parent_id, 'system',
+          eventStmt.run(uuidv4(), resolvedParentId, 'system',
             `changed status from ${parent.status} to pending (child issue #${number} created)`, 'status_change',
             JSON.stringify({ from: parent.status, to: 'pending', child_number: number }));
           broadcastToProject(request.params.pid, {
             type: 'issue_updated', projectId: request.params.pid,
-            data: { issue: db.prepare('SELECT * FROM issues WHERE id = ?').get(parent_id) },
+            data: { issue: db.prepare('SELECT * FROM issues WHERE id = ?').get(resolvedParentId) },
           });
         } else if (parent && parent.status === 'pending') {
           const eventStmt = db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)');
-          eventStmt.run(uuidv4(), parent_id, 'system',
+          eventStmt.run(uuidv4(), resolvedParentId, 'system',
             `New child issue #${number} added`, 'status_change',
             JSON.stringify({ child_number: number }));
         }
@@ -628,7 +655,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     const visibilityWhere = scope === 'all'
       ? `i.project_id IN (${placeholders})`
       : `i.project_id IN (${placeholders})
-         AND (i.assigned_to = 'user' OR i.created_by = 'user')`;
+         AND ${USER_RELATED_ISSUE_WHERE}`;
     const activeInboxStatusWhere = `i.status IN ('open', 'in_progress', 'pending', 'done')`;
     const baseWhere = `${visibilityWhere} AND ${activeInboxStatusWhere}`;
     const sinceUpdatedAt = typeof query?.since_updated_at === 'string' ? query.since_updated_at.trim() : '';
@@ -736,11 +763,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
       SELECT DISTINCT i.*, p.name as project_name FROM issues i
       JOIN projects p ON i.project_id = p.id
       WHERE i.project_id IN (${placeholders})
-        AND (
-          i.assigned_to = 'user'
-          OR i.created_by = 'user'
-          OR i.id IN (SELECT DISTINCT issue_id FROM issue_comments WHERE author_id = 'user')
-        )
+        AND ${USER_RELATED_ISSUE_WHERE}
       ORDER BY i.updated_at DESC
       LIMIT 100
     `).all(...projectIds);
