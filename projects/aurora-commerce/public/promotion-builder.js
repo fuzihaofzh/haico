@@ -142,6 +142,7 @@ async function refreshPreview() {
 
   renderMetrics(preview.metrics);
   renderPanels(preview.panels);
+  renderHeroBannerChecklist(preview.heroBannerChecklist);
   renderLaunchBrief(preview.launchBrief);
   renderStatusList('acceptance-list', preview.acceptanceCriteria, 'passed');
   renderStatusList('guardrail-list', preview.guardrails, 'status');
@@ -184,6 +185,49 @@ function renderPanels(panels) {
         </article>
       `
     )
+    .join('');
+}
+
+function renderHeroBannerChecklist(checklist) {
+  const gate = document.getElementById('hero-qa-gate');
+  gate.dataset.state = checklist.gate.status;
+  gate.textContent = checklist.gate.label;
+  document.getElementById('hero-qa-summary').textContent = checklist.gate.summary;
+  document.getElementById('hero-qa-completion').textContent = `${checklist.gate.completionPercent}%`;
+  document.getElementById('hero-qa-progress-detail').textContent =
+    `${checklist.gate.readyCount} of ${checklist.gate.totalCount} checks are fully ready for publish.`;
+  document.getElementById('hero-qa-ready-count').textContent = `${checklist.gate.readyCount}`;
+  document.getElementById('hero-qa-watch-count').textContent = `${checklist.gate.watchCount}`;
+  document.getElementById('hero-qa-blocked-count').textContent = `${checklist.gate.blockedCount}`;
+  document.getElementById('hero-qa-progress-bar').style.width = `${checklist.gate.completionPercent}%`;
+
+  document.getElementById('hero-qa-sections').innerHTML = checklist.sections
+    .map(
+      (section) => `
+        <article class="qa-section-card">
+          <div class="qa-section-header">
+            <h3>${section.title}</h3>
+            <p>${section.detail}</p>
+          </div>
+          <ul class="qa-item-list">
+            ${section.items
+              .map(
+                (item) => `
+                  <li data-state="${item.status}">
+                    <strong>${item.label}</strong>
+                    <small>${item.detail}</small>
+                  </li>
+                `
+              )
+              .join('')}
+          </ul>
+        </article>
+      `
+    )
+    .join('');
+
+  document.getElementById('hero-qa-acceptance').innerHTML = checklist.acceptanceCriteria
+    .map((item) => `<li>${item}</li>`)
     .join('');
 }
 

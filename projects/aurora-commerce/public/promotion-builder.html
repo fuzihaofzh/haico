@@ -126,6 +126,50 @@
           <div id="metric-cards" class="metric-grid"></div>
           <div id="ops-panels" class="panel-grid"></div>
 
+          <div class="section-card preview-card qa-card">
+            <div class="section-heading qa-heading">
+              <div>
+                <p class="section-kicker">Hero Banner QA</p>
+                <h2>Visual publishing checklist</h2>
+              </div>
+              <span id="hero-qa-gate" class="gate-pill" data-state="watch">Review Before Publish</span>
+            </div>
+            <p id="hero-qa-summary" class="brief-summary"></p>
+
+            <div class="qa-progress-card">
+              <div>
+                <p class="qa-progress-label">Checklist Coverage</p>
+                <strong id="hero-qa-completion">0%</strong>
+              </div>
+              <p id="hero-qa-progress-detail" class="qa-progress-detail"></p>
+            </div>
+            <div class="qa-progress-track" aria-hidden="true">
+              <div id="hero-qa-progress-bar" class="qa-progress-bar"></div>
+            </div>
+
+            <div class="qa-pill-row">
+              <div class="qa-pill" data-state="ready">
+                <span>Ready</span>
+                <strong id="hero-qa-ready-count">0</strong>
+              </div>
+              <div class="qa-pill" data-state="watch">
+                <span>Watch</span>
+                <strong id="hero-qa-watch-count">0</strong>
+              </div>
+              <div class="qa-pill" data-state="blocked">
+                <span>Blocked</span>
+                <strong id="hero-qa-blocked-count">0</strong>
+              </div>
+            </div>
+
+            <div id="hero-qa-sections" class="qa-section-grid"></div>
+
+            <div class="qa-acceptance">
+              <p class="qa-progress-label">Acceptance Criteria</p>
+              <ul id="hero-qa-acceptance" class="qa-acceptance-list"></ul>
+            </div>
+          </div>
+
           <div class="section-card preview-card">
             <div class="section-heading">
               <p class="section-kicker">Launch Brief</p>

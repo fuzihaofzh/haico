@@ -82,6 +82,28 @@ export interface PromotionBuilderPreview {
     summary: string;
     timeline: string[];
   };
+  heroBannerChecklist: {
+    gate: {
+      status: 'ready' | 'watch' | 'blocked';
+      label: string;
+      summary: string;
+      completionPercent: number;
+      readyCount: number;
+      watchCount: number;
+      blockedCount: number;
+      totalCount: number;
+    };
+    sections: Array<{
+      title: string;
+      detail: string;
+      items: Array<{
+        label: string;
+        status: 'ready' | 'watch' | 'blocked';
+        detail: string;
+      }>;
+    }>;
+    acceptanceCriteria: string[];
+  };
 }
 
 const objectiveConfig: Record<PromotionObjective, { demand: number; margin: number; fulfillment: number }> = {
@@ -352,6 +374,80 @@ export function buildPromotionPreview(input: Partial<PromotionBuilderDraft> = {}
     ],
   };
 
+  const messageLayers = [draft.stackable, draft.autoApply, draft.giftWithPurchase, draft.vipWindowHours > 0].filter(Boolean).length;
+  const heroBannerSections: PromotionBuilderPreview['heroBannerChecklist']['sections'] = [
+    {
+      title: 'Message Hierarchy',
+      detail: 'Keep the offer readable before operators open responsive proofs.',
+      items: [
+        {
+          label: 'Headline discount reads as a single focal point.',
+          status: resolveStatus(draft.discountPercent >= 12 && draft.discountPercent <= 28, draft.discountPercent >= 10 && draft.discountPercent <= 32),
+          detail: `${draft.discountPercent}% headline depth should stay legible without overpowering the brand line.`,
+        },
+        {
+          label: 'Threshold and supporting copy fit in one short subhead.',
+          status: resolveStatus(draft.thresholdAmount >= 90 && draft.thresholdAmount <= 160, draft.thresholdAmount >= 75 && draft.thresholdAmount <= 190),
+          detail: `$${draft.thresholdAmount} threshold keeps the hero subhead ${draft.thresholdAmount <= 160 ? 'tight' : 'at risk of wrapping'}.`,
+        },
+      ],
+    },
+    {
+      title: 'Layout Safety',
+      detail: 'Visual density should survive mobile crops and badge treatments.',
+      items: [
+        {
+          label: 'CTA is not crowded by stacked promotional labels.',
+          status: resolveStatus(messageLayers <= 2, messageLayers <= 3),
+          detail: `${messageLayers} active message layer${messageLayers === 1 ? '' : 's'} across VIP, auto-apply, stackable, and gift callouts.`,
+        },
+        {
+          label: 'Mobile crop can hold the price signal and CTA together.',
+          status: resolveStatus(checkoutComplexity <= 34 && messageLayers <= 2, checkoutComplexity <= 48 && messageLayers <= 3),
+          detail: `Checkout complexity ${checkoutComplexity} indicates ${checkoutComplexity <= 34 ? 'standard' : checkoutComplexity <= 48 ? 'elevated' : 'compressed'} copy density in the hero frame.`,
+        },
+      ],
+    },
+    {
+      title: 'Publish Sync',
+      detail: 'The hero promise has to match inventory and fulfillment reality.',
+      items: [
+        {
+          label: 'Fulfillment language matches the selected delivery posture.',
+          status: resolveStatus(fulfillmentRisk <= 28, fulfillmentRisk <= 42),
+          detail: `${labelForFulfillmentPreset(draft.fulfillmentPreset)} is carrying a fulfillment risk score of ${fulfillmentRisk}.`,
+        },
+        {
+          label: 'Inventory and compliance footer can publish without escalation.',
+          status: resolveStatus(draft.inventoryBufferPercent >= 18 && launchReadiness >= 78, draft.inventoryBufferPercent >= 16 && launchReadiness >= 72),
+          detail: `${draft.inventoryBufferPercent}% buffer and readiness ${launchReadiness} determine whether legal and stock caveats stay lightweight.`,
+        },
+      ],
+    },
+  ];
+
+  const heroBannerItems = heroBannerSections.flatMap((section) => section.items);
+  const readyCount = heroBannerItems.filter((item) => item.status === 'ready').length;
+  const watchCount = heroBannerItems.filter((item) => item.status === 'watch').length;
+  const blockedCount = heroBannerItems.filter((item) => item.status === 'blocked').length;
+  const totalCount = heroBannerItems.length;
+  const completionPercent = Math.round((readyCount / totalCount) * 100);
+  const heroGateStatus = blockedCount > 0 ? 'blocked' : watchCount > 0 ? 'watch' : 'ready';
+  const heroGateSummary =
+    heroGateStatus === 'ready'
+      ? 'All hero banner checks are clear for the weekly publish lane.'
+      : heroGateStatus === 'watch'
+        ? `${watchCount} review item${watchCount === 1 ? '' : 's'} should be acknowledged before the banner goes live.`
+        : `${blockedCount} blocking item${blockedCount === 1 ? '' : 's'} should be resolved before hero publishing.`;
+  const heroGateLabel =
+    heroGateStatus === 'ready' ? 'Publish Ready' : heroGateStatus === 'watch' ? 'Review Before Publish' : 'Hold Before Publish';
+  const heroAcceptanceCriteria = [
+    'Zero blocked checks across message hierarchy, crop safety, and publish sync.',
+    'Discount, threshold, and CTA remain readable within the first mobile viewport.',
+    'Any watch item is explicitly covered in the weekly launch review before publish.',
+    'Fulfillment and inventory promises match the selected operating preset.',
+  ];
+
   return {
     draft,
     presetContext: {
@@ -404,6 +500,20 @@ export function buildPromotionPreview(input: Partial<PromotionBuilderDraft> = {}
     acceptanceCriteria,
     recommendations,
     launchBrief,
+    heroBannerChecklist: {
+      gate: {
+        status: heroGateStatus,
+        label: heroGateLabel,
+        summary: heroGateSummary,
+        completionPercent,
+        readyCount,
+        watchCount,
+        blockedCount,
+        totalCount,
+      },
+      sections: heroBannerSections,
+      acceptanceCriteria: heroAcceptanceCriteria,
+    },
   };
 }
 
@@ -451,4 +561,18 @@ function labelForObjective(objective: PromotionObjective): string {
 
 function labelForMechanic(mechanic: PromotionMechanic): string {
   return seed.mechanics.find((item) => item.id === mechanic)?.label ?? mechanic;
+}
+
+function labelForFulfillmentPreset(preset: FulfillmentPresetId): string {
+  return seed.fulfillmentPresets.find((item) => item.id === preset)?.label ?? preset;
+}
+
+function resolveStatus(passed: boolean, warning: boolean): 'ready' | 'watch' | 'blocked' {
+  if (passed) {
+    return 'ready';
+  }
+  if (warning) {
+    return 'watch';
+  }
+  return 'blocked';
 }

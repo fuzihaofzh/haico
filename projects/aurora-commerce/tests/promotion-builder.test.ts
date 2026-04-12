@@ -12,6 +12,7 @@ describe('Promotion Builder', () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.body).toContain('Adaptive Promotion Builder');
+    expect(response.body).toContain('Visual publishing checklist');
 
     await app.close();
   });
@@ -42,6 +43,8 @@ describe('Promotion Builder', () => {
     const preview = previewResponse.json();
     expect(preview.metrics.fulfillmentRisk).toBeGreaterThan(20);
     expect(preview.acceptanceCriteria).toHaveLength(4);
+    expect(preview.heroBannerChecklist.sections).toHaveLength(3);
+    expect(preview.heroBannerChecklist.gate.label).toBeTruthy();
     expect(preview.launchBrief.summary).toContain('Projected');
 
     await app.close();
@@ -66,5 +69,7 @@ describe('Promotion Builder', () => {
     const failedCriteria = preview.acceptanceCriteria.filter((item) => !item.passed);
     expect(failedCriteria.length).toBeGreaterThanOrEqual(2);
     expect(preview.metrics.launchReadiness).toBeLessThan(72);
+    expect(preview.heroBannerChecklist.gate.status).toBe('blocked');
+    expect(preview.heroBannerChecklist.gate.blockedCount).toBeGreaterThanOrEqual(1);
   });
 });
