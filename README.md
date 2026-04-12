@@ -193,6 +193,18 @@ npm run build && npm start
 
 On first visit, you'll be prompted to create an admin account.
 
+### Option 3: Build the macOS Desktop App
+
+```bash
+git clone https://github.com/fuzihaofzh/haico.git
+cd haico
+npm install
+npm run build:electron
+open dist/electron/HAICO-darwin-*/HAICO.app
+```
+
+The Electron app bundles the HAICO server, frontend assets, production dependencies, and a Node.js runtime into a standalone `.app`. When launched from the packaged app, the default SQLite database is stored in `~/Library/Application Support/HAICO/haico.db`.
+
 ### Configuration
 
 | Variable | Default | Description |

@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HAICO - Project</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
   <link rel="stylesheet" href="/public/css/style.css?v=6">
   <link rel="stylesheet" href="/public/css/issues.css">
   <link rel="stylesheet" href="/public/css/codicon.css">
@@ -11,7 +15,9 @@
 <body class="project-shell">
   <!-- Outlook-style Sidebar -->
   <nav class="vertical-sidebar" aria-label="Dashboard navigation">
-    <a href="/" class="sidebar-logo" aria-label="HAICO Dashboard">H</a>
+    <a href="/" class="sidebar-logo" aria-label="HAICO Dashboard">
+      <img src="/public/brand/haico-mark.svg" alt="">
+    </a>
     <button type="button" class="sidebar-nav-item" data-sidebar-view="inbox" onclick="navigateProjectSidebar('inbox')" aria-label="Inbox">
       <span class="sidebar-nav-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none">
@@ -50,7 +56,12 @@
   <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
   <div class="drawer" id="drawer">
     <div class="drawer-header">
-      <h3><span style="color:var(--accent)">HAICO</span></h3>
+      <h3>
+        <a href="/" class="haico-wordmark">
+          <img src="/public/brand/haico-mark.svg" alt="">
+          <span>HAICO</span>
+        </a>
+      </h3>
       <button class="drawer-close" onclick="closeDrawer()">&times;</button>
     </div>
     <div class="drawer-content">
@@ -95,7 +106,12 @@
     <button class="menu-btn" onclick="toggleDrawer()">
       <span></span><span></span><span></span>
     </button>
-    <h1><a href="/" style="color:var(--accent);text-decoration:none">HAICO</a></h1>
+    <h1>
+      <a href="/" class="haico-wordmark">
+        <img src="/public/brand/haico-mark.svg" alt="">
+        <span>HAICO</span>
+      </a>
+    </h1>
     <div class="breadcrumb" style="margin-left:12px">
       <a href="/">Projects</a> / <a id="project-name" href="#" onclick="switchTab('overview');return false" style="color:var(--link);text-decoration:none">Loading...</a><span id="breadcrumb-section"></span>
     </div>

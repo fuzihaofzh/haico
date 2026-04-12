@@ -20,6 +20,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
+    "build:electron": "bash desktop/build-electron.sh",
     "start": "node dist/index.js",
     "dev": "nodemon --legacy-watch --signal SIGTERM --watch src --watch public --watch package.json --ext ts,js,json,html,css --exec \"node --import tsx src/index.ts\"",
     "test": "npm run build && npx tsx test/api.test.ts",

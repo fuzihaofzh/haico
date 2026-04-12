@@ -2623,7 +2623,7 @@ function showBrowserNotification(newItems) {
   let body = titles.join('\n');
   if (newItems.length > 3) body += `\n...and ${newItems.length - 3} more`;
   try {
-    new Notification('HAICO', { body, icon: '/favicon.ico' });
+    new Notification('HAICO', { body, icon: '/public/brand/haico-mark-square-192.png' });
   } catch (_) { /* silent */ }
 }
 

@@ -4,12 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HAICO - Operations Console</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
   <link rel="stylesheet" href="/public/css/style.css?v=6">
   <link rel="stylesheet" href="/public/css/operations-console.css?v=1">
 </head>
 <body class="project-shell ops-console-body">
   <nav class="vertical-sidebar" aria-label="Operations navigation">
-    <a href="/" class="sidebar-logo" aria-label="HAICO Dashboard">H</a>
+    <a href="/" class="sidebar-logo" aria-label="HAICO Dashboard">
+      <img src="/public/brand/haico-mark.svg" alt="">
+    </a>
     <button type="button" class="sidebar-nav-item" onclick="window.location.href='/'" aria-label="Projects">
       <span class="sidebar-nav-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none">
@@ -30,7 +36,12 @@
   </nav>
 
   <header>
-    <h1><a href="/" style="color:var(--accent);text-decoration:none">HAICO</a></h1>
+    <h1>
+      <a href="/" class="haico-wordmark">
+        <img src="/public/brand/haico-mark.svg" alt="">
+        <span>HAICO</span>
+      </a>
+    </h1>
     <div class="breadcrumb ops-breadcrumb">
       <a href="/">Projects</a>
       <span>/</span>

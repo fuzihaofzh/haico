@@ -1,0 +1,11 @@
+{
+  "name": "haico-electron",
+  "version": "0.1.0",
+  "description": "HAICO desktop app (Electron)",
+  "main": "main.cjs",
+  "private": true,
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-packager": "^17.1.2"
+  }
+}

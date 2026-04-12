@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Human-Agent Interactive Collaboration Orchestrator (HAICO)</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
   <link rel="stylesheet" href="/public/css/style.css?v=6">
   <link rel="stylesheet" href="/public/css/issues.css">
   <link rel="stylesheet" href="/public/vendor/katex/katex.min.css?v=0.16.11">
@@ -11,7 +15,9 @@
 <body class="dashboard-shell" data-dashboard-view="inbox">
   <!-- Outlook-style Sidebar -->
   <nav class="vertical-sidebar" aria-label="Dashboard navigation">
-    <a href="/" class="sidebar-logo" aria-label="HAICO Dashboard">H</a>
+    <a href="/" class="sidebar-logo" aria-label="HAICO Dashboard">
+      <img src="/public/brand/haico-mark.svg" alt="">
+    </a>
     <button type="button" class="sidebar-nav-item active" data-sidebar-view="inbox" onclick="switchView('inbox')" aria-label="Inbox">
       <span class="sidebar-nav-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none">
@@ -49,7 +55,12 @@
 
   <!-- Header -->
   <header>
-    <h1><a href="/" style="color:var(--accent);text-decoration:none">HAICO</a></h1>
+    <h1>
+      <a href="/" class="haico-wordmark">
+        <img src="/public/brand/haico-mark.svg" alt="">
+        <span>HAICO</span>
+      </a>
+    </h1>
     <div class="header-right">
       <button class="btn btn-primary btn-sm" onclick="showCreateModal()">+ New Project</button>
     </div>

@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HAICO - Terminal</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
   <link rel="stylesheet" href="/public/css/style.css">
   <link rel="stylesheet" href="/public/vendor/xterm.css">
   <style>
@@ -26,7 +30,12 @@
     <button class="menu-btn" onclick="history.back()">
       <span></span><span></span><span></span>
     </button>
-    <h1><a href="/" style="color:var(--accent);text-decoration:none">HAICO</a></h1>
+    <h1>
+      <a href="/" class="haico-wordmark">
+        <img src="/public/brand/haico-mark.svg" alt="">
+        <span>HAICO</span>
+      </a>
+    </h1>
     <div class="breadcrumb" style="margin-left:12px">
       <a href="/">Projects</a> / <a id="project-link" href="#">Project</a> / <a id="agent-link" href="#">Agent</a> / <span>Terminal</span>
     </div>
