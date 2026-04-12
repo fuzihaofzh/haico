@@ -290,6 +290,26 @@ function syncParentAgentSelect(selectId, currentAgentId, selectedParentId, disab
   select.value = selectedParentId || '';
 }
 
+function getDefaultCreateAgentParentId() {
+  const controller = getControllerAgent();
+  return controller ? controller.id : '';
+}
+
+function markCreateAgentParentChosen() {
+  const select = document.getElementById('agent-parent');
+  if (!select) return;
+  select.dataset.userChosen = 'true';
+}
+
+function getCreateAgentParentValue() {
+  const select = document.getElementById('agent-parent');
+  if (!select) return '';
+  const currentValue = select.value || '';
+  if (currentValue) return currentValue;
+  if (select.dataset.userChosen === 'true') return '';
+  return select.dataset.defaultParentId || '';
+}
+
 function getCommandProfileManager() {
   return window.HAICOCommandProfiles || null;
 }
@@ -683,6 +703,21 @@ function renderProjectAccessSummary() {
   const ownerSummary = document.getElementById('project-owner-summary');
   if (ownerSummary) ownerSummary.innerHTML = `<span class="meta-chip-label">Owner</span><span>${esc(ownerName)}</span><span class="meta-chip-secondary">${esc(ownerRole)}</span>`;
 
+  const remoteSummary = document.getElementById('project-remote-summary');
+  if (remoteSummary) {
+    const remoteAddress = String(projectData.remote_base_url || '').trim();
+    const remoteName = String(projectData.remote_instance_name || '').trim();
+    const isRemote = Boolean(projectData.is_remote && remoteAddress);
+    remoteSummary.style.display = isRemote ? '' : 'none';
+    if (isRemote) {
+      remoteSummary.title = remoteName ? `${remoteName} · ${remoteAddress}` : remoteAddress;
+      remoteSummary.innerHTML = `<span class="meta-chip-label">Remote</span><span>${esc(remoteAddress)}</span>${remoteName ? `<span class="meta-chip-secondary">${esc(remoteName)}</span>` : ''}`;
+    } else {
+      remoteSummary.innerHTML = '';
+      remoteSummary.removeAttribute('title');
+    }
+  }
+
   const membersButton = document.getElementById('btn-view-members');
   if (membersButton) membersButton.textContent = `Members (${memberCount})`;
 
@@ -1070,7 +1105,12 @@ async function loadAgents(options) {
     return;
   }
 
-  syncParentAgentSelect('agent-parent', null, document.getElementById('agent-parent')?.value || '', !canManageProject());
+  const createAgentParentSelect = document.getElementById('agent-parent');
+  const createAgentModal = document.getElementById('createAgentModal');
+  const createAgentParentId = createAgentModal?.classList.contains('active')
+    ? getCreateAgentParentValue()
+    : (createAgentParentSelect?.value || '');
+  syncParentAgentSelect('agent-parent', null, createAgentParentId, !canManageProject());
   const list = document.getElementById('agent-list');
   const canManage = canManageProject();
 
@@ -1834,8 +1874,13 @@ function showCreateAgentModal() {
   document.getElementById('agent-name').value = '';
   document.getElementById('agent-role').value = '';
   document.getElementById('agent-workdir').value = '';
-  const controller = getControllerAgent();
-  syncParentAgentSelect('agent-parent', null, controller ? controller.id : '', false);
+  const parentSelect = document.getElementById('agent-parent');
+  const defaultParentId = getDefaultCreateAgentParentId();
+  if (parentSelect) {
+    parentSelect.dataset.defaultParentId = defaultParentId;
+    delete parentSelect.dataset.userChosen;
+  }
+  syncParentAgentSelect('agent-parent', null, defaultParentId, false);
   document.getElementById('agent-cmdtpl').value = '';
   hydrateCreateAgentCommandProfileControls('', null);
   document.getElementById('createAgentModal').classList.add('active');
@@ -1847,11 +1892,12 @@ async function createAgent() {
   const btn = document.querySelector('#createAgentModal button[onclick="createAgent()"]');
   await withLoading(btn, async () => {
     const commandConfig = buildAgentCommandConfigPayload('agent-command-profile', 'agent-cmdtpl');
+    const parentAgentId = getCreateAgentParentValue() || null;
     const body = {
       name: document.getElementById('agent-name').value,
       role: document.getElementById('agent-role').value,
       working_directory: document.getElementById('agent-workdir').value || undefined,
-      parent_agent_id: document.getElementById('agent-parent').value || null,
+      parent_agent_id: parentAgentId,
       ...commandConfig,
     };
     if (!body.name) { showToast('Name is required', 'error'); return; }

@@ -1101,9 +1101,7 @@ async function loadProjects() {
             </div>
             <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="Details (optional)..." rows="3" data-collapsed></textarea>
           </div>
-        ` : (remote
-          ? `<div class="project-card-note"><span>Open this card to view the remote project locally. Terminal and file editing still stay on that machine.</span></div>`
-          : '');
+        ` : '';
         return `
         <div class="card project-card" style="cursor:pointer" onclick="${openAction}">
           <div class="project-card-head">
@@ -2883,13 +2881,14 @@ async function loadAgentBoard() {
           : '';
         var controllerBadge = agent.is_controller ? '<span style="font-size:9px;background:var(--accent);color:#fff;padding:0 4px;border-radius:3px;margin-left:4px">CTRL</span>' : '';
         var pausedBadge = agent.paused ? '<span style="font-size:9px;background:var(--warning);color:#000;padding:0 4px;border-radius:3px;margin-left:4px">PAUSED</span>' : '';
+        var remoteBadge = agent.is_remote ? '<span style="font-size:9px;background:var(--selected-bg);color:var(--accent);padding:0 4px;border-radius:3px;margin-left:4px">REMOTE</span>' : '';
 
         return '<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:10px 12px;display:flex;align-items:flex-start;gap:8px">' +
           '<div style="color:' + color + ';font-size:14px;flex-shrink:0;line-height:18px">' + icon + '</div>' +
           '<div style="flex:1;min-width:0">' +
             '<div style="display:flex;align-items:center;gap:4px">' +
               '<a href="' + buildProjectPageHref(agent.project_id) + '#agents" style="font-weight:600;font-size:13px;color:var(--fg);text-decoration:none">' + esc(agent.name) + '</a>' +
-              controllerBadge + pausedBadge +
+              controllerBadge + pausedBadge + remoteBadge +
             '</div>' +
             '<div style="font-size:11px;color:var(--text-secondary)">' +
               '<a href="' + buildProjectPageHref(agent.project_id) + '" style="color:var(--link)">' + esc(agent.project_name) + '</a>' +

@@ -58,6 +58,19 @@ prune_node_pty_artifacts() {
   find "$node_pty_dir/lib" -type f \( -name "*.map" -o -name "*.test.js" \) -delete 2>/dev/null || true
 }
 
+prune_better_sqlite3_artifacts() {
+  local sqlite_dir="$1"
+
+  if [ ! -d "$sqlite_dir" ]; then
+    return
+  fi
+
+  rm -rf \
+    "$sqlite_dir/deps" \
+    "$sqlite_dir/src" \
+    "$sqlite_dir/binding.gyp"
+}
+
 prune_runtime_node_modules() {
   local node_modules_dir="$1"
 
@@ -66,6 +79,15 @@ prune_runtime_node_modules() {
   fi
 
   prune_node_pty_artifacts "$node_modules_dir/node-pty"
+  prune_better_sqlite3_artifacts "$node_modules_dir/better-sqlite3"
+
+  rm -rf \
+    "$node_modules_dir/@vscode" \
+    "$node_modules_dir/codepage" \
+    "$node_modules_dir/docx-preview" \
+    "$node_modules_dir/jszip" \
+    "$node_modules_dir/marked" \
+    "$node_modules_dir/xlsx"
 
   find "$node_modules_dir" -type d \
     \( -name ".github" -o -name "docs" -o -name "doc" -o -name "example" -o -name "examples" \
@@ -74,8 +96,32 @@ prune_runtime_node_modules() {
 
   find "$node_modules_dir" -type f \
     \( -name "*.map" -o -name "*.md" -o -name "*.markdown" -o -name "CHANGELOG*" -o -name "changelog*" \
-    -o -name "*.tsbuildinfo" -o -name "*.tgz" -o -name "*.pdb" \) \
+    -o -name "*.tsbuildinfo" -o -name "*.tgz" -o -name "*.pdb" \
+    -o -name "*.d.ts" -o -name "*.d.cts" -o -name "*.d.mts" \) \
     -delete 2>/dev/null || true
+}
+
+prune_runtime_project_dist() {
+  local project_dist_dir="$1"
+
+  if [ ! -d "$project_dist_dir" ]; then
+    return
+  fi
+
+  find "$project_dist_dir" -type f \
+    \( -name "*.d.ts" -o -name "*.d.ts.map" -o -name "*.js.map" \) \
+    -delete 2>/dev/null || true
+}
+
+strip_bundled_node_binary() {
+  local node_binary="$1"
+
+  if [ ! -f "$node_binary" ]; then
+    return
+  fi
+
+  chmod +x "$node_binary"
+  strip -x "$node_binary" 2>/dev/null || true
 }
 
 echo "Building ${APP_NAME}.app (Electron)..."
@@ -103,6 +149,7 @@ done
 cp -R "$PROJECT_DIR/public" "$RESOURCES_DIR/project/public"
 cp -R "$PROJECT_DIR/bin" "$RESOURCES_DIR/project/bin"
 cp "$PROJECT_DIR/package.json" "$RESOURCES_DIR/project/package.json"
+prune_runtime_project_dist "$RESOURCES_DIR/project/dist"
 
 echo "  Bundling node_modules (production only)..."
 TEMP_MODULES="$(mktemp -d)"
@@ -121,6 +168,7 @@ NODE_PATH="$(command -v node)"
 NODE_VERSION="$(node -v)"
 mkdir -p "$RESOURCES_DIR/project/node/bin"
 cp "$NODE_PATH" "$RESOURCES_DIR/project/node/bin/node"
+strip_bundled_node_binary "$RESOURCES_DIR/project/node/bin/node"
 echo "  Node.js $NODE_VERSION bundled from $NODE_PATH"
 
 cd "$ELECTRON_DIR"

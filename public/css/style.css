@@ -2373,6 +2373,13 @@ header h1 span { color: var(--accent); }
   color: var(--accent);
 }
 
+.meta-chip.meta-chip-remote-address {
+  max-width: min(48vw, 420px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-header {
   display: flex;
   justify-content: space-between;

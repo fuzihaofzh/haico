@@ -21,9 +21,13 @@ import {
 import { ensureAgentKnowledgeEntry } from '../services/agent-knowledge';
 import {
   createRemoteProject,
+  fetchRemoteProjectAgents,
+  fetchRemoteProjects,
   findRemoteInstanceById,
   generateRemoteProjectMetadata,
   isLocalTargetInstanceId,
+  loadRemoteInstances,
+  RemoteInstanceRecord,
 } from '../services/remote-instances';
 
 function normalizeOrchestratorEngine(value: unknown): OrchestratorEngine | null {
@@ -86,6 +90,83 @@ function serializeProject(
   };
 }
 
+interface RemoteDashboardProjectRef {
+  instance: RemoteInstanceRecord;
+  project: {
+    id: string;
+    remote_project_id: string;
+    name: string;
+    updated_at: string;
+    stats?: Record<string, unknown>;
+  };
+}
+
+function toFiniteNumber(value: unknown): number {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : 0;
+}
+
+async function loadAccessibleRemoteProjects(
+  db: ReturnType<typeof getDatabase>
+): Promise<RemoteDashboardProjectRef[]> {
+  const instances = loadRemoteInstances(db).filter((instance) => instance.enabled);
+  if (instances.length === 0) return [];
+
+  const settled = await Promise.allSettled(
+    instances.map(async (instance) => ({
+      instance,
+      result: await fetchRemoteProjects(instance),
+    }))
+  );
+
+  return settled.flatMap((entry) => {
+    if (entry.status !== 'fulfilled') return [];
+    const { instance, result } = entry.value;
+    return (result.projects || []).map((project) => ({ instance, project }));
+  });
+}
+
+async function loadRemoteDashboardAgents(
+  remoteProjects: RemoteDashboardProjectRef[],
+  statusFilter?: string
+): Promise<any[]> {
+  if (remoteProjects.length === 0) return [];
+
+  const settled = await Promise.allSettled(
+    remoteProjects.map(async ({ instance, project }) => ({
+      instance,
+      project,
+      result: await fetchRemoteProjectAgents(instance, project.remote_project_id),
+    }))
+  );
+
+  return settled.flatMap((entry) => {
+    if (entry.status !== 'fulfilled') return [];
+    const { instance, project, result } = entry.value;
+    if (!result.ok || !Array.isArray(result.data)) return [];
+
+    return result.data
+      .filter((agent: any) => !statusFilter || agent?.status === statusFilter)
+      .map((agent: any) => ({
+        id: `remote-agent:${instance.id}:${String(agent?.id || '')}`,
+        remote_agent_id: String(agent?.id || ''),
+        remote_instance_id: instance.id,
+        remote_instance_name: instance.name,
+        is_remote: true,
+        name: String(agent?.name || ''),
+        role: String(agent?.role || ''),
+        status: String(agent?.status || 'idle'),
+        is_controller: Boolean(agent?.is_controller),
+        started_at: agent?.started_at || null,
+        finished_at: agent?.finished_at || null,
+        paused: Boolean(agent?.paused),
+        project_id: String(project.id || `remote:${instance.id}:${project.remote_project_id}`),
+        project_name: String(project.name || instance.name),
+        current_issue: null,
+      }));
+  });
+}
+
 export function registerProjectRoutes(fastify: FastifyInstance): void {
 
   // Dashboard summary — aggregate stats across all projects
@@ -93,84 +174,104 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+    const remoteProjects = await loadAccessibleRemoteProjects(db);
 
-    if (projectIds.length === 0) {
-      return {
-        agents: { total: 0, running: 0, error_count: 0 },
-        issues: { total: 0, open: 0 },
-        total_cost_usd: 0,
-        last_activity: {},
-      };
-    }
-
-    const placeholders = buildSqlPlaceholders(projectIds);
-
-    const agentStats = db.prepare(
-      `SELECT COUNT(*) as total,
-              SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
-              SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error_count
-       FROM agents
-       WHERE project_id IN (${placeholders})`
-    ).get(...projectIds) as any;
-
-    const issueStats = db.prepare(
-      `SELECT COUNT(*) as total,
-              SUM(CASE WHEN status IN ('open', 'in_progress') THEN 1 ELSE 0 END) as open_count
-       FROM issues
-       WHERE project_id IN (${placeholders})`
-    ).get(...projectIds) as any;
-
-    // Total cost across all projects — only last record per run_id (cost is cumulative)
-    const costRows = db.prepare(
-      `SELECT c.content FROM conversation_logs c
-       INNER JOIN (
-         SELECT MAX(cl.id) as max_id
-         FROM conversation_logs cl
-         JOIN agents a ON cl.agent_id = a.id
-         WHERE cl.stream = 'cost' AND a.project_id IN (${placeholders})
-         GROUP BY cl.run_id
-       ) latest
-       ON c.id = latest.max_id`
-    ).all(...projectIds) as any[];
+    let localAgentStats = { total: 0, running: 0, error_count: 0 };
+    let localIssueStats = { total: 0, open_count: 0 };
     let totalCost = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
-    for (const c of costRows) {
-      try {
-        const data = JSON.parse(c.content);
-        totalCost += data.cost_usd || 0;
-        totalInputTokens += data.input_tokens || 0;
-        totalOutputTokens += data.output_tokens || 0;
-      } catch {}
-    }
-
-    // Last activity per project (most recent agent started_at or issue updated_at)
-    const projectActivity = db.prepare(
-      `SELECT p.id,
-        MAX(COALESCE(a.started_at, a.finished_at)) as last_agent_activity,
-        MAX(i.updated_at) as last_issue_activity
-       FROM projects p
-       LEFT JOIN agents a ON a.project_id = p.id
-       LEFT JOIN issues i ON i.project_id = p.id
-       WHERE p.id IN (${placeholders})
-       GROUP BY p.id`
-    ).all(...projectIds) as any[];
-
     const lastActivityMap: Record<string, string | null> = {};
-    for (const row of projectActivity) {
-      const times = [row.last_agent_activity, row.last_issue_activity].filter(Boolean);
-      lastActivityMap[row.id] = times.length ? times.sort().pop()! : null;
+    let pendingApprovalCount = 0;
+
+    if (projectIds.length > 0) {
+      const placeholders = buildSqlPlaceholders(projectIds);
+
+      const agentStats = db.prepare(
+        `SELECT COUNT(*) as total,
+                SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+                SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error_count
+         FROM agents
+         WHERE project_id IN (${placeholders})`
+      ).get(...projectIds) as any;
+      localAgentStats = {
+        total: agentStats?.total || 0,
+        running: agentStats?.running || 0,
+        error_count: agentStats?.error_count || 0,
+      };
+
+      const issueStats = db.prepare(
+        `SELECT COUNT(*) as total,
+                SUM(CASE WHEN status IN ('open', 'in_progress') THEN 1 ELSE 0 END) as open_count
+         FROM issues
+         WHERE project_id IN (${placeholders})`
+      ).get(...projectIds) as any;
+      localIssueStats = {
+        total: issueStats?.total || 0,
+        open_count: issueStats?.open_count || 0,
+      };
+
+      const costRows = db.prepare(
+        `SELECT c.content FROM conversation_logs c
+         INNER JOIN (
+           SELECT MAX(cl.id) as max_id
+           FROM conversation_logs cl
+           JOIN agents a ON cl.agent_id = a.id
+           WHERE cl.stream = 'cost' AND a.project_id IN (${placeholders})
+           GROUP BY cl.run_id
+         ) latest
+         ON c.id = latest.max_id`
+      ).all(...projectIds) as any[];
+      for (const c of costRows) {
+        try {
+          const data = JSON.parse(c.content);
+          totalCost += data.cost_usd || 0;
+          totalInputTokens += data.input_tokens || 0;
+          totalOutputTokens += data.output_tokens || 0;
+        } catch {}
+      }
+
+      const projectActivity = db.prepare(
+        `SELECT p.id,
+          MAX(COALESCE(a.started_at, a.finished_at)) as last_agent_activity,
+          MAX(i.updated_at) as last_issue_activity
+         FROM projects p
+         LEFT JOIN agents a ON a.project_id = p.id
+         LEFT JOIN issues i ON i.project_id = p.id
+         WHERE p.id IN (${placeholders})
+         GROUP BY p.id`
+      ).all(...projectIds) as any[];
+
+      for (const row of projectActivity) {
+        const times = [row.last_agent_activity, row.last_issue_activity].filter(Boolean);
+        lastActivityMap[row.id] = times.length ? times.sort().pop()! : null;
+      }
+
+      const approvalCount = db.prepare(
+        `SELECT COUNT(*) as count FROM approval_requests WHERE project_id IN (${placeholders}) AND status = 'pending'`
+      ).get(...projectIds) as any;
+      pendingApprovalCount = approvalCount?.count || 0;
     }
 
-    // Pending approval count
-    const approvalCount = db.prepare(
-      `SELECT COUNT(*) as count FROM approval_requests WHERE project_id IN (${placeholders}) AND status = 'pending'`
-    ).get(...projectIds) as any;
+    const remoteAgentStats = remoteProjects.reduce((acc, { project }) => {
+      const stats = project?.stats && typeof project.stats === 'object' ? project.stats : {};
+      acc.total += toFiniteNumber((stats as any).agents);
+      acc.running += toFiniteNumber((stats as any).running);
+      acc.error_count += toFiniteNumber((stats as any).agentError);
+      if (project?.id) {
+        lastActivityMap[project.id] = project.updated_at || null;
+      }
+      return acc;
+    }, { total: 0, running: 0, error_count: 0 });
 
     return {
-      agents: { total: agentStats.total || 0, running: agentStats.running || 0, error_count: agentStats.error_count || 0 },
-      issues: { total: issueStats.total || 0, open: issueStats.open_count || 0 },
-      pending_approvals: approvalCount?.count || 0,
+      agents: {
+        total: localAgentStats.total + remoteAgentStats.total,
+        running: localAgentStats.running + remoteAgentStats.running,
+        error_count: localAgentStats.error_count + remoteAgentStats.error_count,
+      },
+      issues: { total: localIssueStats.total, open: localIssueStats.open_count },
+      pending_approvals: pendingApprovalCount,
       total_cost_usd: totalCost,
       total_input_tokens: totalInputTokens,
       total_output_tokens: totalOutputTokens,
@@ -332,46 +433,61 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
     const statusFilter = request.query.status;
+    let agents: any[] = [];
 
-    if (projectIds.length === 0) return [];
+    if (projectIds.length > 0) {
+      const placeholders = buildSqlPlaceholders(projectIds);
+      let query = `SELECT a.id, a.name, a.role, a.status, a.is_controller, a.started_at, a.finished_at, a.paused,
+                          p.id as project_id, p.name as project_name
+                   FROM agents a JOIN projects p ON a.project_id = p.id
+                   WHERE a.project_id IN (${placeholders})`;
+      const params: any[] = [...projectIds];
 
-    const placeholders = buildSqlPlaceholders(projectIds);
-    let query = `SELECT a.id, a.name, a.role, a.status, a.is_controller, a.started_at, a.finished_at, a.paused,
-                        p.id as project_id, p.name as project_name
-                 FROM agents a JOIN projects p ON a.project_id = p.id
-                 WHERE a.project_id IN (${placeholders})`;
-    const params: any[] = [...projectIds];
+      if (statusFilter) {
+        query += ` AND a.status = ?`;
+        params.push(statusFilter);
+      }
 
-    if (statusFilter) {
-      query += ` AND a.status = ?`;
-      params.push(statusFilter);
-    }
+      query += ` ORDER BY CASE a.status WHEN 'running' THEN 0 WHEN 'error' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END, a.name`;
 
-    query += ` ORDER BY CASE a.status WHEN 'running' THEN 0 WHEN 'error' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END, a.name`;
+      agents = db.prepare(query).all(...params) as any[];
 
-    const agents = db.prepare(query).all(...params) as any[];
-
-    // Attach current issue for each agent
-    const agentIds = agents.map((a: any) => a.id);
-    if (agentIds.length > 0) {
-      const issueMap: Record<string, any> = {};
-      const issuePlaceholders = buildSqlPlaceholders(agentIds);
-      const currentIssues = db.prepare(
-        `SELECT assigned_to, number, title FROM issues
-         WHERE assigned_to IN (${issuePlaceholders}) AND status = 'in_progress'
-         ORDER BY updated_at DESC`
-      ).all(...agentIds) as any[];
-      for (const issue of currentIssues) {
-        if (!issueMap[issue.assigned_to]) {
-          issueMap[issue.assigned_to] = { number: issue.number, title: issue.title };
+      const agentIds = agents.map((a: any) => a.id);
+      if (agentIds.length > 0) {
+        const issueMap: Record<string, any> = {};
+        const issuePlaceholders = buildSqlPlaceholders(agentIds);
+        const currentIssues = db.prepare(
+          `SELECT assigned_to, number, title FROM issues
+           WHERE assigned_to IN (${issuePlaceholders}) AND status = 'in_progress'
+           ORDER BY updated_at DESC`
+        ).all(...agentIds) as any[];
+        for (const issue of currentIssues) {
+          if (!issueMap[issue.assigned_to]) {
+            issueMap[issue.assigned_to] = { number: issue.number, title: issue.title };
+          }
+        }
+        for (const agent of agents) {
+          (agent as any).current_issue = issueMap[agent.id] || null;
         }
       }
-      for (const agent of agents) {
-        (agent as any).current_issue = issueMap[agent.id] || null;
-      }
     }
 
-    return agents;
+    const remoteProjects = await loadAccessibleRemoteProjects(db);
+    const remoteAgents = await loadRemoteDashboardAgents(remoteProjects, statusFilter);
+    const allAgents = agents.concat(remoteAgents);
+    allAgents.sort((a: any, b: any) => {
+      const rank = (value: string) => {
+        if (value === 'running') return 0;
+        if (value === 'error') return 1;
+        if (value === 'waiting') return 2;
+        return 3;
+      };
+      const rankDelta = rank(String(a?.status || '')) - rank(String(b?.status || ''));
+      if (rankDelta !== 0) return rankDelta;
+      return String(a?.name || '').localeCompare(String(b?.name || ''));
+    });
+
+    return allAgents;
   });
 
   // Dashboard today's cost — for cost alert

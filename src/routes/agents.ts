@@ -158,7 +158,22 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(request.params.pid) as Project | undefined;
     if (!project) return reply.code(404).send({ error: 'Project not found' });
 
-    const parentValidation = validateParentAgentAssignment(db, request.params.pid, parent_agent_id);
+    const hasExplicitParent = Object.prototype.hasOwnProperty.call(request.body || {}, 'parent_agent_id');
+    let resolvedParentAgentId = parent_agent_id;
+    if (!is_controller && !hasExplicitParent) {
+      // Default new worker agents under the controller unless the caller explicitly
+      // opts into a top-level agent with null/empty parent_agent_id.
+      const controllerAgent = db.prepare(
+        `SELECT id
+         FROM agents
+         WHERE project_id = ? AND is_controller = 1
+         ORDER BY created_at
+         LIMIT 1`
+      ).get(request.params.pid) as { id: string } | undefined;
+      resolvedParentAgentId = controllerAgent?.id || null;
+    }
+
+    const parentValidation = validateParentAgentAssignment(db, request.params.pid, resolvedParentAgentId);
     if (parentValidation.error) {
       return reply.code(400).send({ error: parentValidation.error });
     }

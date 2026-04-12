@@ -65,6 +65,20 @@ function prefixRemoteAgentId(instanceId: string, remoteAgentId: unknown): string
   return `remote-agent:${instanceId}:${String(remoteAgentId || '')}`;
 }
 
+function parseRemoteAgentCompositeId(value: unknown): { instanceId: string; remoteAgentId: string } | null {
+  const match = /^remote-agent:([^:]+):(.+)$/.exec(String(value || '').trim());
+  if (!match) return null;
+  return {
+    instanceId: match[1],
+    remoteAgentId: match[2],
+  };
+}
+
+function stripRemoteAgentId(value: unknown): string {
+  const parsed = parseRemoteAgentCompositeId(value);
+  return parsed ? parsed.remoteAgentId : String(value || '').trim();
+}
+
 function prefixRemoteApprovalId(instanceId: string, remoteApprovalId: unknown): string {
   return `remote-approval:${instanceId}:${String(remoteApprovalId || '')}`;
 }
@@ -170,6 +184,7 @@ function decorateRemoteAgent(instance: RemoteInstanceRecord, remoteProjectId: st
     remote_instance_id: instance.id,
     remote_instance_name: instance.name,
     is_remote: true,
+    parent_agent_id: agent?.parent_agent_id ? prefixRemoteAgentId(instance.id, agent.parent_agent_id) : null,
   };
 }
 
@@ -571,9 +586,14 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
 
+    const nextBody = {
+      ...(request.body || {}),
+      parent_agent_id: request.body?.parent_agent_id ? stripRemoteAgentId(request.body.parent_agent_id) : null,
+    };
+
     const result = await requestRemoteJsonPath<any>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}/agents`, {
       method: 'POST',
-      body: request.body || {},
+      body: nextBody,
     });
     if (!result.ok) {
       return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to create remote agent' });
@@ -926,9 +946,16 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const nextBody = {
+      ...(request.body || {}),
+    };
+    if (Object.prototype.hasOwnProperty.call(request.body || {}, 'parent_agent_id')) {
+      nextBody.parent_agent_id = request.body?.parent_agent_id ? stripRemoteAgentId(request.body.parent_agent_id) : null;
+    }
+
     const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}`, {
       method: 'PUT',
-      body: request.body || {},
+      body: nextBody,
     });
     if (!result.ok) {
       return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to update remote agent' });

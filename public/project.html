@@ -126,6 +126,7 @@
         <div class="project-access-row">
           <span class="meta-chip" id="project-access-summary"></span>
           <span class="meta-chip" id="project-owner-summary"></span>
+          <span class="meta-chip meta-chip-remote meta-chip-remote-address" id="project-remote-summary" style="display:none"></span>
           <button class="btn btn-sm" id="btn-view-members" onclick="openProjectMembersModal(false)">Members</button>
           <a class="btn btn-sm" id="btn-open-ops-console" href="#" style="display:none;text-decoration:none">Operations Console</a>
           <button class="btn btn-sm btn-primary" id="btn-share-project" onclick="openProjectMembersModal(true)" style="display:none">Share Settings</button>
@@ -446,7 +447,7 @@
       </div>
       <div class="form-group">
         <label>Parent Agent</label>
-        <select id="agent-parent">
+        <select id="agent-parent" onchange="markCreateAgentParentChosen()">
           <option value="">No parent (top-level agent)</option>
         </select>
         <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Direct parent agent. Defaults to the controller if one exists. The hierarchy graph follows this parent-child relation.</div>
