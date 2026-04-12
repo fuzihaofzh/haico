@@ -95,6 +95,7 @@ export interface CreateProjectInput {
   orchestrator_engine?: OrchestratorEngine;
   working_directory?: string | null;
   controller_role?: string | null;
+  target_instance_id?: string | null;
 }
 
 export interface CreateAgentInput {

@@ -8,6 +8,7 @@ import logger from '../logger';
 import { User } from '../types';
 
 const COOKIE_NAME = 'haico-auth';
+const COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 const CONFIG_DIR = path.join(os.homedir(), '.haico');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 
@@ -446,7 +447,7 @@ export function setupAuth(app: FastifyInstance): void {
   }
 
   function setAuthCookie(reply: FastifyReply): void {
-    reply.header('Set-Cookie', `${COOKIE_NAME}=${authConfig.passwordHash}; HttpOnly; Path=/; SameSite=Lax`);
+    reply.header('Set-Cookie', `${COOKIE_NAME}=${authConfig.passwordHash}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SECONDS}`);
   }
 
   function isValidToken(token: string): boolean {
@@ -589,7 +590,7 @@ export function setupAuth(app: FastifyInstance): void {
       const expiresAt = now + 30 * 24 * 60 * 60 * 1000; // 30 days
       db.prepare('INSERT INTO sessions (token, user_id, csrf_token, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
         .run(sessionToken, userId, randomBytes(16).toString('hex'), now, expiresAt);
-      reply.header('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Path=/; SameSite=Lax`);
+      reply.header('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SECONDS}`);
       return reply.status(201).send({ ok: true, user, token: sessionToken });
     }
 
@@ -621,7 +622,7 @@ export function setupAuth(app: FastifyInstance): void {
     db.prepare('INSERT INTO sessions (token, user_id, csrf_token, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
       .run(sessionToken, user.id, randomBytes(16).toString('hex'), now, expiresAt);
 
-    reply.header('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Path=/; SameSite=Lax`);
+    reply.header('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SECONDS}`);
     return { ok: true, token: sessionToken, user: { id: user.id, username: user.username, email: user.email, display_name: user.display_name, role: user.role } };
   });
 

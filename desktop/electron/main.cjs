@@ -7,8 +7,14 @@ const path = require('path');
 
 app.setName('HAICO');
 
-const SERVER_PORT = 4567;
-const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
+const LOCAL_SERVER_PORT = 4567;
+const DESKTOP_SERVER_PORT = 45670;
+
+let serverPort = LOCAL_SERVER_PORT;
+
+function getServerUrl() {
+  return `http://127.0.0.1:${serverPort}`;
+}
 
 function resolveProjectRoot() {
   const bundledProject = path.join(process.resourcesPath, 'project');
@@ -117,10 +123,10 @@ function isPortOpen(port) {
   });
 }
 
-async function waitForReady(timeoutMs = 15000) {
+async function waitForReady(port, timeoutMs = 15000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (await isPortOpen(SERVER_PORT)) return true;
+    if (await isPortOpen(port)) return true;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
   return false;
@@ -137,7 +143,11 @@ function resolveDefaultDbPath(rootInfo) {
   return path.join(rootInfo.root, 'haico.db');
 }
 
-function startServer(rootInfo) {
+function getPreferredServerPort(rootInfo) {
+  return rootInfo.source === 'bundled' ? DESKTOP_SERVER_PORT : LOCAL_SERVER_PORT;
+}
+
+function startServer(rootInfo, port) {
   const nodePath = findNode(rootInfo.root);
   if (!nodePath) {
     console.error('[haico-server] Cannot find node binary');
@@ -151,10 +161,11 @@ function startServer(rootInfo) {
     ...process.env,
     PATH: `${shellPath}:${nodeBinDir}`,
     HAICO_HOST: '127.0.0.1',
-    HAICO_PORT: String(SERVER_PORT),
+    HAICO_PORT: String(port),
     HAICO_DB_PATH: resolveDefaultDbPath(rootInfo),
   };
   console.log('[haico-server] PATH:', env.PATH);
+  console.log('[haico-server] PORT:', env.HAICO_PORT);
   console.log('[haico-server] DB:', env.HAICO_DB_PATH);
 
   serverProcess = spawn(nodePath, ['dist/index.js'], {
@@ -267,7 +278,7 @@ function createWindow() {
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith(SERVER_URL)) {
+    if (!url.startsWith(getServerUrl())) {
       shell.openExternal(url);
       return { action: 'deny' };
     }
@@ -275,7 +286,7 @@ function createWindow() {
   });
 
   win.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(SERVER_URL)) {
+    if (!url.startsWith(getServerUrl())) {
       event.preventDefault();
       shell.openExternal(url);
     }
@@ -309,21 +320,22 @@ app.whenReady().then(async () => {
   setupMenu();
 
   const rootInfo = resolveProjectRoot();
+  serverPort = getPreferredServerPort(rootInfo);
   mainWindow = createWindow();
   mainWindow.loadURL(loadingHTML());
 
-  const alreadyRunning = await isPortOpen(SERVER_PORT);
+  const alreadyRunning = await isPortOpen(serverPort);
   if (!alreadyRunning) {
     ownsServer = true;
-    if (!startServer(rootInfo)) {
+    if (!startServer(rootInfo, serverPort)) {
       mainWindow.loadURL(errorHTML('Cannot find a usable Node.js runtime.\nMake sure Node.js is installed or bundled.'));
       return;
     }
   }
 
-  const ready = alreadyRunning || await waitForReady();
+  const ready = alreadyRunning || await waitForReady(serverPort);
   if (ready) {
-    mainWindow.loadURL(SERVER_URL);
+    mainWindow.loadURL(getServerUrl());
   } else {
     mainWindow.loadURL(errorHTML(`Failed to start the HAICO server.\nRun 'npm run build' in:\n${rootInfo.root}`));
   }

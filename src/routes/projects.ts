@@ -19,6 +19,12 @@ import {
   listAccessibleProjects,
 } from '../services/project-permissions';
 import { ensureAgentKnowledgeEntry } from '../services/agent-knowledge';
+import {
+  createRemoteProject,
+  findRemoteInstanceById,
+  generateRemoteProjectMetadata,
+  isLocalTargetInstanceId,
+} from '../services/remote-instances';
 
 function normalizeOrchestratorEngine(value: unknown): OrchestratorEngine | null {
   if (value === undefined) return null;
@@ -410,9 +416,32 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
   });
 
   // Generate project metadata from user description using AI
-  fastify.post<{ Body: { description: string; tool_path: string; command_type?: string | null } }>('/api/generate-project', async (request, reply) => {
-    const { description, tool_path, command_type } = request.body;
+  fastify.post<{ Body: { description: string; tool_path: string; command_type?: string | null; target_instance_id?: string | null } }>('/api/generate-project', async (request, reply) => {
+    const { description, tool_path, command_type, target_instance_id } = request.body;
     if (!description) return reply.code(400).send({ error: 'description is required' });
+
+    if (!isLocalTargetInstanceId(target_instance_id)) {
+      const db = getDatabase();
+      const remoteInstance = findRemoteInstanceById(db, String(target_instance_id || '').trim());
+      if (!remoteInstance) {
+        return reply.code(404).send({ error: 'Remote instance not found' });
+      }
+      if (!remoteInstance.enabled) {
+        return reply.code(400).send({ error: 'Remote instance is disabled' });
+      }
+
+      const result = await generateRemoteProjectMetadata(remoteInstance, {
+        description,
+        tool_path,
+        command_type,
+      });
+      if (!result.ok) {
+        return reply.code(result.status || 502).send(
+          result.data || { error: result.error || 'Failed to generate project metadata on remote instance' }
+        );
+      }
+      return result.data;
+    }
 
     const tool = (tool_path || config.defaultCommandTemplate || '').trim() || 'cld';
     const prompt = `Given the user's input below, generate a JSON object. IMPORTANT: Use the SAME LANGUAGE as the user's input (if Chinese, respond in Chinese; if English, respond in English).
@@ -787,13 +816,51 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
   // Create project
   fastify.post<{ Body: CreateProjectInput }>('/api/projects', async (request, reply) => {
-    const { name, description, task_description, command_template, command_type, orchestrator_engine, working_directory, controller_role } = request.body as any;
+    const {
+      name,
+      description,
+      task_description,
+      command_template,
+      command_type,
+      orchestrator_engine,
+      working_directory,
+      controller_role,
+      target_instance_id,
+    } = request.body as any;
 
     if (!task_description) {
       return reply.code(400).send({ error: 'task_description is required' });
     }
 
     const db = getDatabase();
+
+    if (!isLocalTargetInstanceId(target_instance_id)) {
+      const remoteInstance = findRemoteInstanceById(db, String(target_instance_id || '').trim());
+      if (!remoteInstance) {
+        return reply.code(404).send({ error: 'Remote instance not found' });
+      }
+      if (!remoteInstance.enabled) {
+        return reply.code(400).send({ error: 'Remote instance is disabled' });
+      }
+
+      const result = await createRemoteProject(remoteInstance, {
+        name,
+        description,
+        task_description,
+        command_template,
+        command_type,
+        orchestrator_engine,
+        working_directory,
+        controller_role,
+      });
+      if (!result.ok) {
+        return reply.code(result.status || 502).send(
+          result.data || { error: result.error || 'Failed to create project on remote instance' }
+        );
+      }
+      return reply.code(201).send(result.data);
+    }
+
     const id = uuidv4();
     const tmpl = command_template || config.defaultCommandTemplate;
     const resolvedCommandType = resolveCommandType(command_type, tmpl);

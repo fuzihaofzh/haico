@@ -82,7 +82,8 @@ echo "  Node.js $NODE_VERSION bundled from $NODE_PATH"
 cd "$ELECTRON_DIR"
 
 echo "  Running electron-packager..."
-rm -rf "$OUT_DIR"
+mkdir -p "$OUT_DIR"
+TEMP_OUT_DIR="$(mktemp -d "$PROJECT_DIR/dist/electron-build.XXXXXX")"
 
 ICON_FLAG=""
 if [ -f "$SCRIPT_DIR/AppIcon.icns" ]; then
@@ -92,18 +93,29 @@ fi
 npx electron-packager . "$APP_NAME" \
   --platform=darwin \
   --arch="$ARCH" \
-  --out="$OUT_DIR" \
+  --out="$TEMP_OUT_DIR" \
   --overwrite \
   --extra-resource="$RESOURCES_DIR/project" \
   $ICON_FLAG \
   --app-bundle-id=dev.haico.desktop \
   --ignore="_resources"
 
-PACKED_APP="$(find "$OUT_DIR" -maxdepth 2 -name "*.app" | head -1)"
+PACKED_APP="$(find "$TEMP_OUT_DIR" -maxdepth 2 -name "*.app" | head -1)"
 if [ -z "$PACKED_APP" ]; then
   echo "ERROR: electron-packager did not produce an .app bundle"
   exit 1
 fi
+
+PACKED_ROOT="$(dirname "$PACKED_APP")"
+FINAL_ROOT="$OUT_DIR/$(basename "$PACKED_ROOT")"
+if [ -d "$FINAL_ROOT" ]; then
+  BACKUP_ROOT="${FINAL_ROOT}.backup.$(date +%Y%m%d%H%M%S)"
+  mv "$FINAL_ROOT" "$BACKUP_ROOT"
+  echo "  Previous Electron build moved to $BACKUP_ROOT"
+fi
+mv "$PACKED_ROOT" "$FINAL_ROOT"
+PACKED_APP="$FINAL_ROOT/$(basename "$PACKED_APP")"
+rmdir "$TEMP_OUT_DIR" 2>/dev/null || true
 
 rm -rf "$RESOURCES_DIR"
 

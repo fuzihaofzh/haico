@@ -55,12 +55,6 @@
 
   <!-- Header -->
   <header>
-    <h1>
-      <a href="/" class="haico-wordmark">
-        <img src="/public/brand/haico-mark.svg" alt="">
-        <span>HAICO</span>
-      </a>
-    </h1>
     <div class="header-right">
       <button class="btn btn-primary btn-sm" onclick="showCreateModal()">+ New Project</button>
     </div>
@@ -334,11 +328,20 @@
         </div>
       </div>
       <div class="form-group">
+        <label>Machine</label>
+        <select id="proj-target-instance" onchange="handleCreateProjectTargetChange()" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px">
+          <option value="localhost">localhost</option>
+        </select>
+        <div id="proj-target-instance-hint" style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+          New projects run on localhost by default.
+        </div>
+      </div>
+      <div class="form-group">
         <label>Working Directory</label>
         <div class="create-project-path-row">
           <input type="text" id="proj-workdir" placeholder="Optional absolute path">
-          <button type="button" class="btn btn-sm" onclick="openCreateProjectPathPicker()">Browse</button>
-          <button type="button" class="btn btn-sm" onclick="clearCreateProjectWorkdir()">Clear</button>
+          <button type="button" class="btn btn-sm" id="proj-workdir-browse" onclick="openCreateProjectPathPicker()">Browse</button>
+          <button type="button" class="btn btn-sm" id="proj-workdir-clear" onclick="clearCreateProjectWorkdir()">Clear</button>
         </div>
         <div id="proj-workdir-hint" style="font-size:11px;color:var(--text-secondary);margin-top:4px">
           Optional. If empty, HAICO will use the path inferred from your prompt or leave it unset.

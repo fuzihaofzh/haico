@@ -13,6 +13,7 @@ var IssueRenderer = (function() {
     refreshComments: null,
     onAfterAction: null,
     projectColor: null,
+    readOnly: false,
   };
 
   function nameOf(id) {
@@ -192,9 +193,14 @@ var IssueRenderer = (function() {
     var html = Object.entries(grouped).map(function(entry) {
       var emoji = entry[0], users = entry[1];
       var title = users.map(function(u) { return nameOf(u); }).join(', ');
+      if (_ctx.readOnly) {
+        return '<span style="background:var(--selected-bg);border:1px solid var(--border);border-radius:12px;padding:1px 8px;font-size:12px" title="' + title + '">' + emoji + ' ' + users.length + '</span>';
+      }
       return '<button onclick="IssueRenderer.toggleReaction(\'' + targetType + '\',\'' + targetId + '\',\'' + emoji + '\')" style="background:var(--selected-bg);border:1px solid var(--border);border-radius:12px;padding:1px 8px;cursor:pointer;font-size:12px" title="' + title + '">' + emoji + ' ' + users.length + '</button>';
     }).join(' ');
-    html += ' <button onclick="IssueRenderer.showEmojiPicker(\'' + targetType + '\',\'' + targetId + '\')" style="background:none;border:1px solid var(--border);border-radius:12px;padding:1px 6px;cursor:pointer;font-size:12px" title="Add reaction">+</button>';
+    if (!_ctx.readOnly) {
+      html += ' <button onclick="IssueRenderer.showEmojiPicker(\'' + targetType + '\',\'' + targetId + '\')" style="background:none;border:1px solid var(--border);border-radius:12px;padding:1px 6px;cursor:pointer;font-size:12px" title="Add reaction">+</button>';
+    }
     return '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">' + html + '</div>';
   }
 
@@ -208,6 +214,8 @@ var IssueRenderer = (function() {
     _ctx.refreshComments = options.refreshComments || null;
     _ctx.onAfterAction = options.onAfterAction || function() {};
     _ctx.projectColor = options.projectColor || issue.project_color || null;
+    _ctx.readOnly = options.readOnly === true;
+    var readOnly = _ctx.readOnly;
 
     var labels = issue.labels ? issue.labels.split(',').filter(function(l) { return l.trim(); }).map(function(l) { return labelHtml(l); }).join(' ') : '';
     var assignOpts = '<option value="">Unassigned</option><option value="all" ' + ('all'===issue.assigned_to?'selected':'') + '>All</option><option value="user" ' + ('user'===issue.assigned_to?'selected':'') + '>User</option>' +
@@ -245,8 +253,10 @@ var IssueRenderer = (function() {
       '<div style="margin-bottom:16px">' +
         '<div style="display:flex;align-items:flex-start;gap:8px" id="ir-title-display">' +
           '<h2 style="flex:1;font-size:22px;font-weight:600">' + esc(issue.title) + ' <span style="color:var(--text-secondary);font-weight:400">#' + issue.number + '</span></h2>' +
-          '<button class="btn btn-sm" onclick="IssueRenderer.startEditTitle()">Edit</button>' +
-          '<a href="/projects/' + issue.project_id + '/issues/' + issue.number + '" class="btn btn-sm" title="Open in a new page" style="text-decoration:none">↗</a>' +
+          (readOnly
+            ? '<span class="meta-chip meta-chip-remote" title="Remote issue mirrored into the local inbox">Remote read-only</span>'
+            : '<button class="btn btn-sm" onclick="IssueRenderer.startEditTitle()">Edit</button>' +
+              '<a href="/projects/' + issue.project_id + '/issues/' + issue.number + '" class="btn btn-sm" title="Open in a new page" style="text-decoration:none">↗</a>') +
         '</div>' +
         '<div id="ir-title-edit" style="display:none;margin-bottom:8px">' +
           '<div style="display:flex;gap:8px">' +
@@ -268,7 +278,7 @@ var IssueRenderer = (function() {
           '<div class="issue-body">' +
             '<div class="issue-body-header" style="display:flex;justify-content:space-between;align-items:center">' +
               '<span style="display:flex;align-items:center;gap:6px">' + authorAvatarHtml(issue.created_by, 20) + ' <strong>' + esc(nameOf(issue.created_by)) + '</strong></span>' +
-              '<button onclick="IssueRenderer.startEditBody()" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px">edit</button>' +
+              (readOnly ? '<span style="font-size:11px;color:var(--text-secondary)">Remote mirror</span>' : '<button onclick="IssueRenderer.startEditBody()" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px">edit</button>') +
             '</div>' +
             '<div class="issue-body-content" id="ir-body-display">' +
               '<div class="markdown-body">' + renderMd(issue.body, issue.created_by) + '</div>' +
@@ -285,40 +295,48 @@ var IssueRenderer = (function() {
 
           (timeline ? '<div class="timeline">' + timeline + '</div>' : '') +
 
-          '<div class="comment-box" style="margin-top:16px">' +
-            '<textarea id="ir-comment-input" placeholder="Leave a comment... (Markdown supported)"></textarea>' +
-            '<div class="comment-box-footer" style="display:flex;justify-content:space-between;align-items:center">' +
-              '<span style="font-size:11px;color:var(--text-secondary)">Markdown · #N auto-links · @agent-name to mention</span>' +
-              '<div style="display:flex;gap:8px;align-items:center">' +
-                (issue.status !== 'closed' && issue.status !== 'done'
-                  ? '<button class="btn btn-sm" id="ir-close-issue-btn" onclick="IssueRenderer.closeWithComment()" style="color:var(--error);border-color:var(--error)">Close issue</button>'
-                  : '<button class="btn btn-sm" id="ir-reopen-issue-btn" onclick="IssueRenderer.reopenWithComment()" style="color:var(--success);border-color:var(--success)">Reopen issue</button>') +
-                '<button class="btn btn-sm btn-primary" onclick="IssueRenderer.addComment()">Comment</button>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
+          (readOnly
+            ? '<div class="comment-box" style="margin-top:16px"><div style="font-size:12px;color:var(--text-secondary)">Remote issues are currently read-only inside the local dashboard.</div></div>'
+            : '<div class="comment-box" style="margin-top:16px">' +
+                '<textarea id="ir-comment-input" placeholder="Leave a comment... (Markdown supported)"></textarea>' +
+                '<div class="comment-box-footer" style="display:flex;justify-content:space-between;align-items:center">' +
+                  '<span style="font-size:11px;color:var(--text-secondary)">Markdown · #N auto-links · @agent-name to mention</span>' +
+                  '<div style="display:flex;gap:8px;align-items:center">' +
+                    (issue.status !== 'closed' && issue.status !== 'done'
+                      ? '<button class="btn btn-sm" id="ir-close-issue-btn" onclick="IssueRenderer.closeWithComment()" style="color:var(--error);border-color:var(--error)">Close issue</button>'
+                      : '<button class="btn btn-sm" id="ir-reopen-issue-btn" onclick="IssueRenderer.reopenWithComment()" style="color:var(--success);border-color:var(--success)">Reopen issue</button>') +
+                    '<button class="btn btn-sm btn-primary" onclick="IssueRenderer.addComment()">Comment</button>' +
+                  '</div>' +
+                '</div>' +
+              '</div>') +
         '</div>' +
 
         '<div class="issue-detail-sidebar">' +
           '<div class="sidebar-section">' +
             '<div class="sidebar-section-title">Status</div>' +
-            '<select id="ir-detail-status" onchange="IssueRenderer.updateField(\'status\',this.value)" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px">' +
-              '<option value="open" ' + (issue.status==='open'?'selected':'') + '>Open</option>' +
-              '<option value="in_progress" ' + (issue.status==='in_progress'?'selected':'') + '>In Progress</option>' +
-              '<option value="pending" ' + (issue.status==='pending'?'selected':'') + '>Pending</option>' +
-              '<option value="done" ' + (issue.status==='done'?'selected':'') + '>Done</option>' +
-              '<option value="closed" ' + (issue.status==='closed'?'selected':'') + '>Closed</option>' +
-            '</select>' +
+            (readOnly
+              ? '<div style="font-size:12px;color:var(--fg)">' + esc(issue.status.replace('_', ' ')) + '</div>'
+              : '<select id="ir-detail-status" onchange="IssueRenderer.updateField(\'status\',this.value)" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px">' +
+                  '<option value="open" ' + (issue.status==='open'?'selected':'') + '>Open</option>' +
+                  '<option value="in_progress" ' + (issue.status==='in_progress'?'selected':'') + '>In Progress</option>' +
+                  '<option value="pending" ' + (issue.status==='pending'?'selected':'') + '>Pending</option>' +
+                  '<option value="done" ' + (issue.status==='done'?'selected':'') + '>Done</option>' +
+                  '<option value="closed" ' + (issue.status==='closed'?'selected':'') + '>Closed</option>' +
+                '</select>') +
           '</div>' +
           '<div class="sidebar-section">' +
             '<div class="sidebar-section-title">Assignee</div>' +
-            '<select id="ir-detail-assign" onchange="IssueRenderer.updateField(\'assigned_to\',this.value||null)" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px">' +
-              assignOpts +
-            '</select>' +
+            (readOnly
+              ? '<div style="font-size:12px;color:var(--fg)">' + esc(nameOf(issue.assigned_to || '')) + '</div>'
+              : '<select id="ir-detail-assign" onchange="IssueRenderer.updateField(\'assigned_to\',this.value||null)" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px">' +
+                  assignOpts +
+                '</select>') +
           '</div>' +
           '<div class="sidebar-section">' +
             '<div class="sidebar-section-title">Labels</div>' +
-            '<input type="text" id="ir-detail-labels" value="' + esc(issue.labels||'') + '" placeholder="bug, feature" onchange="IssueRenderer.updateField(\'labels\',this.value)" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px">' +
+            (readOnly
+              ? '<div style="font-size:12px;color:var(--fg)">' + (labels || '<span style="color:var(--text-secondary)">No labels</span>') + '</div>'
+              : '<input type="text" id="ir-detail-labels" value="' + esc(issue.labels||'') + '" placeholder="bug, feature" onchange="IssueRenderer.updateField(\'labels\',this.value)" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px">') +
           '</div>' +
           '<div class="sidebar-section">' +
             '<div class="sidebar-section-title">Priority</div>' +
@@ -327,9 +345,11 @@ var IssueRenderer = (function() {
           (issue.parent_id && issue.parent_number ?
             '<div class="sidebar-section">' +
               '<div class="sidebar-section-title">Parent Issue</div>' +
-              '<a href="/projects/' + issue.project_id + '/issues/' + issue.parent_number + '" style="font-size:12px;text-decoration:none;display:flex;align-items:center;gap:4px">' +
-                statusIcon(issue.parent_status || 'open') + ' #' + issue.parent_number + ' ' + esc(issue.parent_title || '') +
-              '</a>' +
+              (readOnly
+                ? '<div style="font-size:12px;display:flex;align-items:center;gap:4px">' + statusIcon(issue.parent_status || 'open') + ' #' + issue.parent_number + ' ' + esc(issue.parent_title || '') + '</div>'
+                : '<a href="/projects/' + issue.project_id + '/issues/' + issue.parent_number + '" style="font-size:12px;text-decoration:none;display:flex;align-items:center;gap:4px">' +
+                    statusIcon(issue.parent_status || 'open') + ' #' + issue.parent_number + ' ' + esc(issue.parent_title || '') +
+                  '</a>') +
             '</div>' : '') +
           (issue.children && issue.children.length > 0 ? (function() {
             var done = issue.children.filter(function(c) { return c.status === 'done' || c.status === 'closed'; }).length;
@@ -341,8 +361,10 @@ var IssueRenderer = (function() {
                 '<div style="background:var(--success);height:100%;width:' + pct + '%;transition:width 0.3s"></div>' +
               '</div>' +
               issue.children.map(function(c) {
-                return '<a href="/projects/' + issue.project_id + '/issues/' + c.number + '" style="display:flex;align-items:center;gap:6px;padding:3px 0;text-decoration:none;color:inherit;font-size:12px">' +
-                  statusIcon(c.status) + ' <span>#' + c.number + ' ' + esc(c.title) + '</span></a>';
+                return readOnly
+                  ? '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;color:inherit;font-size:12px">' + statusIcon(c.status) + ' <span>#' + c.number + ' ' + esc(c.title) + '</span></div>'
+                  : '<a href="/projects/' + issue.project_id + '/issues/' + c.number + '" style="display:flex;align-items:center;gap:6px;padding:3px 0;text-decoration:none;color:inherit;font-size:12px">' +
+                      statusIcon(c.status) + ' <span>#' + c.number + ' ' + esc(c.title) + '</span></a>';
               }).join('') +
             '</div>';
           })() : '') +
@@ -356,7 +378,7 @@ var IssueRenderer = (function() {
               return '<div class="sidebar-section">' +
                 '<div class="sidebar-section-title">Dependencies</div>' +
                 '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">No dependencies</div>' +
-                '<button class="btn btn-sm" onclick="IssueRenderer.showAddRelation()" style="font-size:11px;width:100%">+ Add dependency</button>' +
+                (readOnly ? '' : '<button class="btn btn-sm" onclick="IssueRenderer.showAddRelation()" style="font-size:11px;width:100%">+ Add dependency</button>') +
               '</div>';
             }
             var html = '<div class="sidebar-section">';
@@ -370,9 +392,11 @@ var IssueRenderer = (function() {
                 var resolved = (st === 'done' || st === 'closed');
                 html += '<div style="display:flex;align-items:center;gap:4px;padding:2px 0;font-size:12px' + (resolved ? ';color:var(--text-secondary)' : '') + '">' +
                   statusIcon(st) +
-                  ' <a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.source_number) + '" style="text-decoration:none;' + (resolved ? 'color:var(--text-secondary);text-decoration:line-through' : 'color:inherit') + ';flex:1">#' + (r.number || r.source_number) + ' ' + esc(r.title || r.source_title || '') + '</a>' +
+                  ' ' + (readOnly
+                    ? '<span style="' + (resolved ? 'color:var(--text-secondary);text-decoration:line-through' : 'color:inherit') + ';flex:1">#' + (r.number || r.source_number) + ' ' + esc(r.title || r.source_title || '') + '</span>'
+                    : '<a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.source_number) + '" style="text-decoration:none;' + (resolved ? 'color:var(--text-secondary);text-decoration:line-through' : 'color:inherit') + ';flex:1">#' + (r.number || r.source_number) + ' ' + esc(r.title || r.source_title || '') + '</a>') +
                   (resolved ? '<span style="font-size:10px;color:var(--text-secondary);background:var(--bg-secondary);padding:0 4px;border-radius:4px;white-space:nowrap">Resolved</span>' : '') +
-                  '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>' +
+                  (readOnly ? '' : '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>') +
                 '</div>';
               });
             }
@@ -381,8 +405,10 @@ var IssueRenderer = (function() {
               blocks.forEach(function(r) {
                 html += '<div style="display:flex;align-items:center;gap:4px;padding:2px 0;font-size:12px">' +
                   statusIcon(r.status || r.target_status || 'open') +
-                  ' <a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.target_number) + '" style="text-decoration:none;color:inherit;flex:1">#' + (r.number || r.target_number) + ' ' + esc(r.title || r.target_title || '') + '</a>' +
-                  '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>' +
+                  ' ' + (readOnly
+                    ? '<span style="color:inherit;flex:1">#' + (r.number || r.target_number) + ' ' + esc(r.title || r.target_title || '') + '</span>'
+                    : '<a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.target_number) + '" style="text-decoration:none;color:inherit;flex:1">#' + (r.number || r.target_number) + ' ' + esc(r.title || r.target_title || '') + '</a>') +
+                  (readOnly ? '' : '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>') +
                 '</div>';
               });
             }
@@ -394,23 +420,25 @@ var IssueRenderer = (function() {
                 var st = r.status || r.target_status || r.source_status || 'open';
                 html += '<div style="display:flex;align-items:center;gap:4px;padding:2px 0;font-size:12px">' +
                   statusIcon(st) +
-                  ' <a href="/projects/' + issue.project_id + '/issues/' + num + '" style="text-decoration:none;color:inherit;flex:1">#' + num + ' ' + esc(title) + '</a>' +
-                  '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>' +
+                  ' ' + (readOnly
+                    ? '<span style="color:inherit;flex:1">#' + num + ' ' + esc(title) + '</span>'
+                    : '<a href="/projects/' + issue.project_id + '/issues/' + num + '" style="text-decoration:none;color:inherit;flex:1">#' + num + ' ' + esc(title) + '</a>') +
+                  (readOnly ? '' : '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>') +
                 '</div>';
               });
             }
-            html += '<button class="btn btn-sm" onclick="IssueRenderer.showAddRelation()" style="font-size:11px;width:100%;margin-top:6px">+ Add dependency</button>';
+            if (!readOnly) html += '<button class="btn btn-sm" onclick="IssueRenderer.showAddRelation()" style="font-size:11px;width:100%;margin-top:6px">+ Add dependency</button>';
             html += '</div>';
             return html;
           })() +
 
-          (issue.status === 'open' ? '<div style="margin-top:12px"><button class="btn btn-sm btn-danger" onclick="IssueRenderer.deleteIssue()">Delete</button></div>' : '') +
+          (!readOnly && issue.status === 'open' ? '<div style="margin-top:12px"><button class="btn btn-sm btn-danger" onclick="IssueRenderer.deleteIssue()">Delete</button></div>' : '') +
         '</div>' +
       '</div>';
 
     // Setup @mention autocomplete
     var commentInput = document.getElementById('ir-comment-input');
-    if (commentInput && typeof setupMentionAutocomplete === 'function') {
+    if (!readOnly && commentInput && typeof setupMentionAutocomplete === 'function') {
       setupMentionAutocomplete(commentInput, agents);
       commentInput.addEventListener('input', function() {
         var btn = document.getElementById('ir-close-issue-btn');
@@ -424,6 +452,7 @@ var IssueRenderer = (function() {
   // ─── Inline editing ───
 
   function startEditTitle() {
+    if (_ctx.readOnly) return;
     document.getElementById('ir-title-display').style.display = 'none';
     document.getElementById('ir-title-edit').style.display = '';
     document.getElementById('ir-edit-title-input').value = _ctx.issue.title;
@@ -434,12 +463,14 @@ var IssueRenderer = (function() {
     document.getElementById('ir-title-edit').style.display = 'none';
   }
   function saveTitle() {
+    if (_ctx.readOnly) return;
     var v = document.getElementById('ir-edit-title-input').value.trim();
     if (!v) return;
     fetch('/api/issues/' + _ctx.issue.id, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ title: v, actor: 'user' }) })
       .then(function() { _ctx.reload(); });
   }
   function startEditBody() {
+    if (_ctx.readOnly) return;
     document.getElementById('ir-body-display').style.display = 'none';
     document.getElementById('ir-body-edit').style.display = '';
     document.getElementById('ir-edit-body-input').value = _ctx.issue.body;
@@ -450,6 +481,7 @@ var IssueRenderer = (function() {
     document.getElementById('ir-body-edit').style.display = 'none';
   }
   function saveBody() {
+    if (_ctx.readOnly) return;
     var v = document.getElementById('ir-edit-body-input').value;
     fetch('/api/issues/' + _ctx.issue.id, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v, actor: 'user' }) })
       .then(function() { _ctx.reload(); });
@@ -458,12 +490,14 @@ var IssueRenderer = (function() {
   // ─── Actions ───
 
   function updateField(field, value) {
+    if (_ctx.readOnly) return;
     var body = {}; body[field] = value; body.actor = 'user';
     fetch('/api/issues/' + _ctx.issue.id, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) })
       .then(function() { _ctx.reload(); _ctx.onAfterAction(); });
   }
 
   async function deleteIssue() {
+    if (_ctx.readOnly) return;
     if (!await showConfirm('Delete this issue?', {
       title: 'Delete issue?',
       confirmLabel: 'Delete issue',
@@ -477,6 +511,7 @@ var IssueRenderer = (function() {
   }
 
   function closeWithComment() {
+    if (_ctx.readOnly) return;
     var body = document.getElementById('ir-comment-input').value.trim();
     var p = Promise.resolve();
     if (body) {
@@ -492,6 +527,7 @@ var IssueRenderer = (function() {
   }
 
   function reopenWithComment() {
+    if (_ctx.readOnly) return;
     var body = document.getElementById('ir-comment-input').value.trim();
     var p = Promise.resolve();
     if (body) {
@@ -507,6 +543,7 @@ var IssueRenderer = (function() {
   }
 
   function addComment() {
+    if (_ctx.readOnly) return;
     var body = document.getElementById('ir-comment-input').value.trim();
     if (!body) return;
     fetch('/api/issues/' + _ctx.issue.id + '/comments', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body: body }) })
@@ -526,6 +563,7 @@ var IssueRenderer = (function() {
   }
 
   function editComment(cid) {
+    if (_ctx.readOnly) return;
     var c = (_ctx.issue.comments || []).find(function(x) { return x.id === cid; });
     if (!c) return;
     var el = document.getElementById('ir-comment-body-' + cid);
@@ -538,6 +576,7 @@ var IssueRenderer = (function() {
   }
 
   function saveComment(cid) {
+    if (_ctx.readOnly) return;
     var v = document.getElementById('ir-edit-comment-' + cid);
     if (!v || !v.value) return;
     fetch('/api/comments/' + cid, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v.value }) })
@@ -545,6 +584,7 @@ var IssueRenderer = (function() {
   }
 
   async function deleteComment(cid) {
+    if (_ctx.readOnly) return;
     if (!await showConfirm('Delete this comment?', {
       title: 'Delete comment?',
       confirmLabel: 'Delete comment',
@@ -555,11 +595,13 @@ var IssueRenderer = (function() {
   }
 
   function toggleReaction(type, id, emoji) {
+    if (_ctx.readOnly) return;
     fetch('/api/reactions/' + type + '/' + id, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ user_id: 'user', emoji: emoji }) })
       .then(function() { _ctx.reload(); });
   }
 
   function showAddRelation() {
+    if (_ctx.readOnly) return;
     var existing = document.getElementById('ir-add-relation-dialog');
     if (existing) { existing.remove(); return; }
     var div = document.createElement('div');
@@ -584,6 +626,7 @@ var IssueRenderer = (function() {
   }
 
   function addRelation() {
+    if (_ctx.readOnly) return;
     var typeSelect = document.getElementById('ir-rel-type');
     var targetInput = document.getElementById('ir-rel-target');
     if (!typeSelect || !targetInput) return;
@@ -631,6 +674,7 @@ var IssueRenderer = (function() {
   }
 
   function removeRelation(relationId) {
+    if (_ctx.readOnly) return;
     fetch('/api/issues/' + _ctx.issue.id + '/relations/' + relationId, { method: 'DELETE', headers: apiHeaders() })
       .then(function(res) {
         if (res.ok) { showToast('Dependency removed', 'success'); _ctx.reload(); }
@@ -639,6 +683,10 @@ var IssueRenderer = (function() {
   }
 
   function openFileInFilesTab(filePath, agentId) {
+    if (_ctx.readOnly && _ctx.issue && _ctx.issue.is_remote) {
+      showToast('Remote file previews are not available in the local dashboard yet', 'error');
+      return;
+    }
     var targetAgentId = resolveFileOpenAgentId(agentId);
     // On project page: switch to Files tab directly
     if (typeof switchTab === 'function') {

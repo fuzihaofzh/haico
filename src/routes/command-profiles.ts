@@ -5,6 +5,11 @@ import {
   normalizeCommandProfileType,
   resolveCommandType,
 } from '../services/command-profiles';
+import {
+  checkRemoteCommandProfile,
+  findRemoteInstanceById,
+  isLocalTargetInstanceId,
+} from '../services/remote-instances';
 import { inspectToolReadiness } from '../services/tool-readiness';
 
 function normalizeProfileName(value: unknown): string {
@@ -42,10 +47,31 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
     });
 
     profileRoutes.post<{
-      Body: { command?: string; type?: string | null };
-    }>('/api/command-profiles/check', async (request) => {
+      Body: { command?: string; type?: string | null; target_instance_id?: string | null };
+    }>('/api/command-profiles/check', async (request, reply) => {
       const command = normalizeProfileCommand(request.body?.command);
       const type = resolveCommandType(request.body?.type, command);
+      const targetInstanceId = String(request.body?.target_instance_id || '').trim();
+
+      if (!isLocalTargetInstanceId(targetInstanceId)) {
+        const db = getDatabase();
+        const remoteInstance = findRemoteInstanceById(db, targetInstanceId);
+        if (!remoteInstance) {
+          return reply.code(404).send({ error: 'Remote instance not found' });
+        }
+        if (!remoteInstance.enabled) {
+          return reply.code(400).send({ error: 'Remote instance is disabled' });
+        }
+
+        const result = await checkRemoteCommandProfile(remoteInstance, { command, type });
+        if (!result.ok) {
+          return reply.code(result.status || 502).send(
+            result.data || { error: result.error || 'Failed to inspect CLI on remote instance' }
+          );
+        }
+        return result.data;
+      }
+
       return inspectToolReadiness({
         commandTemplate: command,
         commandType: type,

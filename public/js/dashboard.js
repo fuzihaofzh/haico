@@ -19,6 +19,7 @@ let _globalComposeAgentsByProject = {};
 let _dashboardProjectsLoadPromise = null;
 let _createProjectReadiness = null;
 let _createProjectReadinessRequestId = 0;
+let _createProjectTargetOptions = [];
 let _createProjectDirectoryRoots = [];
 let _createProjectDirectoryRootId = '';
 let _createProjectDirectoryRelativePath = '';
@@ -29,6 +30,84 @@ const DASHBOARD_NAV_VIEWS = new Set(['inbox', 'projects', 'usage', 'settings']);
 
 function isRemoteProject(project) {
   return Boolean(project && project.is_remote);
+}
+
+function isRemoteInboxIssue(issue) {
+  return Boolean(issue && issue.is_remote && issue.remote_instance_id);
+}
+
+function parseRemoteIssueCompositeId(value) {
+  const match = /^remote-issue:([^:]+):(.+)$/.exec(String(value || ''));
+  if (!match) return null;
+  return {
+    instanceId: match[1],
+    remoteIssueId: match[2],
+  };
+}
+
+function escapeJsString(value) {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function getInboxIssueById(issueId) {
+  return _renderedMailItems.find((item) => item.data && item.data.id === issueId)?.data
+    || _inboxAllItems.find((item) => item.data && item.data.id === issueId)?.data
+    || null;
+}
+
+function buildRemoteIssueApiPath(issue) {
+  const instanceId = issue?.remote_instance_id || parseRemoteIssueCompositeId(issue?.id)?.instanceId || '';
+  const remoteIssueId = issue?.remote_issue_id || parseRemoteIssueCompositeId(issue?.id)?.remoteIssueId || '';
+  if (!instanceId || !remoteIssueId) return '';
+  return `/api/remote-issues/${encodeURIComponent(instanceId)}/${encodeURIComponent(remoteIssueId)}`;
+}
+
+function buildRemoteProjectAgentsApiPath(issue) {
+  const instanceId = issue?.remote_instance_id || '';
+  const remoteProjectId = issue?.remote_project_id || '';
+  if (!instanceId || !remoteProjectId) return '';
+  return `/api/remote-projects/${encodeURIComponent(instanceId)}/${encodeURIComponent(remoteProjectId)}/agents`;
+}
+
+function syncNotifFilterButtons() {
+  document.querySelectorAll('.notif-filter-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.filter === _notifFilter);
+  });
+}
+
+function syncInboxScopeButtons() {
+  document.querySelectorAll('.inbox-scope-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.scope === _inboxScope);
+  });
+}
+
+function syncInboxProjectFilterControl() {
+  const filter = document.getElementById('inbox-project-filter');
+  if (filter) filter.value = _inboxProject || '';
+}
+
+function openProjectCard(projectId) {
+  const project = _dashboardProjectsById[projectId];
+  if (!project) return;
+
+  if (!isRemoteProject(project)) {
+    window.location.href = `/projects/${project.id}`;
+    return;
+  }
+
+  _inboxProject = project.id;
+  _selectedMailIdx = -1;
+  _selectedMailIssueId = null;
+  _currentReplyIssueId = null;
+  if (_notifFilter === 'my') {
+    _notifFilter = 'all';
+    syncNotifFilterButtons();
+  }
+  _inboxScope = 'all';
+  syncInboxScopeButtons();
+  syncInboxProjectFilterControl();
+  switchView('inbox');
+  loadNotifications({ reset: true });
 }
 
 function getLocalDashboardProjects() {
@@ -257,19 +336,43 @@ async function loadNotifications(options) {
     _inboxPagination.loading = true;
     if (append) renderInboxItems(_inboxAllItems);
 
-    const params = new URLSearchParams();
     const incremental = !append && !opts.reset && opts.incremental !== false && _inboxAllItems.length > 0 && !!_inboxLastUpdatedAt && !_inboxSearchQuery.trim() && _notifFilter !== 'my';
-    const currentLoaded = append ? _inboxPagination.offset : 0;
-    const limit = append || incremental ? INBOX_ITEM_LIMIT : Math.max(INBOX_ITEM_LIMIT, _inboxAllItems.length || 0);
+    const desiredCount = incremental
+      ? INBOX_ITEM_LIMIT
+      : (append ? _inboxAllItems.length + INBOX_ITEM_LIMIT : Math.max(INBOX_ITEM_LIMIT, _inboxAllItems.length || 0));
+    const params = new URLSearchParams();
     params.set('scope', _inboxScope);
-    params.set('limit', String(limit));
-    params.set('offset', String(currentLoaded));
+    params.set('limit', String(desiredCount));
+    params.set('offset', '0');
     if (_inboxProject) params.set('project_id', _inboxProject);
     if (incremental) params.set('since_updated_at', _inboxLastUpdatedAt);
 
-    const res = await fetch('/api/notifications?' + params.toString(), { headers: apiHeaders() });
-    if (!res.ok) return;
-    const data = await res.json();
+    const [localRes, remoteRes] = await Promise.all([
+      fetch('/api/notifications?' + params.toString(), { headers: apiHeaders() }),
+      fetch('/api/remote-notifications?' + params.toString(), { headers: apiHeaders() }).catch(() => null),
+    ]);
+    if (!localRes.ok) return;
+
+    const localData = await localRes.json().catch(() => ({}));
+    const remoteData = remoteRes && remoteRes.ok ? await remoteRes.json().catch(() => ({})) : {};
+    const data = {
+      user_issues: []
+        .concat(Array.isArray(localData.user_issues) ? localData.user_issues : [])
+        .concat(Array.isArray(remoteData.user_issues) ? remoteData.user_issues : []),
+      recent_comments: []
+        .concat(Array.isArray(localData.recent_comments) ? localData.recent_comments : [])
+        .concat(Array.isArray(remoteData.recent_comments) ? remoteData.recent_comments : []),
+      removed_issue_ids: []
+        .concat(Array.isArray(localData.removed_issue_ids) ? localData.removed_issue_ids : [])
+        .concat(Array.isArray(remoteData.removed_issue_ids) ? remoteData.removed_issue_ids : []),
+      unread_count: Number(localData.unread_count || 0) + Number(remoteData.unread_count || 0),
+      pagination: {
+        limit: desiredCount,
+        offset: incremental ? 0 : 0,
+        total: Number(localData.pagination?.total || localData.user_issues?.length || 0)
+          + Number(remoteData.pagination?.total || remoteData.user_issues?.length || 0),
+      },
+    };
 
     const issues = data.user_issues || [];
     const comments = (data.recent_comments || []).slice(0, 50);
@@ -341,9 +444,9 @@ async function loadNotifications(options) {
       _inboxAllItems = sortInboxItems(Array.from(byId.values()));
     } else if (append) {
       const existingIds = new Set(_inboxAllItems.map(i => i.data && i.data.id).filter(Boolean));
-      _inboxAllItems = sortInboxItems(_inboxAllItems.concat(items.filter(i => i.data && !existingIds.has(i.data.id))));
+      _inboxAllItems = sortInboxItems(_inboxAllItems.concat(items.filter(i => i.data && !existingIds.has(i.data.id)))).slice(0, desiredCount);
     } else {
-      _inboxAllItems = items;
+      _inboxAllItems = items.slice(0, desiredCount);
     }
 
     const maxUpdatedAt = _inboxAllItems.reduce((max, item) => {
@@ -376,13 +479,12 @@ async function loadNotifications(options) {
     }
 
     const page = data.pagination || {};
-    const responseOffset = Number.isFinite(Number(page.offset)) ? Number(page.offset) : currentLoaded;
-    const total = page.total || _inboxAllItems.length;
+    const total = Number.isFinite(Number(page.total)) ? Number(page.total) : _inboxAllItems.length;
     _inboxPagination = {
-      limit: page.limit || limit,
-      offset: incremental ? _inboxAllItems.length : responseOffset + issues.length,
+      limit: page.limit || desiredCount,
+      offset: _inboxAllItems.length,
       total,
-      hasMore: incremental ? _inboxAllItems.length < total : !!page.has_more,
+      hasMore: _inboxAllItems.length < total,
       loading: false,
     };
 
@@ -528,7 +630,7 @@ function selectMailItem(idx) {
   _selectedMailIssueId = issue.id;
   // Mark as read (acknowledge)
   if (item.actionRequired && !_acknowledgedIds.has(issue.id)) {
-    acknowledgeIssue(issue.id);
+    acknowledgeIssue(issue);
   }
   _currentReplyIssueId = issue.id;
   detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary);font-size:12px;">Loading issue...</div>';
@@ -536,7 +638,84 @@ function selectMailItem(idx) {
   loadInboxIssueDetail(issue.id, idx);
 }
 
+async function loadRemoteInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
+  const detail = getMailDetailContent();
+  const now = Date.now();
+  const cached = _issueDetailCache[issueId];
+
+  function isStale() { return _selectedMailIssueId !== issueId; }
+  function getProjectColor() {
+    var item = _renderedMailItems.find(function(i) { return i.data && i.data.id === issueId; });
+    return (item && item.data && item.data.project_color) || null;
+  }
+
+  const inboxItem = _renderedMailItems[expectedIdx];
+  const remoteIssue = inboxItem && inboxItem.data;
+  if (!remoteIssue || !isRemoteInboxIssue(remoteIssue)) {
+    if (detail) detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary)">Remote issue not found</div>';
+    return;
+  }
+
+  if (cached && !forceRefresh) {
+    if (isStale()) return;
+    const agentsCached = _projectAgentsCache[cached.data.project_id];
+    const agents = agentsCached ? agentsCached.data : [];
+    _currentReplyIssueId = cached.data.id;
+    setInboxMobilePane('detail');
+    IssueRenderer.render(cached.data, agents, detail, {
+      reload: function() { loadRemoteInboxIssueDetail(issueId, _selectedMailIdx, true); },
+      onAfterAction: function() { loadNotifications(); },
+      projectColor: getProjectColor(),
+      readOnly: true,
+    });
+    if (now - cached.timestamp > ISSUE_CACHE_TTL) {
+      loadRemoteInboxIssueDetail(issueId, expectedIdx, true);
+    }
+    return;
+  }
+
+  try {
+    const issuePath = buildRemoteIssueApiPath(remoteIssue);
+    const agentsPath = buildRemoteProjectAgentsApiPath(remoteIssue);
+    const [issueRes, agentsRes] = await Promise.all([
+      fetch(issuePath, { headers: apiHeaders() }),
+      agentsPath ? fetch(agentsPath, { headers: apiHeaders() }) : Promise.resolve(null),
+    ]);
+    if (!issueRes.ok || isStale()) return;
+
+    const issue = await issueRes.json();
+    _issueDetailCache[issueId] = { data: issue, timestamp: now };
+
+    let agents = [];
+    if (agentsRes && agentsRes.ok) {
+      agents = await agentsRes.json();
+      _projectAgentsCache[issue.project_id] = { data: agents, timestamp: now };
+    } else {
+      const agentsCached = _projectAgentsCache[issue.project_id];
+      if (agentsCached) agents = agentsCached.data;
+    }
+
+    if (isStale()) return;
+    _currentReplyIssueId = issue.id;
+    setInboxMobilePane('detail');
+    IssueRenderer.render(issue, agents, detail, {
+      reload: function() { loadRemoteInboxIssueDetail(issueId, _selectedMailIdx, true); },
+      onAfterAction: function() { loadNotifications(); },
+      projectColor: getProjectColor(),
+      readOnly: true,
+    });
+  } catch (e) {
+    if (isStale()) return;
+    detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary)">Failed to load remote issue</div>';
+  }
+}
+
 async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
+  const inboxItem = _renderedMailItems[expectedIdx];
+  if (inboxItem?.data && isRemoteInboxIssue(inboxItem.data)) {
+    return loadRemoteInboxIssueDetail(issueId, expectedIdx, forceRefresh);
+  }
+
   const detail = getMailDetailContent();
   const now = Date.now();
   const cached = _issueDetailCache[issueId];
@@ -664,6 +843,7 @@ async function refreshInboxIssueComments(issueId, seedComment) {
   if (!cached || !cached.data) {
     return loadInboxIssueDetail(issueId, _selectedMailIdx, true);
   }
+  if (cached.data.is_remote) return;
   let changed = mergeIssueComments(cached.data, seedComment ? [seedComment] : []);
   const sinceCreatedAt = getIssueLastCommentCreatedAt(cached.data);
   try {
@@ -691,7 +871,10 @@ async function refreshInboxIssueComments(issueId, seedComment) {
 // Prefetch issue detail on hover for faster click response
 function prefetchIssueDetail(issueId) {
   if (_issueDetailCache[issueId]) return;
-  fetch(`/api/issues/${issueId}`, { headers: apiHeaders() })
+  const issue = getInboxIssueById(issueId);
+  const prefetchUrl = isRemoteInboxIssue(issue) ? buildRemoteIssueApiPath(issue) : `/api/issues/${issueId}`;
+  if (!prefetchUrl) return;
+  fetch(prefetchUrl, { headers: apiHeaders() })
     .then(res => res.ok ? res.json() : null)
     .then(data => {
       if (data && !_issueDetailCache[issueId]) {
@@ -732,6 +915,15 @@ async function searchInboxIssues(query) {
       data: issue,
       actionRequired: actionIds.has(issue.id)
     }));
+    const remoteItems = _inboxAllItems.filter((item) =>
+      item.data
+      && isRemoteInboxIssue(item.data)
+      && matchesSearch(query, '#' + item.data.number, item.data.title, item.data.body || '')
+    );
+    const seenIds = new Set(items.map((item) => item.data && item.data.id));
+    remoteItems.forEach((item) => {
+      if (item.data && !seenIds.has(item.data.id)) items.push(item);
+    });
     // Sort: action-required first, then by time desc
     items.sort((a, b) => {
       if (a.actionRequired !== b.actionRequired) return a.actionRequired ? -1 : 1;
@@ -752,9 +944,7 @@ function toggleNotifications() {
 
 function toggleNotifFilter(filter) {
   _notifFilter = filter;
-  document.querySelectorAll('.notif-filter-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.filter === filter);
-  });
+  syncNotifFilterButtons();
   if (filter === 'my') {
     loadMyIssues();
   } else if (_inboxSearchQuery.trim()) {
@@ -767,15 +957,14 @@ function toggleNotifFilter(filter) {
 
 function toggleInboxScope(scope) {
   _inboxScope = scope;
-  document.querySelectorAll('.inbox-scope-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.scope === scope);
-  });
+  syncInboxScopeButtons();
   // Reload notifications with new scope
   loadNotifications({ reset: true });
 }
 
 function toggleInboxProject(projectId) {
   _inboxProject = projectId;
+  syncInboxProjectFilterControl();
   if (_notifFilter === 'my') {
     loadMyIssues();
   } else if (_inboxSearchQuery.trim()) {
@@ -788,13 +977,23 @@ function toggleInboxProject(projectId) {
 function populateInboxProjectFilter() {
   const filter = document.getElementById('inbox-project-filter');
   if (!filter) return;
-  const current = filter.value;
+  const current = _inboxProject || filter.value;
   let options = '<option value="">All Projects</option>';
-  for (const p of getLocalDashboardProjects()) {
+  const projects = Object.values(_dashboardProjectsById || {})
+    .filter((project) => project)
+    .sort((a, b) => {
+      if (isRemoteProject(a) !== isRemoteProject(b)) return isRemoteProject(a) ? 1 : -1;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+  for (const p of projects) {
     const id = p.id;
-    options += '<option value="' + id + '"' + (id === current ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+    const label = isRemoteProject(p)
+      ? `${p.name} · ${p.remote_instance_name || p.remote_base_url || 'Remote'}`
+      : p.name;
+    options += '<option value="' + id + '"' + (id === current ? ' selected' : '') + '>' + esc(label) + '</option>';
   }
   filter.innerHTML = options;
+  filter.value = current || '';
 }
 
 async function loadMyIssues() {
@@ -814,7 +1013,9 @@ async function loadMyIssues() {
   }
 }
 
-async function acknowledgeIssue(issueId) {
+async function acknowledgeIssue(issueOrId) {
+  const issue = typeof issueOrId === 'string' ? getInboxIssueById(issueOrId) : issueOrId;
+  const issueId = issue?.id || String(issueOrId || '');
   // Optimistically update state before server response to prevent race with polling
   _acknowledgedIds.add(issueId);
   _pendingAcks.add(issueId);
@@ -836,7 +1037,10 @@ async function acknowledgeIssue(issueId) {
   // Update badge count
   updateInboxBadge(_inboxUnreadCount - 1);
   try {
-    const res = await fetch(`/api/issues/${issueId}/acknowledge`, { method: 'POST' });
+    const ackUrl = isRemoteInboxIssue(issue)
+      ? `/api/remote-issues/${encodeURIComponent(issue.remote_instance_id)}/${encodeURIComponent(issue.remote_issue_id)}/acknowledge`
+      : `/api/issues/${issueId}/acknowledge`;
+    const res = await fetch(ackUrl, { method: 'POST' });
     if (!res.ok) {
       // Revert on failure
       _acknowledgedIds.delete(issueId);
@@ -890,13 +1094,9 @@ async function loadProjects() {
       const focusedId = (focusedEl?.classList.contains('quick-cmd-input') || focusedEl?.classList.contains('quick-cmd-body')) ? focusedEl.id : null;
 
       container.innerHTML = projects.map(p => {
-        const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
-        const remote = isRemoteProject(p);
-        const link = remote ? p.remote_url : `/projects/${p.id}`;
-        const safeLink = String(link || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        const openAction = remote
-          ? `window.open('${safeLink}', '_blank', 'noopener')`
-          : `window.location='${safeLink}'`;
+      const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
+      const remote = isRemoteProject(p);
+      const openAction = `openProjectCard('${escapeJsString(p.id)}')`;
         const access = remote
           ? { badge: 'REMOTE', tone: 'remote', summary: 'Remote instance', detail: `Connected via ${p.remote_instance_name || p.remote_base_url || 'remote instance'}` }
           : getProjectAccessMeta(p);
@@ -927,7 +1127,7 @@ async function loadProjects() {
             <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="Details (optional)..." rows="3" data-collapsed></textarea>
           </div>
         ` : (remote
-          ? `<div class="project-card-note"><span>Open the remote project to manage issues, agents, and files on that machine.</span></div>`
+          ? `<div class="project-card-note"><span>Open this card to view the remote project's inbox locally. Files and deeper project controls still stay on that machine.</span></div>`
           : '');
         return `
         <div class="card project-card" style="cursor:pointer" onclick="${openAction}">
@@ -1240,6 +1440,144 @@ function getSelectedCreateProjectProfile() {
   return manager?.getById(select?.value || '') || null;
 }
 
+function getCreateProjectTargetSelect() {
+  return document.getElementById('proj-target-instance');
+}
+
+function getCreateProjectTargetId() {
+  return getCreateProjectTargetSelect()?.value || 'localhost';
+}
+
+function getCreateProjectTargetMeta(targetId) {
+  const resolvedId = String(targetId || getCreateProjectTargetId() || 'localhost').trim() || 'localhost';
+  if (resolvedId === 'localhost') {
+    return {
+      id: 'localhost',
+      label: 'localhost',
+      detail: 'This machine',
+      isLocal: true,
+      instance: null,
+    };
+  }
+
+  const instance = (_createProjectTargetOptions || []).find((item) => item.id === resolvedId) || null;
+  return {
+    id: resolvedId,
+    label: instance?.name || instance?.base_url || 'remote machine',
+    detail: instance?.base_url || instance?.name || 'Remote HAICO instance',
+    isLocal: false,
+    instance,
+  };
+}
+
+function updateCreateProjectWorkdirControls() {
+  const target = getCreateProjectTargetMeta();
+  const input = document.getElementById('proj-workdir');
+  const browseButton = document.getElementById('proj-workdir-browse');
+  const hint = document.getElementById('proj-workdir-hint');
+
+  if (input) {
+    input.placeholder = target.isLocal
+      ? 'Optional absolute path'
+      : 'Optional absolute path on the selected machine';
+  }
+  if (browseButton) {
+    browseButton.disabled = !target.isLocal;
+    browseButton.title = target.isLocal
+      ? 'Browse local folders'
+      : 'Remote folder browsing is not available';
+  }
+  if (hint) {
+    hint.textContent = target.isLocal
+      ? 'Optional. If empty, HAICO will use the path inferred from your prompt or leave it unset.'
+      : `Optional. Enter an absolute path on ${target.label} manually. Folder browsing only works for localhost.`;
+  }
+}
+
+function renderCreateProjectTargetOptions(selectedTargetId) {
+  const select = getCreateProjectTargetSelect();
+  const hint = document.getElementById('proj-target-instance-hint');
+  if (!select) return;
+
+  const remoteOptions = Array.isArray(_createProjectTargetOptions) ? _createProjectTargetOptions : [];
+  const desiredTargetId = String(selectedTargetId || select.value || 'localhost').trim() || 'localhost';
+
+  select.innerHTML = [
+    '<option value="localhost">localhost</option>',
+    ...remoteOptions.map((instance) => {
+      const statusSuffix = !instance.available
+        ? ' · setup required'
+        : (instance.last_status === 'error' ? ' · connection issue' : '');
+      const label = `${instance.name} · ${instance.base_url}${statusSuffix}`;
+      return `<option value="${esc(instance.id)}">${esc(label)}</option>`;
+    }),
+  ].join('');
+
+  const validTargetId = desiredTargetId === 'localhost' || remoteOptions.some((instance) => instance.id === desiredTargetId)
+    ? desiredTargetId
+    : 'localhost';
+  select.value = validTargetId;
+
+  const target = getCreateProjectTargetMeta(validTargetId);
+  if (hint) {
+    hint.textContent = target.isLocal
+      ? 'New projects run on localhost by default.'
+      : `HAICO will prepare and create this project on ${target.label}.`;
+  }
+  updateCreateProjectWorkdirControls();
+}
+
+async function hydrateCreateProjectTargetOptions() {
+  const select = getCreateProjectTargetSelect();
+  if (!select) return;
+
+  const currentTargetId = select.value || 'localhost';
+  select.disabled = true;
+
+  try {
+    let instances = [];
+
+    const optionsRes = await fetch('/api/remote-instance-options', { headers: apiHeaders() });
+    if (optionsRes.ok) {
+      const data = await optionsRes.json().catch(() => ({}));
+      instances = Array.isArray(data.instances) ? data.instances : [];
+    } else {
+      const remoteProjectsRes = await fetch('/api/remote-projects', { headers: apiHeaders() });
+      const remoteProjectsData = remoteProjectsRes.ok ? await remoteProjectsRes.json().catch(() => ({})) : {};
+      const remoteInstances = Array.isArray(remoteProjectsData.instances) ? remoteProjectsData.instances : [];
+      const byId = new Map();
+      for (const instance of remoteInstances) {
+        if (!instance || !instance.id) continue;
+        byId.set(instance.id, {
+          id: instance.id,
+          name: instance.name || instance.base_url || instance.id,
+          base_url: instance.base_url || '',
+          enabled: instance.enabled !== false,
+          last_status: instance.last_status || instance.runtime_status || 'unknown',
+          last_error: instance.last_error || instance.runtime_error || '',
+          available: instance.enabled !== false,
+        });
+      }
+      instances = Array.from(byId.values());
+    }
+
+    _createProjectTargetOptions = instances;
+  } catch (error) {
+    console.error('Failed to load create project machine options', error);
+    _createProjectTargetOptions = [];
+  } finally {
+    select.disabled = false;
+    renderCreateProjectTargetOptions(currentTargetId);
+  }
+}
+
+function handleCreateProjectTargetChange() {
+  renderCreateProjectTargetOptions(getCreateProjectTargetId());
+  refreshCreateProjectReadiness().catch((error) => {
+    console.error('Failed to refresh create project readiness after machine change', error);
+  });
+}
+
 function getRemoteInstancesSettingsRoot() {
   return document.getElementById('remote-instances-settings');
 }
@@ -1525,6 +1863,7 @@ function renderCreateProjectReadinessBody(content) {
 }
 
 function renderCreateProjectMissingProfileState() {
+  const target = getCreateProjectTargetMeta();
   renderCreateProjectReadinessBody([
     renderCreateProjectCheck(getCreateProjectAccountDetail()),
     renderCreateProjectCheck({
@@ -1536,12 +1875,15 @@ function renderCreateProjectMissingProfileState() {
     renderCreateProjectCheck({
       tone: 'warn',
       title: 'First-time setup',
-      detail: 'After adding the Agent Tool, make sure the CLI is installed locally and logged in. HAICO will re-check that here before project creation.',
+      detail: target.isLocal
+        ? 'After adding the Agent Tool, make sure the CLI is installed locally and logged in. HAICO will re-check that here before project creation.'
+        : `After adding the Agent Tool, make sure the CLI is installed and logged in on <strong>${esc(target.label)}</strong>. HAICO will re-check that here before project creation.`,
     }),
   ].join(''));
 }
 
 function renderCreateProjectReadiness(profile, readiness) {
+  const target = getCreateProjectTargetMeta();
   const profileName = profile?.name || 'Selected profile';
   const commandType = readiness?.command_type || profile?.type || 'unknown';
   const binaryLabel = readiness?.binary || 'selected CLI';
@@ -1549,12 +1891,12 @@ function renderCreateProjectReadiness(profile, readiness) {
     ? {
         tone: 'ok',
         title: 'CLI availability',
-        detail: `${esc(binaryLabel)} is available at <span class="create-project-inline-code">${esc(readiness.binary_path || '')}</span>.`,
+        detail: `${esc(binaryLabel)} is available on <strong>${esc(target.label)}</strong> at <span class="create-project-inline-code">${esc(readiness.binary_path || '')}</span>.`,
       }
     : {
         tone: 'error',
         title: 'CLI availability',
-        detail: `HAICO could not find <span class="create-project-inline-code">${esc(binaryLabel)}</span> on this machine. Install it and make sure your shell can run it.`,
+        detail: `HAICO could not find <span class="create-project-inline-code">${esc(binaryLabel)}</span> on <strong>${esc(target.label)}</strong>. Install it there and make sure the shell can run it.`,
       };
   const authTone = readiness?.auth?.status === 'configured'
     ? 'ok'
@@ -1578,7 +1920,7 @@ function renderCreateProjectReadiness(profile, readiness) {
     renderCreateProjectCheck({
       tone: 'ok',
       title: 'Agent Tool',
-      detail: `Using <strong>${esc(profileName)}</strong> (${esc(commandType)}): <span class="create-project-inline-code">${esc(profile?.command || '')}</span>`,
+      detail: `Using <strong>${esc(profileName)}</strong> on <strong>${esc(target.label)}</strong> (${esc(commandType)}): <span class="create-project-inline-code">${esc(profile?.command || '')}</span>`,
     }),
     renderCreateProjectCheck(binaryStatus),
     renderCreateProjectCheck({
@@ -1602,16 +1944,32 @@ async function refreshCreateProjectReadiness() {
   }
 
   const requestId = ++_createProjectReadinessRequestId;
-  renderCreateProjectReadinessBody('<div class="create-project-readiness-empty">Checking local CLI setup...</div>');
+  const target = getCreateProjectTargetMeta();
+  renderCreateProjectReadinessBody(`<div class="create-project-readiness-empty">Checking CLI setup on ${esc(target.label)}...</div>`);
 
   try {
     const res = await fetch('/api/command-profiles/check', {
       method: 'POST',
       headers: apiHeaders(),
-      body: JSON.stringify({ command: profile.command, type: profile.type }),
+      body: JSON.stringify({
+        command: profile.command,
+        type: profile.type,
+        target_instance_id: target.id,
+      }),
     });
     const readiness = await res.json().catch(() => null);
     if (requestId !== _createProjectReadinessRequestId) return null;
+    if (!res.ok) {
+      _createProjectReadiness = null;
+      renderCreateProjectReadinessBody(renderCreateProjectCheck({
+        tone: 'warn',
+        title: 'Setup check unavailable',
+        detail: readiness?.error
+          ? `HAICO could not inspect the CLI on <strong>${esc(target.label)}</strong>: ${esc(readiness.error)}`
+          : `HAICO could not inspect the CLI on <strong>${esc(target.label)}</strong> right now.`,
+      }));
+      return null;
+    }
     _createProjectReadiness = readiness;
     renderCreateProjectReadiness(profile, readiness || {});
     return readiness;
@@ -1702,7 +2060,9 @@ function handleCreateProjectCommandProfileChange() {
 function showCreateModal() {
   document.getElementById('createModal').classList.add('active');
   renderCreateProjectReadinessBody('<div class="create-project-readiness-empty">Loading setup checks...</div>');
-  hydrateCreateProjectCommandProfileControls().catch((error) => {
+  hydrateCreateProjectTargetOptions()
+    .then(() => hydrateCreateProjectCommandProfileControls())
+    .catch((error) => {
     console.error('Failed to load project command profile controls', error);
     renderCreateProjectMissingProfileState();
   });
@@ -1777,6 +2137,10 @@ async function loadCreateProjectPathPicker(pathValue) {
 }
 
 function openCreateProjectPathPicker() {
+  if (!getCreateProjectTargetMeta().isLocal) {
+    showToast('Remote folder browsing is not available yet. Enter the path manually.', 'error');
+    return;
+  }
   document.getElementById('pathPickerModal')?.classList.add('active');
   const list = document.getElementById('path-picker-list');
   if (list) list.innerHTML = '<div class="create-project-readiness-empty">Loading directories...</div>';
@@ -1834,6 +2198,7 @@ async function createProject() {
   await withLoading(btn, async () => {
     const task = document.getElementById('proj-task').value.trim();
     const selectedProfile = getSelectedCreateProjectProfile();
+    const target = getCreateProjectTargetMeta();
     const toolPath = selectedProfile?.command || document.getElementById('proj-cmd').value.trim();
     const explicitWorkdir = document.getElementById('proj-workdir')?.value.trim() || '';
     if (!task) { showToast('Please describe the task to execute', 'error'); return; }
@@ -1853,7 +2218,12 @@ async function createProject() {
     btn.textContent = 'Generating...';
     const genRes = await fetch('/api/generate-project', {
       method: 'POST', headers: apiHeaders(),
-      body: JSON.stringify({ description: task, tool_path: toolPath, command_type: selectedProfile.type }),
+      body: JSON.stringify({
+        description: task,
+        tool_path: toolPath,
+        command_type: selectedProfile.type,
+        target_instance_id: target.id,
+      }),
     });
 
     let name, description, taskDesc, workDir, ctrlRole;
@@ -1874,6 +2244,10 @@ async function createProject() {
         showToast(err.error || 'The selected CLI needs setup before project creation', 'error');
         return;
       }
+      if (!target.isLocal) {
+        showToast(err.error || `Failed to prepare the project on ${target.label}`, 'error');
+        return;
+      }
       // Fallback if AI fails
       name = task.slice(0, 30).replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'project';
       description = task.slice(0, 100);
@@ -1891,12 +2265,19 @@ async function createProject() {
       command_type: selectedProfile.type,
       working_directory: workDir,
       controller_role: ctrlRole,
+      target_instance_id: target.id,
     };
 
     const res = await fetch('/api/projects', { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) {
       const proj = await res.json();
       hideCreateModal();
+      if (proj?.is_remote) {
+        await loadProjects();
+        switchView('projects');
+        showToast(`Project created on ${target.label}`, 'success');
+        return;
+      }
       window.location.href = '/projects/' + proj.id;
     } else {
       const err = await res.json();
@@ -1933,6 +2314,8 @@ if (typeof window !== 'undefined') {
   window.navigatePathPickerUp = navigatePathPickerUp;
   window.confirmPathPickerSelection = confirmPathPickerSelection;
   window.clearCreateProjectWorkdir = clearCreateProjectWorkdir;
+  window.handleCreateProjectTargetChange = handleCreateProjectTargetChange;
+  window.openProjectCard = openProjectCard;
   window.saveRemoteInstance = saveRemoteInstance;
   window.editRemoteInstance = editRemoteInstance;
   window.cancelRemoteInstanceEdit = cancelRemoteInstanceEdit;
