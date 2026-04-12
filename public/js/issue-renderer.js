@@ -44,6 +44,66 @@ var IssueRenderer = (function() {
     return controller ? controller.id : '';
   }
 
+  function isRemoteIssue() {
+    return !!(_ctx.issue && _ctx.issue.is_remote && _ctx.issue.remote_instance_id);
+  }
+
+  function getRemoteInstanceId() {
+    return isRemoteIssue() ? String(_ctx.issue.remote_instance_id || '') : '';
+  }
+
+  function getRemoteIssueId() {
+    if (!isRemoteIssue()) return String((_ctx.issue && _ctx.issue.id) || '');
+    return String(_ctx.issue.remote_issue_id || _ctx.issue.id || '');
+  }
+
+  function findCommentById(commentId) {
+    return (_ctx.issue && Array.isArray(_ctx.issue.comments) ? _ctx.issue.comments : []).find(function(comment) {
+      return String(comment.id) === String(commentId) || String(comment.remote_comment_id || '') === String(commentId);
+    }) || null;
+  }
+
+  function getIssueApiBase(issueIdOverride) {
+    if (!isRemoteIssue()) return '/api/issues/' + encodeURIComponent(String(issueIdOverride || (_ctx.issue && _ctx.issue.id) || ''));
+    return '/api/remote-issues/' + encodeURIComponent(getRemoteInstanceId()) + '/' + encodeURIComponent(String(issueIdOverride || getRemoteIssueId()));
+  }
+
+  function getIssueCommentsApiPath() {
+    return getIssueApiBase() + '/comments';
+  }
+
+  function getCommentApiPath(commentId) {
+    if (!isRemoteIssue()) return '/api/comments/' + encodeURIComponent(String(commentId || ''));
+    var comment = findCommentById(commentId);
+    var remoteCommentId = comment ? (comment.remote_comment_id || comment.id) : commentId;
+    return '/api/remote-comments/' + encodeURIComponent(getRemoteInstanceId()) + '/' + encodeURIComponent(String(remoteCommentId || ''));
+  }
+
+  function getReactionApiPath(type, targetId) {
+    if (!isRemoteIssue()) {
+      return '/api/reactions/' + encodeURIComponent(type) + '/' + encodeURIComponent(String(targetId || ''));
+    }
+    var remoteTargetId = targetId;
+    if (type === 'issue') {
+      remoteTargetId = getRemoteIssueId();
+    } else if (type === 'comment') {
+      var comment = findCommentById(targetId);
+      remoteTargetId = comment ? (comment.remote_comment_id || comment.id) : targetId;
+    }
+    return '/api/remote-reactions/' + encodeURIComponent(getRemoteInstanceId()) + '/' + encodeURIComponent(type) + '/' + encodeURIComponent(String(remoteTargetId || ''));
+  }
+
+  function getIssueByNumberApiPath(issueNumber) {
+    if (!isRemoteIssue()) {
+      return '/api/projects/' + encodeURIComponent(String((_ctx.issue && _ctx.issue.project_id) || '')) + '/issues/number/' + encodeURIComponent(String(issueNumber || ''));
+    }
+    return '/api/remote-projects/' + encodeURIComponent(getRemoteInstanceId()) + '/' + encodeURIComponent(String((_ctx.issue && _ctx.issue.remote_project_id) || '')) + '/issues/number/' + encodeURIComponent(String(issueNumber || ''));
+  }
+
+  function getRelationsApiBase(issueIdOverride) {
+    return getIssueApiBase(issueIdOverride) + '/relations';
+  }
+
   // Generate avatar HTML: use role-based avatar for agents, fallback to identicon
   function authorAvatarHtml(authorId, size) {
     var agent = _ctx.agents.find(function(x) { return x.id === authorId; });
@@ -216,6 +276,10 @@ var IssueRenderer = (function() {
     _ctx.projectColor = options.projectColor || issue.project_color || null;
     _ctx.readOnly = options.readOnly === true;
     var readOnly = _ctx.readOnly;
+    var openIssueHref = issue.is_remote
+      ? String(issue.remote_issue_url || '')
+      : '/projects/' + issue.project_id + '/issues/' + issue.number;
+    var openIssueAttrs = issue.is_remote ? ' target="_blank" rel="noopener noreferrer"' : '';
 
     var labels = issue.labels ? issue.labels.split(',').filter(function(l) { return l.trim(); }).map(function(l) { return labelHtml(l); }).join(' ') : '';
     var assignOpts = '<option value="">Unassigned</option><option value="all" ' + ('all'===issue.assigned_to?'selected':'') + '>All</option><option value="user" ' + ('user'===issue.assigned_to?'selected':'') + '>User</option>' +
@@ -256,7 +320,9 @@ var IssueRenderer = (function() {
           (readOnly
             ? '<span class="meta-chip meta-chip-remote" title="Remote issue mirrored into the local inbox">Remote read-only</span>'
             : '<button class="btn btn-sm" onclick="IssueRenderer.startEditTitle()">Edit</button>' +
-              '<a href="/projects/' + issue.project_id + '/issues/' + issue.number + '" class="btn btn-sm" title="Open in a new page" style="text-decoration:none">↗</a>') +
+              (openIssueHref
+                ? '<a href="' + esc(openIssueHref) + '" class="btn btn-sm" title="Open in a new page" style="text-decoration:none"' + openIssueAttrs + '>↗</a>'
+                : '')) +
         '</div>' +
         '<div id="ir-title-edit" style="display:none;margin-bottom:8px">' +
           '<div style="display:flex;gap:8px">' +
@@ -466,7 +532,7 @@ var IssueRenderer = (function() {
     if (_ctx.readOnly) return;
     var v = document.getElementById('ir-edit-title-input').value.trim();
     if (!v) return;
-    fetch('/api/issues/' + _ctx.issue.id, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ title: v, actor: 'user' }) })
+    fetch(getIssueApiBase(), { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ title: v, actor: 'user' }) })
       .then(function() { _ctx.reload(); });
   }
   function startEditBody() {
@@ -483,7 +549,7 @@ var IssueRenderer = (function() {
   function saveBody() {
     if (_ctx.readOnly) return;
     var v = document.getElementById('ir-edit-body-input').value;
-    fetch('/api/issues/' + _ctx.issue.id, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v, actor: 'user' }) })
+    fetch(getIssueApiBase(), { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v, actor: 'user' }) })
       .then(function() { _ctx.reload(); });
   }
 
@@ -492,7 +558,7 @@ var IssueRenderer = (function() {
   function updateField(field, value) {
     if (_ctx.readOnly) return;
     var body = {}; body[field] = value; body.actor = 'user';
-    fetch('/api/issues/' + _ctx.issue.id, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) })
+    fetch(getIssueApiBase(), { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) })
       .then(function() { _ctx.reload(); _ctx.onAfterAction(); });
   }
 
@@ -503,7 +569,7 @@ var IssueRenderer = (function() {
       confirmLabel: 'Delete issue',
       tone: 'danger',
     })) return;
-    fetch('/api/issues/' + _ctx.issue.id, { method: 'DELETE' })
+    fetch(getIssueApiBase(), { method: 'DELETE' })
       .then(function(res) {
         if (res.ok) { showToast('Issue deleted', 'success'); history.back(); }
         else showToast('Only open issues can be deleted', 'error');
@@ -515,10 +581,10 @@ var IssueRenderer = (function() {
     var body = document.getElementById('ir-comment-input').value.trim();
     var p = Promise.resolve();
     if (body) {
-      p = fetch('/api/issues/' + _ctx.issue.id + '/comments', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body: body }) });
+      p = fetch(getIssueCommentsApiPath(), { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body: body }) });
     }
     p.then(function() {
-      return fetch('/api/issues/' + _ctx.issue.id, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: 'closed', actor: 'user' }) });
+      return fetch(getIssueApiBase(), { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: 'closed', actor: 'user' }) });
     }).then(function() {
       showToast(body ? 'Comment added and issue closed' : 'Issue closed', 'success');
       _ctx.reload();
@@ -531,10 +597,10 @@ var IssueRenderer = (function() {
     var body = document.getElementById('ir-comment-input').value.trim();
     var p = Promise.resolve();
     if (body) {
-      p = fetch('/api/issues/' + _ctx.issue.id + '/comments', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body: body }) });
+      p = fetch(getIssueCommentsApiPath(), { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body: body }) });
     }
     p.then(function() {
-      return fetch('/api/issues/' + _ctx.issue.id, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: 'open', actor: 'user' }) });
+      return fetch(getIssueApiBase(), { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: 'open', actor: 'user' }) });
     }).then(function() {
       showToast(body ? 'Comment added and issue reopened' : 'Issue reopened', 'success');
       _ctx.reload();
@@ -546,7 +612,7 @@ var IssueRenderer = (function() {
     if (_ctx.readOnly) return;
     var body = document.getElementById('ir-comment-input').value.trim();
     if (!body) return;
-    fetch('/api/issues/' + _ctx.issue.id + '/comments', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body: body }) })
+    fetch(getIssueCommentsApiPath(), { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ author_id: 'user', body: body }) })
       .then(function(res) {
         if (!res.ok) throw new Error('Failed to add comment');
         return res.json();
@@ -579,7 +645,7 @@ var IssueRenderer = (function() {
     if (_ctx.readOnly) return;
     var v = document.getElementById('ir-edit-comment-' + cid);
     if (!v || !v.value) return;
-    fetch('/api/comments/' + cid, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v.value }) })
+    fetch(getCommentApiPath(cid), { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ body: v.value }) })
       .then(function(res) { if (res.ok) showToast('Comment saved', 'success'); _ctx.reload(); });
   }
 
@@ -590,13 +656,13 @@ var IssueRenderer = (function() {
       confirmLabel: 'Delete comment',
       tone: 'danger',
     })) return;
-    fetch('/api/comments/' + cid, { method: 'DELETE' })
+    fetch(getCommentApiPath(cid), { method: 'DELETE' })
       .then(function() { _ctx.reload(); });
   }
 
   function toggleReaction(type, id, emoji) {
     if (_ctx.readOnly) return;
-    fetch('/api/reactions/' + type + '/' + id, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ user_id: 'user', emoji: emoji }) })
+    fetch(getReactionApiPath(type, id), { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ user_id: 'user', emoji: emoji }) })
       .then(function() { _ctx.reload(); });
   }
 
@@ -642,24 +708,26 @@ var IssueRenderer = (function() {
     var projectId = _ctx.issue.project_id;
 
     // First resolve issue number to ID
-    fetch('/api/projects/' + projectId + '/issues/number/' + targetNum, { headers: apiHeaders() })
+    fetch(getIssueByNumberApiPath(targetNum), { headers: apiHeaders() })
       .then(function(res) { if (!res.ok) throw new Error('Issue not found'); return res.json(); })
       .then(function(targetIssue) {
-        var fromId, toId, apiType;
+        var fromId, toId, apiType, relationApiBase;
         if (relType === 'blocked_by') {
           // Target blocks this issue
-          fromId = targetIssue.id;
+          fromId = isRemoteIssue() ? (targetIssue.remote_issue_id || targetIssue.id) : targetIssue.id;
           toId = issueId;
           apiType = 'blocks';
-          return fetch('/api/issues/' + fromId + '/relations', {
+          relationApiBase = getRelationsApiBase(fromId);
+          return fetch(relationApiBase, {
             method: 'POST', headers: apiHeaders(),
             body: JSON.stringify({ type: apiType, target_issue_id: toId, actor: 'user' })
           });
         } else {
           apiType = relType;
-          return fetch('/api/issues/' + issueId + '/relations', {
+          toId = isRemoteIssue() ? (targetIssue.remote_issue_id || targetIssue.id) : targetIssue.id;
+          return fetch(getRelationsApiBase(), {
             method: 'POST', headers: apiHeaders(),
-            body: JSON.stringify({ type: apiType, target_issue_id: targetIssue.id, actor: 'user' })
+            body: JSON.stringify({ type: apiType, target_issue_id: toId, actor: 'user' })
           });
         }
       })
@@ -675,7 +743,7 @@ var IssueRenderer = (function() {
 
   function removeRelation(relationId) {
     if (_ctx.readOnly) return;
-    fetch('/api/issues/' + _ctx.issue.id + '/relations/' + relationId, { method: 'DELETE', headers: apiHeaders() })
+    fetch(getRelationsApiBase() + '/' + encodeURIComponent(String(relationId || '')), { method: 'DELETE', headers: apiHeaders() })
       .then(function(res) {
         if (res.ok) { showToast('Dependency removed', 'success'); _ctx.reload(); }
         else showToast('Failed to remove', 'error');

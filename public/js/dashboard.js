@@ -665,8 +665,8 @@ async function loadRemoteInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
     IssueRenderer.render(cached.data, agents, detail, {
       reload: function() { loadRemoteInboxIssueDetail(issueId, _selectedMailIdx, true); },
       onAfterAction: function() { loadNotifications(); },
+      refreshComments: function(seedComment) { refreshInboxIssueComments(issueId, seedComment); },
       projectColor: getProjectColor(),
-      readOnly: true,
     });
     if (now - cached.timestamp > ISSUE_CACHE_TTL) {
       loadRemoteInboxIssueDetail(issueId, expectedIdx, true);
@@ -701,8 +701,8 @@ async function loadRemoteInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
     IssueRenderer.render(issue, agents, detail, {
       reload: function() { loadRemoteInboxIssueDetail(issueId, _selectedMailIdx, true); },
       onAfterAction: function() { loadNotifications(); },
+      refreshComments: function(seedComment) { refreshInboxIssueComments(issueId, seedComment); },
       projectColor: getProjectColor(),
-      readOnly: true,
     });
   } catch (e) {
     if (isStale()) return;
@@ -752,7 +752,6 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
 
   // Determine project_id from inbox item data for parallel agents fetch
   let knownProjectId = null;
-  const inboxItem = _renderedMailItems[expectedIdx];
   if (inboxItem && inboxItem.data) {
     knownProjectId = inboxItem.data.project_id;
   }
@@ -843,13 +842,16 @@ async function refreshInboxIssueComments(issueId, seedComment) {
   if (!cached || !cached.data) {
     return loadInboxIssueDetail(issueId, _selectedMailIdx, true);
   }
-  if (cached.data.is_remote) return;
   let changed = mergeIssueComments(cached.data, seedComment ? [seedComment] : []);
   const sinceCreatedAt = getIssueLastCommentCreatedAt(cached.data);
   try {
     const params = new URLSearchParams();
     if (sinceCreatedAt) params.set('since_created_at', sinceCreatedAt);
-    const res = await fetch(`/api/issues/${issueId}/comments?${params.toString()}`, { headers: apiHeaders() });
+    const commentsPath = cached.data.is_remote
+      ? `${buildRemoteIssueApiPath(cached.data)}/comments`
+      : `/api/issues/${issueId}/comments`;
+    if (!commentsPath) throw new Error('Missing issue comments path');
+    const res = await fetch(`${commentsPath}${params.toString() ? `?${params.toString()}` : ''}`, { headers: apiHeaders() });
     if (res.ok) {
       const comments = await res.json();
       changed = mergeIssueComments(cached.data, comments) || changed;
