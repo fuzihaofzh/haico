@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Human-Agent Interactive Collaboration Orchestrator (HAICO)</title>
-  <link rel="stylesheet" href="/public/css/style.css?v=5">
+  <link rel="stylesheet" href="/public/css/style.css?v=6">
   <link rel="stylesheet" href="/public/css/issues.css">
   <link rel="stylesheet" href="/public/vendor/katex/katex.min.css?v=0.16.11">
 </head>
@@ -279,6 +279,20 @@
           <div data-command-profiles-root></div>
         </div>
       </section>
+
+      <section class="card settings-card settings-card-wide">
+        <div class="settings-card-header">
+          <div>
+            <h3>Remote HAICO Instances</h3>
+            <p>Add other HAICO machine URLs so their projects appear in this dashboard.</p>
+          </div>
+        </div>
+        <div class="settings-section settings-section-page">
+          <div id="remote-instances-settings">
+            <div class="empty-state">Loading remote instance settings...</div>
+          </div>
+        </div>
+      </section>
     </div>
   </main>
 
@@ -370,6 +384,6 @@
   <script src="/public/js/common.js?v=2"></script>
   <script src="/public/js/command-profiles.js?v=3"></script>
   <script src="/public/js/issue-renderer.js"></script>
-  <script src="/public/js/dashboard.js?v=5"></script>
+  <script src="/public/js/dashboard.js?v=6"></script>
 </body>
 </html>

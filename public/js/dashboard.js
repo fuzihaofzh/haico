@@ -13,6 +13,8 @@ let _selectedMailIssueId = null; // currently selected issue ID (stable across r
 let _renderedMailItems = []; // currently rendered (filtered) items
 let _currentReplyIssueId = null; // issue ID for the currently visible reply box
 let _dashboardProjectsById = {};
+let _remoteInstances = [];
+let _editingRemoteInstanceId = '';
 let _globalComposeAgentsByProject = {};
 let _dashboardProjectsLoadPromise = null;
 let _createProjectReadiness = null;
@@ -24,6 +26,14 @@ const INBOX_ITEM_LIMIT = 20;
 let _inboxPagination = { limit: INBOX_ITEM_LIMIT, offset: 0, total: 0, hasMore: false, loading: false };
 let _inboxUnreadCount = 0;
 const DASHBOARD_NAV_VIEWS = new Set(['inbox', 'projects', 'usage', 'settings']);
+
+function isRemoteProject(project) {
+  return Boolean(project && project.is_remote);
+}
+
+function getLocalDashboardProjects() {
+  return Object.values(_dashboardProjectsById || {}).filter((project) => project && !isRemoteProject(project));
+}
 
 function normalizeDashboardView(view) {
   return DASHBOARD_NAV_VIEWS.has(view) ? view : 'inbox';
@@ -780,8 +790,8 @@ function populateInboxProjectFilter() {
   if (!filter) return;
   const current = filter.value;
   let options = '<option value="">All Projects</option>';
-  for (const id in _dashboardProjectsById) {
-    const p = _dashboardProjectsById[id];
+  for (const p of getLocalDashboardProjects()) {
+    const id = p.id;
     options += '<option value="' + id + '"' + (id === current ? ' selected' : '') + '>' + esc(p.name) + '</option>';
   }
   filter.innerHTML = options;
@@ -847,12 +857,18 @@ async function loadProjects() {
   const container = document.getElementById('projects');
   _dashboardProjectsLoadPromise = (async () => {
     try {
-      const res = await fetch('/api/projects?with_stats=1', { headers: apiHeaders() });
-      if (!res.ok) {
+      const [localRes, remoteRes] = await Promise.all([
+        fetch('/api/projects?with_stats=1', { headers: apiHeaders() }),
+        fetch('/api/remote-projects', { headers: apiHeaders() }).catch(() => null),
+      ]);
+      if (!localRes.ok) {
         container.innerHTML = renderError(null, 'loadProjects()');
         return;
       }
-      const projects = await res.json();
+      const localProjects = await localRes.json();
+      const remotePayload = remoteRes && remoteRes.ok ? await remoteRes.json().catch(() => ({ projects: [] })) : { projects: [] };
+      const remoteProjects = Array.isArray(remotePayload.projects) ? remotePayload.projects : [];
+      const projects = localProjects.concat(remoteProjects);
       _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
       populateActivityProjectFilter();
       populateInboxProjectFilter();
@@ -875,24 +891,34 @@ async function loadProjects() {
 
       container.innerHTML = projects.map(p => {
         const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
-        const link = `/projects/${p.id}`;
-        const access = getProjectAccessMeta(p);
-        const ownerName = displayProjectUser(p.owner);
-        const ownerRole = p.owner?.role === 'admin' ? 'Global Admin' : 'Project Member';
+        const remote = isRemoteProject(p);
+        const link = remote ? p.remote_url : `/projects/${p.id}`;
+        const safeLink = String(link || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const openAction = remote
+          ? `window.open('${safeLink}', '_blank', 'noopener')`
+          : `window.location='${safeLink}'`;
+        const access = remote
+          ? { badge: 'REMOTE', tone: 'remote', summary: 'Remote instance', detail: `Connected via ${p.remote_instance_name || p.remote_base_url || 'remote instance'}` }
+          : getProjectAccessMeta(p);
+        const ownerName = remote ? (p.remote_instance_name || 'Remote instance') : displayProjectUser(p.owner);
+        const ownerRole = remote ? 'Remote HAICO' : (p.owner?.role === 'admin' ? 'Global Admin' : 'Project Member');
         const memberCount = Number.isFinite(p.member_count) ? p.member_count : 0;
-        const toggleButton = p.can_manage
+        const toggleButton = !remote && p.can_manage
           ? `<button onclick="event.stopPropagation();toggleProjectStatus('${p.id}','${p.status}')" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>`
           : '';
-        const userCount = s.userIssues?.length || 0;
+        const userCount = remote ? 0 : (s.userIssues?.length || 0);
         const notifBadge = userCount > 0
           ? `<span onclick="event.stopPropagation();window.location='${link}#issues'" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</span>`
           : '';
-        const lastAct = _lastActivityMap[p.id];
+        const lastAct = remote ? p.updated_at : _lastActivityMap[p.id];
         const activityText = lastAct ? timeAgo(lastAct) : null;
         const activityLine = activityText
           ? `<div class="last-activity">Last activity: ${activityText}</div>`
           : '';
-        const quickCmdBar = p.can_manage ? `
+        const remoteSource = remote
+          ? `<div class="project-card-source">Source: ${esc(p.remote_instance_name || p.remote_base_url || 'Remote instance')}</div>`
+          : '';
+        const quickCmdBar = !remote && p.can_manage ? `
           <div class="quick-cmd-bar" onclick="event.stopPropagation()">
             <div class="quick-cmd-row">
               <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." oninput="toggleQuickCmdBody('${p.id}')" onkeydown="if(event.key==='Enter'&&event.shiftKey&&!event.isComposing){event.preventDefault();sendQuickCmd('${p.id}')}">
@@ -900,18 +926,22 @@ async function loadProjects() {
             </div>
             <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="Details (optional)..." rows="3" data-collapsed></textarea>
           </div>
-        ` : '';
+        ` : (remote
+          ? `<div class="project-card-note"><span>Open the remote project to manage issues, agents, and files on that machine.</span></div>`
+          : '');
         return `
-        <div class="card project-card" style="cursor:pointer" onclick="window.location='${link}'">
+        <div class="card project-card" style="cursor:pointer" onclick="${openAction}">
           <div class="project-card-head">
             <div class="project-card-main">
               <strong class="project-card-title">${esc(p.name)}${notifBadge}</strong>
+              ${remoteSource}
               <div class="project-card-tags">
                 <span class="permission-badge permission-${access.tone}" title="${esc(access.summary)}">${access.badge}</span>
                 <span class="meta-chip" title="Project owner">
                   <span class="meta-chip-label">Owner</span>
                   <span>${esc(ownerName)}</span>
                 </span>
+                ${remote ? `<span class="meta-chip meta-chip-remote" title="Remote instance URL">${esc(p.remote_base_url || '')}</span>` : ''}
                 <span class="meta-chip" title="Project member count">
                   <span class="meta-chip-label">Members</span>
                   <span>${memberCount}</span>
@@ -1208,6 +1238,247 @@ function getSelectedCreateProjectProfile() {
   const manager = getCreateProjectCommandProfileManager();
   const select = document.getElementById('proj-cmd-profile');
   return manager?.getById(select?.value || '') || null;
+}
+
+function getRemoteInstancesSettingsRoot() {
+  return document.getElementById('remote-instances-settings');
+}
+
+function getRemoteStatusLabel(instance) {
+  if (instance?.last_status === 'ok') return 'Connected';
+  if (instance?.last_status === 'error') return 'Needs Review';
+  return 'Unchecked';
+}
+
+function deriveRemoteInstanceName(baseUrl, fallback) {
+  const raw = String(baseUrl || '').trim();
+  if (!raw) return String(fallback || '').trim();
+  try {
+    const normalized = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `http://${raw}`;
+    const url = new URL(normalized);
+    return url.host || String(fallback || '').trim() || raw;
+  } catch {
+    return String(fallback || '').trim() || raw;
+  }
+}
+
+function renderRemoteInstancesSettings() {
+  const root = getRemoteInstancesSettingsRoot();
+  if (!root) return;
+
+  if (!_currentUser) {
+    root.innerHTML = '<div class="empty-state">Loading remote instance settings...</div>';
+    return;
+  }
+
+  if (_currentUser.role !== 'admin') {
+    root.innerHTML = `
+      <div class="remote-settings-shell">
+        <div class="remote-settings-note">Remote instance configuration is only available to workspace admins.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const editing = _remoteInstances.find((instance) => instance.id === _editingRemoteInstanceId) || null;
+  const primaryAction = editing ? 'Save' : 'Add';
+
+  root.innerHTML = `
+    <div class="remote-settings-shell">
+      <div class="remote-settings-note">
+        Add another HAICO machine here. HAICO will sign in once, store the remote session token on the server, and merge that machine's projects into this dashboard.
+      </div>
+      <div class="command-profiles-table-wrap">
+        <table class="command-profiles-table remote-instances-table">
+          <thead>
+            <tr>
+              <th>Instance</th>
+              <th>URL</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${_remoteInstances.length ? _remoteInstances.map((instance) => `
+              <tr>
+                <td>
+                  <div class="remote-table-instance">
+                    <span class="remote-server-dot" data-status="${esc(instance.last_status || 'unknown')}"></span>
+                    <div>
+                      <div class="remote-server-label">${esc(instance.name)}</div>
+                      <div class="remote-server-meta-inline">${instance.has_api_token ? 'Signed in' : 'No saved login'}</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="remote-server-url">${esc(instance.base_url)}</div>
+                </td>
+                <td>
+                  <div class="remote-table-status">
+                    <span class="remote-status-badge" data-status="${esc(instance.last_status || 'unknown')}">${esc(getRemoteStatusLabel(instance))}</span>
+                    <div class="remote-server-meta-inline">${instance.last_checked_at ? `Checked ${timeAgo(instance.last_checked_at)}` : 'Never checked'}</div>
+                    ${instance.last_error ? `<div class="remote-server-meta-inline">${esc(instance.last_error)}</div>` : ''}
+                  </div>
+                </td>
+                <td>
+                  <div class="command-profile-actions">
+                    <button type="button" class="btn btn-sm" onclick="editRemoteInstance(${JSON.stringify(instance.id)})">Edit</button>
+                    <button type="button" class="btn btn-sm" onclick="checkRemoteInstance(${JSON.stringify(instance.id)})">Check</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="deleteRemoteInstance(${JSON.stringify(instance.id)})">Delete</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('') : '<tr><td colspan="4" class="command-profiles-empty">No remote HAICO instances yet.</td></tr>'}
+            <tr data-remote-instance-row="${editing ? esc(editing.id) : '__new__'}">
+              <td colspan="2">
+                <div class="remote-inline-form">
+                  <input class="command-profile-input remote-inline-url" type="text" id="remote-instance-base-url" value="${esc(editing?.base_url || '')}" placeholder="URL">
+                  <input class="command-profile-input remote-inline-username" type="text" id="remote-instance-username" value="" placeholder="Username">
+                  <input class="command-profile-input remote-inline-password" type="password" id="remote-instance-password" value="" placeholder="Password">
+                </div>
+              </td>
+              <td>
+                <div class="remote-table-status">
+                  <div class="remote-server-meta-inline">${editing ? `Editing ${esc(editing.name)}` : 'URL / Username / Password'}</div>
+                  ${editing?.has_api_token ? `<div class="remote-server-meta-inline">Saved login: ${esc(editing.api_token_preview || '')}</div>` : ''}
+                </div>
+              </td>
+              <td>
+                <div class="command-profile-actions">
+                  <button type="button" class="btn btn-sm btn-primary" onclick="saveRemoteInstance()">${primaryAction}</button>
+                  ${editing ? '<button type="button" class="btn btn-sm" onclick="cancelRemoteInstanceEdit()">Cancel</button>' : ''}
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function loadRemoteInstancesSettings() {
+  const root = getRemoteInstancesSettingsRoot();
+  if (!root) return;
+
+  if (!_currentUser) {
+    renderRemoteInstancesSettings();
+    return;
+  }
+
+  if (_currentUser.role !== 'admin') {
+    _remoteInstances = [];
+    _editingRemoteInstanceId = '';
+    renderRemoteInstancesSettings();
+    return;
+  }
+
+  root.innerHTML = '<div class="empty-state">Loading remote instance settings...</div>';
+  try {
+    const res = await fetch('/api/remote-instances', { headers: apiHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to load remote instances');
+    _remoteInstances = Array.isArray(data.instances) ? data.instances : [];
+    if (_editingRemoteInstanceId && !_remoteInstances.some((instance) => instance.id === _editingRemoteInstanceId)) {
+      _editingRemoteInstanceId = '';
+    }
+    renderRemoteInstancesSettings();
+  } catch (error) {
+    root.innerHTML = renderError(error, 'loadRemoteInstancesSettings()');
+  }
+}
+
+function editRemoteInstance(id) {
+  _editingRemoteInstanceId = id;
+  renderRemoteInstancesSettings();
+}
+
+function cancelRemoteInstanceEdit() {
+  _editingRemoteInstanceId = '';
+  renderRemoteInstancesSettings();
+}
+
+async function saveRemoteInstance() {
+  const baseUrl = document.getElementById('remote-instance-base-url')?.value.trim() || '';
+  const remoteUsername = document.getElementById('remote-instance-username')?.value.trim() || '';
+  const remotePassword = document.getElementById('remote-instance-password')?.value.trim() || '';
+  if (!baseUrl) {
+    showToast('Remote instance URL is required', 'error');
+    return;
+  }
+
+  const editing = _remoteInstances.find((instance) => instance.id === _editingRemoteInstanceId) || null;
+  const name = deriveRemoteInstanceName(baseUrl, editing?.name || '');
+  const method = editing ? 'PUT' : 'POST';
+  const url = editing ? `/api/remote-instances/${editing.id}` : '/api/remote-instances';
+  const body = {
+    name,
+    base_url: baseUrl,
+  };
+  if (remoteUsername) {
+    body.remote_username = remoteUsername;
+  }
+  if (remotePassword) {
+    body.remote_password = remotePassword;
+  }
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: apiHeaders(),
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to save remote instance');
+    _editingRemoteInstanceId = '';
+    await loadRemoteInstancesSettings();
+    await loadProjects();
+    showToast(editing ? 'Remote instance updated' : 'Remote instance added', 'success');
+  } catch (error) {
+    showToast(error.message || 'Failed to save remote instance', 'error');
+  }
+}
+
+async function checkRemoteInstance(id) {
+  try {
+    const res = await fetch(`/api/remote-instances/${id}/check`, {
+      method: 'POST',
+      headers: apiHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to check remote instance');
+    await loadRemoteInstancesSettings();
+    await loadProjects();
+    showToast('Remote instance checked', 'success');
+  } catch (error) {
+    showToast(error.message || 'Failed to check remote instance', 'error');
+  }
+}
+
+async function deleteRemoteInstance(id) {
+  const confirmed = await showConfirm('Delete this remote HAICO instance from Settings?', {
+    title: 'Remove remote instance?',
+    confirmLabel: 'Delete',
+    tone: 'danger',
+  });
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/remote-instances/${id}`, {
+      method: 'DELETE',
+      headers: apiHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to delete remote instance');
+    if (_editingRemoteInstanceId === id) {
+      _editingRemoteInstanceId = '';
+    }
+    await loadRemoteInstancesSettings();
+    await loadProjects();
+    showToast('Remote instance deleted', 'success');
+  } catch (error) {
+    showToast(error.message || 'Failed to delete remote instance', 'error');
+  }
 }
 
 function openCreateProjectSettings() {
@@ -1662,6 +1933,12 @@ if (typeof window !== 'undefined') {
   window.navigatePathPickerUp = navigatePathPickerUp;
   window.confirmPathPickerSelection = confirmPathPickerSelection;
   window.clearCreateProjectWorkdir = clearCreateProjectWorkdir;
+  window.saveRemoteInstance = saveRemoteInstance;
+  window.editRemoteInstance = editRemoteInstance;
+  window.cancelRemoteInstanceEdit = cancelRemoteInstanceEdit;
+  window.checkRemoteInstance = checkRemoteInstance;
+  window.deleteRemoteInstance = deleteRemoteInstance;
+  window.loadRemoteInstancesSettings = loadRemoteInstancesSettings;
 }
 
 async function toggleProjectStatus(projectId, currentStatus) {
@@ -1866,10 +2143,11 @@ function getDashboardViewLoaders(view) {
     return [loadUsageByProject(), checkCostAlert()];
   }
   if (activeView === 'settings') {
+    const loaders = [loadRemoteInstancesSettings()];
     if (window.HAICOCommandProfiles && typeof window.HAICOCommandProfiles.ensureLoaded === 'function') {
-      return [Promise.resolve(window.HAICOCommandProfiles.ensureLoaded())];
+      loaders.push(Promise.resolve(window.HAICOCommandProfiles.ensureLoaded()));
     }
-    return [];
+    return loaders;
   }
   return [loadDashboardSummary(), loadNotifications(), ensureDashboardProjectsLoaded()];
 }
@@ -1944,7 +2222,14 @@ setInterval(() => {
   if (_dashboardView !== 'usage') return;
   loadDashboard('usage');
 }, 60000);
-window.addEventListener('haico:user-ready', () => { ensureDashboardProjectsLoaded(); });
+window.addEventListener('haico:user-ready', () => {
+  ensureDashboardProjectsLoaded();
+  if (_dashboardView === 'settings') {
+    loadRemoteInstancesSettings().catch((error) => {
+      console.error('Failed to load remote instances settings', error);
+    });
+  }
+});
 window.addEventListener('haico:command-profiles-changed', () => {
   hydrateCreateProjectCommandProfileControls().catch((error) => {
     console.error('Failed to refresh project command profile controls', error);
@@ -2185,8 +2470,8 @@ function populateActivityProjectFilter() {
   if (!filter) return;
   var current = filter.value;
   var options = '<option value="">All Projects</option>';
-  for (var id in _dashboardProjectsById) {
-    var p = _dashboardProjectsById[id];
+  for (var p of getLocalDashboardProjects()) {
+    var id = p.id;
     options += '<option value="' + id + '"' + (id === current ? ' selected' : '') + '>' + esc(p.name) + '</option>';
   }
   filter.innerHTML = options;
@@ -2306,9 +2591,11 @@ function dismissCostAlert() {
 // Debounced: coalesce rapid-fire WS events into a single refresh cycle
 let _wsRefreshTimer = null;
 function scheduleWSRefresh() {
+  if (_dashboardView === 'settings') return;
   if (_wsRefreshTimer) return; // already scheduled
   _wsRefreshTimer = setTimeout(async () => {
     _wsRefreshTimer = null;
+    if (_dashboardView === 'settings') return;
     if (_pollInFlight) return; // skip if polling is already running
     _pollInFlight = true;
     try {

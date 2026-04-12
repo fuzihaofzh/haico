@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance } from 'fastify';
 
 // Use isolated test DB
 const TEST_DB = path.join(__dirname, 'test.db');
@@ -587,6 +587,83 @@ describe('HAICO API', () => {
     it('GET nonexistent project returns 404', async () => {
       const { status } = await api(app, '/api/projects/nonexistent');
       assert.equal(status, 404);
+    });
+
+    it('stores remote HAICO instances and aggregates remote projects', async () => {
+      const login = await api(app, '/api/auth', {
+        method: 'POST',
+        body: { password: 'test1234' },
+      });
+      assert.equal(login.status, 200);
+      const adminCookie = `haico-auth=${login.body.token}`;
+
+      const remoteApp = Fastify({ logger: false });
+      await remoteApp.post('/api/auth', async (request, reply) => {
+        const body = request.body as { password?: string } | undefined;
+        if (body?.password !== 'remote-secret') {
+          return reply.status(401).send({ error: 'Invalid remote password' });
+        }
+        return { ok: true, token: 'remote-token-1234' };
+      });
+      await remoteApp.get('/api/projects', async (request, reply) => {
+        const auth = String(request.headers.authorization || '');
+        if (auth !== 'Bearer remote-token-1234') {
+          reply.status(401).send({ error: 'Missing remote token' });
+          return;
+        }
+        return [
+          {
+            id: 'remote-project-1',
+            name: 'remote-project',
+            description: 'Remote project description',
+            task_description: 'Remote project task',
+            status: 'active',
+            color: '#123456',
+            member_count: 3,
+            stats: { agents: 2, running: 1, agentError: 0, issues: 5, openIssues: 2, userIssues: [] },
+            created_at: '2026-04-12T00:00:00.000Z',
+            updated_at: '2026-04-12T01:00:00.000Z',
+          },
+        ];
+      });
+
+      await remoteApp.listen({ port: 0, host: '127.0.0.1' });
+      const address = remoteApp.server.address();
+      assert.ok(address && typeof address === 'object');
+      const remotePort = (address && typeof address === 'object') ? address.port : 0;
+
+      try {
+        const createRemote = await api(app, '/api/remote-instances', {
+          method: 'POST',
+          headers: { cookie: adminCookie },
+          body: {
+            name: 'Remote Box',
+            base_url: `127.0.0.1:${remotePort}`,
+            remote_password: 'remote-secret',
+          },
+        });
+        assert.equal(createRemote.status, 201);
+        assert.equal(createRemote.body.instance.name, 'Remote Box');
+        assert.equal(createRemote.body.instance.base_url, `http://127.0.0.1:${remotePort}`);
+        assert.equal(createRemote.body.probe.ok, true);
+
+        const listRemote = await api(app, '/api/remote-instances', {
+          headers: { cookie: adminCookie },
+        });
+        assert.equal(listRemote.status, 200);
+        assert.equal(listRemote.body.instances.length, 1);
+
+        const remoteProjects = await api(app, '/api/remote-projects', {
+          headers: { cookie: adminCookie },
+        });
+        assert.equal(remoteProjects.status, 200);
+        assert.equal(remoteProjects.body.projects.length, 1);
+        assert.equal(remoteProjects.body.projects[0].name, 'remote-project');
+        assert.equal(remoteProjects.body.projects[0].remote_instance_name, 'Remote Box');
+        assert.equal(remoteProjects.body.projects[0].remote_url, `http://127.0.0.1:${remotePort}/projects/remote-project-1`);
+      } finally {
+        await remoteApp.close();
+      }
     });
   });
 

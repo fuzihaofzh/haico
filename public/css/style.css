@@ -520,6 +520,120 @@ header h1 span { color: var(--accent); }
   color: var(--error);
 }
 
+.remote-settings-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.remote-settings-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.remote-server-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  margin-top: 6px;
+  background: var(--text-secondary);
+}
+
+.remote-server-dot[data-status="ok"] {
+  background: var(--success);
+}
+
+.remote-server-dot[data-status="error"] {
+  background: var(--error);
+}
+
+.remote-server-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.remote-server-url {
+  color: var(--fg);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.remote-server-meta-inline {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.remote-table-instance {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.remote-table-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.remote-inline-form {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.5fr) minmax(120px, 0.8fr) minmax(140px, 0.8fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.remote-instances-table {
+  min-width: 880px;
+}
+
+.remote-instances-table .command-profile-input {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.remote-instances-table .command-profile-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.remote-instances-table .command-profile-input:-webkit-autofill,
+.remote-instances-table .command-profile-input:-webkit-autofill:hover,
+.remote-instances-table .command-profile-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--fg);
+  -webkit-box-shadow: 0 0 0 1000px var(--bg) inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
+.remote-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.remote-status-badge[data-status="ok"] {
+  background: rgba(46, 160, 67, 0.16);
+  color: var(--success);
+}
+
+.remote-status-badge[data-status="error"] {
+  background: rgba(248, 81, 73, 0.16);
+  color: var(--error);
+}
+
+.remote-status-badge[data-status="unknown"] {
+  background: rgba(125, 133, 144, 0.16);
+  color: var(--text-secondary);
+}
+
 .setting-group { margin-bottom: 14px; }
 .setting-group:last-child { margin-bottom: 0; }
 .setting-group label {
@@ -2185,6 +2299,10 @@ header h1 span { color: var(--accent); }
   flex-wrap: wrap;
   gap: 6px;
 }
+.project-card-source {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
 .project-card-note {
   display: flex;
   align-items: center;
@@ -2203,6 +2321,17 @@ header h1 span { color: var(--accent); }
   gap: 16px;
   font-size: 12px;
   flex-wrap: wrap;
+}
+
+.permission-badge.permission-remote {
+  background: rgba(88, 166, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(88, 166, 255, 0.28);
+}
+
+.meta-chip.meta-chip-remote {
+  border-color: rgba(88, 166, 255, 0.25);
+  color: var(--accent);
 }
 
 .project-header {
@@ -2843,6 +2972,7 @@ header h1 span { color: var(--accent); }
   .agent-item .flex { margin-left: auto; }
   .settings-page-grid { grid-template-columns: 1fr; }
   .settings-page-header { align-items: flex-start; }
+  .remote-inline-form { grid-template-columns: 1fr; }
   .treasury-hero,
   .treasury-main-grid,
   .treasury-region-grid,
