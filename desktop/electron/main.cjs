@@ -2,7 +2,6 @@ const { app, BrowserWindow, Menu, shell, screen } = require('electron');
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const net = require('net');
-const os = require('os');
 const path = require('path');
 
 app.setName('HAICO');
@@ -69,6 +68,23 @@ function getLoginShellPath() {
   return null;
 }
 
+function findExecutableInPath(binary, pathValue) {
+  const normalizedBinary = String(binary || '').trim();
+  const normalizedPath = String(pathValue || '').trim();
+  if (!normalizedBinary || !normalizedPath) return null;
+
+  for (const dir of normalizedPath.split(path.delimiter)) {
+    if (!dir) continue;
+    const candidate = path.join(dir, normalizedBinary);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {}
+  }
+
+  return null;
+}
+
 function findNode(root) {
   const bundledNode = path.join(root, 'node', 'bin', 'node');
   try {
@@ -76,23 +92,16 @@ function findNode(root) {
     return bundledNode;
   } catch {}
 
-  const nvmBase = path.join(os.homedir(), '.nvm', 'versions', 'node');
   try {
-    const versions = fs.readdirSync(nvmBase).sort().reverse();
-    for (const version of versions) {
-      const nodePath = path.join(nvmBase, version, 'bin', 'node');
-      try {
-        fs.accessSync(nodePath, fs.constants.X_OK);
-        return nodePath;
-      } catch {}
-    }
+    fs.accessSync(process.execPath, fs.constants.X_OK);
+    return process.execPath;
   } catch {}
 
-  for (const candidate of ['/opt/homebrew/bin/node', '/usr/local/bin/node']) {
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {}
+  for (const pathValue of [getLoginShellPath(), process.env.PATH]) {
+    const resolved = findExecutableInPath('node', pathValue);
+    if (resolved) {
+      return resolved;
+    }
   }
 
   try {

@@ -18,6 +18,7 @@ import { registerTemplateRoutes } from './routes/templates';
 import { registerApprovalRoutes } from './routes/approvals';
 import { registerExecutiveSummaryRoutes } from './routes/executive-summaries';
 import { registerRemoteInstanceRoutes } from './routes/remote-instances';
+import { registerDashboardChatRoutes } from './routes/dashboard-chat';
 import { setupWebSocket } from './services/websocket';
 import { initializeScheduler } from './services/scheduler';
 import { setOnAgentFinish, stopAllProcesses } from './services/process-manager';
@@ -64,6 +65,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   registerApprovalRoutes(fastify);
   registerExecutiveSummaryRoutes(fastify);
   registerRemoteInstanceRoutes(fastify);
+  registerDashboardChatRoutes(fastify);
   registerUIRoutes(fastify);
   setupWebSocket(fastify);
 

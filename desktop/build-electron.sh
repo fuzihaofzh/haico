@@ -122,6 +122,9 @@ strip_bundled_node_binary() {
 
   chmod +x "$node_binary"
   strip -x "$node_binary" 2>/dev/null || true
+  if command -v codesign >/dev/null 2>&1; then
+    codesign -f -s - "$node_binary" >/dev/null 2>&1 || true
+  fi
 }
 
 echo "Building ${APP_NAME}.app (Electron)..."

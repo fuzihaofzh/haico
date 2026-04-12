@@ -23,10 +23,22 @@ let _createProjectTargetOptions = [];
 let _createProjectDirectoryRoots = [];
 let _createProjectDirectoryRootId = '';
 let _createProjectDirectoryRelativePath = '';
+let _dashboardChatMessages = [];
+let _dashboardChatPending = false;
+let _dashboardChatStatus = { message: '', type: '' };
+let _dashboardChatProfileId = '';
+let _dashboardChatProjectId = '';
+const DASHBOARD_CHAT_PROFILE_STORAGE_KEY = 'haico.dashboardChat.profileId';
+const DASHBOARD_CHAT_PROJECT_STORAGE_KEY = 'haico.dashboardChat.projectId';
 const INBOX_ITEM_LIMIT = 20;
 let _inboxPagination = { limit: INBOX_ITEM_LIMIT, offset: 0, total: 0, hasMore: false, loading: false };
 let _inboxUnreadCount = 0;
 const DASHBOARD_NAV_VIEWS = new Set(['inbox', 'projects', 'usage', 'settings']);
+
+try {
+  _dashboardChatProfileId = localStorage.getItem(DASHBOARD_CHAT_PROFILE_STORAGE_KEY) || '';
+  _dashboardChatProjectId = localStorage.getItem(DASHBOARD_CHAT_PROJECT_STORAGE_KEY) || '';
+} catch (_) {}
 
 function isRemoteProject(project) {
   return Boolean(project && project.is_remote);
@@ -172,6 +184,13 @@ if (typeof window !== 'undefined') {
   window.switchView = switchView;
   window.showInboxListPane = showInboxListPane;
   window.addEventListener('resize', syncInboxMobilePane);
+  window.addEventListener('haico:command-profiles-changed', () => {
+    if (document.getElementById('dashboard-chat-profile')) {
+      populateDashboardChatProfileOptions().catch((error) => {
+        console.error('Failed to refresh dashboard chat profiles', error);
+      });
+    }
+  });
 }
 
 // Inbox issue detail caches
@@ -1050,6 +1069,10 @@ async function loadProjects() {
       _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
       populateActivityProjectFilter();
       populateInboxProjectFilter();
+      if (document.getElementById('dashboard-chat-project')) {
+        populateDashboardChatProjectOptions();
+        renderDashboardChatTranscript();
+      }
       if (!projects.length) {
         container.innerHTML = '<div class="empty-state">No projects yet. Create one to get started.</div>';
         return;
@@ -1197,6 +1220,278 @@ function setGlobalComposeStatus(message, type) {
   if (!status) return;
   status.textContent = message || '';
   status.className = 'compose-status' + (type ? ' compose-status-' + type : '');
+}
+
+function saveDashboardChatPreferences() {
+  try {
+    localStorage.setItem(DASHBOARD_CHAT_PROFILE_STORAGE_KEY, _dashboardChatProfileId || '');
+    localStorage.setItem(DASHBOARD_CHAT_PROJECT_STORAGE_KEY, _dashboardChatProjectId || '');
+  } catch (_) {}
+}
+
+function setDashboardChatStatus(message, type) {
+  _dashboardChatStatus = {
+    message: message || '',
+    type: type || '',
+  };
+  const status = document.getElementById('dashboard-chat-status');
+  if (!status) return;
+  status.textContent = _dashboardChatStatus.message;
+  status.className = 'compose-status dashboard-chat-status' + (_dashboardChatStatus.type ? ' compose-status-' + _dashboardChatStatus.type : '');
+}
+
+function formatDashboardChatMessage(content) {
+  return esc(content || '').replace(/\n/g, '<br>');
+}
+
+function renderDashboardChatEmptyState() {
+  const projectCount = Object.keys(_dashboardProjectsById || {}).length;
+  return `<div class="dashboard-chat-empty">
+    <div class="dashboard-chat-empty-icon">&#128172;</div>
+    <div class="dashboard-chat-empty-title">Ask HAICO</div>
+    <div class="dashboard-chat-empty-copy">I can look up project progress, inspect issues, update records, and delegate longer work as a new issue.</div>
+    <div class="dashboard-chat-empty-meta">${projectCount} project${projectCount === 1 ? '' : 's'} currently in scope</div>
+  </div>`;
+}
+
+function renderDashboardChatTranscriptHtml() {
+  const messages = _dashboardChatMessages || [];
+  if (!messages.length && !_dashboardChatPending) {
+    return renderDashboardChatEmptyState();
+  }
+
+  const rows = messages.map((message) => {
+    const role = message.role === 'user' ? 'user' : 'assistant';
+    const label = role === 'user' ? 'You' : 'HAICO';
+    return `<div class="dashboard-chat-row dashboard-chat-row-${role}">
+      <div class="dashboard-chat-avatar">${label.slice(0, 1)}</div>
+      <div class="dashboard-chat-bubble-wrap">
+        <div class="dashboard-chat-label">${label}</div>
+        <div class="dashboard-chat-bubble dashboard-chat-bubble-${role}">${formatDashboardChatMessage(message.content)}</div>
+      </div>
+    </div>`;
+  });
+
+  if (_dashboardChatPending) {
+    rows.push(`<div class="dashboard-chat-row dashboard-chat-row-assistant">
+      <div class="dashboard-chat-avatar">H</div>
+      <div class="dashboard-chat-bubble-wrap">
+        <div class="dashboard-chat-label">HAICO</div>
+        <div class="dashboard-chat-bubble dashboard-chat-bubble-assistant dashboard-chat-bubble-thinking">
+          <span class="dashboard-chat-dot"></span>
+          <span class="dashboard-chat-dot"></span>
+          <span class="dashboard-chat-dot"></span>
+        </div>
+      </div>
+    </div>`);
+  }
+
+  return rows.join('');
+}
+
+function renderDashboardChatPane() {
+  return `<div class="compose-pane dashboard-chat-pane">
+    <div class="compose-header">
+      <h3>Chat</h3>
+      <button class="compose-close" type="button" onclick="closeInlineCompose()">&times;</button>
+    </div>
+    <div class="dashboard-chat-toolbar">
+      <div class="dashboard-chat-control">
+        <label>Agent Tool</label>
+        <select id="dashboard-chat-profile" onchange="handleDashboardChatProfileChange(this.value)">
+          <option value="">Loading Agent Tools...</option>
+        </select>
+      </div>
+      <div class="dashboard-chat-control">
+        <label>Scope</label>
+        <select id="dashboard-chat-project" onchange="handleDashboardChatProjectChange(this.value)">
+          <option value="">Loading projects...</option>
+        </select>
+      </div>
+    </div>
+    <div class="compose-status dashboard-chat-status" id="dashboard-chat-status"></div>
+    <div class="dashboard-chat-transcript" id="dashboard-chat-transcript">${renderDashboardChatTranscriptHtml()}</div>
+    <div class="dashboard-chat-composer">
+      <textarea id="dashboard-chat-input" rows="4" placeholder="Ask about progress, issues, or delegate work..." onkeydown="handleDashboardChatInputKeydown(event)"></textarea>
+      <div class="dashboard-chat-actions">
+        <div class="dashboard-chat-note">Long-running work will be delegated as an issue instead of being done inline.</div>
+        <button class="btn btn-primary" id="dashboard-chat-send" onclick="sendDashboardChat()">Send</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderDashboardChatTranscript() {
+  const transcript = document.getElementById('dashboard-chat-transcript');
+  if (!transcript) return;
+  transcript.innerHTML = renderDashboardChatTranscriptHtml();
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function populateDashboardChatProjectOptions() {
+  const select = document.getElementById('dashboard-chat-project');
+  if (!select) return;
+  const projects = Object.values(_dashboardProjectsById || {}).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  if (_dashboardChatProjectId && !_dashboardProjectsById[_dashboardChatProjectId]) {
+    _dashboardChatProjectId = '';
+    saveDashboardChatPreferences();
+  }
+  select.innerHTML = '<option value="">All projects</option>' + projects.map((project) => {
+    const remoteSuffix = project.is_remote ? ` · ${project.remote_instance_name || 'remote'}` : '';
+    return `<option value="${esc(project.id)}">${esc(project.name)}${esc(remoteSuffix)}</option>`;
+  }).join('');
+  select.value = _dashboardChatProjectId || '';
+}
+
+async function populateDashboardChatProfileOptions() {
+  const select = document.getElementById('dashboard-chat-profile');
+  if (!select) return;
+  const manager = window.HAICOCommandProfiles || null;
+  if (manager && typeof manager.ensureLoaded === 'function') {
+    await manager.ensureLoaded();
+  }
+  const profiles = manager && typeof manager.getProfiles === 'function'
+    ? manager.getProfiles()
+    : [];
+
+  if (profiles.length === 0) {
+    _dashboardChatProfileId = '';
+    select.innerHTML = '<option value="">Default CLI</option>';
+    select.value = '';
+    saveDashboardChatPreferences();
+    return;
+  }
+
+  if (!_dashboardChatProfileId || !profiles.find((profile) => profile.id === _dashboardChatProfileId)) {
+    _dashboardChatProfileId = profiles[0].id;
+    saveDashboardChatPreferences();
+  }
+
+  select.innerHTML = profiles.map((profile) =>
+    `<option value="${esc(profile.id)}">${esc(profile.name)} (${esc(profile.type)})</option>`
+  ).join('');
+  select.value = _dashboardChatProfileId;
+}
+
+async function initDashboardChatPane() {
+  await Promise.all([
+    ensureDashboardProjectsLoaded(),
+    populateDashboardChatProfileOptions(),
+  ]);
+  populateDashboardChatProjectOptions();
+  renderDashboardChatTranscript();
+  setDashboardChatStatus(_dashboardChatStatus.message, _dashboardChatStatus.type);
+  const input = document.getElementById('dashboard-chat-input');
+  const sendButton = document.getElementById('dashboard-chat-send');
+  if (sendButton) sendButton.disabled = _dashboardChatPending;
+  if (input && !_dashboardChatPending) input.focus();
+}
+
+async function openDashboardChat() {
+  const detail = getMailDetailContent();
+  const mailBody = document.getElementById('mail-body');
+  if (!detail) return;
+
+  _selectedMailIdx = -1;
+  _selectedMailIssueId = null;
+  _currentReplyIssueId = null;
+  document.querySelectorAll('.mail-item').forEach((el) => el.classList.remove('mail-selected'));
+  if (mailBody && _notificationsCollapsed) {
+    _notificationsCollapsed = false;
+    mailBody.classList.remove('collapsed');
+  }
+  detail.innerHTML = renderDashboardChatPane();
+  setInboxMobilePane('detail');
+  await initDashboardChatPane();
+}
+
+function handleDashboardChatProfileChange(value) {
+  _dashboardChatProfileId = value || '';
+  saveDashboardChatPreferences();
+  setDashboardChatStatus('', '');
+}
+
+function handleDashboardChatProjectChange(value) {
+  _dashboardChatProjectId = value || '';
+  saveDashboardChatPreferences();
+  setDashboardChatStatus('', '');
+}
+
+function handleDashboardChatInputKeydown(event) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    sendDashboardChat();
+  }
+}
+
+function dashboardChatTouchedMutableData(toolCalls) {
+  const mutableTools = new Set([
+    'create_issue',
+    'update_issue',
+    'add_issue_comment',
+    'delete_issue',
+    'create_project_from_request',
+    'update_project',
+    'delete_project',
+    'delegate_task',
+  ]);
+  return Array.isArray(toolCalls) && toolCalls.some((toolCall) => mutableTools.has(toolCall.tool));
+}
+
+async function sendDashboardChat() {
+  if (_dashboardChatPending) return;
+  const input = document.getElementById('dashboard-chat-input');
+  const sendButton = document.getElementById('dashboard-chat-send');
+  if (!input) return;
+  const message = input.value.trim();
+  if (!message) return;
+
+  _dashboardChatMessages.push({ role: 'user', content: message });
+  _dashboardChatPending = true;
+  setDashboardChatStatus('', '');
+  input.value = '';
+  if (sendButton) sendButton.disabled = true;
+  renderDashboardChatTranscript();
+
+  try {
+    const res = await fetch('/api/dashboard-chat', {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify({
+        message,
+        messages: _dashboardChatMessages,
+        project_id: _dashboardChatProjectId || null,
+        command_profile_id: _dashboardChatProfileId || null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'Chat request failed');
+    }
+    if (data.message) {
+      _dashboardChatMessages.push({ role: 'assistant', content: data.message });
+    }
+    if (dashboardChatTouchedMutableData(data.tool_calls)) {
+      Promise.allSettled([
+        loadDashboardSummary(),
+        loadProjects(),
+        loadNotifications({ reset: true }),
+        loadAgentBoard(),
+        loadActivityStream(),
+        loadDashboardApprovals(),
+      ]).catch(() => {});
+    }
+    setDashboardChatStatus('', '');
+  } catch (error) {
+    const messageText = error.message || 'Chat request failed';
+    _dashboardChatMessages.push({ role: 'assistant', content: messageText });
+    setDashboardChatStatus(messageText, 'error');
+  } finally {
+    _dashboardChatPending = false;
+    if (sendButton) sendButton.disabled = false;
+    renderDashboardChatTranscript();
+    input.focus();
+  }
 }
 
 function renderMailDetailEmpty() {

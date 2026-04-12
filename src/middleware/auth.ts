@@ -98,6 +98,7 @@ const LOCALHOST_SAFE_PREFIXES = [
   '/api/comments/',  // comment editing
   '/api/milestones', // milestone CRUD
   '/api/notifications',
+  '/api/dashboard-chat',
   '/api/reactions/',
   '/api/inbox',
   '/api/knowledge/',
