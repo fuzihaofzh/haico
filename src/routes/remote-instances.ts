@@ -13,9 +13,9 @@ import {
   fetchRemoteIssue,
   fetchRemoteIssueComments,
   fetchRemoteNotifications,
-  fetchRemoteProjectAgents,
   fetchRemoteProjects,
   findRemoteInstanceById,
+  requestRemoteJsonPath,
   removeRemoteIssueRelation,
   resolveRemoteIssueByNumber,
   serializeRemoteInstanceOption,
@@ -59,6 +59,18 @@ function prefixRemoteIssueId(instanceId: string, remoteIssueId: unknown): string
 
 function prefixRemoteCommentId(instanceId: string, remoteCommentId: unknown): string {
   return `remote-comment:${instanceId}:${String(remoteCommentId || '')}`;
+}
+
+function prefixRemoteAgentId(instanceId: string, remoteAgentId: unknown): string {
+  return `remote-agent:${instanceId}:${String(remoteAgentId || '')}`;
+}
+
+function prefixRemoteApprovalId(instanceId: string, remoteApprovalId: unknown): string {
+  return `remote-approval:${instanceId}:${String(remoteApprovalId || '')}`;
+}
+
+function prefixRemoteKnowledgeId(instanceId: string, remoteKnowledgeId: unknown): string {
+  return `remote-knowledge:${instanceId}:${String(remoteKnowledgeId || '')}`;
 }
 
 function parseRemoteIssueCompositeId(value: unknown): { instanceId: string; remoteIssueId: string } | null {
@@ -114,6 +126,8 @@ function decorateRemoteIssueDetail(instance: RemoteInstanceRecord, issue: any) {
   const decorateRelation = (relation: any) => ({
     ...relation,
     project_id: `remote:${instance.id}:${remoteProjectId}`,
+    source_issue_id: relation?.source_issue_id ? prefixRemoteIssueId(instance.id, relation.source_issue_id) : relation?.source_issue_id,
+    target_issue_id: relation?.target_issue_id ? prefixRemoteIssueId(instance.id, relation.target_issue_id) : relation?.target_issue_id,
   });
   return {
     ...issue,
@@ -127,6 +141,7 @@ function decorateRemoteIssueDetail(instance: RemoteInstanceRecord, issue: any) {
     remote_project_url: `${instance.base_url}/projects/${encodeURIComponent(remoteProjectId)}`,
     remote_issue_url: `${instance.base_url}/projects/${encodeURIComponent(remoteProjectId)}/issues/${encodeURIComponent(issue?.number || '')}`,
     is_remote: true,
+    parent_id: issue?.parent_id ? prefixRemoteIssueId(instance.id, issue.parent_id) : issue?.parent_id,
     comments: Array.isArray(issue?.comments) ? issue.comments.map((comment: any) => ({
       ...comment,
       remote_comment_id: String(comment?.id || ''),
@@ -134,12 +149,108 @@ function decorateRemoteIssueDetail(instance: RemoteInstanceRecord, issue: any) {
     reactions: Array.isArray(issue?.reactions) ? issue.reactions : [],
     children: Array.isArray(issue?.children) ? issue.children.map((child: any) => ({
       ...child,
+      id: child?.id ? prefixRemoteIssueId(instance.id, child.id) : child?.id,
       project_id: `remote:${instance.id}:${remoteProjectId}`,
     })) : [],
     blocks: Array.isArray(issue?.blocks) ? issue.blocks.map(decorateRelation) : [],
     blocked_by: Array.isArray(issue?.blocked_by) ? issue.blocked_by.map(decorateRelation) : [],
     related_to: Array.isArray(issue?.related_to) ? issue.related_to.map(decorateRelation) : [],
   };
+}
+
+function decorateRemoteAgent(instance: RemoteInstanceRecord, remoteProjectId: string, agent: any) {
+  const actualRemoteProjectId = String(agent?.project_id || remoteProjectId || '');
+  const remoteAgentId = String(agent?.id || '');
+  return {
+    ...agent,
+    id: prefixRemoteAgentId(instance.id, remoteAgentId),
+    remote_agent_id: remoteAgentId,
+    project_id: `remote:${instance.id}:${actualRemoteProjectId}`,
+    remote_project_id: actualRemoteProjectId,
+    remote_instance_id: instance.id,
+    remote_instance_name: instance.name,
+    is_remote: true,
+  };
+}
+
+function decorateRemoteIssueSummary(instance: RemoteInstanceRecord, remoteProjectId: string, issue: any) {
+  return decorateRemoteNotificationIssue(instance, {
+    ...issue,
+    project_id: remoteProjectId || issue?.project_id || '',
+  });
+}
+
+function decorateRemoteApproval(instance: RemoteInstanceRecord, remoteProjectId: string, approval: any) {
+  const remoteIssueId = approval?.issue_id ? String(approval.issue_id) : '';
+  return {
+    ...approval,
+    id: prefixRemoteApprovalId(instance.id, approval?.id || ''),
+    remote_approval_id: String(approval?.id || ''),
+    project_id: `remote:${instance.id}:${String(remoteProjectId || approval?.project_id || '')}`,
+    remote_project_id: String(remoteProjectId || approval?.project_id || ''),
+    issue_id: remoteIssueId ? prefixRemoteIssueId(instance.id, remoteIssueId) : null,
+    remote_issue_id: remoteIssueId || null,
+    remote_instance_id: instance.id,
+    is_remote: true,
+  };
+}
+
+function decorateRemoteKnowledgeEntry(instance: RemoteInstanceRecord, remoteProjectId: string, entry: any) {
+  return {
+    ...entry,
+    id: prefixRemoteKnowledgeId(instance.id, entry?.id || ''),
+    remote_knowledge_id: String(entry?.id || ''),
+    project_id: `remote:${instance.id}:${String(remoteProjectId || entry?.project_id || '')}`,
+    remote_project_id: String(remoteProjectId || entry?.project_id || ''),
+    remote_instance_id: instance.id,
+    is_remote: true,
+  };
+}
+
+function decorateRemoteActivityEvent(instance: RemoteInstanceRecord, remoteProjectId: string, event: any) {
+  const decorated = {
+    ...event,
+    project_id: `remote:${instance.id}:${String(remoteProjectId || event?.project_id || '')}`,
+    remote_project_id: String(remoteProjectId || event?.project_id || ''),
+    remote_instance_id: instance.id,
+    is_remote: true,
+  };
+  if (event?.event_type === 'issue' || event?.event_type === 'comment') {
+    decorated.id = prefixRemoteIssueId(instance.id, event?.id || event?.issue_id || '');
+  }
+  if (event?.event_type === 'agent_run' && event?.object_id) {
+    decorated.object_id = prefixRemoteAgentId(instance.id, event.object_id);
+  }
+  return decorated;
+}
+
+function decorateRemoteWorkflowStatus(instance: RemoteInstanceRecord, remoteProjectId: string, data: any) {
+  return {
+    ...data,
+    agents: Array.isArray(data?.agents) ? data.agents.map((agent: any) => decorateRemoteAgent(instance, remoteProjectId, agent)) : [],
+    recent_messages: Array.isArray(data?.recent_messages) ? data.recent_messages.map((message: any) => ({
+      ...message,
+      from_agent_id: message?.from_agent_id ? prefixRemoteAgentId(instance.id, message.from_agent_id) : '',
+      to_agent_id: message?.to_agent_id ? prefixRemoteAgentId(instance.id, message.to_agent_id) : '',
+      remote_instance_id: instance.id,
+      is_remote: true,
+    })) : [],
+    pending_approvals: Array.isArray(data?.pending_approvals)
+      ? data.pending_approvals.map((approval: any) => decorateRemoteApproval(instance, remoteProjectId, approval))
+      : [],
+  };
+}
+
+function buildRemoteProxyPath(pathname: string, query: Record<string, unknown> | undefined): string {
+  const params = new URLSearchParams();
+  Object.entries(query || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    const normalized = String(value).trim();
+    if (!normalized) return;
+    params.set(key, normalized);
+  });
+  const queryString = params.toString();
+  return queryString ? `${pathname}?${queryString}` : pathname;
 }
 
 export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
@@ -374,6 +485,656 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   });
 
   fastify.get<{
+    Params: { instanceId: string; projectId: string };
+  }>('/api/remote-projects/:instanceId/:projectId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+
+    const result = await requestRemoteJsonPath<any>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote project' });
+    }
+    const project = result.data || {};
+    return {
+      ...project,
+      id: `remote:${instance.id}:${String(project?.id || request.params.projectId)}`,
+      remote_project_id: String(project?.id || request.params.projectId),
+      remote_instance_id: instance.id,
+      remote_instance_name: instance.name,
+      remote_base_url: instance.base_url,
+      remote_url: `${instance.base_url}/projects/${encodeURIComponent(String(project?.id || request.params.projectId))}`,
+      is_remote: true,
+      can_manage: Boolean(project?.can_manage),
+      permission_level: typeof project?.permission_level === 'string' && project.permission_level.trim()
+        ? project.permission_level.trim()
+        : 'remote',
+      owner: project?.owner && typeof project.owner === 'object' ? project.owner : null,
+    };
+  });
+
+  fastify.put<{
+    Params: { instanceId: string; projectId: string };
+    Body: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+
+    const result = await requestRemoteJsonPath<any>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}`, {
+      method: 'PUT',
+      body: request.body || {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to update remote project' });
+    }
+    return result.data || { ok: true };
+  });
+
+  fastify.delete<{
+    Params: { instanceId: string; projectId: string };
+  }>('/api/remote-projects/:instanceId/:projectId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+
+    const result = await requestRemoteJsonPath<any>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}`, {
+      method: 'DELETE',
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to delete remote project' });
+    }
+    return result.data || { success: true };
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+  }>('/api/remote-projects/:instanceId/:projectId/agents', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+
+    const result = await requestRemoteJsonPath<any[]>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}/agents`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote agents' });
+    }
+    return Array.isArray(result.data)
+      ? result.data.map((agent) => decorateRemoteAgent(instance, request.params.projectId, agent))
+      : [];
+  });
+
+  fastify.post<{
+    Params: { instanceId: string; projectId: string };
+    Body: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/agents', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+
+    const result = await requestRemoteJsonPath<any>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}/agents`, {
+      method: 'POST',
+      body: request.body || {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to create remote agent' });
+    }
+    return decorateRemoteAgent(instance, request.params.projectId, result.data || {});
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+  }>('/api/remote-projects/:instanceId/:projectId/issues/counts', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+
+    const result = await requestRemoteJsonPath<any>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}/issues/counts`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote issue counts' });
+    }
+    return result.data || {};
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+    Querystring: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/issues', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+
+    const result = await requestRemoteJsonPath<any>(
+      instance,
+      buildRemoteProxyPath(`/api/projects/${encodeURIComponent(request.params.projectId)}/issues`, request.query)
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote issues' });
+    }
+    const payload = result.data || {};
+    return {
+      ...payload,
+      issues: Array.isArray(payload.issues)
+        ? payload.issues.map((issue: any) => decorateRemoteIssueSummary(instance, request.params.projectId, issue))
+        : [],
+    };
+  });
+
+  fastify.post<{
+    Params: { instanceId: string; projectId: string };
+    Body: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/issues', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+
+    const result = await requestRemoteJsonPath<any>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}/issues`, {
+      method: 'POST',
+      body: request.body || {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to create remote issue' });
+    }
+    return decorateRemoteIssueSummary(instance, request.params.projectId, result.data || {});
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+    Querystring: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/costs', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(
+      instance,
+      buildRemoteProxyPath(`/api/projects/${encodeURIComponent(request.params.projectId)}/costs`, request.query)
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote costs' });
+    }
+    return result.data || {};
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+    Querystring: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/activity', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any[]>(
+      instance,
+      buildRemoteProxyPath(`/api/projects/${encodeURIComponent(request.params.projectId)}/activity`, request.query)
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote activity' });
+    }
+    return Array.isArray(result.data)
+      ? result.data.map((event) => decorateRemoteActivityEvent(instance, request.params.projectId, event))
+      : [];
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+    Querystring: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/git-log', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any[]>(
+      instance,
+      buildRemoteProxyPath(`/api/projects/${encodeURIComponent(request.params.projectId)}/git-log`, request.query)
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote git log' });
+    }
+    return Array.isArray(result.data) ? result.data : [];
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+    Querystring: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/orchestration-runs', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any[]>(
+      instance,
+      buildRemoteProxyPath(`/api/projects/${encodeURIComponent(request.params.projectId)}/orchestration-runs`, request.query)
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote orchestration runs' });
+    }
+    return Array.isArray(result.data) ? result.data : [];
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+  }>('/api/remote-projects/:instanceId/:projectId/workflow-status', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}/workflow-status`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote workflow status' });
+    }
+    return decorateRemoteWorkflowStatus(instance, request.params.projectId, result.data || {});
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+    Querystring: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/approvals', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any[]>(
+      instance,
+      buildRemoteProxyPath(`/api/projects/${encodeURIComponent(request.params.projectId)}/approvals`, request.query)
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote approvals' });
+    }
+    return Array.isArray(result.data)
+      ? result.data.map((approval) => decorateRemoteApproval(instance, request.params.projectId, approval))
+      : [];
+  });
+
+  fastify.put<{
+    Params: { instanceId: string; approvalId: string };
+    Body: Record<string, unknown>;
+  }>('/api/remote-approvals/:instanceId/:approvalId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/approvals/${encodeURIComponent(request.params.approvalId)}`, {
+      method: 'PUT',
+      body: request.body || {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to update remote approval' });
+    }
+    return result.data || { ok: true };
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+  }>('/api/remote-projects/:instanceId/:projectId/members', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any[]>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}/members`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote members' });
+    }
+    return Array.isArray(result.data) ? result.data : [];
+  });
+
+  fastify.post<{
+    Params: { instanceId: string; projectId: string };
+    Body: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/members', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}/members`, {
+      method: 'POST',
+      body: request.body || {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to add remote member' });
+    }
+    return result.data || { ok: true };
+  });
+
+  fastify.patch<{
+    Params: { instanceId: string; projectId: string; userId: string };
+    Body: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/members/:userId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(
+      instance,
+      `/api/projects/${encodeURIComponent(request.params.projectId)}/members/${encodeURIComponent(request.params.userId)}`,
+      { method: 'PATCH', body: request.body || {} }
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to update remote member' });
+    }
+    return result.data || { ok: true };
+  });
+
+  fastify.delete<{
+    Params: { instanceId: string; projectId: string; userId: string };
+  }>('/api/remote-projects/:instanceId/:projectId/members/:userId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(
+      instance,
+      `/api/projects/${encodeURIComponent(request.params.projectId)}/members/${encodeURIComponent(request.params.userId)}`,
+      { method: 'DELETE' }
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to remove remote member' });
+    }
+    return result.data || { success: true };
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; projectId: string };
+    Querystring: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/knowledge', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(
+      instance,
+      buildRemoteProxyPath(`/api/projects/${encodeURIComponent(request.params.projectId)}/knowledge`, request.query)
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote knowledge' });
+    }
+    const payload = result.data || {};
+    return {
+      ...payload,
+      entries: Array.isArray(payload.entries)
+        ? payload.entries.map((entry: any) => decorateRemoteKnowledgeEntry(instance, request.params.projectId, entry))
+        : [],
+    };
+  });
+
+  fastify.post<{
+    Params: { instanceId: string; projectId: string };
+    Body: Record<string, unknown>;
+  }>('/api/remote-projects/:instanceId/:projectId/knowledge', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/projects/${encodeURIComponent(request.params.projectId)}/knowledge`, {
+      method: 'POST',
+      body: request.body || {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to create remote knowledge' });
+    }
+    return decorateRemoteKnowledgeEntry(instance, request.params.projectId, result.data || {});
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; knowledgeId: string };
+  }>('/api/remote-knowledge/:instanceId/:knowledgeId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/knowledge/${encodeURIComponent(request.params.knowledgeId)}`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote knowledge entry' });
+    }
+    return decorateRemoteKnowledgeEntry(instance, '', result.data || {});
+  });
+
+  fastify.put<{
+    Params: { instanceId: string; knowledgeId: string };
+    Body: Record<string, unknown>;
+  }>('/api/remote-knowledge/:instanceId/:knowledgeId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/knowledge/${encodeURIComponent(request.params.knowledgeId)}`, {
+      method: 'PUT',
+      body: request.body || {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to update remote knowledge entry' });
+    }
+    return result.data || { ok: true };
+  });
+
+  fastify.delete<{
+    Params: { instanceId: string; knowledgeId: string };
+  }>('/api/remote-knowledge/:instanceId/:knowledgeId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/knowledge/${encodeURIComponent(request.params.knowledgeId)}`, {
+      method: 'DELETE',
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to delete remote knowledge entry' });
+    }
+    return result.data || { success: true };
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; agentId: string };
+  }>('/api/remote-agents/:instanceId/:agentId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote agent' });
+    }
+    return decorateRemoteAgent(instance, String(result.data?.project_id || ''), result.data || {});
+  });
+
+  fastify.put<{
+    Params: { instanceId: string; agentId: string };
+    Body: Record<string, unknown>;
+  }>('/api/remote-agents/:instanceId/:agentId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}`, {
+      method: 'PUT',
+      body: request.body || {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to update remote agent' });
+    }
+    return decorateRemoteAgent(instance, String(result.data?.project_id || ''), result.data || {});
+  });
+
+  fastify.delete<{
+    Params: { instanceId: string; agentId: string };
+  }>('/api/remote-agents/:instanceId/:agentId', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}`, {
+      method: 'DELETE',
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to delete remote agent' });
+    }
+    return result.data || { success: true };
+  });
+
+  fastify.post<{
+    Params: { instanceId: string; agentId: string };
+    Body: Record<string, unknown>;
+  }>('/api/remote-agents/:instanceId/:agentId/start', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}/start`, {
+      method: 'POST',
+      body: request.body || {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to start remote agent' });
+    }
+    return result.data || { success: true };
+  });
+
+  fastify.post<{
+    Params: { instanceId: string; agentId: string };
+  }>('/api/remote-agents/:instanceId/:agentId/retry', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}/retry`, {
+      method: 'POST',
+      body: {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to retry remote agent' });
+    }
+    return result.data || { success: true };
+  });
+
+  fastify.post<{
+    Params: { instanceId: string; agentId: string };
+  }>('/api/remote-agents/:instanceId/:agentId/stop', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}/stop`, {
+      method: 'POST',
+      body: {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to stop remote agent' });
+    }
+    return result.data || { success: true };
+  });
+
+  fastify.post<{
+    Params: { instanceId: string; agentId: string };
+  }>('/api/remote-agents/:instanceId/:agentId/pause', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}/pause`, {
+      method: 'POST',
+      body: {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to pause remote agent' });
+    }
+    return result.data || { success: true };
+  });
+
+  fastify.post<{
+    Params: { instanceId: string; agentId: string };
+  }>('/api/remote-agents/:instanceId/:agentId/unpause', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}/unpause`, {
+      method: 'POST',
+      body: {},
+    });
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to unpause remote agent' });
+    }
+    return result.data || { success: true };
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; agentId: string };
+  }>('/api/remote-agents/:instanceId/:agentId/status', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}/status`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote agent status' });
+    }
+    return result.data || {};
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; agentId: string };
+  }>('/api/remote-agents/:instanceId/:agentId/system-prompt', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}/system-prompt`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote system prompt' });
+    }
+    return result.data || {};
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; agentId: string };
+    Querystring: Record<string, unknown>;
+  }>('/api/remote-agents/:instanceId/:agentId/logs', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any[]>(
+      instance,
+      buildRemoteProxyPath(`/api/agents/${encodeURIComponent(request.params.agentId)}/logs`, request.query)
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote logs' });
+    }
+    return Array.isArray(result.data) ? result.data : [];
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; agentId: string };
+  }>('/api/remote-agents/:instanceId/:agentId/costs', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}/costs`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote costs' });
+    }
+    return result.data || {};
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; agentId: string };
+  }>('/api/remote-agents/:instanceId/:agentId/git-status', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(instance, `/api/agents/${encodeURIComponent(request.params.agentId)}/git-status`);
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote git status' });
+    }
+    return result.data || {};
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; agentId: string };
+    Querystring: Record<string, unknown>;
+  }>('/api/remote-agents/:instanceId/:agentId/runs', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any[]>(
+      instance,
+      buildRemoteProxyPath(`/api/agents/${encodeURIComponent(request.params.agentId)}/runs`, request.query)
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote runs' });
+    }
+    return Array.isArray(result.data) ? result.data : [];
+  });
+
+  fastify.get<{
+    Params: { instanceId: string; agentId: string; runId: string };
+  }>('/api/remote-agents/:instanceId/:agentId/runs/:runId/report', async (request, reply) => {
+    const db = getDatabase();
+    const instance = findRemoteInstanceById(db, request.params.instanceId);
+    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
+    const result = await requestRemoteJsonPath<any>(
+      instance,
+      `/api/agents/${encodeURIComponent(request.params.agentId)}/runs/${encodeURIComponent(request.params.runId)}/report`
+    );
+    if (!result.ok) {
+      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote run report' });
+    }
+    return result.data || {};
+  });
+
+  fastify.get<{
     Querystring: {
       scope?: string;
       limit?: string;
@@ -595,20 +1356,6 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
       return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to update remote reaction' });
     }
     return result.data || { ok: true };
-  });
-
-  fastify.get<{
-    Params: { instanceId: string; projectId: string };
-  }>('/api/remote-projects/:instanceId/:projectId/agents', async (request, reply) => {
-    const db = getDatabase();
-    const instance = findRemoteInstanceById(db, request.params.instanceId);
-    if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
-
-    const result = await fetchRemoteProjectAgents(instance, request.params.projectId);
-    if (!result.ok) {
-      return reply.status(result.status || 502).send(result.data || { error: result.error || 'Failed to load remote agents' });
-    }
-    return Array.isArray(result.data) ? result.data : [];
   });
 
   fastify.get<{

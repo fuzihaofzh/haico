@@ -64,8 +64,13 @@ var IssueRenderer = (function() {
   }
 
   function getIssueApiBase(issueIdOverride) {
-    if (!isRemoteIssue()) return '/api/issues/' + encodeURIComponent(String(issueIdOverride || (_ctx.issue && _ctx.issue.id) || ''));
-    return '/api/remote-issues/' + encodeURIComponent(getRemoteInstanceId()) + '/' + encodeURIComponent(String(issueIdOverride || getRemoteIssueId()));
+    if (issueIdOverride && isRemoteIssueId(issueIdOverride)) {
+      return buildIssueApiPath(issueIdOverride);
+    }
+    if (isRemoteIssue()) {
+      return '/api/remote-issues/' + encodeURIComponent(getRemoteInstanceId()) + '/' + encodeURIComponent(String(issueIdOverride || getRemoteIssueId()));
+    }
+    return buildIssueApiPath(issueIdOverride || (_ctx.issue && _ctx.issue.id) || '');
   }
 
   function getIssueCommentsApiPath() {
@@ -94,10 +99,7 @@ var IssueRenderer = (function() {
   }
 
   function getIssueByNumberApiPath(issueNumber) {
-    if (!isRemoteIssue()) {
-      return '/api/projects/' + encodeURIComponent(String((_ctx.issue && _ctx.issue.project_id) || '')) + '/issues/number/' + encodeURIComponent(String(issueNumber || ''));
-    }
-    return '/api/remote-projects/' + encodeURIComponent(getRemoteInstanceId()) + '/' + encodeURIComponent(String((_ctx.issue && _ctx.issue.remote_project_id) || '')) + '/issues/number/' + encodeURIComponent(String(issueNumber || ''));
+    return buildProjectIssueLookupApiPath((_ctx.issue && _ctx.issue.project_id) || '', issueNumber);
   }
 
   function getRelationsApiBase(issueIdOverride) {
@@ -194,7 +196,7 @@ var IssueRenderer = (function() {
     });
     // Auto-link #N to issue pages
     processed = processed.replace(/#(\d+)/g, function(m, n) {
-      return issue && issue.project_id ? '[#' + n + '](/projects/' + issue.project_id + '/issues/' + n + ')' : m;
+      return issue && issue.project_id ? '[#' + n + '](' + buildIssuePageHref({ issueId: '', projectId: issue.project_id, issueNumber: n }) + ')' : m;
     });
 
     var html = '';
@@ -276,10 +278,8 @@ var IssueRenderer = (function() {
     _ctx.projectColor = options.projectColor || issue.project_color || null;
     _ctx.readOnly = options.readOnly === true;
     var readOnly = _ctx.readOnly;
-    var openIssueHref = issue.is_remote
-      ? String(issue.remote_issue_url || '')
-      : '/projects/' + issue.project_id + '/issues/' + issue.number;
-    var openIssueAttrs = issue.is_remote ? ' target="_blank" rel="noopener noreferrer"' : '';
+    var openIssueHref = buildIssuePageHref({ issueId: issue.id, projectId: issue.project_id, issueNumber: issue.number });
+    var openIssueAttrs = '';
 
     var labels = issue.labels ? issue.labels.split(',').filter(function(l) { return l.trim(); }).map(function(l) { return labelHtml(l); }).join(' ') : '';
     var assignOpts = '<option value="">Unassigned</option><option value="all" ' + ('all'===issue.assigned_to?'selected':'') + '>All</option><option value="user" ' + ('user'===issue.assigned_to?'selected':'') + '>User</option>' +
@@ -413,7 +413,7 @@ var IssueRenderer = (function() {
               '<div class="sidebar-section-title">Parent Issue</div>' +
               (readOnly
                 ? '<div style="font-size:12px;display:flex;align-items:center;gap:4px">' + statusIcon(issue.parent_status || 'open') + ' #' + issue.parent_number + ' ' + esc(issue.parent_title || '') + '</div>'
-                : '<a href="/projects/' + issue.project_id + '/issues/' + issue.parent_number + '" style="font-size:12px;text-decoration:none;display:flex;align-items:center;gap:4px">' +
+                : '<a href="' + buildIssuePageHref({ issueId: issue.parent_id, projectId: issue.project_id, issueNumber: issue.parent_number }) + '" style="font-size:12px;text-decoration:none;display:flex;align-items:center;gap:4px">' +
                     statusIcon(issue.parent_status || 'open') + ' #' + issue.parent_number + ' ' + esc(issue.parent_title || '') +
                   '</a>') +
             '</div>' : '') +
@@ -429,7 +429,7 @@ var IssueRenderer = (function() {
               issue.children.map(function(c) {
                 return readOnly
                   ? '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;color:inherit;font-size:12px">' + statusIcon(c.status) + ' <span>#' + c.number + ' ' + esc(c.title) + '</span></div>'
-                  : '<a href="/projects/' + issue.project_id + '/issues/' + c.number + '" style="display:flex;align-items:center;gap:6px;padding:3px 0;text-decoration:none;color:inherit;font-size:12px">' +
+                  : '<a href="' + buildIssuePageHref({ issueId: c.id, projectId: c.project_id || issue.project_id, issueNumber: c.number }) + '" style="display:flex;align-items:center;gap:6px;padding:3px 0;text-decoration:none;color:inherit;font-size:12px">' +
                       statusIcon(c.status) + ' <span>#' + c.number + ' ' + esc(c.title) + '</span></a>';
               }).join('') +
             '</div>';
@@ -460,7 +460,7 @@ var IssueRenderer = (function() {
                   statusIcon(st) +
                   ' ' + (readOnly
                     ? '<span style="' + (resolved ? 'color:var(--text-secondary);text-decoration:line-through' : 'color:inherit') + ';flex:1">#' + (r.number || r.source_number) + ' ' + esc(r.title || r.source_title || '') + '</span>'
-                    : '<a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.source_number) + '" style="text-decoration:none;' + (resolved ? 'color:var(--text-secondary);text-decoration:line-through' : 'color:inherit') + ';flex:1">#' + (r.number || r.source_number) + ' ' + esc(r.title || r.source_title || '') + '</a>') +
+                  : '<a href="' + buildIssuePageHref({ issueId: r.source_issue_id || r.id, projectId: r.project_id || issue.project_id, issueNumber: r.number || r.source_number }) + '" style="text-decoration:none;' + (resolved ? 'color:var(--text-secondary);text-decoration:line-through' : 'color:inherit') + ';flex:1">#' + (r.number || r.source_number) + ' ' + esc(r.title || r.source_title || '') + '</a>') +
                   (resolved ? '<span style="font-size:10px;color:var(--text-secondary);background:var(--bg-secondary);padding:0 4px;border-radius:4px;white-space:nowrap">Resolved</span>' : '') +
                   (readOnly ? '' : '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>') +
                 '</div>';
@@ -473,7 +473,7 @@ var IssueRenderer = (function() {
                   statusIcon(r.status || r.target_status || 'open') +
                   ' ' + (readOnly
                     ? '<span style="color:inherit;flex:1">#' + (r.number || r.target_number) + ' ' + esc(r.title || r.target_title || '') + '</span>'
-                    : '<a href="/projects/' + issue.project_id + '/issues/' + (r.number || r.target_number) + '" style="text-decoration:none;color:inherit;flex:1">#' + (r.number || r.target_number) + ' ' + esc(r.title || r.target_title || '') + '</a>') +
+                    : '<a href="' + buildIssuePageHref({ issueId: r.target_issue_id || r.id, projectId: r.project_id || issue.project_id, issueNumber: r.number || r.target_number }) + '" style="text-decoration:none;color:inherit;flex:1">#' + (r.number || r.target_number) + ' ' + esc(r.title || r.target_title || '') + '</a>') +
                   (readOnly ? '' : '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>') +
                 '</div>';
               });
@@ -488,7 +488,7 @@ var IssueRenderer = (function() {
                   statusIcon(st) +
                   ' ' + (readOnly
                     ? '<span style="color:inherit;flex:1">#' + num + ' ' + esc(title) + '</span>'
-                    : '<a href="/projects/' + issue.project_id + '/issues/' + num + '" style="text-decoration:none;color:inherit;flex:1">#' + num + ' ' + esc(title) + '</a>') +
+                    : '<a href="' + buildIssuePageHref({ issueId: r.target_issue_id || r.source_issue_id || r.id, projectId: r.project_id || issue.project_id, issueNumber: num }) + '" style="text-decoration:none;color:inherit;flex:1">#' + num + ' ' + esc(title) + '</a>') +
                   (readOnly ? '' : '<button onclick="IssueRenderer.removeRelation(\'' + r.relation_id + '\')" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:10px" title="Remove">✕</button>') +
                 '</div>';
               });
@@ -714,7 +714,7 @@ var IssueRenderer = (function() {
         var fromId, toId, apiType, relationApiBase;
         if (relType === 'blocked_by') {
           // Target blocks this issue
-          fromId = isRemoteIssue() ? (targetIssue.remote_issue_id || targetIssue.id) : targetIssue.id;
+          fromId = targetIssue.id;
           toId = issueId;
           apiType = 'blocks';
           relationApiBase = getRelationsApiBase(fromId);
@@ -776,7 +776,7 @@ var IssueRenderer = (function() {
     // On dashboard/other pages: navigate to the project page's Files tab
     var projectId = _ctx.issue && _ctx.issue.project_id;
     if (projectId) {
-      var url = '/projects/' + projectId + '#files?file=' + encodeURIComponent(filePath);
+      var url = buildProjectPageHref(projectId) + '#files?file=' + encodeURIComponent(filePath);
       if (targetAgentId) url += '&agent=' + encodeURIComponent(targetAgentId);
       window.open(url, '_blank');
     }

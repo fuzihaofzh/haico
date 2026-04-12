@@ -1,4 +1,5 @@
-const projectId = window.location.pathname.split('/').pop();
+const projectId = decodeRouteParam(window.location.pathname.split('/').pop());
+const isRemoteProjectView = isRemoteProjectId(projectId);
 let projectData = null;
 let agentsData = [];
 let orchestrationRunsData = [];
@@ -71,20 +72,36 @@ async function fetchProjectJson(cacheKey, url, options) {
   }, options);
 }
 
+function projectApiPath(suffix) {
+  return buildProjectApiPath(projectId, suffix || '');
+}
+
+function agentApiPath(agentId, suffix) {
+  return buildAgentApiPath(agentId, suffix || '');
+}
+
+function issuePageHref(issue) {
+  return buildIssuePageHref({
+    issueId: issue && issue.id,
+    projectId: issue && issue.project_id ? issue.project_id : projectId,
+    issueNumber: issue && issue.number,
+  });
+}
+
 function getProjectDetail(options) {
-  return fetchProjectJson('project', `/api/projects/${projectId}`, options);
+  return fetchProjectJson('project', projectApiPath(''), options);
 }
 
 function getProjectAgents(options) {
-  return fetchProjectJson('agents', `/api/projects/${projectId}/agents`, options);
+  return fetchProjectJson('agents', projectApiPath('/agents'), options);
 }
 
 function getProjectIssueCounts(options) {
-  return fetchProjectJson('issueCounts', `/api/projects/${projectId}/issues/counts`, options);
+  return fetchProjectJson('issueCounts', projectApiPath('/issues/counts'), options);
 }
 
 function getProjectCostSummary(options) {
-  return fetchProjectJson('costSummary', `/api/projects/${projectId}/costs`, options);
+  return fetchProjectJson('costSummary', projectApiPath('/costs'), options);
 }
 
 async function getProjectActiveIssues(options) {
@@ -92,7 +109,7 @@ async function getProjectActiveIssues(options) {
     const activeStatuses = ['open', 'in_progress', 'pending'];
     const results = await Promise.all(
       activeStatuses.map((status) =>
-        fetch(`/api/projects/${projectId}/issues?status=${status}&per_page=200`, { headers: apiHeaders() })
+        fetch(`${projectApiPath('/issues')}?status=${encodeURIComponent(status)}&per_page=200`, { headers: apiHeaders() })
           .then((res) => (res.ok ? res.json() : { issues: [] }))
       )
     );
@@ -130,14 +147,24 @@ function refreshOperationsConsoleEntry() {
   const entry = document.getElementById('btn-open-ops-console');
   if (!entry) return;
 
-  if (!projectHasOperationsConsole(projectData)) {
+  if (isRemoteProjectView || !projectHasOperationsConsole(projectData)) {
     entry.style.display = 'none';
     entry.removeAttribute('href');
     return;
   }
 
-  entry.href = `/projects/${encodeURIComponent(projectId)}/operations-console`;
+  entry.href = `${buildProjectPageHref(projectId)}/operations-console`;
   entry.style.display = '';
+}
+
+function applyProjectNavigationCapabilities() {
+  const tabs = Array.from(document.querySelectorAll('.tab-bar .tab'));
+  tabs.forEach((tab) => {
+    const label = (tab.textContent || '').trim().toLowerCase();
+    if (label === 'files') {
+      tab.style.display = isRemoteProjectView ? 'none' : '';
+    }
+  });
 }
 
 const PROJECT_ACCESS_META = {
@@ -757,7 +784,7 @@ async function loadProjectMembers() {
   if (list) list.innerHTML = renderLoading('Loading members...');
 
   try {
-    const res = await fetch(`/api/projects/${projectId}/members`, { headers: apiHeaders() });
+    const res = await fetch(projectApiPath('/members'), { headers: apiHeaders() });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Failed to load members');
@@ -833,6 +860,7 @@ async function loadProject(options) {
   document.title = `HAICO - ${projectData.name}`;
   renderProjectAccessSummary();
   refreshOperationsConsoleEntry();
+  applyProjectNavigationCapabilities();
   applyProjectManageState();
 
   // Editable fields (only set on first load to avoid overwriting user edits)
@@ -871,7 +899,7 @@ async function toggleProjectStatus() {
   if (!projectData) return;
   if (!projectData.can_manage) { showToast('Insufficient permission to update project status', 'error'); return; }
   const newStatus = projectData.status === 'active' ? 'paused' : 'active';
-  const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: newStatus }) });
+  const res = await fetch(projectApiPath(''), { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: newStatus }) });
   if (res.ok) showToast('Status updated', 'success');
   else showToast('Failed to update status', 'error');
   invalidateProjectResources(['project']);
@@ -885,7 +913,7 @@ async function triggerController() {
     const controller = agentsData.find(a => a.is_controller);
     if (!controller) { showToast('No controller agent found', 'error'); return; }
     if (controller.status === 'running') { showToast('Controller is already running', 'error'); return; }
-    const res = await fetch(`/api/agents/${controller.id}/start`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
+    const res = await fetch(agentApiPath(controller.id, '/start'), { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
     if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Controller started', 'success'); } else { const err = await res.json().catch(() => ({})); showToast(err.error || 'Failed to start', 'error'); }
   };
   if (btn) await withLoading(btn, run); else await run();
@@ -915,7 +943,7 @@ async function saveOverview() {
   if (!body.command_template) { showToast('Select an Agent Tool in Settings before saving', 'error'); return; }
   const btn = document.querySelector('button[onclick="saveOverview()"]');
   await withLoading(btn, async () => {
-    const res = await fetch(`/api/projects/${projectId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
+    const res = await fetch(projectApiPath(''), { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) {
       window._overviewLoaded = false;
       invalidateProjectResources(['project', 'costSummary']);
@@ -933,7 +961,7 @@ async function deleteProject() {
     confirmLabel: 'Delete project',
     tone: 'danger',
   })) return;
-  const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+  const res = await fetch(projectApiPath(''), { method: 'DELETE' });
   if (res.ok) { showToast('Project deleted', 'success'); window.location.href = '/'; }
   else {
     const data = await res.json().catch(() => ({}));
@@ -955,7 +983,7 @@ async function addProjectMember() {
 
   const button = document.getElementById('btn-add-member');
   await withLoading(button, async () => {
-    const res = await fetch(`/api/projects/${projectId}/members`, {
+    const res = await fetch(projectApiPath('/members'), {
       method: 'POST',
       headers: apiHeaders(),
       body: JSON.stringify({ username, role }),
@@ -977,7 +1005,7 @@ async function addProjectMember() {
 async function updateMemberRole(userId, newRole) {
   if (!requireProjectManageAccess('Insufficient permission to manage sharing')) return;
   try {
-    const res = await fetch(`/api/projects/${projectId}/members/${userId}`, {
+    const res = await fetch(projectApiPath(`/members/${encodeURIComponent(userId)}`), {
       method: 'PATCH',
       headers: apiHeaders(),
       body: JSON.stringify({ role: newRole }),
@@ -1013,7 +1041,7 @@ async function removeProjectMember(userId, encodedDisplayName) {
   });
   if (!confirmed) return;
 
-  const res = await fetch(`/api/projects/${projectId}/members/${userId}`, {
+  const res = await fetch(projectApiPath(`/members/${encodeURIComponent(userId)}`), {
     method: 'DELETE',
   });
   if (!res.ok) {
@@ -1076,7 +1104,7 @@ async function loadAgents(options) {
   const errorLogs = {};
   await Promise.all(agentsData.filter(a => a.status === 'error').map(async (a) => {
     try {
-      const sr = await fetch(`/api/agents/${a.id}/status`, { headers: apiHeaders() });
+      const sr = await fetch(agentApiPath(a.id, '/status'), { headers: apiHeaders() });
       if (sr.ok) { const st = await sr.json(); errorLogs[a.id] = st.last_error || ''; }
     } catch (e) { console.error('Failed to fetch error logs for agent', a.id, e); }
   }));
@@ -1134,7 +1162,7 @@ async function loadAgents(options) {
       : canManage
         ? `<button class="btn btn-sm" onclick="event.stopPropagation();unpauseAgent('${a.id}')" style="color:var(--success);padding:3px 6px" title="Resume agent">▶</button>`
         : '';
-    const chatBtn = canManage
+    const chatBtn = canManage && !isRemoteProjectView
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();openTerminal('${a.id}')" style="padding:3px 6px" title="Open terminal chat">Chat</button>`
       : '';
     let actions;
@@ -1163,7 +1191,7 @@ async function loadAgents(options) {
               const border = isActive ? 'rgba(63,185,80,0.4)' : 'rgba(88,166,255,0.3)';
               const color = isActive ? 'var(--success, #3fb950)' : 'var(--accent)';
               const dot = isActive ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--success, #3fb950);margin-right:3px;animation:pulse 1.5s infinite"></span>' : '';
-              return `<a href="/issues/${iss.id}" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;padding:2px 6px;background:${bg};border:1px solid ${border};border-radius:3px;font-size:10px;color:${color};text-decoration:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="#${iss.number} ${esc(iss.title)} [${iss.status}]">${dot}#${iss.number} ${esc(iss.title)}</a>`;
+              return `<a href="${issuePageHref(iss)}" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;padding:2px 6px;background:${bg};border:1px solid ${border};border-radius:3px;font-size:10px;color:${color};text-decoration:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="#${iss.number} ${esc(iss.title)} [${iss.status}]">${dot}#${iss.number} ${esc(iss.title)}</a>`;
             }).join('')}</div>`
           : (a.status !== 'error' ? '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);opacity:0.5">Idle - no active tasks</div>' : '')}
         ${errBox}
@@ -1234,7 +1262,7 @@ async function viewAgent(agentId) {
   el.innerHTML = '<div class="card">' + renderLoading('Loading agent details...') + '</div>';
 
   try {
-    const agentRes = await fetch(`/api/agents/${agentId}`, { headers: apiHeaders() });
+    const agentRes = await fetch(agentApiPath(agentId, ''), { headers: apiHeaders() });
     const agent = agentRes.ok ? await agentRes.json() : agentsData.find(a => a.id === agentId);
     const canManage = canManageProject();
     const parentAgent = getDisplayParentAgent(agent);
@@ -1243,7 +1271,7 @@ async function viewAgent(agentId) {
     const readonlyNote = canManage
       ? ''
       : `<div class="project-readonly-banner" style="display:block;margin-bottom:16px">This is a shared read-only view. You cannot start, pause, retry, delete, chat with, or edit this agent.</div>`;
-    const detailActions = canManage
+    const detailActions = canManage && !isRemoteProjectView
       ? `
               <button class="btn btn-sm" onclick="openTerminal('${agentId}')" title="Open terminal chat">Chat</button>
               ${agent.status === 'error' && agent.last_prompt ? `<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>` : ''}
@@ -1379,7 +1407,7 @@ async function loadAgentCost(agentId) {
   const container = document.getElementById('agent-cost-' + agentId);
   if (!container) return;
   try {
-    const res = await fetch(`/api/agents/${agentId}/costs`, { headers: apiHeaders() });
+    const res = await fetch(agentApiPath(agentId, '/costs'), { headers: apiHeaders() });
     if (!res.ok) { container.innerHTML = ''; return; }
     const data = await res.json();
     if (data.total_runs === 0) { container.innerHTML = ''; return; }
@@ -1416,7 +1444,7 @@ async function loadAgentGitStatus(agentId) {
   const container = document.getElementById('agent-git-status-' + agentId);
   if (!container) return;
   try {
-    const res = await fetch(`/api/agents/${agentId}/git-status`, { headers: apiHeaders() });
+    const res = await fetch(agentApiPath(agentId, '/git-status'), { headers: apiHeaders() });
     if (!res.ok) { container.innerHTML = ''; return; }
     const data = await res.json();
     if (!data.branch) { container.innerHTML = ''; return; }
@@ -1447,8 +1475,8 @@ async function loadAgentOutput(agentId, options) {
     const cachedState = agentOutputLogState.get(agentId);
     const useIncremental = opts.silent && cachedState && cachedState.lastLogId > 0;
     const logsUrl = useIncremental
-      ? `/api/agents/${agentId}/logs?since_id=${cachedState.lastLogId}&limit=100`
-      : `/api/agents/${agentId}/logs?limit=100`;
+      ? `${agentApiPath(agentId, '/logs')}?since_id=${cachedState.lastLogId}&limit=100`
+      : `${agentApiPath(agentId, '/logs')}?limit=100`;
     const logsRes = await fetch(logsUrl, { headers: apiHeaders() });
     const fetchedLogs = logsRes.ok ? await logsRes.json() : [];
     if (useIncremental && fetchedLogs.length === 0) return;
@@ -1538,7 +1566,7 @@ async function saveAllAgentFields(agentId) {
       session_resume_timeout: Number.isNaN(resumeTimeoutRaw) ? 0 : Math.max(0, resumeTimeoutRaw),
       custom_instructions: instructionsVal.trim() === '' ? null : instructionsVal
     };
-    const res = await fetch(`/api/agents/${agentId}`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
+    const res = await fetch(agentApiPath(agentId, ''), { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) {
       invalidateProjectResources(['agents']);
       await loadAgents({ force: true });
@@ -1570,7 +1598,7 @@ async function toggleAgentSystemPrompt(agentId) {
   if (el.textContent) return;
   el.innerHTML = renderLoading('', true);
   try {
-    const res = await fetch(`/api/agents/${agentId}/system-prompt`, { headers: apiHeaders() });
+    const res = await fetch(agentApiPath(agentId, '/system-prompt'), { headers: apiHeaders() });
     if (res.ok) { const data = await res.json(); el.textContent = data.prompt; }
     else { el.innerHTML = renderError({ status: res.status }); }
   } catch (e) { el.innerHTML = renderError(e); }
@@ -1596,7 +1624,7 @@ async function loadRunHistory(agentId) {
   const container = document.getElementById('agent-runs-' + agentId);
   if (!container) return;
   try {
-    const res = await fetch(`/api/agents/${agentId}/runs?limit=10`, { headers: apiHeaders() });
+    const res = await fetch(`${agentApiPath(agentId, '/runs')}?limit=10`, { headers: apiHeaders() });
     if (!res.ok) { container.innerHTML = renderError({ status: res.status }, 'loadRunHistory(\'' + agentId + '\')'); return; }
     const data = await res.json();
     const runs = data.runs || [];
@@ -1639,7 +1667,7 @@ async function viewRunReport(agentId, runId) {
   if (!container) return;
   container.innerHTML = renderLoading('Loading report...', true);
   try {
-    const res = await fetch(`/api/agents/${agentId}/runs/${runId}/report`, { headers: apiHeaders() });
+    const res = await fetch(agentApiPath(agentId, `/runs/${encodeURIComponent(String(runId || ''))}/report`), { headers: apiHeaders() });
     if (!res.ok) { container.innerHTML = renderError({ status: res.status }, 'viewRunReport(\'' + agentId + '\',\'' + runId + '\')'); return; }
     const r = await res.json();
 
@@ -1734,7 +1762,7 @@ async function deleteAgent(id) {
     confirmLabel: 'Delete agent',
     tone: 'danger',
   })) return;
-  const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
+  const res = await fetch(agentApiPath(id, ''), { method: 'DELETE' });
   if (res.ok) {
     if (currentAgentId === id) closeAgentDetail();
     invalidateProjectResources(['agents']);
@@ -1746,21 +1774,25 @@ async function retryAgent(id) {
   if (!requireProjectManageAccess('Insufficient permission to retry agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
-    const res = await fetch(`/api/agents/${id}/retry`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
+    const res = await fetch(agentApiPath(id, '/retry'), { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
     if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent retried', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to retry', 'error'); }
   });
 }
 
 function openTerminal(agentId) {
   if (!requireProjectManageAccess('Insufficient permission to open the agent terminal')) return;
-  window.location.href = `/terminal?agentId=${agentId}&newSession=true`;
+  if (isRemoteProjectView || isRemoteAgentId(agentId)) {
+    showToast('Remote agent terminal is not available in the local dashboard yet', 'error');
+    return;
+  }
+  window.location.href = `${buildAgentPageHref(agentId)}?newSession=true`;
 }
 
 async function quickStartAgent(id) {
   if (!requireProjectManageAccess('Insufficient permission to start agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
-    const res = await fetch(`/api/agents/${id}/start`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
+    const res = await fetch(agentApiPath(id, '/start'), { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
     if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent started', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to start', 'error'); }
   });
 }
@@ -1768,7 +1800,7 @@ async function pauseAgent(id) {
   if (!requireProjectManageAccess('Insufficient permission to pause agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
-    const res = await fetch(`/api/agents/${id}/pause`, { method: 'POST', headers: apiHeaders(), body: '{}' });
+    const res = await fetch(agentApiPath(id, '/pause'), { method: 'POST', headers: apiHeaders(), body: '{}' });
     if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent paused', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to pause', 'error'); }
   });
 }
@@ -1777,7 +1809,7 @@ async function unpauseAgent(id) {
   if (!requireProjectManageAccess('Insufficient permission to resume agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
-    const res = await fetch(`/api/agents/${id}/unpause`, { method: 'POST', headers: apiHeaders(), body: '{}' });
+    const res = await fetch(agentApiPath(id, '/unpause'), { method: 'POST', headers: apiHeaders(), body: '{}' });
     if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent resumed', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to resume', 'error'); }
   });
 }
@@ -1790,7 +1822,7 @@ async function stopAgentById(id) {
   })) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
-    const res = await fetch(`/api/agents/${id}/stop`, { method: 'POST', headers: apiHeaders(), body: '{}' });
+    const res = await fetch(agentApiPath(id, '/stop'), { method: 'POST', headers: apiHeaders(), body: '{}' });
     if (res.ok) { showToast('Agent stopped', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to stop', 'error'); }
     invalidateProjectResources(['agents']);
     loadAgents({ force: true });
@@ -1823,7 +1855,7 @@ async function createAgent() {
       ...commandConfig,
     };
     if (!body.name) { showToast('Name is required', 'error'); return; }
-    const res = await fetch(`/api/projects/${projectId}/agents`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
+    const res = await fetch(projectApiPath('/agents'), { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) { hideModal('createAgentModal'); invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent created', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to create', 'error'); }
   });
 }
@@ -1901,7 +1933,7 @@ async function loadIssues() {
   const q = document.getElementById('issue-search')?.value?.trim() || '';
 
   // Fetch counts via lightweight endpoint
-  const countsRes = await fetch(`/api/projects/${projectId}/issues/counts`, { headers: apiHeaders() });
+  const countsRes = await fetch(projectApiPath('/issues/counts'), { headers: apiHeaders() });
   const counts = await countsRes.json();
   issueCount = counts.total || 0;
   updateTabCounts();
@@ -1926,7 +1958,7 @@ async function loadIssues() {
   }
 
   // Fetch filtered + sorted + paginated
-  let url = `/api/projects/${projectId}/issues?sort=${sort}&page=${currentIssuePage}&per_page=30`;
+  let url = `${projectApiPath('/issues')}?sort=${sort}&page=${currentIssuePage}&per_page=30`;
   if (currentIssueFilter) url += `&status=${currentIssueFilter}`;
   if (q) url += `&q=${encodeURIComponent(q)}`;
   const res = await fetch(url, { headers: apiHeaders() });
@@ -1943,7 +1975,7 @@ async function loadIssues() {
       : (i.status === 'open' || i.status === 'in_progress')
         ? `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="${i.status==='in_progress'?'#d29922':'#3fb950'}" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="${i.status==='in_progress'?'#d29922':'#3fb950'}"/></svg>`
         : '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#8b6fcf" stroke-width="2"/><path d="M5.5 8l2 2 3.5-3.5" fill="none" stroke="#8b6fcf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    return `<a href="/projects/${projectId}/issues/${i.number}" class="issue-list-item" style="text-decoration:none;color:inherit">
+    return `<a href="${issuePageHref(i)}" class="issue-list-item" style="text-decoration:none;color:inherit">
       <div style="flex-shrink:0;margin-top:2px">${icon}</div>
       <div class="issue-main">
         <div class="issue-title-row"><span class="issue-title">${esc(i.title)}</span> ${labels}</div>
@@ -2062,7 +2094,7 @@ async function createIssue() {
     };
     if (!assignedTo) { showToast('To is required', 'error'); document.getElementById('issue-assign').focus(); return; }
     if (!body.title) { showToast('Subject is required', 'error'); return; }
-    const res = await fetch(`/api/projects/${projectId}/issues`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
+    const res = await fetch(projectApiPath('/issues'), { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
     if (res.ok) { hideModal('createIssueModal'); loadIssues(); showToast('Issue created', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to create', 'error'); }
   });
 }
@@ -2204,7 +2236,7 @@ window.handleProjectFilesAgentChange = handleProjectFilesAgentChange;
 async function loadActivity() {
   const container = document.getElementById('activity-list');
   try {
-    const res = await fetch(`/api/projects/${projectId}/activity?limit=200`, { headers: apiHeaders() });
+    const res = await fetch(`${projectApiPath('/activity')}?limit=200`, { headers: apiHeaders() });
     if (!res.ok) return;
     const events = await res.json();
 
@@ -2247,9 +2279,9 @@ async function loadGitTab() {
   // Load git log and per-agent git status in parallel
   try {
     const [logRes, ...agentStatuses] = await Promise.all([
-      fetch(`/api/projects/${projectId}/git-log?limit=30`, { headers: apiHeaders() }),
+      fetch(`${projectApiPath('/git-log')}?limit=30`, { headers: apiHeaders() }),
       ...agentsData.filter(a => a.working_directory).map(a =>
-        fetch(`/api/agents/${a.id}/git-status`, { headers: apiHeaders() }).then(r => r.ok ? r.json() : null).then(data => ({ agent: a, data }))
+        fetch(agentApiPath(a.id, '/git-status'), { headers: apiHeaders() }).then(r => r.ok ? r.json() : null).then(data => ({ agent: a, data }))
       )
     ]);
 
@@ -2562,7 +2594,7 @@ async function loadOrchestrationRuns() {
   const container = document.getElementById('orchestration-decision-container');
   if (!container) return;
   try {
-    const res = await fetch('/api/projects/' + projectId + '/orchestration-runs?limit=12', { headers: apiHeaders() });
+    const res = await fetch(projectApiPath('/orchestration-runs') + '?limit=12', { headers: apiHeaders() });
     if (!res.ok) throw new Error('failed');
     const data = await res.json();
     orchestrationRunsData = Array.isArray(data) ? data : [];
@@ -2676,7 +2708,7 @@ function switchCostPeriod(period) {
 
 async function loadCostChart() {
   try {
-    const res = await fetch(`/api/projects/${projectId}/costs?period=${_currentCostPeriod}`, { headers: apiHeaders() });
+    const res = await fetch(`${projectApiPath('/costs')}?period=${_currentCostPeriod}`, { headers: apiHeaders() });
     if (!res.ok) return;
     const data = await res.json();
 
@@ -2824,7 +2856,7 @@ async function loadKnowledge() {
   const importance = document.getElementById('knowledge-filter-importance')?.value || '';
   const qs = importance ? `?importance=${importance}` : '';
   try {
-    const res = await fetch(`/api/projects/${projectId}/knowledge${qs}`, { headers: apiHeaders() });
+    const res = await fetch(`${projectApiPath('/knowledge')}${qs}`, { headers: apiHeaders() });
     if (!res.ok) { el.innerHTML = renderError({ status: res.status }, 'loadKnowledge()'); return; }
     const data = await res.json();
     const entries = data.entries || [];
@@ -2872,7 +2904,7 @@ function showCreateKnowledgeModal() {
 async function editKnowledge(id) {
   if (!requireProjectManageAccess('Insufficient permission to edit knowledge')) return;
   try {
-    const res = await fetch(`/api/knowledge/${id}`, { headers: apiHeaders() });
+    const res = await fetch(buildKnowledgeApiPath(id), { headers: apiHeaders() });
     if (!res.ok) return;
     const e = await res.json();
     document.getElementById('knowledge-modal-title').textContent = 'Edit Knowledge Entry';
@@ -2896,7 +2928,7 @@ async function saveKnowledge() {
   };
   if (!body.title) { showToast('Title is required', 'error'); return; }
   try {
-    const url = id ? `/api/knowledge/${id}` : `/api/projects/${projectId}/knowledge`;
+    const url = id ? buildKnowledgeApiPath(id) : projectApiPath('/knowledge');
     const method = id ? 'PUT' : 'POST';
     const res = await fetch(url, { method, headers: { ...apiHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (res.ok) {
@@ -2918,7 +2950,7 @@ async function deleteKnowledge(id) {
     tone: 'danger',
   })) return;
   try {
-    const res = await fetch(`/api/knowledge/${id}`, { method: 'DELETE', headers: apiHeaders() });
+    const res = await fetch(buildKnowledgeApiPath(id), { method: 'DELETE', headers: apiHeaders() });
     if (res.ok) { showToast('Deleted', 'success'); loadKnowledge(); }
     else showToast('Failed to delete', 'error');
   } catch { showToast('Failed to delete', 'error'); }
@@ -2938,7 +2970,7 @@ async function loadWorkflowGraph() {
   const container = document.getElementById('workflow-graph-svg');
   if (!container) return;
   try {
-    const res = await fetch('/api/projects/' + projectId + '/workflow-status', { headers: apiHeaders() });
+    const res = await fetch(projectApiPath('/workflow-status'), { headers: apiHeaders() });
     if (!res.ok) throw new Error('failed');
     _workflowData = await res.json();
     renderWorkflowGraph(container, _workflowData);
@@ -3149,7 +3181,7 @@ async function loadWorkflowActivity() {
   var container = document.getElementById('workflow-activity-timeline');
   if (!container) return;
   try {
-    var res = await fetch('/api/projects/' + projectId + '/activity?limit=30', { headers: apiHeaders() });
+    var res = await fetch(projectApiPath('/activity') + '?limit=30', { headers: apiHeaders() });
     if (!res.ok) throw new Error('failed');
     var events = await res.json();
     if (!events.length) { container.innerHTML = '<div class="empty-state">No activity yet.</div>'; return; }
@@ -3159,10 +3191,10 @@ async function loadWorkflowActivity() {
       if (e.event_type === 'issue') {
         var icon = e.status === 'open' ? '<span style="color:var(--success)">\u25cf</span>' : '<span style="color:var(--accent)">\u2713</span>';
         return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
-          icon + '<div><strong>' + esc(nameOf(e.actor)) + '</strong> ' + (e.status === 'open' ? 'opened' : 'updated') + ' <a href="/issues/' + e.id + '" style="color:var(--link)">#' + e.number + '</a> ' + esc(e.title) + ' <span style="color:var(--text-secondary)">' + time + '</span></div></div>';
+          icon + '<div><strong>' + esc(nameOf(e.actor)) + '</strong> ' + (e.status === 'open' ? 'opened' : 'updated') + ' <a href="' + buildIssuePageHref({ issueId: e.id, projectId: e.project_id, issueNumber: e.number }) + '" style="color:var(--link)">#' + e.number + '</a> ' + esc(e.title) + ' <span style="color:var(--text-secondary)">' + time + '</span></div></div>';
       } else if (e.event_type === 'comment') {
         return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
-          '<span style="color:var(--text-secondary)">\ud83d\udcac</span><div><strong>' + esc(nameOf(e.actor)) + '</strong> commented on <a href="/issues/' + e.id + '" style="color:var(--link)">#' + e.issue_number + '</a> ' + esc(e.issue_title) + ' <span style="color:var(--text-secondary)">' + time + '</span></div></div>';
+          '<span style="color:var(--text-secondary)">\ud83d\udcac</span><div><strong>' + esc(nameOf(e.actor)) + '</strong> commented on <a href="' + buildIssuePageHref({ issueId: e.id, projectId: e.project_id, issueNumber: e.issue_number }) + '" style="color:var(--link)">#' + e.issue_number + '</a> ' + esc(e.issue_title) + ' <span style="color:var(--text-secondary)">' + time + '</span></div></div>';
       } else if (e.event_type === 'agent_run') {
         var statusColor = e.agent_status === 'running' ? 'var(--success)' : (e.agent_status === 'error' ? 'var(--error)' : 'var(--text-secondary)');
         return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
@@ -3184,7 +3216,7 @@ async function loadWorkflowApprovals() {
   if (!panel || !listEl) return;
 
   try {
-    var res = await fetch('/api/projects/' + projectId + '/approvals?status=pending', { headers: apiHeaders() });
+    var res = await fetch(projectApiPath('/approvals') + '?status=pending', { headers: apiHeaders() });
     if (!res.ok) throw new Error('failed');
     var approvals = await res.json();
     _workflowApprovalsData = Array.isArray(approvals) ? approvals : [];
@@ -3224,7 +3256,7 @@ async function decideApproval(approvalId, decision) {
     note = prompt('Reason for rejection (optional):') || '';
   }
   try {
-    var res = await fetch('/api/approvals/' + approvalId, {
+    var res = await fetch(buildApprovalApiPath(approvalId), {
       method: 'PUT',
       headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: decision, decision_note: note, decided_by: 'user' })

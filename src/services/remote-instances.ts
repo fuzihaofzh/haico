@@ -45,9 +45,9 @@ export interface AggregatedRemoteProject {
   remote_base_url: string;
   remote_url: string;
   is_remote: true;
-  can_manage: false;
-  permission_level: 'remote';
-  owner: null;
+  can_manage: boolean;
+  permission_level: string;
+  owner: Record<string, unknown> | null;
   member_count: number;
   stats: Record<string, unknown>;
   name: string;
@@ -209,9 +209,11 @@ function toAggregatedRemoteProject(instance: RemoteInstanceRecord, project: any)
     remote_base_url: instance.base_url,
     remote_url: `${instance.base_url}/projects/${encodeURIComponent(remoteProjectId)}`,
     is_remote: true,
-    can_manage: false,
-    permission_level: 'remote',
-    owner: null,
+    can_manage: Boolean(project?.can_manage),
+    permission_level: typeof project?.permission_level === 'string' && project.permission_level.trim()
+      ? project.permission_level.trim()
+      : 'remote',
+    owner: project?.owner && typeof project.owner === 'object' ? project.owner : null,
     member_count: Number.isFinite(Number(project?.member_count)) ? Number(project.member_count) : 0,
     stats: project?.stats && typeof project.stats === 'object' ? project.stats : {},
     name: String(project?.name || remoteProjectId || instance.name),
@@ -296,6 +298,17 @@ async function requestRemoteJson<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function requestRemoteJsonPath<T>(
+  instance: RemoteInstanceRecord,
+  pathname: string,
+  init: {
+    method?: string;
+    body?: unknown;
+  } = {}
+): Promise<RemoteJsonResult<T>> {
+  return requestRemoteJson<T>(instance, pathname, init);
 }
 
 export async function checkRemoteCommandProfile(

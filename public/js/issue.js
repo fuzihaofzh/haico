@@ -3,8 +3,11 @@ const pathParts = window.location.pathname.split('/').filter(Boolean);
 let issueId = null;
 let projectId = null;
 let issueNum = null;
-if (pathParts[0] === 'issues') { issueId = pathParts[1]; }
-else if (pathParts[0] === 'projects' && pathParts[2] === 'issues') { projectId = pathParts[1]; issueNum = pathParts[3]; }
+if (pathParts[0] === 'issues') { issueId = decodeRouteParam(pathParts[1]); }
+else if (pathParts[0] === 'projects' && pathParts[2] === 'issues') {
+  projectId = decodeRouteParam(pathParts[1]);
+  issueNum = decodeRouteParam(pathParts[3]);
+}
 
 let issueData = null;
 let agentsData = [];
@@ -13,11 +16,11 @@ let issueProjectColor = null;
 async function loadIssue() {
   let data;
   if (issueId) {
-    const res = await fetch(`/api/issues/${issueId}`, { headers: apiHeaders() });
+    const res = await fetch(buildIssueApiPath(issueId), { headers: apiHeaders() });
     if (!res.ok) { document.getElementById('issue-page').innerHTML = '<div class="empty-state">Issue not found.</div>'; return; }
     data = await res.json();
   } else if (projectId && issueNum) {
-    const res = await fetch(`/api/projects/${projectId}/issues/number/${issueNum}`, { headers: apiHeaders() });
+    const res = await fetch(buildProjectIssueLookupApiPath(projectId, issueNum), { headers: apiHeaders() });
     if (!res.ok) { document.getElementById('issue-page').innerHTML = '<div class="empty-state">Issue not found.</div>'; return; }
     data = await res.json();
   }
@@ -25,13 +28,13 @@ async function loadIssue() {
 
   // Fetch agents and project info in parallel
   const [agentsRes, projectRes] = await Promise.allSettled([
-    fetch(`/api/projects/${data.project_id}/agents`, { headers: apiHeaders() }),
-    fetch(`/api/projects/${data.project_id}`, { headers: apiHeaders() })
+    fetch(buildProjectApiPath(data.project_id, '/agents'), { headers: apiHeaders() }),
+    fetch(buildProjectApiPath(data.project_id, ''), { headers: apiHeaders() })
   ]);
   if (agentsRes.status === 'fulfilled' && agentsRes.value.ok) agentsData = await agentsRes.value.json();
 
-  document.getElementById('project-link').href = `/projects/${data.project_id}`;
-  document.getElementById('issues-link').href = `/projects/${data.project_id}#issues`;
+  document.getElementById('project-link').href = buildProjectPageHref(data.project_id);
+  document.getElementById('issues-link').href = `${buildProjectPageHref(data.project_id)}#issues`;
   let projectColor = issueProjectColor;
   if (projectRes.status === 'fulfilled' && projectRes.value.ok) { const p = await projectRes.value.json(); document.getElementById('project-link').textContent = p.name; projectColor = p.color; }
   issueProjectColor = projectColor;
@@ -91,7 +94,8 @@ async function refreshIssueComments(seedComment) {
   try {
     const params = new URLSearchParams();
     if (sinceCreatedAt) params.set('since_created_at', sinceCreatedAt);
-    const res = await fetch(`/api/issues/${issueId}/comments?${params.toString()}`, { headers: apiHeaders() });
+    const commentsPath = buildIssueApiPath(issueId, '/comments');
+    const res = await fetch(`${commentsPath}${params.toString() ? `?${params.toString()}` : ''}`, { headers: apiHeaders() });
     if (res.ok) {
       const comments = await res.json();
       changed = mergeIssueComments(comments) || changed;

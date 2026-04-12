@@ -56,17 +56,11 @@ function getInboxIssueById(issueId) {
 }
 
 function buildRemoteIssueApiPath(issue) {
-  const instanceId = issue?.remote_instance_id || parseRemoteIssueCompositeId(issue?.id)?.instanceId || '';
-  const remoteIssueId = issue?.remote_issue_id || parseRemoteIssueCompositeId(issue?.id)?.remoteIssueId || '';
-  if (!instanceId || !remoteIssueId) return '';
-  return `/api/remote-issues/${encodeURIComponent(instanceId)}/${encodeURIComponent(remoteIssueId)}`;
+  return issue?.id ? buildIssueApiPath(issue.id) : '';
 }
 
 function buildRemoteProjectAgentsApiPath(issue) {
-  const instanceId = issue?.remote_instance_id || '';
-  const remoteProjectId = issue?.remote_project_id || '';
-  if (!instanceId || !remoteProjectId) return '';
-  return `/api/remote-projects/${encodeURIComponent(instanceId)}/${encodeURIComponent(remoteProjectId)}/agents`;
+  return issue?.project_id ? buildProjectApiPath(issue.project_id, '/agents') : '';
 }
 
 function syncNotifFilterButtons() {
@@ -89,25 +83,7 @@ function syncInboxProjectFilterControl() {
 function openProjectCard(projectId) {
   const project = _dashboardProjectsById[projectId];
   if (!project) return;
-
-  if (!isRemoteProject(project)) {
-    window.location.href = `/projects/${project.id}`;
-    return;
-  }
-
-  _inboxProject = project.id;
-  _selectedMailIdx = -1;
-  _selectedMailIssueId = null;
-  _currentReplyIssueId = null;
-  if (_notifFilter === 'my') {
-    _notifFilter = 'all';
-    syncNotifFilterButtons();
-  }
-  _inboxScope = 'all';
-  syncInboxScopeButtons();
-  syncInboxProjectFilterControl();
-  switchView('inbox');
-  loadNotifications({ reset: true });
+  window.location.href = buildProjectPageHref(project.id);
 }
 
 function getLocalDashboardProjects() {
@@ -758,12 +734,12 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
 
   try {
     // Fetch issue and agents in parallel when project_id is known
-    const issuePromise = fetch(`/api/issues/${issueId}`, { headers: apiHeaders() });
+    const issuePromise = fetch(buildIssueApiPath(issueId), { headers: apiHeaders() });
     let agentsPromise = null;
     if (knownProjectId) {
       const agentsCached = _projectAgentsCache[knownProjectId];
       if (!agentsCached || now - agentsCached.timestamp >= 60000) {
-        agentsPromise = fetch(`/api/projects/${knownProjectId}/agents`, { headers: apiHeaders() });
+        agentsPromise = fetch(buildProjectApiPath(knownProjectId, '/agents'), { headers: apiHeaders() });
       }
     }
 
@@ -790,7 +766,7 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
       } else if (!agentsPromise) {
         // project_id wasn't known before, fetch agents now
         try {
-          const res2 = await fetch(`/api/projects/${issue.project_id}/agents`, { headers: apiHeaders() });
+          const res2 = await fetch(buildProjectApiPath(issue.project_id, '/agents'), { headers: apiHeaders() });
           if (res2.ok) {
             agents = await res2.json();
             _projectAgentsCache[issue.project_id] = { data: agents, timestamp: now };
@@ -847,9 +823,7 @@ async function refreshInboxIssueComments(issueId, seedComment) {
   try {
     const params = new URLSearchParams();
     if (sinceCreatedAt) params.set('since_created_at', sinceCreatedAt);
-    const commentsPath = cached.data.is_remote
-      ? `${buildRemoteIssueApiPath(cached.data)}/comments`
-      : `/api/issues/${issueId}/comments`;
+    const commentsPath = buildIssueApiPath(issueId, '/comments');
     if (!commentsPath) throw new Error('Missing issue comments path');
     const res = await fetch(`${commentsPath}${params.toString() ? `?${params.toString()}` : ''}`, { headers: apiHeaders() });
     if (res.ok) {
@@ -874,7 +848,7 @@ async function refreshInboxIssueComments(issueId, seedComment) {
 function prefetchIssueDetail(issueId) {
   if (_issueDetailCache[issueId]) return;
   const issue = getInboxIssueById(issueId);
-  const prefetchUrl = isRemoteInboxIssue(issue) ? buildRemoteIssueApiPath(issue) : `/api/issues/${issueId}`;
+  const prefetchUrl = buildIssueApiPath(issueId);
   if (!prefetchUrl) return;
   fetch(prefetchUrl, { headers: apiHeaders() })
     .then(res => res.ok ? res.json() : null)
@@ -1039,9 +1013,7 @@ async function acknowledgeIssue(issueOrId) {
   // Update badge count
   updateInboxBadge(_inboxUnreadCount - 1);
   try {
-    const ackUrl = isRemoteInboxIssue(issue)
-      ? `/api/remote-issues/${encodeURIComponent(issue.remote_instance_id)}/${encodeURIComponent(issue.remote_issue_id)}/acknowledge`
-      : `/api/issues/${issueId}/acknowledge`;
+    const ackUrl = buildIssueApiPath(issueId, '/acknowledge');
     const res = await fetch(ackUrl, { method: 'POST' });
     if (!res.ok) {
       // Revert on failure
@@ -1098,6 +1070,7 @@ async function loadProjects() {
       container.innerHTML = projects.map(p => {
       const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
       const remote = isRemoteProject(p);
+      const link = buildProjectPageHref(p.id);
       const openAction = `openProjectCard('${escapeJsString(p.id)}')`;
         const access = remote
           ? { badge: 'REMOTE', tone: 'remote', summary: 'Remote instance', detail: `Connected via ${p.remote_instance_name || p.remote_base_url || 'remote instance'}` }
@@ -1129,7 +1102,7 @@ async function loadProjects() {
             <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="Details (optional)..." rows="3" data-collapsed></textarea>
           </div>
         ` : (remote
-          ? `<div class="project-card-note"><span>Open this card to view the remote project's inbox locally. Files and deeper project controls still stay on that machine.</span></div>`
+          ? `<div class="project-card-note"><span>Open this card to view the remote project locally. Terminal and file editing still stay on that machine.</span></div>`
           : '');
         return `
         <div class="card project-card" style="cursor:pointer" onclick="${openAction}">
@@ -1361,7 +1334,7 @@ async function updateGlobalComposeRecipients(selectedTo) {
   try {
     let agents = _globalComposeAgentsByProject[selectedProjectId];
     if (!agents) {
-      const res = await fetch(`/api/projects/${selectedProjectId}/agents`, { headers: apiHeaders() });
+      const res = await fetch(buildProjectApiPath(selectedProjectId, '/agents'), { headers: apiHeaders() });
       if (!res.ok) throw new Error('Failed to load recipients');
       agents = await res.json();
       _globalComposeAgentsByProject[selectedProjectId] = agents;
@@ -1408,7 +1381,7 @@ async function sendGlobalCompose() {
       return;
     }
 
-    const res = await fetch(`/api/projects/${targetProjectId}/issues`, {
+    const res = await fetch(buildProjectApiPath(targetProjectId, '/issues'), {
       method: 'POST',
       headers: apiHeaders(),
       body: JSON.stringify({ title: subject, body, created_by: 'user', assigned_to: assignedTo }),
@@ -2280,7 +2253,7 @@ async function createProject() {
         showToast(`Project created on ${target.label}`, 'success');
         return;
       }
-      window.location.href = '/projects/' + proj.id;
+      window.location.href = buildProjectPageHref(proj.id);
     } else {
       const err = await res.json();
       showToast(err.error || 'Failed to create', 'error');
@@ -2333,7 +2306,7 @@ async function toggleProjectStatus(projectId, currentStatus) {
   }
   const newStatus = currentStatus === 'active' ? 'paused' : 'active';
   try {
-    const res = await fetch(`/api/projects/${projectId}`, {
+    const res = await fetch(buildProjectApiPath(projectId, ''), {
       method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ status: newStatus })
     });
     if (res.ok) { showToast('Status updated', 'success'); loadProjects(); }
@@ -2371,7 +2344,7 @@ async function sendQuickCmd(projectId) {
     if (!controllerId) { showToast('No controller agent found', 'error'); return; }
 
     // Create issue assigned to controller
-    const res = await fetch(`/api/projects/${projectId}/issues`, {
+    const res = await fetch(buildProjectApiPath(projectId, '/issues'), {
       method: 'POST', headers: apiHeaders(),
       body: JSON.stringify({ title: msg, body: bodyText || msg, created_by: 'user', assigned_to: controllerId })
     });
@@ -2636,7 +2609,7 @@ async function openIssuePanelByProject(projectId, issueNumber) {
   document.getElementById('issueDetailModal').classList.add('active');
   document.getElementById('issueDetailContent').innerHTML = renderLoading('Loading issue...');
   try {
-    const res = await fetch(`/api/projects/${projectId}/issues/number/${issueNumber}`, { headers: apiHeaders() });
+    const res = await fetch(buildProjectIssueLookupApiPath(projectId, issueNumber), { headers: apiHeaders() });
     if (!res.ok) { document.getElementById('issueDetailContent').innerHTML = renderError({ status: res.status }); return; }
     const data = await res.json();
     _panelIssueId = data.id;
@@ -2653,13 +2626,13 @@ function closeIssuePanel() {
 
 async function loadIssuePanel(issueId) {
   try {
-    const res = await fetch(`/api/issues/${issueId}`, { headers: apiHeaders() });
+    const res = await fetch(buildIssueApiPath(issueId), { headers: apiHeaders() });
     if (!res.ok) { document.getElementById('issueDetailContent').innerHTML = renderError({ status: res.status }); return; }
     const issue = await res.json();
 
     // Load agents for this project
     try {
-      const agentsRes = await fetch(`/api/projects/${issue.project_id}/agents`, { headers: apiHeaders() });
+      const agentsRes = await fetch(buildProjectApiPath(issue.project_id, '/agents'), { headers: apiHeaders() });
       if (agentsRes.ok) _panelAgents = await agentsRes.json();
     } catch {}
 
@@ -2699,7 +2672,8 @@ async function loadDashboardApprovals() {
     let allApprovals = [];
     for (const p of projects) {
       try {
-        const aRes = await fetch('/api/projects/' + p.id + '/approvals?status=pending&limit=10', { headers: apiHeaders() });
+        const approvalsPath = `${buildProjectApiPath(p.id, '/approvals')}?status=pending&limit=10`;
+        const aRes = await fetch(approvalsPath, { headers: apiHeaders() });
         if (aRes.ok) {
           const items = await aRes.json();
           items.forEach(function(item) { item._project_name = p.name; item._project_id = p.id; });
@@ -2720,7 +2694,7 @@ async function loadDashboardApprovals() {
         '<div>' +
           '<strong>' + esc(a.title) + '</strong>' +
           '<div style="font-size:11px;color:var(--text-secondary)">' +
-            '<a href="/projects/' + a._project_id + '#workflow" style="color:var(--link)">' + esc(a._project_name) + '</a>' +
+            '<a href="' + buildProjectPageHref(a._project_id) + '#workflow" style="color:var(--link)">' + esc(a._project_name) + '</a>' +
             ' \u00b7 Agent: ' + esc(a.agent_name || 'unknown') +
             ' \u00b7 Risk: <span style="color:' + riskColor + '">' + a.risk_level + '</span>' +
             ' \u00b7 ' + timeAgo(a.created_at) +
@@ -2744,7 +2718,7 @@ async function dashboardDecideApproval(approvalId, decision) {
     note = prompt('Reason for rejection (optional):') || '';
   }
   try {
-    const res = await fetch('/api/approvals/' + approvalId, {
+    const res = await fetch(buildApprovalApiPath(approvalId), {
       method: 'PUT',
       headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: decision, decision_note: note, decided_by: 'user' })
@@ -2795,28 +2769,28 @@ async function loadActivityStream() {
         case 'issue_created':
           icon = '<span style="color:var(--success)">&#9679;</span>';
           label = 'New Issue';
-          detail = '<a href="/projects/' + ev.project_id + '/issues/' + ev.number + '" onclick="event.stopPropagation()">#' + ev.number + '</a> ' + esc(ev.title);
+          detail = '<a href="' + buildIssuePageHref({ issueId: ev.id, projectId: ev.project_id, issueNumber: ev.number }) + '" onclick="event.stopPropagation()">#' + ev.number + '</a> ' + esc(ev.title);
           break;
         case 'issue_status_change':
           icon = '<span style="color:var(--accent)">&#8635;</span>';
           label = ev.status;
-          detail = '<a href="/projects/' + ev.project_id + '/issues/' + ev.number + '" onclick="event.stopPropagation()">#' + ev.number + '</a> ' + esc(ev.title);
+          detail = '<a href="' + buildIssuePageHref({ issueId: ev.id, projectId: ev.project_id, issueNumber: ev.number }) + '" onclick="event.stopPropagation()">#' + ev.number + '</a> ' + esc(ev.title);
           break;
         case 'comment':
           icon = '<span style="color:var(--text-secondary)">&#9998;</span>';
           label = 'Comment';
           var preview = (ev.body || '').slice(0, 50) + ((ev.body || '').length > 50 ? '...' : '');
-          detail = '<a href="/projects/' + ev.project_id + '/issues/' + ev.issue_number + '" onclick="event.stopPropagation()">#' + ev.issue_number + '</a> ' + esc(preview);
+          detail = '<a href="' + buildIssuePageHref({ issueId: ev.id, projectId: ev.project_id, issueNumber: ev.issue_number }) + '" onclick="event.stopPropagation()">#' + ev.issue_number + '</a> ' + esc(preview);
           break;
         case 'agent_started':
           icon = '<span style="color:var(--success)">&#9654;</span>';
           label = 'Agent Started';
-          detail = '<a href="/agents/' + ev.object_id + '">' + esc(ev.agent_name) + '</a>';
+          detail = '<a href="' + buildProjectPageHref(ev.project_id) + '#agents">' + esc(ev.agent_name) + '</a>';
           break;
         case 'agent_stopped':
           icon = '<span style="color:var(--text-secondary)">&#9632;</span>';
           label = 'Agent Stopped';
-          detail = '<a href="/agents/' + ev.object_id + '">' + esc(ev.agent_name) + '</a>';
+          detail = '<a href="' + buildProjectPageHref(ev.project_id) + '#agents">' + esc(ev.agent_name) + '</a>';
           break;
         case 'approval_created':
           icon = '<span style="color:var(--warning)">&#9888;</span>';
@@ -2914,11 +2888,11 @@ async function loadAgentBoard() {
           '<div style="color:' + color + ';font-size:14px;flex-shrink:0;line-height:18px">' + icon + '</div>' +
           '<div style="flex:1;min-width:0">' +
             '<div style="display:flex;align-items:center;gap:4px">' +
-              '<a href="/agents/' + agent.id + '" style="font-weight:600;font-size:13px;color:var(--fg);text-decoration:none">' + esc(agent.name) + '</a>' +
+              '<a href="' + buildProjectPageHref(agent.project_id) + '#agents" style="font-weight:600;font-size:13px;color:var(--fg);text-decoration:none">' + esc(agent.name) + '</a>' +
               controllerBadge + pausedBadge +
             '</div>' +
             '<div style="font-size:11px;color:var(--text-secondary)">' +
-              '<a href="/projects/' + agent.project_id + '" style="color:var(--link)">' + esc(agent.project_name) + '</a>' +
+              '<a href="' + buildProjectPageHref(agent.project_id) + '" style="color:var(--link)">' + esc(agent.project_name) + '</a>' +
               ' · <span style="color:' + color + '">' + agent.status + '</span>' +
             '</div>' +
             issueInfo +

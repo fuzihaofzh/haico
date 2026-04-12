@@ -66,6 +66,129 @@ function apiHeaders() {
   return { 'Content-Type': 'application/json' };
 }
 
+function decodeRouteParam(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch (_) {
+    return raw;
+  }
+}
+
+function parseRemoteProjectId(value) {
+  const match = /^remote:([^:]+):(.+)$/.exec(decodeRouteParam(value));
+  if (!match) return null;
+  return { instanceId: match[1], remoteProjectId: match[2] };
+}
+
+function parseRemoteIssueId(value) {
+  const match = /^remote-issue:([^:]+):(.+)$/.exec(decodeRouteParam(value));
+  if (!match) return null;
+  return { instanceId: match[1], remoteIssueId: match[2] };
+}
+
+function parseRemoteAgentId(value) {
+  const match = /^remote-agent:([^:]+):(.+)$/.exec(decodeRouteParam(value));
+  if (!match) return null;
+  return { instanceId: match[1], remoteAgentId: match[2] };
+}
+
+function parseRemoteApprovalId(value) {
+  const match = /^remote-approval:([^:]+):(.+)$/.exec(decodeRouteParam(value));
+  if (!match) return null;
+  return { instanceId: match[1], remoteApprovalId: match[2] };
+}
+
+function parseRemoteKnowledgeId(value) {
+  const match = /^remote-knowledge:([^:]+):(.+)$/.exec(decodeRouteParam(value));
+  if (!match) return null;
+  return { instanceId: match[1], remoteKnowledgeId: match[2] };
+}
+
+function isRemoteProjectId(value) {
+  return !!parseRemoteProjectId(value);
+}
+
+function isRemoteIssueId(value) {
+  return !!parseRemoteIssueId(value);
+}
+
+function isRemoteAgentId(value) {
+  return !!parseRemoteAgentId(value);
+}
+
+function buildProjectPageHref(projectId) {
+  return `/projects/${encodeURIComponent(decodeRouteParam(projectId))}`;
+}
+
+function buildProjectApiPath(projectId, suffix) {
+  const tail = suffix ? String(suffix) : '';
+  const remote = parseRemoteProjectId(projectId);
+  if (remote) {
+    return `/api/remote-projects/${encodeURIComponent(remote.instanceId)}/${encodeURIComponent(remote.remoteProjectId)}${tail}`;
+  }
+  return `/api/projects/${encodeURIComponent(decodeRouteParam(projectId))}${tail}`;
+}
+
+function buildIssueApiPath(issueId, suffix) {
+  const tail = suffix ? String(suffix) : '';
+  const remote = parseRemoteIssueId(issueId);
+  if (remote) {
+    return `/api/remote-issues/${encodeURIComponent(remote.instanceId)}/${encodeURIComponent(remote.remoteIssueId)}${tail}`;
+  }
+  return `/api/issues/${encodeURIComponent(decodeRouteParam(issueId))}${tail}`;
+}
+
+function buildProjectIssueLookupApiPath(projectId, issueNumber) {
+  return `${buildProjectApiPath(projectId, '')}/issues/number/${encodeURIComponent(decodeRouteParam(issueNumber))}`;
+}
+
+function buildIssuePageHref(params) {
+  const issueId = params && params.issueId ? decodeRouteParam(params.issueId) : '';
+  const projectId = params && params.projectId ? decodeRouteParam(params.projectId) : '';
+  const issueNumber = params && params.issueNumber != null ? decodeRouteParam(params.issueNumber) : '';
+  if (issueId && isRemoteIssueId(issueId)) {
+    return `/issues/${encodeURIComponent(issueId)}`;
+  }
+  if (projectId && issueNumber) {
+    return `${buildProjectPageHref(projectId)}/issues/${encodeURIComponent(issueNumber)}`;
+  }
+  if (issueId) {
+    return `/issues/${encodeURIComponent(issueId)}`;
+  }
+  return '#';
+}
+
+function buildAgentApiPath(agentId, suffix) {
+  const tail = suffix ? String(suffix) : '';
+  const remote = parseRemoteAgentId(agentId);
+  if (remote) {
+    return `/api/remote-agents/${encodeURIComponent(remote.instanceId)}/${encodeURIComponent(remote.remoteAgentId)}${tail}`;
+  }
+  return `/api/agents/${encodeURIComponent(decodeRouteParam(agentId))}${tail}`;
+}
+
+function buildApprovalApiPath(approvalId) {
+  const remote = parseRemoteApprovalId(approvalId);
+  if (remote) {
+    return `/api/remote-approvals/${encodeURIComponent(remote.instanceId)}/${encodeURIComponent(remote.remoteApprovalId)}`;
+  }
+  return `/api/approvals/${encodeURIComponent(decodeRouteParam(approvalId))}`;
+}
+
+function buildKnowledgeApiPath(knowledgeId) {
+  const remote = parseRemoteKnowledgeId(knowledgeId);
+  if (remote) {
+    return `/api/remote-knowledge/${encodeURIComponent(remote.instanceId)}/${encodeURIComponent(remote.remoteKnowledgeId)}`;
+  }
+  return `/api/knowledge/${encodeURIComponent(decodeRouteParam(knowledgeId))}`;
+}
+
+function buildAgentPageHref(agentId) {
+  return `/agents/${encodeURIComponent(decodeRouteParam(agentId))}`;
+}
+
 async function withLoading(btn, asyncFn) {
   if (!btn || btn.disabled) return;
   const originalText = btn.textContent;
@@ -616,6 +739,17 @@ document.addEventListener('DOMContentLoaded', function() {
  * Event types: agent_status, issue_created, issue_updated, comment_added
  */
 function connectProjectEvents(projectId) {
+  if (isRemoteProjectId(projectId)) {
+    const el = document.getElementById('ws-status-indicator');
+    if (el) {
+      el.innerHTML = '<span style="font-size:11px;color:var(--text-secondary)">Remote project polling mode</span>';
+      el.title = 'Remote project updates are loaded by polling';
+    }
+    return {
+      on: function() {},
+      close: function() {},
+    };
+  }
   const listeners = {};
   let ws = null;
   let closed = false;

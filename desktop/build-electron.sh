@@ -6,6 +6,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 ELECTRON_DIR="$SCRIPT_DIR/electron"
 APP_NAME="HAICO"
 OUT_DIR="$PROJECT_DIR/dist/electron"
+PLATFORM="darwin"
 ARCH="$(uname -m)"
 
 if [ "$ARCH" = "x86_64" ]; then
@@ -24,14 +25,57 @@ copy_native_artifacts() {
   fi
 
   if [ -d "$src/build" ]; then
-    mkdir -p "$dest"
-    cp -R "$src/build" "$dest/build"
+    mkdir -p "$dest/build"
+    cp -R "$src/build/." "$dest/build/"
   fi
 
   if [ -d "$src/prebuilds" ]; then
-    mkdir -p "$dest"
-    cp -R "$src/prebuilds" "$dest/prebuilds"
+    mkdir -p "$dest/prebuilds"
+    cp -R "$src/prebuilds/." "$dest/prebuilds/"
   fi
+}
+
+prune_node_pty_artifacts() {
+  local node_pty_dir="$1"
+  local keep_prebuild="${PLATFORM}-${ARCH}"
+
+  if [ ! -d "$node_pty_dir" ]; then
+    return
+  fi
+
+  rm -rf \
+    "$node_pty_dir/deps" \
+    "$node_pty_dir/scripts" \
+    "$node_pty_dir/src" \
+    "$node_pty_dir/third_party" \
+    "$node_pty_dir/typings" \
+    "$node_pty_dir/binding.gyp"
+
+  if [ -d "$node_pty_dir/prebuilds" ]; then
+    find "$node_pty_dir/prebuilds" -mindepth 1 -maxdepth 1 ! -name "$keep_prebuild" -exec rm -rf {} +
+  fi
+
+  find "$node_pty_dir/lib" -type f \( -name "*.map" -o -name "*.test.js" \) -delete 2>/dev/null || true
+}
+
+prune_runtime_node_modules() {
+  local node_modules_dir="$1"
+
+  if [ ! -d "$node_modules_dir" ]; then
+    return
+  fi
+
+  prune_node_pty_artifacts "$node_modules_dir/node-pty"
+
+  find "$node_modules_dir" -type d \
+    \( -name ".github" -o -name "docs" -o -name "doc" -o -name "example" -o -name "examples" \
+    -o -name "test" -o -name "tests" -o -name "__tests__" -o -name "benchmark" -o -name "benchmarks" \) \
+    -prune -exec rm -rf {} + 2>/dev/null || true
+
+  find "$node_modules_dir" -type f \
+    \( -name "*.map" -o -name "*.md" -o -name "*.markdown" -o -name "CHANGELOG*" -o -name "changelog*" \
+    -o -name "*.tsbuildinfo" -o -name "*.tgz" -o -name "*.pdb" \) \
+    -delete 2>/dev/null || true
 }
 
 echo "Building ${APP_NAME}.app (Electron)..."
@@ -59,7 +103,6 @@ done
 cp -R "$PROJECT_DIR/public" "$RESOURCES_DIR/project/public"
 cp -R "$PROJECT_DIR/bin" "$RESOURCES_DIR/project/bin"
 cp "$PROJECT_DIR/package.json" "$RESOURCES_DIR/project/package.json"
-cp "$PROJECT_DIR/package-lock.json" "$RESOURCES_DIR/project/package-lock.json" 2>/dev/null || true
 
 echo "  Bundling node_modules (production only)..."
 TEMP_MODULES="$(mktemp -d)"
@@ -69,6 +112,7 @@ cd "$TEMP_MODULES"
 npm install --omit=dev --ignore-scripts 2>/dev/null
 copy_native_artifacts "better-sqlite3"
 copy_native_artifacts "node-pty"
+prune_runtime_node_modules "$TEMP_MODULES/node_modules"
 cp -R "$TEMP_MODULES/node_modules" "$RESOURCES_DIR/project/node_modules"
 rm -rf "$TEMP_MODULES"
 
@@ -91,7 +135,7 @@ if [ -f "$SCRIPT_DIR/AppIcon.icns" ]; then
 fi
 
 npx electron-packager . "$APP_NAME" \
-  --platform=darwin \
+  --platform="$PLATFORM" \
   --arch="$ARCH" \
   --out="$TEMP_OUT_DIR" \
   --overwrite \
