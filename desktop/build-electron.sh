@@ -204,9 +204,7 @@ fi
 PACKED_ROOT="$(dirname "$PACKED_APP")"
 FINAL_ROOT="$OUT_DIR/$(basename "$PACKED_ROOT")"
 if [ -d "$FINAL_ROOT" ]; then
-  BACKUP_ROOT="${FINAL_ROOT}.backup.$(date +%Y%m%d%H%M%S)"
-  mv "$FINAL_ROOT" "$BACKUP_ROOT"
-  echo "  Previous Electron build moved to $BACKUP_ROOT"
+  rm -rf "$FINAL_ROOT"
 fi
 mv "$PACKED_ROOT" "$FINAL_ROOT"
 PACKED_APP="$FINAL_ROOT/$(basename "$PACKED_APP")"
