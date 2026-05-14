@@ -11,6 +11,7 @@
   "files": [
     "bin/",
     "dist/",
+    "!dist/electron",
     "public/",
     "README.md"
   ],
