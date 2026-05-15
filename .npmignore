@@ -1,7 +1,30 @@
+# .npmignore — excludes from npm publish
+# Note: package.json "files" whitelist takes priority; this file only
+# needs to handle excludes within whitelisted directories.
+
+# Source & test (not in files whitelist, but explicit for safety)
 src/
 test/
-.tmp/
+
+# Desktop (not published)
+desktop/
+
+# Config & CI
+playwright.config.ts
+tsconfig.json
+
+# Environment & secrets
+.env
+.env.*
+
+# Database
 *.db
 *.db-*
-node_modules/
+
+# Build artifacts within dist
+!dist/electron
+
+# OS & temp
 .git/
+.DS_Store
+.tmp/

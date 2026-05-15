@@ -1,22 +1,36 @@
-.DS_Store
+# Dependencies
 node_modules/
-desktop/electron/node_modules/
+
+# Build output
+dist/
 desktop/electron/_resources/
+
+# Desktop build artifacts
 desktop/AppIcon.iconset/
 desktop/_master.png
-dist/
-data/*.db
-data/*.db-wal
-data/*.db-shm
+
+# Database
 *.db
 *.db-wal
 *.db-shm
-.nfs*
+
+# Environment & secrets
 .env
 .env.local
+
+# Logs
 *.log
-env.ini
+
+# OS artifacts
+.DS_Store
+.nfs*
+
+# Test
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+test/e2e/.auth/
+
+# Temporary
 .tmp/
-project_id
-send_message_and_update_issue.js
-update_round2_and_create_round3.js
