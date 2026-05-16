@@ -1,6 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import Database from 'better-sqlite3';
-import { getRequestUser, isLocalhostBypassRequest } from '../middleware/auth';
+import { isLocalhostBypassRequest } from './auth/localhost-bypass';
+import { getRequestUser } from './auth/request';
 import { Project, User } from '../types';
 
 export type ProjectPermissionLevel = 'none' | 'member' | 'editor' | 'owner' | 'admin' | 'bypass';

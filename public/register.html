@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HAICO - Register</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="stylesheet" href="/public/css/auth.css">
+  <script defer src="/public/js/auth-pages.js"></script>
+</head>
+<body>
+  <div class="card">
+    <h1><span>HAICO</span></h1>
+    <p class="subtitle">Create your account</p>
+    <form id="register-form">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" placeholder="2-32 characters" autofocus required>
+      <label for="display_name">Display Name (optional)</label>
+      <input type="text" id="display_name" name="display_name">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="Min 4 characters" required>
+      <label for="confirm">Confirm Password</label>
+      <input type="password" id="confirm" name="confirm" required>
+      <button type="submit">Register</button>
+      <div class="error" id="error"></div>
+      <p class="auth-link">Already have an account? <a href="/login">Login</a></p>
+    </form>
+  </div>
+</body>
+</html>

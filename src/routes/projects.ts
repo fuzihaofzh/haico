@@ -8,7 +8,7 @@ import { getDatabase } from '../db/database';
 import { Project, CreateProjectInput, Agent, OrchestratorEngine, ProjectMember } from '../types';
 import { stopAgentProcess, isAgentRunning } from '../services/process-manager';
 import { config } from '../config';
-import { isLegacyAuthUser } from '../middleware/auth';
+import { isLegacyAuthUser } from '../services/auth/request';
 import { buildControllerCommandConfig, resolveCommandType } from '../services/command-profiles';
 import { classifyToolExecutionFailure, inspectToolReadiness } from '../services/tool-readiness';
 import {

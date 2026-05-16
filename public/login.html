@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HAICO - Login</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="stylesheet" href="/public/css/auth.css">
+  <script defer src="/public/js/auth-pages.js"></script>
+</head>
+<body>
+  <div class="card">
+    <h1><span>HAICO</span></h1>
+    <form id="login-form">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autofocus required>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required>
+      <button type="submit">Login</button>
+      <div class="error" id="error"></div>
+      <p class="auth-link">Don't have an account? <a href="/register">Register</a></p>
+    </form>
+  </div>
+</body>
+</html>

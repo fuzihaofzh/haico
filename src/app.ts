@@ -7,6 +7,7 @@ import path from 'path';
 import { config } from './config';
 import { getDatabase, closeDatabase } from './db/database';
 import { setupAuth } from './middleware/auth';
+import { registerAuthRoutes } from './routes/auth';
 import { registerProjectRoutes } from './routes/projects';
 import { registerAgentRoutes } from './routes/agents';
 import { registerIssueRoutes } from './routes/issues';
@@ -54,6 +55,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
     maxAge: '1h',
   });
 
+  registerAuthRoutes(fastify);
   setupAuth(fastify);
   registerProjectRoutes(fastify);
   registerAgentRoutes(fastify);

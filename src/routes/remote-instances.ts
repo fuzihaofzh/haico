@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { getDatabase } from '../db/database';
-import { getRequestUser } from '../middleware/auth';
+import { getRequestUser } from '../services/auth/request';
 import {
   acknowledgeRemoteIssue,
   addRemoteIssueRelation,
