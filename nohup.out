@@ -1,11 +1,0 @@
-=== Starting Issue #101 experiments ===
-Date: Wednesday, April 08, 2026 AM03:58:46 HKT
-GPU: NVIDIA TITAN RTX, 24576 MiB
-
-=== Part 1: 13B+ Model Evaluation ===
-
-============================================================
-Model: Qwen/Qwen2.5-14B (4-bit=True)
-============================================================
-Loading Qwen/Qwen2.5-14B ...
-Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]
