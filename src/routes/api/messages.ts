@@ -1,18 +1,18 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase } from '../db/database';
-import { Agent, Project } from '../types';
-import { broadcastToProject } from '../services/websocket';
-import { startAgentProcess, isAgentRunning } from '../services/process-manager';
-import { buildSystemPrompt } from '../services/system-prompt';
-import { config } from '../config';
-import { ensureAgentAccess, ensureMessageAccess } from '../services/project-permissions';
-import { canMessageDirectHierarchyOnly } from '../services/agent-hierarchy';
+import { getDatabase } from '../../db/database';
+import { Agent, Project } from '../../types';
+import { broadcastToProject } from '../../services/websocket';
+import { startAgentProcess, isAgentRunning } from '../../services/process-manager';
+import { buildSystemPrompt } from '../../services/system-prompt';
+import { config } from '../../config';
+import { ensureAgentAccess, ensureMessageAccess } from '../../services/project-permissions';
+import { canMessageDirectHierarchyOnly } from '../../services/agent-hierarchy';
 
 export function registerMessageRoutes(fastify: FastifyInstance): void {
   // Send a message to an agent
   fastify.post<{ Params: { id: string }; Body: { to: string; subject?: string; body: string; reply_to_id?: string } }>(
-    '/api/agents/:id/messages/send',
+    '/agents/:id/messages/send',
     async (request, reply) => {
       const db = getDatabase();
       const fromAgentId = request.params.id;
@@ -76,7 +76,7 @@ export function registerMessageRoutes(fastify: FastifyInstance): void {
 
   // Get inbox (messages received by this agent)
   fastify.get<{ Params: { id: string }; Querystring: { status?: string; limit?: string } }>(
-    '/api/agents/:id/messages',
+    '/agents/:id/messages',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureAgentAccess(db, request, reply, request.params.id);
@@ -105,7 +105,7 @@ export function registerMessageRoutes(fastify: FastifyInstance): void {
 
   // Get sent messages
   fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
-    '/api/agents/:id/messages/sent',
+    '/agents/:id/messages/sent',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureAgentAccess(db, request, reply, request.params.id);
@@ -127,7 +127,7 @@ export function registerMessageRoutes(fastify: FastifyInstance): void {
 
   // Mark message as read
   fastify.put<{ Params: { id: string; msgId: string } }>(
-    '/api/agents/:id/messages/:msgId',
+    '/agents/:id/messages/:msgId',
     async (request, reply) => {
       const db = getDatabase();
       const agentAccess = ensureAgentAccess(db, request, reply, request.params.id, true);
@@ -146,7 +146,7 @@ export function registerMessageRoutes(fastify: FastifyInstance): void {
 
   // Mark all messages as read for an agent
   fastify.post<{ Params: { id: string } }>(
-    '/api/agents/:id/messages/read-all',
+    '/agents/:id/messages/read-all',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureAgentAccess(db, request, reply, request.params.id, true);

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase } from '../db/database';
-import { ensureAgentAccess, ensureKnowledgeAccess, ensureProjectAccess } from '../services/project-permissions';
+import { getDatabase } from '../../db/database';
+import { ensureAgentAccess, ensureKnowledgeAccess, ensureProjectAccess } from '../../services/project-permissions';
 import {
   calculateKnowledgeExpiresAt,
   DEFAULT_KNOWLEDGE_CATEGORY,
@@ -14,8 +14,8 @@ import {
   markExpiredKnowledgeEntries,
   normalizeKnowledgeCategory,
   normalizeKnowledgeStatus,
-} from '../services/knowledge-lifecycle';
-import { ensureAgentKnowledgeEntry, upsertAgentKnowledgeEntry } from '../services/agent-knowledge';
+} from '../../services/knowledge-lifecycle';
+import { ensureAgentKnowledgeEntry, upsertAgentKnowledgeEntry } from '../../services/agent-knowledge';
 
 const VALID_IMPORTANCE = ['high', 'medium', 'low'];
 
@@ -52,7 +52,7 @@ function resolveKnowledgeActor(body: any, existing?: any): string {
 
 export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
   fastify.get<{ Params: { id: string } }>(
-    '/api/agents/:id/knowledge-memory',
+    '/agents/:id/knowledge-memory',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureAgentAccess(db, request, reply, request.params.id);
@@ -66,7 +66,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
   );
 
   fastify.put<{ Params: { id: string }; Body: { content?: string; tags?: string; importance?: string; category?: string; verified_by?: string } }>(
-    '/api/agents/:id/knowledge-memory',
+    '/agents/:id/knowledge-memory',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureAgentAccess(db, request, reply, request.params.id, true);
@@ -99,7 +99,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
 
   // List knowledge entries for a project (supports FTS5 full-text search via ?q=)
   fastify.get<{ Params: { pid: string }; Querystring: { tag?: string; importance?: string; q?: string; status?: string; category?: string; owner_agent_id?: string; include_owned?: string } }>(
-    '/api/projects/:pid/knowledge',
+    '/projects/:pid/knowledge',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
@@ -199,7 +199,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
 
   // Create knowledge entry
   fastify.post<{ Params: { pid: string }; Body: { title: string; content: string; tags?: string; importance?: string; category?: string; created_by?: string; owner_agent_id?: string } }>(
-    '/api/projects/:pid/knowledge',
+    '/projects/:pid/knowledge',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
@@ -245,7 +245,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
 
   // Get single knowledge entry
   fastify.get<{ Params: { id: string } }>(
-    '/api/knowledge/:id',
+    '/knowledge/:id',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureKnowledgeAccess(db, request, reply, request.params.id);
@@ -258,7 +258,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
 
   // Update knowledge entry
   fastify.put<{ Params: { id: string }; Body: { title?: string; content?: string; tags?: string; importance?: string; category?: string; status?: string; verified_by?: string } }>(
-    '/api/knowledge/:id',
+    '/knowledge/:id',
     async (request, reply) => {
       const db = getDatabase();
       const { id } = request.params;
@@ -322,7 +322,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
 
   // Verify knowledge entry and extend its lifecycle
   fastify.post<{ Params: { id: string }; Body: { verified_by?: string } }>(
-    '/api/knowledge/:id/verify',
+    '/knowledge/:id/verify',
     async (request, reply) => {
       const db = getDatabase();
       const { id } = request.params;
@@ -349,7 +349,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
 
   // Delete knowledge entry
   fastify.delete<{ Params: { id: string } }>(
-    '/api/knowledge/:id',
+    '/knowledge/:id',
     async (request, reply) => {
       const db = getDatabase();
       const { id } = request.params;

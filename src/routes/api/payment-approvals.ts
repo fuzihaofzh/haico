@@ -1,11 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase } from '../db/database';
-import { PaymentApprovalRequest } from '../types';
-import { broadcastToProject } from '../services/websocket';
+import { getDatabase } from '../../db/database';
+import { PaymentApprovalRequest } from '../../types';
+import { broadcastToProject } from '../../services/websocket';
 import {
   ensureProjectAccess,
-} from '../services/project-permissions';
+} from '../../services/project-permissions';
 
 /**
  * Dual-controller payment approval routing.
@@ -44,7 +44,7 @@ export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
 
   // List payment approval requests for a project
   fastify.get<{ Params: { pid: string }; Querystring: { status?: string; limit?: string } }>(
-    '/api/projects/:pid/payment-approvals',
+    '/projects/:pid/payment-approvals',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
@@ -75,7 +75,7 @@ export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
 
   // Get single payment approval request
   fastify.get<{ Params: { id: string } }>(
-    '/api/payment-approvals/:id',
+    '/payment-approvals/:id',
     async (request, reply) => {
       const db = getDatabase();
       const { id } = request.params;
@@ -93,7 +93,7 @@ export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
 
   // Create a payment approval request (dual-controller by default)
   fastify.post<{ Params: { pid: string }; Body: any }>(
-    '/api/projects/:pid/payment-approvals',
+    '/projects/:pid/payment-approvals',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
@@ -142,7 +142,7 @@ export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
   //   - any rejection immediately rejects the whole request
   //   - once required_approvals approve decisions are collected, auto-approves
   fastify.post<{ Params: { id: string }; Body: any }>(
-    '/api/payment-approvals/:id/decisions',
+    '/payment-approvals/:id/decisions',
     async (request, reply) => {
       const db = getDatabase();
       const { id } = request.params;
@@ -247,7 +247,7 @@ export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
 
   // Cancel a payment approval request (only by the requester)
   fastify.put<{ Params: { id: string }; Body: any }>(
-    '/api/payment-approvals/:id/cancel',
+    '/payment-approvals/:id/cancel',
     async (request, reply) => {
       const db = getDatabase();
       const { id } = request.params;
@@ -287,7 +287,7 @@ export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
 
   // Validation / audit endpoint: check if a payment approval's routing is valid
   fastify.get<{ Params: { id: string } }>(
-    '/api/payment-approvals/:id/validate',
+    '/payment-approvals/:id/validate',
     async (request, reply) => {
       const db = getDatabase();
       const { id } = request.params;

@@ -4,21 +4,21 @@ import { execSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { getDatabase } from '../db/database';
-import { Project, CreateProjectInput, Agent, OrchestratorEngine, ProjectMember } from '../types';
-import { stopAgentProcess, isAgentRunning } from '../services/process-manager';
-import { config } from '../config';
-import { isLegacyAuthUser } from '../services/auth/request';
-import { buildControllerCommandConfig, resolveCommandType } from '../services/command-profiles';
-import { classifyToolExecutionFailure, inspectToolReadiness } from '../services/tool-readiness';
+import { getDatabase } from '../../db/database';
+import { Project, CreateProjectInput, Agent, OrchestratorEngine, ProjectMember } from '../../types';
+import { stopAgentProcess, isAgentRunning } from '../../services/process-manager';
+import { config } from '../../config';
+import { isLegacyAuthUser } from '../../services/auth/request';
+import { buildControllerCommandConfig, resolveCommandType } from '../../services/command-profiles';
+import { classifyToolExecutionFailure, inspectToolReadiness } from '../../services/tool-readiness';
 import {
   ensureProjectAccess,
   getProjectPermission,
   getProjectRequestContext,
   listAccessibleProjectIds,
   listAccessibleProjects,
-} from '../services/project-permissions';
-import { ensureAgentKnowledgeEntry } from '../services/agent-knowledge';
+} from '../../services/project-permissions';
+import { ensureAgentKnowledgeEntry } from '../../services/agent-knowledge';
 import {
   createRemoteProject,
   fetchRemoteProjectAgents,
@@ -28,7 +28,7 @@ import {
   isLocalTargetInstanceId,
   loadRemoteInstances,
   RemoteInstanceRecord,
-} from '../services/remote-instances';
+} from '../../services/remote-instances';
 
 function normalizeOrchestratorEngine(value: unknown): OrchestratorEngine | null {
   if (value === undefined) return null;
@@ -170,7 +170,7 @@ async function loadRemoteDashboardAgents(
 export function registerProjectRoutes(fastify: FastifyInstance): void {
 
   // Dashboard summary — aggregate stats across all projects
-  fastify.get('/api/dashboard/summary', async (request) => {
+  fastify.get('/dashboard/summary', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
@@ -280,7 +280,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
   });
 
   // Dashboard usage by project — stacked bar chart data
-  fastify.get<{ Querystring: { period?: string } }>('/api/dashboard/usage-by-project', async (request) => {
+  fastify.get<{ Querystring: { period?: string } }>('/dashboard/usage-by-project', async (request) => {
     const db = getDatabase();
     const period = request.query.period || 'day';
     const { user, localhostBypass } = getProjectRequestContext(request);
@@ -362,7 +362,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
   });
 
   // Dashboard activity stream — global timeline across all projects
-  fastify.get<{ Querystring: { limit?: string; project_id?: string } }>('/api/dashboard/activity-stream', async (request) => {
+  fastify.get<{ Querystring: { limit?: string; project_id?: string } }>('/dashboard/activity-stream', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
@@ -428,7 +428,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
   });
 
   // Dashboard agents overview — all agents across all projects
-  fastify.get<{ Querystring: { status?: string } }>('/api/dashboard/agents', async (request) => {
+  fastify.get<{ Querystring: { status?: string } }>('/dashboard/agents', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
@@ -491,7 +491,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
   });
 
   // Dashboard today's cost — for cost alert
-  fastify.get('/api/dashboard/today-cost', async (request) => {
+  fastify.get('/dashboard/today-cost', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
@@ -532,7 +532,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
   });
 
   // Generate project metadata from user description using AI
-  fastify.post<{ Body: { description: string; tool_path: string; command_type?: string | null; target_instance_id?: string | null } }>('/api/generate-project', async (request, reply) => {
+  fastify.post<{ Body: { description: string; tool_path: string; command_type?: string | null; target_instance_id?: string | null } }>('/generate-project', async (request, reply) => {
     const { description, tool_path, command_type, target_instance_id } = request.body;
     if (!description) return reply.code(400).send({ error: 'description is required' });
 
@@ -640,7 +640,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     }
   });
   // Project cost summary with per-run breakdowns and time-series support
-  fastify.get<{ Params: { id: string }; Querystring: { period?: string } }>('/api/projects/:id/costs', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { period?: string } }>('/projects/:id/costs', async (request, reply) => {
     const db = getDatabase();
     const pid = request.params.id;
     const period = request.query.period; // day | week | month
@@ -749,7 +749,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   });
 
   // Git log — aggregate recent commits from all agents' working directories
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/projects/:id/git-log', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/projects/:id/git-log', async (request, reply) => {
     const db = getDatabase();
     const pid = request.params.id;
     const limit = Math.min(parseInt(request.query.limit || '20', 10), 100);
@@ -806,7 +806,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   });
 
   // Project activity timeline
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/projects/:id/activity', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/projects/:id/activity', async (request, reply) => {
     const db = getDatabase();
     const limit = parseInt(request.query.limit || '50', 10);
     const pid = request.params.id;
@@ -836,7 +836,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
   // Recent orchestration decision runs (for graph visualization)
   fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
-    '/api/projects/:id/orchestration-runs',
+    '/projects/:id/orchestration-runs',
     async (request, reply) => {
       const db = getDatabase();
       const pid = request.params.id;
@@ -867,7 +867,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   );
 
   // List projects (with optional embedded stats for dashboard performance)
-  fastify.get<{ Querystring: { with_stats?: string } }>('/api/projects', async (request) => {
+  fastify.get<{ Querystring: { with_stats?: string } }>('/projects', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projects = listAccessibleProjects(db, user, localhostBypass).map((project) =>
@@ -931,7 +931,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   });
 
   // Create project
-  fastify.post<{ Body: CreateProjectInput }>('/api/projects', async (request, reply) => {
+  fastify.post<{ Body: CreateProjectInput }>('/projects', async (request, reply) => {
     const {
       name,
       description,
@@ -1045,7 +1045,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   });
 
   // Get project
-  fastify.get<{ Params: { id: string } }>('/api/projects/:id', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/projects/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -1055,7 +1055,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   });
 
   // Update project
-  fastify.put<{ Params: { id: string }; Body: Partial<CreateProjectInput> & { status?: string } }>('/api/projects/:id', async (request, reply) => {
+  fastify.put<{ Params: { id: string }; Body: Partial<CreateProjectInput> & { status?: string } }>('/projects/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -1102,7 +1102,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
     return serializeProject(db, updated, access.user, access.localhostBypass);
   });
 
-  fastify.get<{ Params: { id: string } }>('/api/projects/:id/members', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/projects/:id/members', async (request, reply) => {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -1126,7 +1126,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   });
 
   fastify.post<{ Params: { id: string }; Body: { user_id?: string; username?: string; role?: string } }>(
-    '/api/projects/:id/members',
+    '/projects/:id/members',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureProjectAccess(db, request, reply, request.params.id, true);
@@ -1183,7 +1183,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   );
 
   fastify.delete<{ Params: { id: string; userId: string } }>(
-    '/api/projects/:id/members/:userId',
+    '/projects/:id/members/:userId',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureProjectAccess(db, request, reply, request.params.id, true);
@@ -1209,7 +1209,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
 
   // Update member role
   fastify.patch<{ Params: { id: string; userId: string }; Body: { role: string } }>(
-    '/api/projects/:id/members/:userId',
+    '/projects/:id/members/:userId',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureProjectAccess(db, request, reply, request.params.id, true);
@@ -1247,7 +1247,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   );
 
   // Export project data as JSON
-  fastify.get<{ Params: { id: string } }>('/api/projects/:id/export', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/projects/:id/export', async (request, reply) => {
     const db = getDatabase();
     const pid = request.params.id;
     const access = ensureProjectAccess(db, request, reply, pid);
@@ -1291,7 +1291,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   });
 
   // Export issues as CSV
-  fastify.get<{ Params: { id: string } }>('/api/projects/:id/export/issues.csv', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/projects/:id/export/issues.csv', async (request, reply) => {
     const db = getDatabase();
     const pid = request.params.id;
     const access = ensureProjectAccess(db, request, reply, pid);
@@ -1316,7 +1316,7 @@ Respond with ONLY valid JSON, no markdown, no explanation.`;
   });
 
   // Delete project
-  fastify.delete<{ Params: { id: string } }>('/api/projects/:id', async (request, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/projects/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.id, true);
     if (!access) return;

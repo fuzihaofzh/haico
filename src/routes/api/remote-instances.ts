@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { getDatabase } from '../db/database';
-import { getRequestUser } from '../services/auth/request';
+import { getDatabase } from '../../db/database';
+import { getRequestUser } from '../../services/auth/request';
 import {
   acknowledgeRemoteIssue,
   addRemoteIssueRelation,
@@ -29,7 +29,7 @@ import {
   RemoteInstanceRecord,
   saveRemoteInstances,
   serializeRemoteInstance,
-} from '../services/remote-instances';
+} from '../../services/remote-instances';
 
 function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
   const user = getRequestUser(request);
@@ -269,7 +269,7 @@ function buildRemoteProxyPath(pathname: string, query: Record<string, unknown> |
 }
 
 export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
-  fastify.get('/api/remote-instance-options', async () => {
+  fastify.get('/remote-instance-options', async () => {
     const db = getDatabase();
     return {
       instances: loadRemoteInstances(db)
@@ -278,7 +278,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
     };
   });
 
-  fastify.get('/api/remote-instances', async (request, reply) => {
+  fastify.get('/remote-instances', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     const db = getDatabase();
     return {
@@ -295,7 +295,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
       remote_password?: string;
       enabled?: boolean;
     };
-  }>('/api/remote-instances', async (request, reply) => {
+  }>('/remote-instances', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
 
     const name = normalizeRemoteInstanceName(request.body?.name);
@@ -366,7 +366,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
       remote_password?: string;
       enabled?: boolean;
     };
-  }>('/api/remote-instances/:id', async (request, reply) => {
+  }>('/remote-instances/:id', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
 
     const db = getDatabase();
@@ -439,7 +439,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.post<{
     Params: { id: string };
-  }>('/api/remote-instances/:id/check', async (request, reply) => {
+  }>('/remote-instances/:id/check', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
 
     const db = getDatabase();
@@ -462,7 +462,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.delete<{
     Params: { id: string };
-  }>('/api/remote-instances/:id', async (request, reply) => {
+  }>('/remote-instances/:id', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
 
     const db = getDatabase();
@@ -475,7 +475,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
     return { ok: true };
   });
 
-  fastify.get('/api/remote-projects', async () => {
+  fastify.get('/remote-projects', async () => {
     const db = getDatabase();
     const instances = loadRemoteInstances(db).filter((instance) => instance.enabled);
     const results = await Promise.all(
@@ -501,7 +501,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; projectId: string };
-  }>('/api/remote-projects/:instanceId/:projectId', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -531,7 +531,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.put<{
     Params: { instanceId: string; projectId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -548,7 +548,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.delete<{
     Params: { instanceId: string; projectId: string };
-  }>('/api/remote-projects/:instanceId/:projectId', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -564,7 +564,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; projectId: string };
-  }>('/api/remote-projects/:instanceId/:projectId/agents', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/agents', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -581,7 +581,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.post<{
     Params: { instanceId: string; projectId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/agents', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/agents', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -603,7 +603,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; projectId: string };
-  }>('/api/remote-projects/:instanceId/:projectId/issues/counts', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/issues/counts', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -618,7 +618,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.get<{
     Params: { instanceId: string; projectId: string };
     Querystring: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/issues', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/issues', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -642,7 +642,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.post<{
     Params: { instanceId: string; projectId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/issues', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/issues', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -660,7 +660,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.get<{
     Params: { instanceId: string; projectId: string };
     Querystring: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/costs', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/costs', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -677,7 +677,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.get<{
     Params: { instanceId: string; projectId: string };
     Querystring: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/activity', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/activity', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -696,7 +696,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.get<{
     Params: { instanceId: string; projectId: string };
     Querystring: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/git-log', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/git-log', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -713,7 +713,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.get<{
     Params: { instanceId: string; projectId: string };
     Querystring: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/orchestration-runs', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/orchestration-runs', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -729,7 +729,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; projectId: string };
-  }>('/api/remote-projects/:instanceId/:projectId/workflow-status', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/workflow-status', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -743,7 +743,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.get<{
     Params: { instanceId: string; projectId: string };
     Querystring: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/approvals', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/approvals', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -762,7 +762,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.put<{
     Params: { instanceId: string; approvalId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-approvals/:instanceId/:approvalId', async (request, reply) => {
+  }>('/remote-approvals/:instanceId/:approvalId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -778,7 +778,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; projectId: string };
-  }>('/api/remote-projects/:instanceId/:projectId/members', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/members', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -792,7 +792,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.post<{
     Params: { instanceId: string; projectId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/members', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/members', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -809,7 +809,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.patch<{
     Params: { instanceId: string; projectId: string; userId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/members/:userId', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/members/:userId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -826,7 +826,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.delete<{
     Params: { instanceId: string; projectId: string; userId: string };
-  }>('/api/remote-projects/:instanceId/:projectId/members/:userId', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/members/:userId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -844,7 +844,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.get<{
     Params: { instanceId: string; projectId: string };
     Querystring: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/knowledge', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/knowledge', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -867,7 +867,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.post<{
     Params: { instanceId: string; projectId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-projects/:instanceId/:projectId/knowledge', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/knowledge', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -883,7 +883,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; knowledgeId: string };
-  }>('/api/remote-knowledge/:instanceId/:knowledgeId', async (request, reply) => {
+  }>('/remote-knowledge/:instanceId/:knowledgeId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -897,7 +897,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.put<{
     Params: { instanceId: string; knowledgeId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-knowledge/:instanceId/:knowledgeId', async (request, reply) => {
+  }>('/remote-knowledge/:instanceId/:knowledgeId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -913,7 +913,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.delete<{
     Params: { instanceId: string; knowledgeId: string };
-  }>('/api/remote-knowledge/:instanceId/:knowledgeId', async (request, reply) => {
+  }>('/remote-knowledge/:instanceId/:knowledgeId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -928,7 +928,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; agentId: string };
-  }>('/api/remote-agents/:instanceId/:agentId', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -942,7 +942,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.put<{
     Params: { instanceId: string; agentId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-agents/:instanceId/:agentId', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -965,7 +965,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.delete<{
     Params: { instanceId: string; agentId: string };
-  }>('/api/remote-agents/:instanceId/:agentId', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -981,7 +981,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.post<{
     Params: { instanceId: string; agentId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-agents/:instanceId/:agentId/start', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/start', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -997,7 +997,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.post<{
     Params: { instanceId: string; agentId: string };
-  }>('/api/remote-agents/:instanceId/:agentId/retry', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/retry', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1013,7 +1013,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.post<{
     Params: { instanceId: string; agentId: string };
-  }>('/api/remote-agents/:instanceId/:agentId/stop', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/stop', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1029,7 +1029,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.post<{
     Params: { instanceId: string; agentId: string };
-  }>('/api/remote-agents/:instanceId/:agentId/pause', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/pause', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1045,7 +1045,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.post<{
     Params: { instanceId: string; agentId: string };
-  }>('/api/remote-agents/:instanceId/:agentId/unpause', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/unpause', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1061,7 +1061,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; agentId: string };
-  }>('/api/remote-agents/:instanceId/:agentId/status', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/status', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1074,7 +1074,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; agentId: string };
-  }>('/api/remote-agents/:instanceId/:agentId/system-prompt', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/system-prompt', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1088,7 +1088,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.get<{
     Params: { instanceId: string; agentId: string };
     Querystring: Record<string, unknown>;
-  }>('/api/remote-agents/:instanceId/:agentId/logs', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/logs', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1104,7 +1104,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; agentId: string };
-  }>('/api/remote-agents/:instanceId/:agentId/costs', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/costs', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1117,7 +1117,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; agentId: string };
-  }>('/api/remote-agents/:instanceId/:agentId/git-status', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/git-status', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1131,7 +1131,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.get<{
     Params: { instanceId: string; agentId: string };
     Querystring: Record<string, unknown>;
-  }>('/api/remote-agents/:instanceId/:agentId/runs', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/runs', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1147,7 +1147,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; agentId: string; runId: string };
-  }>('/api/remote-agents/:instanceId/:agentId/runs/:runId/report', async (request, reply) => {
+  }>('/remote-agents/:instanceId/:agentId/runs/:runId/report', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1169,7 +1169,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
       project_id?: string;
       since_updated_at?: string;
     };
-  }>('/api/remote-notifications', async (request) => {
+  }>('/remote-notifications', async (request) => {
     const db = getDatabase();
     const requestedProjectId = typeof request.query?.project_id === 'string' ? request.query.project_id.trim() : '';
     const requestedLimit = Number.parseInt(String(request.query?.limit || '20'), 10);
@@ -1246,7 +1246,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; issueId: string };
-  }>('/api/remote-issues/:instanceId/:issueId', async (request, reply) => {
+  }>('/remote-issues/:instanceId/:issueId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1260,7 +1260,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.post<{
     Params: { instanceId: string; issueId: string };
-  }>('/api/remote-issues/:instanceId/:issueId/acknowledge', async (request, reply) => {
+  }>('/remote-issues/:instanceId/:issueId/acknowledge', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1275,7 +1275,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.put<{
     Params: { instanceId: string; issueId: string };
     Body: Record<string, unknown>;
-  }>('/api/remote-issues/:instanceId/:issueId', async (request, reply) => {
+  }>('/remote-issues/:instanceId/:issueId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1289,7 +1289,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.delete<{
     Params: { instanceId: string; issueId: string };
-  }>('/api/remote-issues/:instanceId/:issueId', async (request, reply) => {
+  }>('/remote-issues/:instanceId/:issueId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1304,7 +1304,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.get<{
     Params: { instanceId: string; issueId: string };
     Querystring: { since_created_at?: string };
-  }>('/api/remote-issues/:instanceId/:issueId/comments', async (request, reply) => {
+  }>('/remote-issues/:instanceId/:issueId/comments', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1326,7 +1326,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.post<{
     Params: { instanceId: string; issueId: string };
     Body: { author_id: string; body: string };
-  }>('/api/remote-issues/:instanceId/:issueId/comments', async (request, reply) => {
+  }>('/remote-issues/:instanceId/:issueId/comments', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1344,7 +1344,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.put<{
     Params: { instanceId: string; commentId: string };
     Body: { body: string };
-  }>('/api/remote-comments/:instanceId/:commentId', async (request, reply) => {
+  }>('/remote-comments/:instanceId/:commentId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1358,7 +1358,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.delete<{
     Params: { instanceId: string; commentId: string };
-  }>('/api/remote-comments/:instanceId/:commentId', async (request, reply) => {
+  }>('/remote-comments/:instanceId/:commentId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1373,7 +1373,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.post<{
     Params: { instanceId: string; type: string; id: string };
     Body: { user_id: string; emoji: string };
-  }>('/api/remote-reactions/:instanceId/:type/:id', async (request, reply) => {
+  }>('/remote-reactions/:instanceId/:type/:id', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1387,7 +1387,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{
     Params: { instanceId: string; projectId: string; num: string };
-  }>('/api/remote-projects/:instanceId/:projectId/issues/number/:num', async (request, reply) => {
+  }>('/remote-projects/:instanceId/:projectId/issues/number/:num', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1402,7 +1402,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
   fastify.post<{
     Params: { instanceId: string; issueId: string };
     Body: { type: string; target_issue_id: string; actor?: string };
-  }>('/api/remote-issues/:instanceId/:issueId/relations', async (request, reply) => {
+  }>('/remote-issues/:instanceId/:issueId/relations', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });
@@ -1419,7 +1419,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
 
   fastify.delete<{
     Params: { instanceId: string; issueId: string; relationId: string };
-  }>('/api/remote-issues/:instanceId/:issueId/relations/:relationId', async (request, reply) => {
+  }>('/remote-issues/:instanceId/:issueId/relations/:relationId', async (request, reply) => {
     const db = getDatabase();
     const instance = findRemoteInstanceById(db, request.params.instanceId);
     if (!instance) return reply.status(404).send({ error: 'Remote instance not found' });

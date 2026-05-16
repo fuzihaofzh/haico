@@ -1,8 +1,8 @@
 import { FastifyInstance } from 'fastify';
-import { DashboardChatInput, runDashboardChatTurn } from '../services/dashboard-chat';
+import { DashboardChatInput, runDashboardChatTurn } from '../../services/dashboard-chat';
 
 export function registerDashboardChatRoutes(fastify: FastifyInstance): void {
-  fastify.post<{ Body: DashboardChatInput }>('/api/dashboard-chat', async (request, reply) => {
+  fastify.post<{ Body: DashboardChatInput }>('/dashboard-chat', async (request, reply) => {
     try {
       return await runDashboardChatTurn(fastify, request, request.body || { message: '' });
     } catch (error: any) {

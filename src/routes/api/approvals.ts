@@ -1,19 +1,19 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase } from '../db/database';
-import { ApprovalRequest } from '../types';
-import { broadcastToProject } from '../services/websocket';
+import { getDatabase } from '../../db/database';
+import { ApprovalRequest } from '../../types';
+import { broadcastToProject } from '../../services/websocket';
 import {
   ensureProjectAccess,
   getProjectRequestContext,
   listAccessibleProjectIds,
-} from '../services/project-permissions';
+} from '../../services/project-permissions';
 
 export function registerApprovalRoutes(fastify: FastifyInstance): void {
 
   // List approval requests for a project
   fastify.get<{ Params: { pid: string }; Querystring: { status?: string; limit?: string } }>(
-    '/api/projects/:pid/approvals',
+    '/projects/:pid/approvals',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
@@ -48,7 +48,7 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
   );
 
   // Get pending approval count across all accessible projects (for dashboard badge)
-  fastify.get('/api/approvals/pending-count', async (request) => {
+  fastify.get('/approvals/pending-count', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
@@ -63,7 +63,7 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
 
   // Create approval request (called by agents)
   fastify.post<{ Params: { pid: string }; Body: any }>(
-    '/api/projects/:pid/approvals',
+    '/projects/:pid/approvals',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
@@ -101,7 +101,7 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
 
   // Decide on an approval request (approve/reject)
   fastify.put<{ Params: { id: string }; Body: any }>(
-    '/api/approvals/:id',
+    '/approvals/:id',
     async (request, reply) => {
       const db = getDatabase();
       const { id } = request.params;
@@ -142,7 +142,7 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
 
   // Get single approval request detail
   fastify.get<{ Params: { id: string } }>(
-    '/api/approvals/:id',
+    '/approvals/:id',
     async (request, reply) => {
       const db = getDatabase();
       const { id } = request.params;
@@ -164,7 +164,7 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
 
   // Workflow status API — returns agents with their current issues and collaboration data
   fastify.get<{ Params: { pid: string } }>(
-    '/api/projects/:pid/workflow-status',
+    '/projects/:pid/workflow-status',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;

@@ -1,17 +1,17 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase } from '../db/database';
+import { getDatabase } from '../../db/database';
 
 export function registerTemplateRoutes(fastify: FastifyInstance): void {
   // List all templates (builtin + custom)
-  fastify.get('/api/templates', async () => {
+  fastify.get('/templates', async () => {
     const db = getDatabase();
     const templates = db.prepare('SELECT * FROM project_templates ORDER BY is_builtin DESC, created_at DESC').all();
     return { templates };
   });
 
   // Get single template
-  fastify.get<{ Params: { id: string } }>('/api/templates/:id', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/templates/:id', async (request, reply) => {
     const db = getDatabase();
     const template = db.prepare('SELECT * FROM project_templates WHERE id = ?').get(request.params.id);
     if (!template) return reply.status(404).send({ error: 'Template not found' });
@@ -20,7 +20,7 @@ export function registerTemplateRoutes(fastify: FastifyInstance): void {
 
   // Create custom template
   fastify.post<{ Body: { name: string; description?: string; template_data: any; created_by?: string } }>(
-    '/api/templates',
+    '/templates',
     async (request, reply) => {
       const db = getDatabase();
       const { name, description, template_data, created_by } = request.body as any;
@@ -40,7 +40,7 @@ export function registerTemplateRoutes(fastify: FastifyInstance): void {
   );
 
   // Delete custom template (cannot delete builtin)
-  fastify.delete<{ Params: { id: string } }>('/api/templates/:id', async (request, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/templates/:id', async (request, reply) => {
     const db = getDatabase();
     const template = db.prepare('SELECT * FROM project_templates WHERE id = ?').get(request.params.id) as any;
     if (!template) return reply.status(404).send({ error: 'Template not found' });
@@ -52,7 +52,7 @@ export function registerTemplateRoutes(fastify: FastifyInstance): void {
 
   // Apply template to a project — creates agents and issues from template
   fastify.post<{ Params: { pid: string }; Body: { template_id: string; params?: Record<string, string> } }>(
-    '/api/projects/:pid/apply-template',
+    '/projects/:pid/apply-template',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;

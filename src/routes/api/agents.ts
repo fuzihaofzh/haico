@@ -5,18 +5,18 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { TextDecoder } from 'util';
-import { getDatabase } from '../db/database';
-import { Agent, Project, CreateAgentInput, StartAgentInput } from '../types';
-import { startAgentProcess, stopAgentProcess, isAgentRunning } from '../services/process-manager';
-import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from '../services/agent-issue-batch';
-import { listDispatchableIssuesForAgent } from '../services/issue-dispatch';
-import { buildSystemPrompt } from '../services/system-prompt';
-import { config } from '../config';
-import { broadcastToProject } from '../services/websocket';
-import { ensureAgentAccess, ensureProjectAccess } from '../services/project-permissions';
-import { validateParentAgentAssignment } from '../services/agent-hierarchy';
-import { buildControllerCommandConfig, resolveCommandType } from '../services/command-profiles';
-import { ensureAgentKnowledgeEntry } from '../services/agent-knowledge';
+import { getDatabase } from '../../db/database';
+import { Agent, Project, CreateAgentInput, StartAgentInput } from '../../types';
+import { startAgentProcess, stopAgentProcess, isAgentRunning } from '../../services/process-manager';
+import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from '../../services/agent-issue-batch';
+import { listDispatchableIssuesForAgent } from '../../services/issue-dispatch';
+import { buildSystemPrompt } from '../../services/system-prompt';
+import { config } from '../../config';
+import { broadcastToProject } from '../../services/websocket';
+import { ensureAgentAccess, ensureProjectAccess } from '../../services/project-permissions';
+import { validateParentAgentAssignment } from '../../services/agent-hierarchy';
+import { buildControllerCommandConfig, resolveCommandType } from '../../services/command-profiles';
+import { ensureAgentKnowledgeEntry } from '../../services/agent-knowledge';
 
 const TOOL_CALL_REPORT_CHAR_LIMIT = 4000;
 const MAX_AGENT_FILE_SIZE = 1024 * 1024;
@@ -113,7 +113,7 @@ function decodeTextFile(buffer: Buffer): string | null {
 
 export function registerAgentRoutes(fastify: FastifyInstance): void {
   // List agents for a project
-  fastify.get<{ Params: { pid: string } }>('/api/projects/:pid/agents', async (request, reply) => {
+  fastify.get<{ Params: { pid: string } }>('/projects/:pid/agents', async (request, reply) => {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.pid);
     if (!access) return;
@@ -148,7 +148,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Create agent
-  fastify.post<{ Params: { pid: string }; Body: CreateAgentInput }>('/api/projects/:pid/agents', async (request, reply) => {
+  fastify.post<{ Params: { pid: string }; Body: CreateAgentInput }>('/projects/:pid/agents', async (request, reply) => {
     const { name, role, is_controller, session_id, working_directory, command_template, command_type, parent_agent_id } = request.body as any;
     if (!name) return reply.code(400).send({ error: 'name is required' });
 
@@ -213,7 +213,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Get agent
-  fastify.get<{ Params: { id: string } }>('/api/agents/:id', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/agents/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -223,7 +223,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Update agent
-  fastify.put<{ Params: { id: string }; Body: Partial<CreateAgentInput> }>('/api/agents/:id', async (request, reply) => {
+  fastify.put<{ Params: { id: string }; Body: Partial<CreateAgentInput> }>('/agents/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -325,7 +325,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Delete agent
-  fastify.delete<{ Params: { id: string } }>('/api/agents/:id', async (request, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/agents/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -344,7 +344,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Start agent
-  fastify.post<{ Params: { id: string }; Body: { prompt?: string; force_new_session?: boolean } }>('/api/agents/:id/start', async (request, reply) => {
+  fastify.post<{ Params: { id: string }; Body: { prompt?: string; force_new_session?: boolean } }>('/agents/:id/start', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -399,7 +399,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Retry agent (re-run with the same last_prompt)
-  fastify.post<{ Params: { id: string } }>('/api/agents/:id/retry', async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/agents/:id/retry', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -431,7 +431,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Stop agent
-  fastify.post<{ Params: { id: string } }>('/api/agents/:id/stop', async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/agents/:id/stop', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -466,7 +466,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Pause agent — prevents auto-start and manual start until unpaused
-  fastify.post<{ Params: { id: string } }>('/api/agents/:id/pause', async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/agents/:id/pause', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -493,7 +493,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Unpause agent — allows it to be started again
-  fastify.post<{ Params: { id: string } }>('/api/agents/:id/unpause', async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/agents/:id/unpause', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -515,7 +515,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Get agent status
-  fastify.get<{ Params: { id: string } }>('/api/agents/:id/status', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/agents/:id/status', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -573,7 +573,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Preview system prompt for an agent
-  fastify.get<{ Params: { id: string } }>('/api/agents/:id/system-prompt', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/agents/:id/system-prompt', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -584,7 +584,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     return { prompt: buildSystemPrompt(agent, project) };
   });
 
-  fastify.get<{ Params: { id: string }; Querystring: { path?: string; showHidden?: string } }>('/api/agents/:id/files', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { path?: string; showHidden?: string } }>('/agents/:id/files', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -645,7 +645,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     }
   });
 
-  fastify.get<{ Params: { id: string }; Querystring: { path?: string } }>('/api/agents/:id/files/content', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { path?: string } }>('/agents/:id/files/content', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -696,7 +696,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   };
 
-  fastify.get<{ Params: { id: string }; Querystring: { path?: string } }>('/api/agents/:id/files/serve', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { path?: string } }>('/agents/:id/files/serve', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -739,7 +739,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     }
   });
 
-  fastify.put<{ Params: { id: string }; Body: { path?: string; content?: string } }>('/api/agents/:id/files/content', async (request, reply) => {
+  fastify.put<{ Params: { id: string }; Body: { path?: string; content?: string } }>('/agents/:id/files/content', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -791,7 +791,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // File upload (multipart/form-data)
-  fastify.post<{ Params: { id: string } }>('/api/agents/:id/files/upload', async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/agents/:id/files/upload', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -859,7 +859,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     '.mp3': 'audio/mpeg', '.mp4': 'video/mp4', '.woff': 'font/woff', '.woff2': 'font/woff2',
   };
 
-  fastify.get<{ Params: { id: string }; Querystring: { path?: string } }>('/api/agents/:id/files/download', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { path?: string } }>('/agents/:id/files/download', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -898,7 +898,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   const SQLITE_EXTENSIONS = new Set(['.sqlite', '.db', '.sqlite3', '.db3']);
   const MAX_SQLITE_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
-  fastify.get<{ Params: { id: string }; Querystring: { path?: string; table?: string; limit?: string; offset?: string } }>('/api/agents/:id/files/sqlite', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { path?: string; table?: string; limit?: string; offset?: string } }>('/agents/:id/files/sqlite', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -971,7 +971,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Plain text terminal output (for debugging / curl)
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/agents/:id/terminal', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/agents/:id/terminal', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -999,7 +999,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Get agent logs
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string; since_id?: string; after_id?: string; after?: string } }>('/api/agents/:id/logs', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string; since_id?: string; after_id?: string; after?: string } }>('/agents/:id/logs', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -1016,7 +1016,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Get agent cost summary
-  fastify.get<{ Params: { id: string } }>('/api/agents/:id/costs', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/agents/:id/costs', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -1058,7 +1058,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Get logs for a specific run
-  fastify.get<{ Params: { id: string; run_id: string } }>('/api/agents/:id/logs/:run_id', async (request, reply) => {
+  fastify.get<{ Params: { id: string; run_id: string } }>('/agents/:id/logs/:run_id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -1068,7 +1068,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // List agent runs with summary
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/agents/:id/runs', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/agents/:id/runs', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -1142,7 +1142,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Get agent git status
-  fastify.get<{ Params: { id: string } }>('/api/agents/:id/git-status', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/agents/:id/git-status', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -1186,7 +1186,7 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
   });
 
   // Get structured run report
-  fastify.get<{ Params: { id: string; run_id: string } }>('/api/agents/:id/runs/:run_id/report', async (request, reply) => {
+  fastify.get<{ Params: { id: string; run_id: string } }>('/agents/:id/runs/:run_id/report', async (request, reply) => {
     const db = getDatabase();
     const access = ensureAgentAccess(db, request, reply, request.params.id);
     if (!access) return;

@@ -1,12 +1,12 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase } from '../db/database';
-import { ExecutiveSummary, ExecutiveSummaryBlock } from '../types';
-import { broadcastToProject } from '../services/websocket';
+import { getDatabase } from '../../db/database';
+import { ExecutiveSummary, ExecutiveSummaryBlock } from '../../types';
+import { broadcastToProject } from '../../services/websocket';
 import {
   ensureProjectAccess,
   getProjectRequestContext,
-} from '../services/project-permissions';
+} from '../../services/project-permissions';
 
 interface SummaryRow {
   id: string;
@@ -94,7 +94,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     Params: { pid: string };
     Querystring: { status?: string; limit?: string; offset?: string };
   }>(
-    '/api/projects/:pid/executive-summaries',
+    '/projects/:pid/executive-summaries',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
@@ -137,7 +137,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
 
   // Get a single executive summary by ID
   fastify.get<{ Params: { pid: string; sid: string } }>(
-    '/api/projects/:pid/executive-summaries/:sid',
+    '/projects/:pid/executive-summaries/:sid',
     async (request, reply) => {
       const db = getDatabase();
       const { pid, sid } = request.params;
@@ -157,7 +157,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
 
   // Create a new executive summary with default block templates
   fastify.post<{ Params: { pid: string }; Body: any }>(
-    '/api/projects/:pid/executive-summaries',
+    '/projects/:pid/executive-summaries',
     async (request, reply) => {
       const db = getDatabase();
       const { pid } = request.params;
@@ -203,7 +203,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
 
   // Update executive summary metadata (title, status, period)
   fastify.put<{ Params: { pid: string; sid: string }; Body: any }>(
-    '/api/projects/:pid/executive-summaries/:sid',
+    '/projects/:pid/executive-summaries/:sid',
     async (request, reply) => {
       const db = getDatabase();
       const { pid, sid } = request.params;
@@ -258,7 +258,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
 
   // Delete an executive summary
   fastify.delete<{ Params: { pid: string; sid: string } }>(
-    '/api/projects/:pid/executive-summaries/:sid',
+    '/projects/:pid/executive-summaries/:sid',
     async (request, reply) => {
       const db = getDatabase();
       const { pid, sid } = request.params;
@@ -287,7 +287,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
 
   // Update a single block within a summary
   fastify.put<{ Params: { pid: string; sid: string; bid: string }; Body: any }>(
-    '/api/projects/:pid/executive-summaries/:sid/blocks/:bid',
+    '/projects/:pid/executive-summaries/:sid/blocks/:bid',
     async (request, reply) => {
       const db = getDatabase();
       const { pid, sid, bid } = request.params;
@@ -349,7 +349,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
 
   // Add a custom block to a summary
   fastify.post<{ Params: { pid: string; sid: string }; Body: any }>(
-    '/api/projects/:pid/executive-summaries/:sid/blocks',
+    '/projects/:pid/executive-summaries/:sid/blocks',
     async (request, reply) => {
       const db = getDatabase();
       const { pid, sid } = request.params;
@@ -396,7 +396,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
 
   // Delete a block from a summary
   fastify.delete<{ Params: { pid: string; sid: string; bid: string } }>(
-    '/api/projects/:pid/executive-summaries/:sid/blocks/:bid',
+    '/projects/:pid/executive-summaries/:sid/blocks/:bid',
     async (request, reply) => {
       const db = getDatabase();
       const { pid, sid, bid } = request.params;
@@ -427,7 +427,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
   // Generate a summary from project data for a given period
   // Aggregates issues, approvals, and agent activity into pre-filled blocks
   fastify.post<{ Params: { pid: string; sid: string } }>(
-    '/api/projects/:pid/executive-summaries/:sid/generate',
+    '/projects/:pid/executive-summaries/:sid/generate',
     async (request, reply) => {
       const db = getDatabase();
       const { pid, sid } = request.params;
@@ -600,7 +600,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
 
   // Finalize a summary (set status to 'final')
   fastify.post<{ Params: { pid: string; sid: string } }>(
-    '/api/projects/:pid/executive-summaries/:sid/finalize',
+    '/projects/:pid/executive-summaries/:sid/finalize',
     async (request, reply) => {
       const db = getDatabase();
       const { pid, sid } = request.params;
