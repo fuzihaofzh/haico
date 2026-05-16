@@ -61,6 +61,22 @@ export function registerKnowledgeAndCollaborationSuites(
       assert.equal(body.error, 'title is required');
     });
 
+    it('POST /api/projects/:pid/knowledge rejects invalid category', async () => {
+      const { status, body } = await ctx.api(
+        `/api/projects/${knowledgeProjectId}/knowledge`,
+        {
+          method: 'POST',
+          body: {
+            title: 'Invalid Category',
+            content: 'category should fail',
+            category: 'temporary',
+          },
+        }
+      );
+      assert.equal(status, 400);
+      assert.match(body.error, /Invalid category/);
+    });
+
     it('POST /api/projects/:pid/knowledge defaults to medium importance', async () => {
       const { status, body } = await ctx.api(
         `/api/projects/${knowledgeProjectId}/knowledge`,
@@ -90,6 +106,14 @@ export function registerKnowledgeAndCollaborationSuites(
       assert.equal(status, 200);
       assert.equal(body.entries.length, 1);
       assert.equal(body.entries[0].importance, 'high');
+    });
+
+    it('GET /api/projects/:pid/knowledge rejects invalid status', async () => {
+      const { status, body } = await ctx.api(
+        `/api/projects/${knowledgeProjectId}/knowledge?status=expired`
+      );
+      assert.equal(status, 400);
+      assert.match(body.error, /Invalid status/);
     });
 
     it('GET /api/knowledge/:id returns single entry', async () => {
@@ -364,6 +388,38 @@ export function registerKnowledgeAndCollaborationSuites(
       assert.ok(
         body.entries.some((entry: any) => entry.id === ownedKnowledgeId)
       );
+    });
+
+    it('POST /api/projects/:pid/knowledge rejects owner_agent_id outside project', async () => {
+      const { status, body } = await ctx.api(
+        `/api/projects/${memProjId}/knowledge`,
+        {
+          method: 'POST',
+          body: {
+            title: 'Invalid Owner',
+            content: 'owner should fail',
+            owner_agent_id: 'agent-outside-this-project',
+          },
+        }
+      );
+      assert.equal(status, 400);
+      assert.equal(body.error, 'owner_agent_id must reference an agent in this project');
+    });
+
+    it('POST /api/projects/:pid/knowledge rejects duplicate owner entry', async () => {
+      const { status, body } = await ctx.api(
+        `/api/projects/${memProjId}/knowledge`,
+        {
+          method: 'POST',
+          body: {
+            title: 'Duplicate Owner',
+            content: 'owner already has memory',
+            owner_agent_id: memAgentId,
+          },
+        }
+      );
+      assert.equal(status, 409);
+      assert.equal(body.error, 'Knowledge entry for this owner already exists');
     });
 
     it('other agent gets a separate owned knowledge entry', async () => {

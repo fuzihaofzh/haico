@@ -14,6 +14,7 @@ import { enqueueControllerTrigger, clearCoalescingTimers } from './services/cont
 import { stopAllSchedulers } from './services/scheduler';
 import { killAllPtySessions } from './services/terminal';
 import { clearAllPtyCleanupTimers } from './services/websocket';
+import { setupErrorHandler } from './middleware/error-handler';
 import { Agent, Project } from './types';
 
 export interface AppOptions {
@@ -28,6 +29,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   const host = opts.host ?? config.host;
 
   const fastify = Fastify({ logger: opts.logger ?? true });
+  setupErrorHandler(fastify);
 
   await fastify.register(fastifyCompress, {
     global: true,
