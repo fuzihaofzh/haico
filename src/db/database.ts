@@ -2,12 +2,12 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { config } from '../config';
-import { initializeDatabase } from './schema';
+import { initializeDatabase, InitializeDatabaseOptions } from './schema';
 
 let db: Database.Database;
 let currentDbPath: string | undefined;
 
-export function getDatabase(dbPath?: string): Database.Database {
+export function getDatabase(dbPath?: string, options: InitializeDatabaseOptions = {}): Database.Database {
   const targetPath = dbPath || currentDbPath || config.dbPath;
   if (!db) {
     const dir = path.dirname(targetPath);
@@ -16,7 +16,7 @@ export function getDatabase(dbPath?: string): Database.Database {
     }
     db = new Database(targetPath);
     currentDbPath = targetPath;
-    initializeDatabase(db);
+    initializeDatabase(db, options);
   }
   return db;
 }

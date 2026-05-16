@@ -20,6 +20,8 @@ export interface RegisterUserInput {
   display_name?: string;
 }
 
+export type UserRole = 'admin' | 'member';
+
 export function hasAnyUsers(db: Database.Database): boolean {
   return (db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c > 0;
 }
@@ -51,6 +53,43 @@ export function registerUser(db: Database.Database, input: RegisterUserInput): P
   ).run(userId, input.username, input.email || '', hash, salt, input.display_name || input.username, role);
 
   return db.prepare('SELECT id, username, email, display_name, role, created_at FROM users WHERE id = ?').get(userId) as PublicUser;
+}
+
+export function createUserWithRole(
+  db: Database.Database,
+  username: string,
+  password: string,
+  role: UserRole = 'member'
+): PublicUser | 'duplicate' {
+  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+  if (existing) return 'duplicate';
+
+  const userId = uuidv4();
+  const { hash, salt } = hashPassword(password);
+
+  db.prepare(
+    'INSERT INTO users (id, username, email, password_hash, password_salt, display_name, role) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(userId, username, '', hash, salt, username, role);
+
+  return db.prepare(
+    'SELECT id, username, email, display_name, role, created_at, last_login_at FROM users WHERE id = ?'
+  ).get(userId) as PublicUser;
+}
+
+export function resetUserPassword(db: Database.Database, username: string, password: string): PublicUser | null {
+  const user = db.prepare('SELECT id FROM users WHERE username = ?').get(username) as { id: string } | undefined;
+  if (!user) return null;
+
+  const { hash, salt } = hashPassword(password);
+  const reset = db.transaction(() => {
+    db.prepare('UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?').run(hash, salt, user.id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+  });
+  reset();
+
+  return db.prepare(
+    'SELECT id, username, email, display_name, role, created_at, last_login_at FROM users WHERE id = ?'
+  ).get(user.id) as PublicUser;
 }
 
 export function authenticateUser(db: Database.Database, username: string, password: string): User | null {

@@ -8,7 +8,11 @@ import {
 import { seedKnowledgeFts, seedLegacyAgentKnowledge, seedProjectOwners, seedBuiltinProjectTemplates } from './seed';
 import { runStartupMaintenance } from './maintenance';
 
-export function initializeDatabase(db: Database.Database): void {
+export interface InitializeDatabaseOptions {
+  skipStartupMaintenance?: boolean;
+}
+
+export function initializeDatabase(db: Database.Database, options: InitializeDatabaseOptions = {}): void {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
@@ -810,5 +814,7 @@ export function initializeDatabase(db: Database.Database): void {
   seedKnowledgeFts(db);
   seedProjectOwners(db);
   seedBuiltinProjectTemplates(db);
-  runStartupMaintenance(db);
+  if (!options.skipStartupMaintenance) {
+    runStartupMaintenance(db);
+  }
 }

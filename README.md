@@ -177,6 +177,22 @@ That's it. Open `http://localhost:4567`.
 haico --port 8080 --host 0.0.0.0 --db ./my-project.db --no-auth
 ```
 
+Maintenance commands:
+
+```bash
+# Create a member user and enter the password interactively
+haico create-user alice
+
+# Create an admin user in a specific database
+haico create-user alice --role admin --db ./my-project.db
+
+# Reset a user's password interactively
+haico reset-password alice
+
+# Generate and print a random password once
+haico reset-password alice --random
+```
+
 ### Option 2: Clone & Run
 
 ```bash
