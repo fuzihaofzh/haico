@@ -1,16 +1,16 @@
 import { FastifyInstance } from 'fastify';
-import { getDatabase } from '../db/database';
+import { getDatabase } from '../../db/database';
 import {
   COMMAND_PROFILE_TYPES,
   normalizeCommandProfileType,
   resolveCommandType,
-} from '../services/command-profiles';
+} from '../../services/command-profiles';
 import {
   checkRemoteCommandProfile,
   findRemoteInstanceById,
   isLocalTargetInstanceId,
-} from '../services/remote-instances';
-import { inspectToolReadiness } from '../services/tool-readiness';
+} from '../../services/remote-instances';
+import { inspectToolReadiness } from '../../services/tool-readiness';
 
 function normalizeProfileName(value: unknown): string {
   return String(value || '').trim();
@@ -36,7 +36,7 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
       defaultJsonParser(request, bodyText, parserDone);
     });
 
-    profileRoutes.get('/api/command-profiles', async () => {
+    profileRoutes.get('/command-profiles', async () => {
       const db = getDatabase();
       const profiles = db.prepare(
         `SELECT id, name, command, type, created_at, updated_at
@@ -48,7 +48,7 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
 
     profileRoutes.post<{
       Body: { command?: string; type?: string | null; target_instance_id?: string | null };
-    }>('/api/command-profiles/check', async (request, reply) => {
+    }>('/command-profiles/check', async (request, reply) => {
       const command = normalizeProfileCommand(request.body?.command);
       const type = resolveCommandType(request.body?.type, command);
       const targetInstanceId = String(request.body?.target_instance_id || '').trim();
@@ -80,7 +80,7 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
 
     profileRoutes.post<{
       Body: { name?: string; command?: string; type?: string | null };
-    }>('/api/command-profiles', async (request, reply) => {
+    }>('/command-profiles', async (request, reply) => {
       const db = getDatabase();
       const name = normalizeProfileName(request.body?.name);
       const command = normalizeProfileCommand(request.body?.command);
@@ -103,7 +103,7 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
     profileRoutes.put<{
       Params: { id: string };
       Body: { name?: string; command?: string; type?: string | null };
-    }>('/api/command-profiles/:id', async (request, reply) => {
+    }>('/command-profiles/:id', async (request, reply) => {
       const db = getDatabase();
       const existing = db.prepare('SELECT * FROM command_profiles WHERE id = ?').get(request.params.id) as
         | { id: string; name: string; command: string; type: string }
@@ -138,7 +138,7 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
       ).get(request.params.id);
     });
 
-    profileRoutes.delete<{ Params: { id: string } }>('/api/command-profiles/:id', async (request, reply) => {
+    profileRoutes.delete<{ Params: { id: string } }>('/command-profiles/:id', async (request, reply) => {
       const db = getDatabase();
       const result = db.prepare('DELETE FROM command_profiles WHERE id = ?').run(request.params.id);
       if (result.changes === 0) return reply.code(404).send({ error: 'Command profile not found' });

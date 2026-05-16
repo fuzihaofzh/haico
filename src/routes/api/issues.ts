@@ -1,16 +1,16 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase } from '../db/database';
-import { Agent, Project } from '../types';
-import { startAgentProcess, isAgentRunning } from '../services/process-manager';
-import { autoStartAgentForDispatchableIssues } from '../services/assigned-issue-autostart';
-import { buildSystemPrompt } from '../services/system-prompt';
-import { enqueueControllerTrigger } from '../services/controller';
-import { tryHandleWithoutLLM } from '../services/pre-controller';
-import { getAgentWakeupDecision, recordAgentWakeup } from '../services/agent-wakeup-guard';
-import { broadcastToProject } from '../services/websocket';
-import { config } from '../config';
-import logger from '../logger';
+import { getDatabase } from '../../db/database';
+import { Agent, Project } from '../../types';
+import { startAgentProcess, isAgentRunning } from '../../services/process-manager';
+import { autoStartAgentForDispatchableIssues } from '../../services/assigned-issue-autostart';
+import { buildSystemPrompt } from '../../services/system-prompt';
+import { enqueueControllerTrigger } from '../../services/controller';
+import { tryHandleWithoutLLM } from '../../services/pre-controller';
+import { getAgentWakeupDecision, recordAgentWakeup } from '../../services/agent-wakeup-guard';
+import { broadcastToProject } from '../../services/websocket';
+import { config } from '../../config';
+import logger from '../../logger';
 import {
   ensureCommentAccess,
   ensureIssueAccess,
@@ -19,7 +19,7 @@ import {
   ensureRelationAccess,
   getProjectRequestContext,
   listAccessibleProjectIds,
-} from '../services/project-permissions';
+} from '../../services/project-permissions';
 
 const NOTIFICATION_PREVIEW_CHARS = 150;
 const DEFAULT_INBOX_PAGE_LIMIT = 20;
@@ -223,7 +223,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // List issues (with search, sort, pagination)
   fastify.get<{ Params: { pid: string }; Querystring: { status?: string; assigned_to?: string; label?: string; q?: string; sort?: string; page?: string; per_page?: string; milestone_id?: string } }>(
-    '/api/projects/:pid/issues',
+    '/projects/:pid/issues',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureProjectAccess(db, request, reply, request.params.pid);
@@ -267,7 +267,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // Issue counts by status (lightweight alternative to loading all issues)
   fastify.get<{ Params: { pid: string } }>(
-    '/api/projects/:pid/issues/counts',
+    '/projects/:pid/issues/counts',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureProjectAccess(db, request, reply, request.params.pid);
@@ -287,7 +287,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // Create issue
   fastify.post<{ Params: { pid: string }; Body: { title: string; body?: string; created_by: string; assigned_to?: string; labels?: string; parent_id?: string } }>(
-    '/api/projects/:pid/issues',
+    '/projects/:pid/issues',
     async (request, reply) => {
       const { title, body, created_by, assigned_to, labels, parent_id } = request.body;
       if (!title || !created_by) {
@@ -379,7 +379,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   );
 
   // Get issue detail (with comments + reactions + parent/children)
-  fastify.get<{ Params: { id: string } }>('/api/issues/:id', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/issues/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureIssueAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -441,7 +441,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // Update issue with timeline events
   fastify.put<{ Params: { id: string }; Body: { status?: string; assigned_to?: string; title?: string; body?: string; labels?: string; milestone_id?: string; actor?: string } }>(
-    '/api/issues/:id',
+    '/issues/:id',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureIssueAccess(db, request, reply, request.params.id, true);
@@ -602,7 +602,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   );
 
   // Delete issue (only open, no children)
-  fastify.delete<{ Params: { id: string } }>('/api/issues/:id', async (request, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/issues/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureIssueAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -622,7 +622,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // ─── Comments ───
 
   // List comments
-  fastify.get<{ Params: { id: string }; Querystring: { since_created_at?: string } }>('/api/issues/:id/comments', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { since_created_at?: string } }>('/issues/:id/comments', async (request, reply) => {
     const db = getDatabase();
     const access = ensureIssueAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -638,7 +638,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   // ?scope=all: all issues & comments in accessible projects
   // ?limit=20&offset=0: page through inbox issues without loading the full history
   // ?project_id=...: restrict the inbox page to one accessible project
-  fastify.get('/api/notifications', async (request) => {
+  fastify.get('/notifications', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
@@ -770,7 +770,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   });
 
   // My Issues — all issues the user is involved in (assigned, created, or commented)
-  fastify.get('/api/my-issues', async (request) => {
+  fastify.get('/my-issues', async (request) => {
     const db = getDatabase();
     const { user, localhostBypass } = getProjectRequestContext(request);
     const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
@@ -787,7 +787,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   });
 
   // Inbox search — search all issues by title, body, or number
-  fastify.get<{ Querystring: { q?: string } }>('/api/inbox/search', async (request) => {
+  fastify.get<{ Querystring: { q?: string } }>('/inbox/search', async (request) => {
     const db = getDatabase();
     const q = (request.query.q || '').trim();
     if (!q) return [];
@@ -808,7 +808,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   });
 
   // Acknowledge issue (mark as read — hides from notifications)
-  fastify.post<{ Params: { id: string } }>('/api/issues/:id/acknowledge', async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/issues/:id/acknowledge', async (request, reply) => {
     const db = getDatabase();
     const access = ensureIssueAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -819,7 +819,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   });
 
   // Unacknowledge issue (show again in notifications)
-  fastify.post<{ Params: { id: string } }>('/api/issues/:id/unacknowledge', async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/issues/:id/unacknowledge', async (request, reply) => {
     const db = getDatabase();
     const access = ensureIssueAccess(db, request, reply, request.params.id);
     if (!access) return;
@@ -831,7 +831,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // Add comment
   fastify.post<{ Params: { id: string }; Body: { author_id: string; body: string } }>(
-    '/api/issues/:id/comments',
+    '/issues/:id/comments',
     async (request, reply) => {
       const { author_id, body } = request.body;
       if (!author_id || !body) {
@@ -921,7 +921,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   );
 
   // Edit comment
-  fastify.put<{ Params: { id: string }; Body: { body: string } }>('/api/comments/:id', async (request, reply) => {
+  fastify.put<{ Params: { id: string }; Body: { body: string } }>('/comments/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureCommentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -932,7 +932,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   });
 
   // Delete comment
-  fastify.delete<{ Params: { id: string } }>('/api/comments/:id', async (request, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/comments/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureCommentAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -943,7 +943,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   });
 
   // Get issue by project ID + number (with reactions + parent/children)
-  fastify.get<{ Params: { pid: string; num: string } }>('/api/projects/:pid/issues/number/:num', async (request, reply) => {
+  fastify.get<{ Params: { pid: string; num: string } }>('/projects/:pid/issues/number/:num', async (request, reply) => {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.pid);
     if (!access) return;
@@ -1005,13 +1005,13 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     return { ...issue, comments: commentsWithReactions, reactions, parent_number, parent_title, children, blocks: blocks2, blocked_by: blocked_by2, related_to: related_to2, is_blocked: is_blocked2 };
   });
 
-  // Also update GET /api/issues/:id to include reactions
+  // Also update GET /issues/:id to include reactions
   // (Override by adding reactions to response)
 
   // ─── Reactions ───
 
   fastify.post<{ Params: { type: string; id: string }; Body: { user_id: string; emoji: string } }>(
-    '/api/reactions/:type/:id',
+    '/reactions/:type/:id',
     async (request, reply) => {
       const db = getDatabase();
       if (request.params.type === 'issue') {
@@ -1039,7 +1039,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     }
   );
 
-  fastify.get<{ Params: { type: string; id: string } }>('/api/reactions/:type/:id', async (request, reply) => {
+  fastify.get<{ Params: { type: string; id: string } }>('/reactions/:type/:id', async (request, reply) => {
     const db = getDatabase();
     if (request.params.type === 'issue') {
       const access = ensureIssueAccess(db, request, reply, request.params.id);
@@ -1056,7 +1056,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // ─── Milestones ───
 
-  fastify.get<{ Params: { pid: string } }>('/api/projects/:pid/milestones', async (request, reply) => {
+  fastify.get<{ Params: { pid: string } }>('/projects/:pid/milestones', async (request, reply) => {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.pid);
     if (!access) return;
@@ -1080,7 +1080,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   });
 
   fastify.post<{ Params: { pid: string }; Body: { title: string; description?: string; due_date?: string } }>(
-    '/api/projects/:pid/milestones',
+    '/projects/:pid/milestones',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureProjectAccess(db, request, reply, request.params.pid, true);
@@ -1095,7 +1095,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
   );
 
   fastify.put<{ Params: { id: string }; Body: { title?: string; description?: string; due_date?: string; status?: string } }>(
-    '/api/milestones/:id',
+    '/milestones/:id',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureMilestoneAccess(db, request, reply, request.params.id, true);
@@ -1107,7 +1107,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
     }
   );
 
-  fastify.delete<{ Params: { id: string } }>('/api/milestones/:id', async (request, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/milestones/:id', async (request, reply) => {
     const db = getDatabase();
     const access = ensureMilestoneAccess(db, request, reply, request.params.id, true);
     if (!access) return;
@@ -1118,7 +1118,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // ─── Search ───
 
-  fastify.get<{ Params: { pid: string }; Querystring: { q: string } }>('/api/projects/:pid/search', async (request, reply) => {
+  fastify.get<{ Params: { pid: string }; Querystring: { q: string } }>('/projects/:pid/search', async (request, reply) => {
     const db = getDatabase();
     const access = ensureProjectAccess(db, request, reply, request.params.pid);
     if (!access) return;
@@ -1134,7 +1134,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // Add relation
   fastify.post<{ Params: { id: string }; Body: { type: string; target_issue_id: string; actor?: string } }>(
-    '/api/issues/:id/relations',
+    '/issues/:id/relations',
     async (request, reply) => {
       const db = getDatabase();
       const sourceAccess = ensureIssueAccess(db, request, reply, request.params.id, true);
@@ -1194,7 +1194,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // Delete relation
   fastify.delete<{ Params: { id: string; relationId: string } }>(
-    '/api/issues/:id/relations/:relationId',
+    '/issues/:id/relations/:relationId',
     async (request, reply) => {
       const db = getDatabase();
       const issueAccess = ensureIssueAccess(db, request, reply, request.params.id, true);
@@ -1223,7 +1223,7 @@ export function registerIssueRoutes(fastify: FastifyInstance): void {
 
   // List relations for an issue
   fastify.get<{ Params: { id: string } }>(
-    '/api/issues/:id/relations',
+    '/issues/:id/relations',
     async (request, reply) => {
       const db = getDatabase();
       const access = ensureIssueAccess(db, request, reply, request.params.id);

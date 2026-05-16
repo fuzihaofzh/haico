@@ -6,21 +6,7 @@ import fastifyMultipart from '@fastify/multipart';
 import path from 'path';
 import { config } from './config';
 import { getDatabase, closeDatabase } from './db/database';
-import { setupAuth } from './middleware/auth';
-import { registerAuthRoutes } from './routes/auth';
-import { registerProjectRoutes } from './routes/projects';
-import { registerAgentRoutes } from './routes/agents';
-import { registerIssueRoutes } from './routes/issues';
-import { registerUIRoutes } from './routes/ui';
-import { registerKnowledgeRoutes } from './routes/knowledge';
-import { registerMessageRoutes } from './routes/messages';
-import { registerCommandProfileRoutes } from './routes/command-profiles';
-import { registerTemplateRoutes } from './routes/templates';
-import { registerApprovalRoutes } from './routes/approvals';
-import { registerExecutiveSummaryRoutes } from './routes/executive-summaries';
-import { registerRemoteInstanceRoutes } from './routes/remote-instances';
-import { registerDashboardChatRoutes } from './routes/dashboard-chat';
-import { setupWebSocket } from './services/websocket';
+import { registerRoutes } from './routes/route';
 import { initializeScheduler } from './services/scheduler';
 import { setOnAgentFinish, stopAllProcesses } from './services/process-manager';
 import { autoStartAgentForDispatchableIssues } from './services/assigned-issue-autostart';
@@ -55,21 +41,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
     maxAge: '1h',
   });
 
-  registerAuthRoutes(fastify);
-  setupAuth(fastify);
-  registerProjectRoutes(fastify);
-  registerAgentRoutes(fastify);
-  registerIssueRoutes(fastify);
-  registerKnowledgeRoutes(fastify);
-  registerMessageRoutes(fastify);
-  registerCommandProfileRoutes(fastify);
-  registerTemplateRoutes(fastify);
-  registerApprovalRoutes(fastify);
-  registerExecutiveSummaryRoutes(fastify);
-  registerRemoteInstanceRoutes(fastify);
-  registerDashboardChatRoutes(fastify);
-  registerUIRoutes(fastify);
-  setupWebSocket(fastify);
+  await registerRoutes(fastify);
 
   getDatabase();
 

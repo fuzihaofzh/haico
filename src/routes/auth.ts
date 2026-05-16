@@ -16,7 +16,7 @@ import {
 import { isLegacySha256 } from '../services/auth/password';
 
 export function registerAuthRoutes(app: FastifyInstance): void {
-  app.post('/api/auth/setup', async (request, reply) => {
+  app.post('/auth/setup', async (request, reply) => {
     const authConfig = loadAuthConfig();
     if (authConfig.passwordHash) return reply.status(403).send({ error: 'Password already set' });
 
@@ -31,7 +31,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     reply.send({ ok: true });
   });
 
-  app.post('/api/auth', async (request, reply) => {
+  app.post('/auth', async (request, reply) => {
     const authConfig = loadAuthConfig();
     if (!authConfig.passwordHash) return reply.status(400).send({ error: 'No password configured' });
 
@@ -49,7 +49,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.post('/api/auth/change-password', async (request, reply) => {
+  app.post('/auth/change-password', async (request, reply) => {
     const authConfig = loadAuthConfig();
     if (!authConfig.passwordHash) return reply.status(400).send({ error: 'No password configured' });
 
@@ -67,7 +67,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     reply.send({ ok: true });
   });
 
-  app.post('/api/auth/logout', async (request, reply) => {
+  app.post('/auth/logout', async (request, reply) => {
     const cookies = parseCookies(request.headers.cookie);
     const token = cookies[COOKIE_NAME];
     if (token) {
@@ -78,7 +78,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     reply.header('Set-Cookie', buildClearAuthCookie()).send({ ok: true });
   });
 
-  app.post('/api/auth/register', async (request, reply) => {
+  app.post('/auth/register', async (request, reply) => {
     const body = request.body as { username?: string; email?: string; password?: string; display_name?: string } | null;
     const validationError = validateRegistrationInput(body || {});
     if (validationError) return reply.status(400).send({ error: validationError });
@@ -97,7 +97,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return reply.status(201).send({ ok: true, user });
   });
 
-  app.post('/api/auth/login', async (request, reply) => {
+  app.post('/auth/login', async (request, reply) => {
     const body = request.body as { username?: string; password?: string } | null;
     if (!body?.username || !body?.password) {
       return reply.status(400).send({ error: 'username and password are required' });
@@ -122,7 +122,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     };
   });
 
-  app.get('/api/auth/me', async (request, reply) => {
+  app.get('/auth/me', async (request, reply) => {
     const user = getRequestUser(request);
     if (user) {
       return {
@@ -137,13 +137,13 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return reply.status(401).send({ error: 'Not authenticated' });
   });
 
-  app.get('/api/auth/users', async (request, reply) => {
+  app.get('/auth/users', async (request, reply) => {
     const user = getRequestUser(request);
     if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
     return { users: listUsers(getDatabase()) };
   });
 
-  app.put('/api/auth/users/:id', async (request, reply) => {
+  app.put('/auth/users/:id', async (request, reply) => {
     const user = getRequestUser(request);
     if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
 
@@ -157,7 +157,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return { user: updated };
   });
 
-  app.delete('/api/auth/users/:id', async (request, reply) => {
+  app.delete('/auth/users/:id', async (request, reply) => {
     const user = getRequestUser(request);
     if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
 
