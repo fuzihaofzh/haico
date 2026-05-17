@@ -165,7 +165,7 @@ function startIssueScan(): void {
   logger.info('Worker scan scheduled: every 3 minutes');
 }
 
-// hasActiveChildren removed — replaced by CPU activity detection in process-manager.ts
+// hasActiveChildren removed — replaced by CPU activity detection in process-manager.
 
 // Watchdog: detect agents stuck in 'running' state.
 // Two checks:
