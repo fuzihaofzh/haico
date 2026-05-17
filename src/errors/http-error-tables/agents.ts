@@ -1,0 +1,66 @@
+import {
+  AgentAlreadyPausedError,
+  AgentAlreadyRunningError,
+  AgentBinaryPreviewUnsupportedError,
+  AgentDirectoryExpectedError,
+  AgentFileAccessDeniedError,
+  AgentFileContentTypeError,
+  AgentFileExpectedError,
+  AgentFileNotFoundError,
+  AgentFileOperationFailedError,
+  AgentFilePathRequiredError,
+  AgentFileTooLargeError,
+  AgentInvalidParentAssignmentError,
+  AgentNameRequiredError,
+  AgentNotFoundError,
+  AgentNotPausedError,
+  AgentPathOutsideWorkingDirectoryError,
+  AgentPathResolutionError,
+  AgentPausedError,
+  AgentPreviewFileTypeUnsupportedError,
+  AgentProjectNotFoundError,
+  AgentPromptUnavailableError,
+  AgentRetryPromptMissingError,
+  AgentRunNotFoundError,
+  AgentSQLiteFileUnsupportedError,
+  AgentSQLiteTableNotFoundError,
+  AgentUploadMissingFileError,
+  AgentWorkingDirectoryRequiredError,
+} from '../../services/agents/errors';
+import type { ErrorHttpEntry } from '../http-error-types';
+
+export const agentErrorHttpEntries = [
+  [AgentNameRequiredError, 400],
+  [AgentInvalidParentAssignmentError, 400],
+  [AgentPromptUnavailableError, 400],
+  [AgentRetryPromptMissingError, 400],
+  [AgentWorkingDirectoryRequiredError, 400],
+  [AgentPathOutsideWorkingDirectoryError, 400],
+  [AgentDirectoryExpectedError, 400],
+  [AgentFileExpectedError, 400],
+  [AgentFilePathRequiredError, 400],
+  [AgentFileContentTypeError, 400],
+  [AgentUploadMissingFileError, 400],
+
+  [AgentFileAccessDeniedError, 403],
+
+  [AgentNotFoundError, 404],
+  [AgentProjectNotFoundError, 404],
+  [AgentFileNotFoundError, 404],
+  [AgentSQLiteTableNotFoundError, 404],
+  [AgentRunNotFoundError, 404],
+
+  [AgentPausedError, 409],
+  [AgentAlreadyRunningError, 409],
+  [AgentAlreadyPausedError, 409],
+  [AgentNotPausedError, 409],
+
+  [AgentFileTooLargeError, 413],
+
+  [AgentBinaryPreviewUnsupportedError, 415],
+  [AgentPreviewFileTypeUnsupportedError, 415],
+  [AgentSQLiteFileUnsupportedError, 415],
+
+  [AgentPathResolutionError, 500],
+  [AgentFileOperationFailedError, 500],
+] satisfies readonly ErrorHttpEntry[];

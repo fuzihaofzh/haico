@@ -4,6 +4,25 @@ import Fastify, { FastifyInstance } from 'fastify';
 import { setupErrorHandler } from '../../src/middleware/error-handler';
 import { InvalidKnowledgeStatusError } from '../../src/services/knowledge/errors';
 import { InvalidIssueStatusError } from '../../src/services/issue/errors';
+import { ProjectMetadataToolError } from '../../src/services/projects/errors';
+import type { ToolReadinessSummary } from '../../src/services/tool-readiness';
+
+const missingToolReadiness = {
+  command: 'codex',
+  command_type: null,
+  tool_label: 'Codex CLI',
+  binary: 'codex',
+  binary_found: false,
+  binary_path: null,
+  ready: false,
+  issues: [],
+  auth: {
+    status: 'missing',
+    confidence: 'unknown',
+    message: 'Authentication missing',
+    action_command: 'codex login',
+  },
+} satisfies ToolReadinessSummary;
 
 async function withErrorTestApp(
   nodeEnv: string | undefined,
@@ -23,6 +42,14 @@ async function withErrorTestApp(
   });
   app.get('/issue-domain-error', async () => {
     throw new InvalidIssueStatusError();
+  });
+  app.get('/metadata-tool-error', async () => {
+    throw new ProjectMetadataToolError(
+      'Metadata generation failed',
+      'execution_failed',
+      missingToolReadiness,
+      'codex login'
+    );
   });
   app.get('/unknown-error', async () => {
     throw new Error('database secret detail');
@@ -57,6 +84,21 @@ it('global error handler maps issue domain errors to public API errors', async (
 
     assert.equal(res.statusCode, 400);
     assert.deepEqual(body, { error: 'Invalid status' });
+  });
+});
+
+it('global error handler supports dynamic registered error mappings', async () => {
+  await withErrorTestApp(undefined, async (app) => {
+    const res = await app.inject('/metadata-tool-error');
+    const body = JSON.parse(res.body);
+
+    assert.equal(res.statusCode, 500);
+    assert.deepEqual(body, {
+      error: 'Metadata generation failed',
+      error_code: 'execution_failed',
+      action_command: 'codex login',
+      readiness: missingToolReadiness,
+    });
   });
 });
 

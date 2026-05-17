@@ -1,379 +1,66 @@
-import {
-  DuplicateOwnerKnowledgeEntryError,
-  InvalidKnowledgeCategoryError,
-  InvalidKnowledgeImportanceError,
-  InvalidKnowledgeOwnerAgentError,
-  InvalidKnowledgeStatusError,
-  KnowledgeAgentNotFoundError,
-  KnowledgeEntryNotFoundError,
-  MissingKnowledgeContentError,
-  MissingKnowledgeTitleError,
-} from '../services/knowledge/errors';
-import {
-  AgentMessageNotFoundError,
-  AgentMessageNotInAgentInboxError,
-  AgentMessageOutsideDirectHierarchyError,
-  AgentMessageRecipientNotFoundError,
-  AgentMessageRecipientOutsideProjectError,
-  AgentMessageReplyTargetNotFoundError,
-  AgentMessageReplyTargetOutsideProjectError,
-  AgentMessageSenderNotFoundError,
-  MissingAgentMessageBodyError,
-  MissingAgentMessageRecipientError,
-} from '../services/agents/message-errors';
-import {
-  AgentAccessAgentNotFoundError,
-  MessageAccessMessageNotFoundError,
-  ProjectAccessDeniedError,
-  ProjectAccessProjectNotFoundError,
-  ProjectManagementAccessRequiredError,
-} from '../services/project-access';
-import {
-  InvalidIssueRelationTypeError,
-  InvalidIssueStatusError,
-  InvalidReactionTargetTypeError,
-  IssueCommentNotFoundError,
-  IssueDeleteStatusConflictError,
-  IssueHasChildrenDeleteConflictError,
-  IssueNotFoundError,
-  IssueParentNotFoundError,
-  IssueParentProjectMismatchError,
-  IssueRelationAlreadyExistsError,
-  IssueRelationNotFoundError,
-  MilestoneNotFoundError,
-  MissingIssueCommentFieldsError,
-  MissingIssueCreateFieldsError,
-  MissingIssueRelationFieldsError,
-  MissingMilestoneTitleError,
-  MissingReactionFieldsError,
-  SelfIssueRelationError,
-  SourceIssueNotFoundError,
-  TargetIssueNotFoundError,
-  TargetIssueProjectMismatchError,
-} from '../services/issue/errors';
-import {
-  AgentAlreadyPausedError,
-  AgentAlreadyRunningError,
-  AgentBinaryPreviewUnsupportedError,
-  AgentDirectoryExpectedError,
-  AgentFileAccessDeniedError,
-  AgentFileContentTypeError,
-  AgentFileExpectedError,
-  AgentFileNotFoundError,
-  AgentFileOperationFailedError,
-  AgentFilePathRequiredError,
-  AgentFileTooLargeError,
-  AgentInvalidParentAssignmentError,
-  AgentNameRequiredError,
-  AgentNotFoundError,
-  AgentNotPausedError,
-  AgentPathOutsideWorkingDirectoryError,
-  AgentPathResolutionError,
-  AgentPausedError,
-  AgentPreviewFileTypeUnsupportedError,
-  AgentProjectNotFoundError,
-  AgentPromptUnavailableError,
-  AgentRetryPromptMissingError,
-  AgentRunNotFoundError,
-  AgentSQLiteFileUnsupportedError,
-  AgentSQLiteTableNotFoundError,
-  AgentUploadMissingFileError,
-  AgentWorkingDirectoryRequiredError,
-} from '../services/agents/errors';
-import {
-  InvalidProjectMemberRoleError,
-  InvalidProjectOrchestratorEngineError,
-  MissingProjectMetadataDescriptionError,
-  MissingProjectTaskDescriptionError,
-  ProjectDeleteBlockedError,
-  ProjectDeleteForbiddenError,
-  ProjectMemberIdentityRequiredError,
-  ProjectMemberNotFoundError,
-  ProjectMetadataInvalidResponseError,
-  ProjectMetadataToolError,
-  ProjectNotFoundError,
-  ProjectOwnerAlreadyHasAccessError,
-  ProjectOwnerMutationError,
-  ProjectUserNotFoundError,
-} from '../services/projects/errors';
-import {
-  InvalidPaymentApprovalAmountError,
-  InvalidPaymentApprovalDecisionError,
-  MissingPaymentApprovalCancelFieldsError,
-  MissingPaymentApprovalCreateFieldsError,
-  MissingPaymentApprovalDecisionFieldsError,
-  PaymentApprovalAlreadyResolvedError,
-  PaymentApprovalCancelForbiddenError,
-  PaymentApprovalCancelStatusConflictError,
-  PaymentApprovalDuplicateDecisionError,
-  PaymentApprovalNotFoundError,
-  PaymentApprovalSelfApprovalError,
-} from '../services/payment-approvals/errors';
+import { agentMessageErrorHttpEntries } from './http-error-tables/agent-messages';
+import { agentErrorHttpEntries } from './http-error-tables/agents';
+import { issueErrorHttpEntries } from './http-error-tables/issues';
+import { knowledgeErrorHttpEntries } from './http-error-tables/knowledge';
+import { paymentApprovalErrorHttpEntries } from './http-error-tables/payment-approvals';
+import { projectAccessErrorHttpEntries } from './http-error-tables/project-access';
+import { projectErrorHttpEntries } from './http-error-tables/projects';
+import type {
+  ErrorConstructor,
+  ErrorHttpEntry,
+  ErrorHttpResolver,
+  HttpErrorMapping,
+} from './http-error-types';
 
-export interface HttpErrorMapping {
-  statusCode: number;
-  message: string;
-  extra?: Record<string, unknown>;
-}
+export type { HttpErrorMapping } from './http-error-types';
+
+const errorHttpEntries = [
+  ...knowledgeErrorHttpEntries,
+  ...agentMessageErrorHttpEntries,
+  ...projectAccessErrorHttpEntries,
+  ...projectErrorHttpEntries,
+  ...issueErrorHttpEntries,
+  ...agentErrorHttpEntries,
+  ...paymentApprovalErrorHttpEntries,
+] satisfies readonly ErrorHttpEntry[];
+
+const errorHttpMap = createErrorHttpMap(errorHttpEntries);
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error || 'Internal server error');
 }
 
-function mapKnowledgeError(error: unknown): HttpErrorMapping | null {
-  if (
-    error instanceof MissingKnowledgeTitleError
-    || error instanceof MissingKnowledgeContentError
-    || error instanceof InvalidKnowledgeImportanceError
-    || error instanceof InvalidKnowledgeCategoryError
-    || error instanceof InvalidKnowledgeStatusError
-    || error instanceof InvalidKnowledgeOwnerAgentError
-  ) {
-    return { statusCode: 400, message: error.message };
+function createErrorHttpMap(
+  entries: readonly ErrorHttpEntry[]
+): Map<ErrorConstructor, ErrorHttpResolver> {
+  const map = new Map<ErrorConstructor, ErrorHttpResolver>();
+
+  for (const [errorType, resolver] of entries) {
+    if (map.has(errorType)) {
+      const errorName = (errorType as { name?: string }).name || 'unknown error';
+      throw new Error(`Duplicate HTTP error mapping for ${errorName}`);
+    }
+    map.set(errorType, resolver);
   }
 
-  if (
-    error instanceof KnowledgeEntryNotFoundError
-    || error instanceof KnowledgeAgentNotFoundError
-  ) {
-    return { statusCode: 404, message: error.message };
-  }
-
-  if (error instanceof DuplicateOwnerKnowledgeEntryError) {
-    return { statusCode: 409, message: error.message };
-  }
-
-  return null;
+  return map;
 }
 
-function mapAgentMessageError(error: unknown): HttpErrorMapping | null {
-  if (
-    error instanceof MissingAgentMessageRecipientError
-    || error instanceof MissingAgentMessageBodyError
-    || error instanceof AgentMessageRecipientOutsideProjectError
-    || error instanceof AgentMessageReplyTargetNotFoundError
-    || error instanceof AgentMessageReplyTargetOutsideProjectError
-  ) {
-    return { statusCode: 400, message: error.message };
+function resolveHttpMapping(resolver: ErrorHttpResolver, error: Error): HttpErrorMapping {
+  if (typeof resolver === 'number') {
+    return { statusCode: resolver, message: error.message };
   }
-
-  if (error instanceof AgentMessageOutsideDirectHierarchyError) {
-    return { statusCode: 403, message: error.message };
-  }
-
-  if (
-    error instanceof AgentMessageSenderNotFoundError
-    || error instanceof AgentMessageRecipientNotFoundError
-    || error instanceof AgentMessageNotFoundError
-    || error instanceof AgentMessageNotInAgentInboxError
-  ) {
-    return { statusCode: 404, message: error.message };
-  }
-
-  return null;
+  return resolver(error);
 }
 
-function mapProjectPermissionError(error: unknown): HttpErrorMapping | null {
-  if (
-    error instanceof ProjectAccessDeniedError
-    || error instanceof ProjectManagementAccessRequiredError
-  ) {
-    return { statusCode: 403, message: error.message };
-  }
+function mapRegisteredError(error: unknown): HttpErrorMapping | null {
+  if (!(error instanceof Error)) return null;
 
-  if (
-    error instanceof ProjectAccessProjectNotFoundError
-    || error instanceof AgentAccessAgentNotFoundError
-    || error instanceof MessageAccessMessageNotFoundError
-  ) {
-    return { statusCode: 404, message: error.message };
-  }
+  const resolver = errorHttpMap.get(error.constructor as ErrorConstructor);
+  if (resolver === undefined) return null;
 
-  return null;
-}
-
-function mapProjectError(error: unknown): HttpErrorMapping | null {
-  if (
-    error instanceof MissingProjectTaskDescriptionError
-    || error instanceof InvalidProjectOrchestratorEngineError
-    || error instanceof ProjectMemberIdentityRequiredError
-    || error instanceof InvalidProjectMemberRoleError
-    || error instanceof ProjectOwnerAlreadyHasAccessError
-    || error instanceof ProjectOwnerMutationError
-    || error instanceof MissingProjectMetadataDescriptionError
-  ) {
-    return { statusCode: 400, message: error.message };
-  }
-
-  if (error instanceof ProjectMetadataToolError) {
-    return {
-      statusCode: error.errorCode === 'execution_failed' ? 500 : 400,
-      message: error.message,
-      extra: {
-        error_code: error.errorCode,
-        action_command: error.actionCommand,
-        readiness: error.readiness,
-      },
-    };
-  }
-
-  if (
-    error instanceof ProjectNotFoundError
-    || error instanceof ProjectUserNotFoundError
-    || error instanceof ProjectMemberNotFoundError
-  ) {
-    return { statusCode: 404, message: error.message };
-  }
-
-  if (error instanceof ProjectDeleteForbiddenError) {
-    return { statusCode: 403, message: error.message };
-  }
-
-  if (error instanceof ProjectDeleteBlockedError) {
-    return { statusCode: 409, message: error.message };
-  }
-
-  if (error instanceof ProjectMetadataInvalidResponseError) {
-    return { statusCode: 500, message: error.message, extra: { raw: error.raw } };
-  }
-
-  return null;
-}
-
-function mapIssueError(error: unknown): HttpErrorMapping | null {
-  if (
-    error instanceof MissingIssueCreateFieldsError
-    || error instanceof IssueParentNotFoundError
-    || error instanceof IssueParentProjectMismatchError
-    || error instanceof InvalidIssueStatusError
-    || error instanceof MissingIssueCommentFieldsError
-    || error instanceof InvalidReactionTargetTypeError
-    || error instanceof MissingReactionFieldsError
-    || error instanceof MissingMilestoneTitleError
-    || error instanceof MissingIssueRelationFieldsError
-    || error instanceof InvalidIssueRelationTypeError
-    || error instanceof SelfIssueRelationError
-    || error instanceof TargetIssueProjectMismatchError
-  ) {
-    return { statusCode: 400, message: error.message };
-  }
-
-  if (
-    error instanceof IssueNotFoundError
-    || error instanceof IssueCommentNotFoundError
-    || error instanceof MilestoneNotFoundError
-    || error instanceof SourceIssueNotFoundError
-    || error instanceof TargetIssueNotFoundError
-    || error instanceof IssueRelationNotFoundError
-  ) {
-    return { statusCode: 404, message: error.message };
-  }
-
-  if (
-    error instanceof IssueDeleteStatusConflictError
-    || error instanceof IssueHasChildrenDeleteConflictError
-    || error instanceof IssueRelationAlreadyExistsError
-  ) {
-    return { statusCode: 409, message: error.message };
-  }
-
-  return null;
-}
-
-function mapAgentError(error: unknown): HttpErrorMapping | null {
-  if (
-    error instanceof AgentNameRequiredError
-    || error instanceof AgentInvalidParentAssignmentError
-    || error instanceof AgentPromptUnavailableError
-    || error instanceof AgentRetryPromptMissingError
-    || error instanceof AgentWorkingDirectoryRequiredError
-    || error instanceof AgentPathOutsideWorkingDirectoryError
-    || error instanceof AgentDirectoryExpectedError
-    || error instanceof AgentFileExpectedError
-    || error instanceof AgentFilePathRequiredError
-    || error instanceof AgentFileContentTypeError
-    || error instanceof AgentUploadMissingFileError
-  ) {
-    return { statusCode: 400, message: error.message };
-  }
-
-  if (error instanceof AgentFileAccessDeniedError) {
-    return { statusCode: 403, message: error.message };
-  }
-
-  if (
-    error instanceof AgentNotFoundError
-    || error instanceof AgentProjectNotFoundError
-    || error instanceof AgentFileNotFoundError
-    || error instanceof AgentSQLiteTableNotFoundError
-    || error instanceof AgentRunNotFoundError
-  ) {
-    return { statusCode: 404, message: error.message };
-  }
-
-  if (
-    error instanceof AgentPausedError
-    || error instanceof AgentAlreadyRunningError
-    || error instanceof AgentAlreadyPausedError
-    || error instanceof AgentNotPausedError
-  ) {
-    return { statusCode: 409, message: error.message };
-  }
-
-  if (error instanceof AgentFileTooLargeError) {
-    return { statusCode: 413, message: error.message };
-  }
-
-  if (
-    error instanceof AgentBinaryPreviewUnsupportedError
-    || error instanceof AgentPreviewFileTypeUnsupportedError
-    || error instanceof AgentSQLiteFileUnsupportedError
-  ) {
-    return { statusCode: 415, message: error.message };
-  }
-
-  if (
-    error instanceof AgentPathResolutionError
-    || error instanceof AgentFileOperationFailedError
-  ) {
-    return { statusCode: 500, message: error.message };
-  }
-
-  return null;
-}
-
-function mapPaymentApprovalError(error: unknown): HttpErrorMapping | null {
-  if (
-    error instanceof MissingPaymentApprovalCreateFieldsError
-    || error instanceof InvalidPaymentApprovalAmountError
-    || error instanceof MissingPaymentApprovalDecisionFieldsError
-    || error instanceof InvalidPaymentApprovalDecisionError
-    || error instanceof MissingPaymentApprovalCancelFieldsError
-  ) {
-    return { statusCode: 400, message: error.message };
-  }
-
-  if (
-    error instanceof PaymentApprovalSelfApprovalError
-    || error instanceof PaymentApprovalCancelForbiddenError
-  ) {
-    return { statusCode: 403, message: error.message };
-  }
-
-  if (error instanceof PaymentApprovalNotFoundError) {
-    return { statusCode: 404, message: error.message };
-  }
-
-  if (
-    error instanceof PaymentApprovalAlreadyResolvedError
-    || error instanceof PaymentApprovalDuplicateDecisionError
-    || error instanceof PaymentApprovalCancelStatusConflictError
-  ) {
-    return { statusCode: 409, message: error.message };
-  }
-
-  return null;
+  return resolveHttpMapping(resolver, error);
 }
 
 function mapFrameworkError(error: unknown): HttpErrorMapping | null {
@@ -390,7 +77,7 @@ function mapFrameworkError(error: unknown): HttpErrorMapping | null {
 }
 
 export function mapErrorToHttp(error: unknown): HttpErrorMapping | null {
-  return mapKnowledgeError(error) || mapAgentMessageError(error) || mapProjectPermissionError(error) || mapProjectError(error) || mapIssueError(error) || mapAgentError(error) || mapPaymentApprovalError(error) || mapFrameworkError(error);
+  return mapRegisteredError(error) || mapFrameworkError(error);
 }
 
 export function getUnexpectedErrorMessage(error: unknown): string {
