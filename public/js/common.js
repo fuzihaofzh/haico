@@ -736,7 +736,8 @@ document.addEventListener('DOMContentLoaded', function() {
 /**
  * Connect to a project's event stream. Returns an object with .close() and .on(type, cb).
  * Reconnects automatically on disconnect.
- * Event types: agent_status, issue_created, issue_updated, comment_added
+ * Event types are defined by src/realtime/protocol.ts and include project events
+ * for agents, issues, comments, approvals, payment approvals, and executive summaries.
  */
 function connectProjectEvents(projectId) {
   if (isRemoteProjectId(projectId)) {
