@@ -80,10 +80,27 @@ import {
   AgentUploadMissingFileError,
   AgentWorkingDirectoryRequiredError,
 } from '../services/agents/errors';
+import {
+  InvalidProjectMemberRoleError,
+  InvalidProjectOrchestratorEngineError,
+  MissingProjectMetadataDescriptionError,
+  MissingProjectTaskDescriptionError,
+  ProjectDeleteBlockedError,
+  ProjectDeleteForbiddenError,
+  ProjectMemberIdentityRequiredError,
+  ProjectMemberNotFoundError,
+  ProjectMetadataInvalidResponseError,
+  ProjectMetadataToolError,
+  ProjectNotFoundError,
+  ProjectOwnerAlreadyHasAccessError,
+  ProjectOwnerMutationError,
+  ProjectUserNotFoundError,
+} from '../services/projects/errors';
 
 export interface HttpErrorMapping {
   statusCode: number;
   message: string;
+  extra?: Record<string, unknown>;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -158,6 +175,54 @@ function mapProjectPermissionError(error: unknown): HttpErrorMapping | null {
     || error instanceof MessageAccessMessageNotFoundError
   ) {
     return { statusCode: 404, message: error.message };
+  }
+
+  return null;
+}
+
+function mapProjectError(error: unknown): HttpErrorMapping | null {
+  if (
+    error instanceof MissingProjectTaskDescriptionError
+    || error instanceof InvalidProjectOrchestratorEngineError
+    || error instanceof ProjectMemberIdentityRequiredError
+    || error instanceof InvalidProjectMemberRoleError
+    || error instanceof ProjectOwnerAlreadyHasAccessError
+    || error instanceof ProjectOwnerMutationError
+    || error instanceof MissingProjectMetadataDescriptionError
+  ) {
+    return { statusCode: 400, message: error.message };
+  }
+
+  if (error instanceof ProjectMetadataToolError) {
+    return {
+      statusCode: error.errorCode === 'execution_failed' ? 500 : 400,
+      message: error.message,
+      extra: {
+        error_code: error.errorCode,
+        action_command: error.actionCommand,
+        readiness: error.readiness,
+      },
+    };
+  }
+
+  if (
+    error instanceof ProjectNotFoundError
+    || error instanceof ProjectUserNotFoundError
+    || error instanceof ProjectMemberNotFoundError
+  ) {
+    return { statusCode: 404, message: error.message };
+  }
+
+  if (error instanceof ProjectDeleteForbiddenError) {
+    return { statusCode: 403, message: error.message };
+  }
+
+  if (error instanceof ProjectDeleteBlockedError) {
+    return { statusCode: 409, message: error.message };
+  }
+
+  if (error instanceof ProjectMetadataInvalidResponseError) {
+    return { statusCode: 500, message: error.message, extra: { raw: error.raw } };
   }
 
   return null;
@@ -279,7 +344,7 @@ function mapFrameworkError(error: unknown): HttpErrorMapping | null {
 }
 
 export function mapErrorToHttp(error: unknown): HttpErrorMapping | null {
-  return mapKnowledgeError(error) || mapAgentMessageError(error) || mapProjectPermissionError(error) || mapIssueError(error) || mapAgentError(error) || mapFrameworkError(error);
+  return mapKnowledgeError(error) || mapAgentMessageError(error) || mapProjectPermissionError(error) || mapProjectError(error) || mapIssueError(error) || mapAgentError(error) || mapFrameworkError(error);
 }
 
 export function getUnexpectedErrorMessage(error: unknown): string {

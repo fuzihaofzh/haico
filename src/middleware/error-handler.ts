@@ -18,6 +18,6 @@ export function setupErrorHandler(fastify: FastifyInstance): void {
         ? 'Internal server error'
         : getUnexpectedErrorMessage(error);
 
-    return reply.code(statusCode).send({ error: message });
+    return reply.code(statusCode).send({ error: message, ...(mapped?.extra || {}) });
   });
 }
