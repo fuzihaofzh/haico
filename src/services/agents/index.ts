@@ -19,7 +19,7 @@
  * - Routes import agent service capabilities from this index only.
  * - Access checks that need Fastify request/reply stay in routes.
  * - Agent business logic, DB work, filesystem work, process lifecycle,
- *   serialization, and WebSocket broadcasts stay inside this package.
+ *   serialization, and realtime event publication stay inside this package.
  * - Domain errors do not carry HTTP status codes; error-mapper owns HTTP mapping.
  * - Service modules must not import Fastify types. Pass a minimal logger when needed.
  */

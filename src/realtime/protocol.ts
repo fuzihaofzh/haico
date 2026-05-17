@@ -1,0 +1,46 @@
+export type ProjectEventType =
+  | 'agent_status'
+  | 'issue_created'
+  | 'issue_updated'
+  | 'comment_added'
+  | 'agent_message'
+  | 'approval_created'
+  | 'approval_decided'
+  | 'payment_approval_created'
+  | 'payment_approval_decided'
+  | 'payment_approval_resolved'
+  | 'executive_summary_created'
+  | 'executive_summary_updated'
+  | 'executive_summary_deleted'
+  | 'executive_summary_block_updated'
+  | 'executive_summary_generated'
+  | 'executive_summary_finalized';
+
+export interface ProjectEvent {
+  type: ProjectEventType;
+  projectId: string;
+  data: Record<string, any>;
+}
+
+export type AgentOutputEvent =
+  | { type: 'connected'; agentId: string }
+  | { type: 'output'; stream: string; content: string; runId: string }
+  | { type: 'exit'; code: number | null; runId: string }
+  | { type: 'error'; message: string; runId?: string };
+
+export type TerminalClientMessage =
+  | { type: 'input'; data: string }
+  | { type: 'resize'; cols: number; rows: number }
+  | { type: 'kill' };
+
+export type RealtimeErrorMessage = {
+  type: 'error';
+  code: string;
+  message: string;
+};
+
+export type TerminalServerMessage =
+  | { type: 'connected'; agentId: string; hasExistingSession: boolean }
+  | { type: 'output'; data: string }
+  | { type: 'exit'; exitCode: number }
+  | RealtimeErrorMessage;

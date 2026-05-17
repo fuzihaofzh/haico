@@ -13,7 +13,7 @@ import { autoStartAgentForDispatchableIssues } from './services/issue/agent-auto
 import { enqueueControllerTrigger, clearCoalescingTimers } from './services/controller';
 import { stopAllSchedulers } from './services/scheduler';
 import { killAllPtySessions } from './services/terminal';
-import { clearAllPtyCleanupTimers } from './services/websocket';
+import { clearAllPtyCleanupTimers, handleWebSocketError } from './realtime';
 import { setupErrorHandler } from './middleware/error-handler';
 import { Agent, Project } from './types';
 
@@ -36,7 +36,14 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
     encodings: ['gzip', 'deflate', 'br'],
   });
   await fastify.register(fastifyMultipart, { limits: { fileSize: 50 * 1024 * 1024 } });
-  await fastify.register(fastifyWebsocket);
+  await fastify.register(fastifyWebsocket, {
+    errorHandler(error, socket, request) {
+      handleWebSocketError(socket, error, {
+        request,
+        defaultCode: 'websocket_handler_error',
+      });
+    },
+  });
   await fastify.register(fastifyStatic, {
     root: path.join(__dirname, '..', 'public'),
     prefix: '/public/',

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { PaymentApprovalDecision, PaymentApprovalRequest } from '../../types';
-import { broadcastToProject } from '../websocket';
+import { broadcastToProject } from '../../realtime';
 import {
   InvalidPaymentApprovalAmountError,
   InvalidPaymentApprovalDecisionError,

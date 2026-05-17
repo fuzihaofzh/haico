@@ -4,6 +4,7 @@ const initialNewSession = qs.get('newSession') === null ? true : qs.get('newSess
 let term = null;
 let fitAddon = null;
 let ws = null;
+let lastServerError = null;
 
 function initTerminal() {
   const cs = getComputedStyle(document.documentElement);
@@ -86,9 +87,10 @@ function connectWebSocket(newSession) {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const cols = term ? term.cols : 120;
   const rows = term ? term.rows : 30;
-  const url = `${proto}//${location.host}/ws/terminal/${agentId}?newSession=${newSession}&cols=${cols}&rows=${rows}`;
+  const url = `${proto}//${location.host}/ws/terminal/${encodeURIComponent(agentId)}?newSession=${newSession}&cols=${cols}&rows=${rows}`;
 
   clearReconnectTimer();
+  lastServerError = null;
   setStatus('Connecting...', 'connecting');
   ws = new WebSocket(url);
 
@@ -118,13 +120,24 @@ function connectWebSocket(newSession) {
           setStatus(`Process exited (code: ${msg.exitCode})`);
           term.writeln('\r\n\x1b[33m--- Process exited ---\x1b[0m');
           break;
+        case 'error':
+          lastServerError = msg;
+          setStatus(msg.message || 'Terminal error', 'error');
+          if (term) {
+            term.writeln(`\r\n\x1b[31m--- ${msg.message || 'Terminal error'} (${msg.code || 'error'}) ---\x1b[0m`);
+          }
+          break;
       }
     } catch (e) {
-      console.error('WS message parse error', e);
+      console.warn('WS message parse error', e);
     }
   };
 
   ws.onclose = (e) => {
+    if (lastServerError) {
+      setStatus(lastServerError.message || 'Terminal error', 'error');
+      return;
+    }
     // Don't auto-reconnect if intentionally closed (code 1000) or process exited
     if (e.code === 1000) {
       setStatus('Disconnected', 'disconnected');

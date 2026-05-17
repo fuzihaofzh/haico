@@ -754,6 +754,7 @@ function connectProjectEvents(projectId) {
   let ws = null;
   let closed = false;
   let retryDelay = 1000;
+  let serverErrorSeen = false;
 
   function on(type, cb) {
     if (!listeners[type]) listeners[type] = [];
@@ -768,8 +769,8 @@ function connectProjectEvents(projectId) {
   function updateWsIndicator(state) {
     const el = document.getElementById('ws-status-indicator');
     if (!el) return;
-    const colors = { connected: '#3fb950', connecting: '#d29922', disconnected: '#8b949e' };
-    const labels = { connected: 'Live updates connected', connecting: 'Connecting...', disconnected: 'Live updates disconnected' };
+    const colors = { connected: '#3fb950', connecting: '#d29922', disconnected: '#8b949e', error: '#f85149' };
+    const labels = { connected: 'Live updates connected', connecting: 'Connecting...', disconnected: 'Live updates disconnected', error: 'Live updates error' };
     el.innerHTML = `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${colors[state] || colors.disconnected};margin-right:4px"></span><span style="font-size:11px;color:var(--text-secondary)">${labels[state] || ''}</span>`;
     el.title = labels[state] || '';
   }
@@ -777,6 +778,7 @@ function connectProjectEvents(projectId) {
   function connect() {
     if (closed) return;
     updateWsIndicator('connecting');
+    serverErrorSeen = false;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws/projects/${projectId}/events`);
 
@@ -785,13 +787,21 @@ function connectProjectEvents(projectId) {
     ws.onmessage = function(e) {
       try {
         const msg = JSON.parse(e.data);
+        if (msg.type === 'error') {
+          serverErrorSeen = true;
+          updateWsIndicator('error');
+          emit('error', msg);
+          return;
+        }
         if (msg.type) emit(msg.type, msg.data || msg);
-      } catch {}
+      } catch (err) {
+        console.warn('WS message parse error:', err);
+      }
     };
 
-    ws.onclose = function() {
-      updateWsIndicator('disconnected');
-      if (!closed) {
+    ws.onclose = function(e) {
+      updateWsIndicator(serverErrorSeen ? 'error' : 'disconnected');
+      if (!closed && !serverErrorSeen && e.code !== 1000) {
         setTimeout(connect, retryDelay);
         retryDelay = Math.min(retryDelay * 1.5, 15000);
       }

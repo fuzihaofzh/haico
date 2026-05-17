@@ -16,7 +16,7 @@
 ## 约束
 
 - Route 只处理传输层：解析 HTTP 输入、鉴权、调用 service、设置成功状态码和 headers。
-- Service 承载业务逻辑：DB 查询、文件系统、进程生命周期、序列化、领域事件和 WebSocket 广播。
+- Service 承载业务逻辑：DB 查询、文件系统、进程生命周期、序列化和领域事件发布；实时 fanout 由 `src/realtime/` 负责。
 - Service 不依赖 Fastify；需要日志时传入最小 logger interface。
 - 业务失败由 service 抛领域错误，HTTP status code 统一在 `src/errors/error-mapper.ts` 映射。
 - `index.ts` 不写业务逻辑，避免重新变成大文件。

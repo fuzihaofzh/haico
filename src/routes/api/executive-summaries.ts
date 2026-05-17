@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../../db/database';
 import { ExecutiveSummary, ExecutiveSummaryBlock } from '../../types';
-import { broadcastToProject } from '../../services/websocket';
+import { broadcastToProject } from '../../realtime';
 import {
   ensureProjectAccess,
   getProjectRequestContext,

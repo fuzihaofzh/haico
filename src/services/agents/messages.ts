@@ -17,7 +17,7 @@ import {
 } from './message-errors';
 import { isAgentRunning, startAgentProcess } from '../process-manager';
 import { buildSystemPrompt } from '../system-prompt';
-import { broadcastToProject } from '../websocket';
+import { broadcastToProject } from '../../realtime';
 
 export interface AgentMessage {
   id: string;

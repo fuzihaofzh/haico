@@ -4,7 +4,7 @@ import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgre
 import { listDispatchableIssuesForAgent } from '../issue/dispatch';
 import { isAgentRunning, startAgentProcess, stopAgentProcess } from '../process-manager';
 import { buildSystemPrompt } from '../system-prompt';
-import { broadcastToProject } from '../websocket';
+import { broadcastToProject } from '../../realtime';
 import {
   AgentAlreadyPausedError,
   AgentAlreadyRunningError,

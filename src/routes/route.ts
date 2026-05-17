@@ -1,9 +1,9 @@
 import { FastifyInstance } from 'fastify';
 import { setupAuth } from '../middleware/auth';
-import { setupWebSocket } from '../services/websocket';
 import { registerAuthRoutes } from './auth';
 import { registerApiRoutes } from './api/route';
 import { registerUIRoutes } from './ui';
+import { registerWebSocketRoutes } from './ws';
 
 const API_PREFIX = '/api';
 
@@ -19,5 +19,5 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
 
   await fastify.register(registerApiRoutes, { prefix: API_PREFIX });
   registerUIRoutes(fastify);
-  setupWebSocket(fastify);
+  registerWebSocketRoutes(fastify);
 }

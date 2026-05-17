@@ -5,7 +5,7 @@ import path from 'path';
 import os from 'os';
 import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
-import { broadcastToAgent, broadcastToProject } from './websocket';
+import { broadcastToAgent, broadcastToProject } from '../realtime';
 import { resolveCommandType } from './command-profiles';
 import logger from '../logger';
 
