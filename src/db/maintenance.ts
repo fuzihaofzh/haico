@@ -35,6 +35,16 @@ export function upgradeOldSessionMaxTokens(db: Database.Database): void {
   }
 }
 
+export function cleanupConversationLogs(
+  db: Database.Database,
+  retentionDays: number
+): number {
+  const result = db.prepare(
+    "DELETE FROM conversation_logs WHERE created_at < datetime('now', ?)"
+  ).run(`-${retentionDays} days`);
+  return result.changes;
+}
+
 /**
  * Run all startup maintenance tasks.
  * These are idempotent operations that should execute on every server start.

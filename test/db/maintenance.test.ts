@@ -22,7 +22,13 @@ import assert from 'node:assert/strict';
 import path from 'path';
 import fs from 'fs';
 import Database from 'better-sqlite3';
-import { resetStaleRunningAgents, fixZeroSessionMaxTokens, upgradeOldSessionMaxTokens, runStartupMaintenance } from '../../src/db/maintenance';
+import {
+  cleanupConversationLogs,
+  resetStaleRunningAgents,
+  fixZeroSessionMaxTokens,
+  upgradeOldSessionMaxTokens,
+  runStartupMaintenance,
+} from '../../src/db/maintenance';
 
 function createFreshDb(): Database.Database {
   const dbPath = path.join(__dirname, `maint-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
@@ -63,6 +69,14 @@ function createMinimalSchema(db: Database.Database): void {
       status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error')),
       paused BOOLEAN DEFAULT 0, pid INTEGER, last_prompt TEXT,
       started_at DATETIME, finished_at DATETIME,
+      created_at DATETIME DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS conversation_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      run_id TEXT DEFAULT '',
+      content TEXT NOT NULL,
+      stream TEXT NOT NULL,
       created_at DATETIME DEFAULT (datetime('now'))
     );
   `);
@@ -199,6 +213,31 @@ describe('maintenance.ts — Startup Maintenance', () => {
       const agent1 = db.prepare('SELECT status, pid, session_max_tokens FROM agents WHERE id = ?').get('startup-agent') as any;
       assert.equal(agent1.status, 'idle');
       assert.equal(agent1.session_max_tokens, 400000);
+    });
+  });
+
+  describe('cleanupConversationLogs', () => {
+    let db: Database.Database;
+    before(() => { db = createFreshDb(); createMinimalSchema(db); });
+    after(() => cleanupDb(db));
+
+    it('deletes only logs older than the retention window', () => {
+      const projectId = 'log-cleanup-proj';
+      const agentId = 'log-cleanup-agent';
+      db.prepare('INSERT INTO projects (id, name, task_description) VALUES (?, ?, ?)').run(projectId, 'log-cleanup', 'test');
+      db.prepare('INSERT INTO agents (id, project_id, name) VALUES (?, ?, ?)').run(agentId, projectId, 'log-agent');
+      db.prepare(
+        "INSERT INTO conversation_logs (agent_id, run_id, content, stream, created_at) VALUES (?, ?, ?, ?, datetime('now', '-8 days'))"
+      ).run(agentId, 'old-run', 'old', 'stdout');
+      db.prepare(
+        "INSERT INTO conversation_logs (agent_id, run_id, content, stream, created_at) VALUES (?, ?, ?, ?, datetime('now', '-2 days'))"
+      ).run(agentId, 'fresh-run', 'fresh', 'stdout');
+
+      const deleted = cleanupConversationLogs(db, 7);
+
+      assert.equal(deleted, 1);
+      const remaining = db.prepare('SELECT run_id FROM conversation_logs ORDER BY run_id').all() as Array<{ run_id: string }>;
+      assert.deepEqual(remaining.map((row) => row.run_id), ['fresh-run']);
     });
   });
 });

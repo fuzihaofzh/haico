@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { Agent, Project } from '../../types';
+import { Agent, Issue, Project } from '../../types';
 import { config } from '../../config';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './batch';
 import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from '../agent-wakeup-guard';
@@ -12,6 +12,7 @@ export interface AssignedIssueAutoStartResult {
   reason: string;
   activeIssueCount: number;
   currentBatchIssueNumbers: number[];
+  runId?: string;
 }
 
 export function autoStartAgentForDispatchableIssues(
@@ -21,9 +22,10 @@ export function autoStartAgentForDispatchableIssues(
   opts: {
     source: string;
     allowStatuses?: Agent['status'][];
+    assignedIssues?: Issue[];
   }
 ): AssignedIssueAutoStartResult {
-  const assignedIssues = listDispatchableIssuesForAgent(db, project.id, agent.id);
+  const assignedIssues = opts.assignedIssues ?? listDispatchableIssuesForAgent(db, project.id, agent.id);
   const wakeDecision = getAgentWakeupDecision(agent, assignedIssues, {
     source: opts.source,
     allowStatuses: opts.allowStatuses,
@@ -64,7 +66,7 @@ export function autoStartAgentForDispatchableIssues(
     listDispatchableIssuesForAgent(db, project.id, agent.id)
   );
 
-  startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
+  const run = startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
   recordAgentWakeup(agent.id, recordedWakeup.signature, opts.source, recordedWakeup.activityKey);
 
   return {
@@ -72,5 +74,6 @@ export function autoStartAgentForDispatchableIssues(
     reason: wakeDecision.reason,
     activeIssueCount: wakeDecision.activeIssueCount,
     currentBatchIssueNumbers: wakeDecision.currentBatchIssueNumbers,
+    runId: run.runId,
   };
 }

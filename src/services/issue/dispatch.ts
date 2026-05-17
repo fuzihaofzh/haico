@@ -148,3 +148,18 @@ export function findControllerRecoveryIssue(
     LIMIT 1
   `).get(projectId, projectId, projectId, projectId, projectId) as { number: number } | undefined;
 }
+
+export function findReadyPendingIssue(
+  db: Database.Database,
+  projectId: string
+): { number: number } | undefined {
+  return db.prepare(`
+    SELECT i.number
+    FROM issues i
+    ${readyPendingFromClause()}
+    WHERE i.project_id = ?
+      AND (${readyPendingPredicate()})
+    ORDER BY i.priority DESC, i.updated_at ASC, i.created_at ASC
+    LIMIT 1
+  `).get(projectId, projectId, projectId) as { number: number } | undefined;
+}

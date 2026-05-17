@@ -1592,8 +1592,9 @@ export function registerKnowledgeAndCollaborationSuites(
 
   describe('Scheduler stale pending scan', () => {
     it('finds pending parent whose children are already complete', async () => {
+      const { getDatabase } = await import('../../src/db/database');
       const { findStalePendingIssue } = await import(
-        '../../src/services/scheduler'
+        '../../src/services/issue/recovery'
       );
 
       const { body: project } = await ctx.api('/api/projects', {
@@ -1642,7 +1643,7 @@ export function registerKnowledgeAndCollaborationSuites(
         body: { status: 'pending', actor: 'controller-agent' },
       });
 
-      const stale = findStalePendingIssue(project.id);
+      const stale = findStalePendingIssue(getDatabase(), project.id);
       assert.equal(
         stale?.number,
         parent.number,
@@ -1651,8 +1652,9 @@ export function registerKnowledgeAndCollaborationSuites(
     });
 
     it('ignores pending parent that still has active children', async () => {
+      const { getDatabase } = await import('../../src/db/database');
       const { findStalePendingIssue } = await import(
-        '../../src/services/scheduler'
+        '../../src/services/issue/recovery'
       );
 
       const { body: project } = await ctx.api('/api/projects', {
@@ -1688,7 +1690,7 @@ export function registerKnowledgeAndCollaborationSuites(
         },
       });
 
-      const stale = findStalePendingIssue(project.id);
+      const stale = findStalePendingIssue(getDatabase(), project.id);
       assert.equal(
         stale,
         undefined,
@@ -1697,8 +1699,9 @@ export function registerKnowledgeAndCollaborationSuites(
     });
 
     it('finds pending blocked issue once the blocker is complete', async () => {
+      const { getDatabase } = await import('../../src/db/database');
       const { findStalePendingIssue } = await import(
-        '../../src/services/scheduler'
+        '../../src/services/issue/recovery'
       );
 
       const { body: project } = await ctx.api('/api/projects', {
@@ -1755,7 +1758,7 @@ export function registerKnowledgeAndCollaborationSuites(
         body: { status: 'done', actor: 'worker-agent' },
       });
 
-      const stale = findStalePendingIssue(project.id);
+      const stale = findStalePendingIssue(getDatabase(), project.id);
       assert.equal(
         stale?.number,
         blocked.number,
@@ -1764,8 +1767,9 @@ export function registerKnowledgeAndCollaborationSuites(
     });
 
     it('ignores pending blocked issue while blocker is still active', async () => {
+      const { getDatabase } = await import('../../src/db/database');
       const { findStalePendingIssue } = await import(
-        '../../src/services/scheduler'
+        '../../src/services/issue/recovery'
       );
 
       const { body: project } = await ctx.api('/api/projects', {
@@ -1818,7 +1822,7 @@ export function registerKnowledgeAndCollaborationSuites(
         body: { status: 'pending', actor: 'controller-agent' },
       });
 
-      const stale = findStalePendingIssue(project.id);
+      const stale = findStalePendingIssue(getDatabase(), project.id);
       assert.equal(
         stale,
         undefined,

@@ -8,6 +8,13 @@ export interface SchedulingRegressionState {
   readonly projectId: string;
 }
 
+const silentLogger = {
+  debug() {},
+  info() {},
+  warn() {},
+  error() {},
+};
+
 export function registerSchedulingRegressionSuites(
   ctx: ApiTestContext,
   state: SchedulingRegressionState
@@ -557,7 +564,9 @@ JSON
 
     it('issue scan resumes idle worker for ready pending issue after blocker resolves', async () => {
       const { getDatabase } = await import('../../src/db/database');
-      const { runIssueScanOnce } = await import('../../src/services/scheduler');
+      const { runIssueRecoveryScan } = await import(
+        '../../src/services/issue/recovery'
+      );
       const isolated = await createIsolatedOrchestrationProject(
         'scan-pending-worker'
       );
@@ -625,7 +634,7 @@ JSON
         'INSERT INTO issue_relations (id, from_issue_id, to_issue_id, relation_type, created_by) VALUES (?, ?, ?, ?, ?)'
       ).run(relationId, blockerId, blockedId, 'blocks', 'test');
 
-      runIssueScanOnce();
+      runIssueRecoveryScan(db, silentLogger);
 
       const deadline = Date.now() + 3000;
       let updatedIssue: any;
@@ -656,7 +665,9 @@ JSON
 
     it('issue scan does not repeatedly wake the same worker for the same unchanged issue batch', async () => {
       const { getDatabase } = await import('../../src/db/database');
-      const { runIssueScanOnce } = await import('../../src/services/scheduler');
+      const { runIssueRecoveryScan } = await import(
+        '../../src/services/issue/recovery'
+      );
       const { resetAgentWakeupState } = await import(
         '../../src/services/agent-wakeup-guard'
       );
@@ -704,7 +715,7 @@ JSON
 
       resetAgentWakeupState(worker.id);
 
-      runIssueScanOnce();
+      runIssueRecoveryScan(db, silentLogger);
 
       const firstDeadline = Date.now() + 3000;
       let firstPromptCount = 0;
@@ -741,7 +752,7 @@ JSON
         'echo worker should have finished before second scan'
       );
 
-      runIssueScanOnce();
+      runIssueRecoveryScan(db, silentLogger);
       await sleep(300);
 
       const secondPromptCount =
@@ -1005,7 +1016,9 @@ JSON
 
     it('issue scan triggers controller recovery for ready pending controller issue', async () => {
       const { getDatabase } = await import('../../src/db/database');
-      const { runIssueScanOnce } = await import('../../src/services/scheduler');
+      const { runIssueRecoveryScan } = await import(
+        '../../src/services/issue/recovery'
+      );
       const isolated = await createIsolatedOrchestrationProject(
         'scan-pending-controller'
       );
@@ -1040,7 +1053,7 @@ JSON
           'SELECT MAX(id) as id FROM orchestration_runs WHERE project_id = ?'
         )
         .get(isolated.projectId) as { id: number | null };
-      runIssueScanOnce();
+      runIssueRecoveryScan(db, silentLogger);
 
       const deadline = Date.now() + 5000;
       let latest: any;

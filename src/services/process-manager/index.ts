@@ -18,6 +18,9 @@ export {
   getAgentFinalResultAge,
 } from './watchdog';
 export {
+  runAgentWatchdogScan,
+} from './maintenance';
+export {
   DEFAULT_IDLE_TIMEOUT_MS,
   FINAL_RESULT_KILL_DELAY_MS,
   RESTART_COOLDOWN_MS,
@@ -26,4 +29,3 @@ export type {
   AgentExitStatus,
   OnAgentFinishCallback,
 } from './types';
-
