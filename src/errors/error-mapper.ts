@@ -96,6 +96,19 @@ import {
   ProjectOwnerMutationError,
   ProjectUserNotFoundError,
 } from '../services/projects/errors';
+import {
+  InvalidPaymentApprovalAmountError,
+  InvalidPaymentApprovalDecisionError,
+  MissingPaymentApprovalCancelFieldsError,
+  MissingPaymentApprovalCreateFieldsError,
+  MissingPaymentApprovalDecisionFieldsError,
+  PaymentApprovalAlreadyResolvedError,
+  PaymentApprovalCancelForbiddenError,
+  PaymentApprovalCancelStatusConflictError,
+  PaymentApprovalDuplicateDecisionError,
+  PaymentApprovalNotFoundError,
+  PaymentApprovalSelfApprovalError,
+} from '../services/payment-approvals/errors';
 
 export interface HttpErrorMapping {
   statusCode: number;
@@ -330,6 +343,39 @@ function mapAgentError(error: unknown): HttpErrorMapping | null {
   return null;
 }
 
+function mapPaymentApprovalError(error: unknown): HttpErrorMapping | null {
+  if (
+    error instanceof MissingPaymentApprovalCreateFieldsError
+    || error instanceof InvalidPaymentApprovalAmountError
+    || error instanceof MissingPaymentApprovalDecisionFieldsError
+    || error instanceof InvalidPaymentApprovalDecisionError
+    || error instanceof MissingPaymentApprovalCancelFieldsError
+  ) {
+    return { statusCode: 400, message: error.message };
+  }
+
+  if (
+    error instanceof PaymentApprovalSelfApprovalError
+    || error instanceof PaymentApprovalCancelForbiddenError
+  ) {
+    return { statusCode: 403, message: error.message };
+  }
+
+  if (error instanceof PaymentApprovalNotFoundError) {
+    return { statusCode: 404, message: error.message };
+  }
+
+  if (
+    error instanceof PaymentApprovalAlreadyResolvedError
+    || error instanceof PaymentApprovalDuplicateDecisionError
+    || error instanceof PaymentApprovalCancelStatusConflictError
+  ) {
+    return { statusCode: 409, message: error.message };
+  }
+
+  return null;
+}
+
 function mapFrameworkError(error: unknown): HttpErrorMapping | null {
   if (!error || typeof error !== 'object') return null;
   const statusCode = (error as { statusCode?: unknown; status?: unknown }).statusCode;
@@ -344,7 +390,7 @@ function mapFrameworkError(error: unknown): HttpErrorMapping | null {
 }
 
 export function mapErrorToHttp(error: unknown): HttpErrorMapping | null {
-  return mapKnowledgeError(error) || mapAgentMessageError(error) || mapProjectPermissionError(error) || mapProjectError(error) || mapIssueError(error) || mapAgentError(error) || mapFrameworkError(error);
+  return mapKnowledgeError(error) || mapAgentMessageError(error) || mapProjectPermissionError(error) || mapProjectError(error) || mapIssueError(error) || mapAgentError(error) || mapPaymentApprovalError(error) || mapFrameworkError(error);
 }
 
 export function getUnexpectedErrorMessage(error: unknown): string {
