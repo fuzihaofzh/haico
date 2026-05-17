@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { fetchRemoteProjectAgents, fetchRemoteProjects, loadRemoteInstances, RemoteInstanceRecord } from '../remote-instances';
-import { listAccessibleProjectIds, ProjectRequestContext } from '../project-permissions';
+import { listAccessibleProjectIds, ProjectRequestContext } from '../project-access';
 import { listLatestProjectSetCostRows, parseCostContent, sumCostRows } from './costs';
 import { buildSqlPlaceholders, buildTimeBucketKey, parseBoundedLimit, toFiniteNumber } from './utils';
 

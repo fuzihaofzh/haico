@@ -12,7 +12,7 @@ import {
   getProjectRequestContext,
   requireAgentAccess,
   requireMessageAccess,
-} from '../../services/project-permissions';
+} from '../../services/project-access';
 
 export function registerMessageRoutes(fastify: FastifyInstance): void {
   // Send a message to an agent

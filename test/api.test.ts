@@ -16,7 +16,7 @@ import { registerKnowledgeAndCollaborationSuites } from "./api/knowledge-collabo
 import { registerNotificationSuites } from "./api/notifications.suite";
 import { registerProcessManagerSuites } from "./api/process-manager.suite";
 import { registerProjectSuites } from "./api/projects.suite";
-import { registerProjectPermissionSuites } from "./api/project-permissions.suite";
+import { registerProjectAccessSuites } from "./api/project-access.suite";
 import { registerSchedulingRegressionSuites } from "./api/scheduling-regressions.suite";
 
 // Use isolated test DB
@@ -144,7 +144,7 @@ describe("HAICO API", () => {
       controllerId = value;
     },
   });
-  registerProjectPermissionSuites(apiTestContext);
+  registerProjectAccessSuites(apiTestContext);
   registerAgentSuites(apiTestContext, {
     get projectId() {
       return projectId;

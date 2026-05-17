@@ -7,7 +7,7 @@ import {
   ensureProjectAccess,
   getProjectRequestContext,
   listAccessibleProjectIds,
-} from '../../services/project-permissions';
+} from '../../services/project-access';
 
 export function registerApprovalRoutes(fastify: FastifyInstance): void {
 

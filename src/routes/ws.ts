@@ -9,7 +9,7 @@ import {
   getProjectRequestContext,
   requireAgentAccess,
   requireProjectAccess,
-} from '../services/project-permissions';
+} from '../services/project-access';
 
 function parseTerminalDimension(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value || '', 10);

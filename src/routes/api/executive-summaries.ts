@@ -6,7 +6,7 @@ import { broadcastToProject } from '../../realtime';
 import {
   ensureProjectAccess,
   getProjectRequestContext,
-} from '../../services/project-permissions';
+} from '../../services/project-access';
 
 interface SummaryRow {
   id: string;

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { getDatabase } from '../../db/database';
 import { CreateAgentInput } from '../../types';
-import { ensureAgentAccess, ensureProjectAccess } from '../../services/project-permissions';
+import { ensureAgentAccess, ensureProjectAccess } from '../../services/project-access';
 import {
   AgentFileUploadResult,
   UpdateAgentInput,

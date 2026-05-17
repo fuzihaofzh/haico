@@ -3,7 +3,7 @@ import {
   ProjectAccessDeniedError,
   ProjectAccessProjectNotFoundError,
   ProjectManagementAccessRequiredError,
-} from '../services/project-permission-errors';
+} from '../services/project-access';
 import {
   WS_CLOSE_INTERNAL_ERROR,
   WS_CLOSE_POLICY_VIOLATION,

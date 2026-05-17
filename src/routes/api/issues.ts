@@ -7,7 +7,7 @@ import {
   ensureProjectAccess,
   ensureRelationAccess,
   getProjectRequestContext,
-} from '../../services/project-permissions';
+} from '../../services/project-access';
 import {
   acknowledgeIssue,
   addIssueComment,

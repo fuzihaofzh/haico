@@ -27,7 +27,7 @@ import {
   ProjectAccessDeniedError,
   ProjectAccessProjectNotFoundError,
   ProjectManagementAccessRequiredError,
-} from '../services/project-permission-errors';
+} from '../services/project-access';
 import {
   InvalidIssueRelationTypeError,
   InvalidIssueStatusError,

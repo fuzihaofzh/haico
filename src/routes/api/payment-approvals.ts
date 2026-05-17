@@ -15,7 +15,7 @@ import {
 import {
   ensurePaymentApprovalAccess,
   ensureProjectAccess,
-} from '../../services/project-permissions';
+} from '../../services/project-access';
 
 export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
   fastify.get<{

@@ -2,7 +2,7 @@ import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import type { ApiTestContext } from "./helpers";
 
-export function registerProjectPermissionSuites(ctx: ApiTestContext): void {
+export function registerProjectAccessSuites(ctx: ApiTestContext): void {
   describe("Project permission summaries (#520)", () => {
     it("returns owner/member_count/permission fields for owner and shared member views", async () => {
       const suffix = Date.now();

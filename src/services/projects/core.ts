@@ -5,7 +5,7 @@ import { Agent, CreateProjectInput, OrchestratorEngine, Project } from '../../ty
 import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
 import { isLegacyAuthUser } from '../auth/request';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
-import { getProjectPermission, listAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-permissions';
+import { getProjectPermission, listAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-access';
 import { isAgentRunning, stopAgentProcess } from '../process-manager';
 import {
   InvalidProjectOrchestratorEngineError,

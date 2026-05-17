@@ -4,7 +4,7 @@ import { CreateProjectInput } from '../../types';
 import {
   ensureProjectAccess,
   getProjectRequestContext,
-} from '../../services/project-permissions';
+} from '../../services/project-access';
 import {
   assertProjectTaskDescription,
   buildProjectExport,

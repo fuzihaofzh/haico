@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { getDatabase } from '../../db/database';
-import { ensureAgentAccess, ensureKnowledgeAccess, ensureProjectAccess } from '../../services/project-permissions';
+import { ensureAgentAccess, ensureKnowledgeAccess, ensureProjectAccess } from '../../services/project-access';
 import {
   createKnowledgeEntry,
   deleteKnowledgeEntry,
