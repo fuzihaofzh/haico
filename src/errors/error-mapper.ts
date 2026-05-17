@@ -51,6 +51,35 @@ import {
   TargetIssueNotFoundError,
   TargetIssueProjectMismatchError,
 } from '../services/issue-errors';
+import {
+  AgentAlreadyPausedError,
+  AgentAlreadyRunningError,
+  AgentBinaryPreviewUnsupportedError,
+  AgentDirectoryExpectedError,
+  AgentFileAccessDeniedError,
+  AgentFileContentTypeError,
+  AgentFileExpectedError,
+  AgentFileNotFoundError,
+  AgentFileOperationFailedError,
+  AgentFilePathRequiredError,
+  AgentFileTooLargeError,
+  AgentInvalidParentAssignmentError,
+  AgentNameRequiredError,
+  AgentNotFoundError,
+  AgentNotPausedError,
+  AgentPathOutsideWorkingDirectoryError,
+  AgentPathResolutionError,
+  AgentPausedError,
+  AgentPreviewFileTypeUnsupportedError,
+  AgentProjectNotFoundError,
+  AgentPromptUnavailableError,
+  AgentRetryPromptMissingError,
+  AgentRunNotFoundError,
+  AgentSQLiteFileUnsupportedError,
+  AgentSQLiteTableNotFoundError,
+  AgentUploadMissingFileError,
+  AgentWorkingDirectoryRequiredError,
+} from '../services/agents/errors';
 
 export interface HttpErrorMapping {
   statusCode: number;
@@ -174,6 +203,68 @@ function mapIssueError(error: unknown): HttpErrorMapping | null {
   return null;
 }
 
+function mapAgentError(error: unknown): HttpErrorMapping | null {
+  if (
+    error instanceof AgentNameRequiredError
+    || error instanceof AgentInvalidParentAssignmentError
+    || error instanceof AgentPromptUnavailableError
+    || error instanceof AgentRetryPromptMissingError
+    || error instanceof AgentWorkingDirectoryRequiredError
+    || error instanceof AgentPathOutsideWorkingDirectoryError
+    || error instanceof AgentDirectoryExpectedError
+    || error instanceof AgentFileExpectedError
+    || error instanceof AgentFilePathRequiredError
+    || error instanceof AgentFileContentTypeError
+    || error instanceof AgentUploadMissingFileError
+  ) {
+    return { statusCode: 400, message: error.message };
+  }
+
+  if (error instanceof AgentFileAccessDeniedError) {
+    return { statusCode: 403, message: error.message };
+  }
+
+  if (
+    error instanceof AgentNotFoundError
+    || error instanceof AgentProjectNotFoundError
+    || error instanceof AgentFileNotFoundError
+    || error instanceof AgentSQLiteTableNotFoundError
+    || error instanceof AgentRunNotFoundError
+  ) {
+    return { statusCode: 404, message: error.message };
+  }
+
+  if (
+    error instanceof AgentPausedError
+    || error instanceof AgentAlreadyRunningError
+    || error instanceof AgentAlreadyPausedError
+    || error instanceof AgentNotPausedError
+  ) {
+    return { statusCode: 409, message: error.message };
+  }
+
+  if (error instanceof AgentFileTooLargeError) {
+    return { statusCode: 413, message: error.message };
+  }
+
+  if (
+    error instanceof AgentBinaryPreviewUnsupportedError
+    || error instanceof AgentPreviewFileTypeUnsupportedError
+    || error instanceof AgentSQLiteFileUnsupportedError
+  ) {
+    return { statusCode: 415, message: error.message };
+  }
+
+  if (
+    error instanceof AgentPathResolutionError
+    || error instanceof AgentFileOperationFailedError
+  ) {
+    return { statusCode: 500, message: error.message };
+  }
+
+  return null;
+}
+
 function mapFrameworkError(error: unknown): HttpErrorMapping | null {
   if (!error || typeof error !== 'object') return null;
   const statusCode = (error as { statusCode?: unknown; status?: unknown }).statusCode;
@@ -188,7 +279,7 @@ function mapFrameworkError(error: unknown): HttpErrorMapping | null {
 }
 
 export function mapErrorToHttp(error: unknown): HttpErrorMapping | null {
-  return mapKnowledgeError(error) || mapAgentMessageError(error) || mapProjectPermissionError(error) || mapIssueError(error) || mapFrameworkError(error);
+  return mapKnowledgeError(error) || mapAgentMessageError(error) || mapProjectPermissionError(error) || mapIssueError(error) || mapAgentError(error) || mapFrameworkError(error);
 }
 
 export function getUnexpectedErrorMessage(error: unknown): string {
