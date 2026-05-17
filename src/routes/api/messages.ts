@@ -7,7 +7,7 @@ import {
   markAgentMessageRead,
   markAllAgentMessagesRead,
   sendAgentMessage,
-} from '../../services/agent-messages';
+} from '../../services/agents/index';
 import {
   getProjectRequestContext,
   requireAgentAccess,

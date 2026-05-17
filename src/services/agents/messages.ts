@@ -1,8 +1,8 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { config } from '../config';
-import { Agent, Project } from '../types';
-import { canMessageDirectHierarchyOnly } from './agent-hierarchy';
+import { config } from '../../config';
+import { Agent, Project } from '../../types';
+import { canMessageDirectHierarchyOnly } from './hierarchy';
 import {
   AgentMessageNotFoundError,
   AgentMessageNotInAgentInboxError,
@@ -14,10 +14,10 @@ import {
   AgentMessageSenderNotFoundError,
   MissingAgentMessageBodyError,
   MissingAgentMessageRecipientError,
-} from './agent-message-errors';
-import { isAgentRunning, startAgentProcess } from './process-manager';
-import { buildSystemPrompt } from './system-prompt';
-import { broadcastToProject } from './websocket';
+} from './message-errors';
+import { isAgentRunning, startAgentProcess } from '../process-manager';
+import { buildSystemPrompt } from '../system-prompt';
+import { broadcastToProject } from '../websocket';
 
 export interface AgentMessage {
   id: string;

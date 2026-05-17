@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { Agent } from '../types';
+import { Agent } from '../../types';
 
 export type HierarchyAgent = Pick<Agent, 'id' | 'project_id' | 'name' | 'is_controller' | 'parent_agent_id'>;
 

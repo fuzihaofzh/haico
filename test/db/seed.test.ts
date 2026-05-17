@@ -6,7 +6,7 @@
  *   若 knowledge_fts 已存在则跳过（幂等）。若 knowledge_entries 表结构变更（如 title/content 列名改变），
  *   需同步更新本测试的 FTS MATCH 断言和 seed.ts 中的 FTS5 定义。
  *
- * - seedLegacyAgentKnowledge: 依赖 agent-knowledge.ts 的 seedMissingAgentKnowledgeEntriesFromLegacyMemories。
+ * - seedLegacyAgentKnowledge: 依赖 agents/knowledge.ts 的 seedMissingAgentKnowledgeEntriesFromLegacyMemories。
  *   从旧表 agent_memories 迁移数据到 knowledge_entries，然后删除 agent_memories / memories_fts 及关联触发器。
  *   当旧表不存在时为 no-op。若移除对 agent_memories 的支持，应删除本 describe 块。
  *

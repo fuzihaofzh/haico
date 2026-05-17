@@ -746,7 +746,7 @@ export function registerKnowledgeAndCollaborationSuites(
 
       const { body: a2 } = await ctx.api(`/api/projects/${msgProjId}/agents`, {
         method: 'POST',
-        body: { name: 'msg-agent-b', role: 'receiver' },
+        body: { name: 'msg-agent-b', role: 'receiver', parent_agent_id: msgAgentAId },
       });
       msgAgentBId = a2.id;
     });

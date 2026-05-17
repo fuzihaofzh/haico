@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../../config';
 import { Agent, CreateProjectInput, OrchestratorEngine, Project } from '../../types';
-import { ensureAgentKnowledgeEntry } from '../agent-knowledge';
+import { ensureAgentKnowledgeEntry } from '../agents/knowledge';
 import { isLegacyAuthUser } from '../auth/request';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
 import { getProjectPermission, listAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-permissions';

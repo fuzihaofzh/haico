@@ -12,7 +12,7 @@ import {
   normalizeKnowledgeCategory,
   normalizeKnowledgeStatus,
 } from './knowledge-lifecycle';
-import { ensureAgentKnowledgeEntry, upsertAgentKnowledgeEntry } from './agent-knowledge';
+import { ensureAgentKnowledgeEntry, upsertAgentKnowledgeEntry } from './agents/knowledge';
 import {
   DuplicateOwnerKnowledgeEntryError,
   InvalidKnowledgeCategoryError,

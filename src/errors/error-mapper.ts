@@ -20,7 +20,7 @@ import {
   AgentMessageSenderNotFoundError,
   MissingAgentMessageBodyError,
   MissingAgentMessageRecipientError,
-} from '../services/agent-message-errors';
+} from '../services/agents/message-errors';
 import {
   AgentAccessAgentNotFoundError,
   MessageAccessMessageNotFoundError,
