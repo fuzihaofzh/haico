@@ -5,6 +5,7 @@ import { listDispatchableIssuesForAgent } from '../issue/dispatch';
 import { isAgentRunning, startAgentProcess, stopAgentProcess } from '../process-manager';
 import { buildSystemPrompt } from '../system-prompt';
 import { broadcastToProject } from '../../realtime';
+import logger from '../../logger';
 import {
   AgentAlreadyPausedError,
   AgentAlreadyRunningError,
@@ -58,6 +59,13 @@ export function startAgent(agentId: string, input: StartAgentServiceInput = {}):
   const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agent, project);
 
   const result = startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
+  logger.info({
+    projectId: agent.project_id,
+    agentId: agent.id,
+    runId: result.runId,
+    pid: result.pid,
+    forceNewSession: Boolean(input.force_new_session),
+  }, 'agent.started');
   return { success: true, runId: result.runId, pid: result.pid };
 }
 
@@ -83,10 +91,16 @@ export function retryAgent(agentId: string): { success: true; runId: string; pid
 
   const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
   const result = startAgentProcess(freshAgent, agent.last_prompt, commandTemplate);
+  logger.info({
+    projectId: agent.project_id,
+    agentId: agent.id,
+    runId: result.runId,
+    pid: result.pid,
+  }, 'agent.retried');
   return { success: true, runId: result.runId, pid: result.pid };
 }
 
-export function stopAgent(agentId: string, logger?: AgentStopLogger): { success: true } {
+export function stopAgent(agentId: string, requestLogger?: AgentStopLogger): { success: true } {
   const db = getDatabase();
   const agent = getAgentOrThrow(db, agentId);
 
@@ -96,9 +110,9 @@ export function stopAgent(agentId: string, logger?: AgentStopLogger): { success:
   if (!stopped) {
     if (agent.pid) {
       if (agent.pid === process.pid || agent.pid === process.ppid) {
-        logger?.error(`Refusing to kill PID ${agent.pid} because it is the HAICO server itself (pid=${process.pid}, ppid=${process.ppid})`);
+        requestLogger?.error(`Refusing to kill PID ${agent.pid} because it is the HAICO server itself (pid=${process.pid}, ppid=${process.ppid})`);
       } else {
-        logger?.warn(`Killing stale PID ${agent.pid} for agent "${agent.name}" (not in memory map)`);
+        requestLogger?.warn(`Killing stale PID ${agent.pid} for agent "${agent.name}" (not in memory map)`);
         try { process.kill(agent.pid, 'SIGTERM'); } catch {}
       }
     }
@@ -110,6 +124,13 @@ export function stopAgent(agentId: string, logger?: AgentStopLogger): { success:
     projectId: agent.project_id,
     data: { agentId: agent.id, status: 'idle' },
   });
+
+  logger.info({
+    projectId: agent.project_id,
+    agentId: agent.id,
+    hadRunningProcess: stopped,
+    stalePid: stopped ? null : agent.pid,
+  }, 'agent.stopped');
 
   return { success: true };
 }
@@ -134,6 +155,12 @@ export function pauseAgent(agentId: string): { success: true } {
     data: { agentId: agent.id, status: 'idle', paused: true },
   });
 
+  logger.info({
+    projectId: agent.project_id,
+    agentId: agent.id,
+    wasRunning: agent.status === 'running' || isAgentRunning(agent.id),
+  }, 'agent.paused');
+
   return { success: true };
 }
 
@@ -152,6 +179,11 @@ export function unpauseAgent(agentId: string): { success: true } {
     projectId: agent.project_id,
     data: { agentId: agent.id, status: 'idle', paused: false },
   });
+
+  logger.info({
+    projectId: agent.project_id,
+    agentId: agent.id,
+  }, 'agent.unpaused');
 
   return { success: true };
 }

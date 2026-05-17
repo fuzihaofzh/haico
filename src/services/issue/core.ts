@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { broadcastToProject } from '../../realtime';
+import logger from '../../logger';
 import {
   InvalidIssueStatusError,
   IssueDeleteStatusConflictError,
@@ -282,6 +283,17 @@ export function createIssue(db: Database.Database, projectId: string, input: Cre
     data: { issue: result.created },
   });
 
+  logger.info({
+    projectId,
+    issueId: result.created.id,
+    issueNumber: result.created.number,
+    createdBy: created_by,
+    assignedTo: result.created.assigned_to,
+    parentId: result.created.parent_id,
+    priority: result.created.priority,
+    parentUpdated: Boolean(result.updatedParent),
+  }, 'issue.created');
+
   if (created_by === 'user') {
     autoStartAssignedAgentForIssue(db, projectId, result.created.number, assigned_to, 'issue-create-assignment');
   }
@@ -394,6 +406,8 @@ export function updateIssue(db: Database.Database, issueId: string, input: Updat
     const updated = getIssueOrThrow(db, issueId);
     let parentIssueForTrigger: any | null = null;
     let refreshedParent: any | null = null;
+    let parentCompletion: { parentIssueId: string; parentIssueNumber: number; childCount: number } | null = null;
+    let returnedToUser = false;
 
     if ((status === 'done' || status === 'closed') && updated.parent_id) {
       const siblings = db.prepare(
@@ -434,6 +448,11 @@ export function updateIssue(db: Database.Database, issueId: string, input: Updat
 
         parentIssueForTrigger = parentIssue;
         refreshedParent = getIssueOrThrow(db, updated.parent_id);
+        parentCompletion = {
+          parentIssueId: parentIssue.id,
+          parentIssueNumber: parentIssue.number,
+          childCount: siblings.total,
+        };
       } else if (parentIssue) {
         eventStmt.run(
           uuidv4(),
@@ -452,6 +471,7 @@ export function updateIssue(db: Database.Database, issueId: string, input: Updat
         && existing.assigned_to !== 'user') {
       db.prepare("UPDATE issues SET assigned_to = 'user', acknowledged_at = NULL, updated_at = datetime('now') WHERE id = ?")
         .run(issueId);
+      returnedToUser = true;
       eventStmt.run(
         uuidv4(),
         issueId,
@@ -467,9 +487,47 @@ export function updateIssue(db: Database.Database, issueId: string, input: Updat
       updated,
       parentIssueForTrigger,
       refreshedParent,
+      parentCompletion,
+      returnedToUser,
       finalIssue: getIssueOrThrow(db, issueId),
     };
   })();
+
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  if (result.existing.status !== result.finalIssue.status) {
+    changes.status = { from: result.existing.status, to: result.finalIssue.status };
+  }
+  if (result.existing.assigned_to !== result.finalIssue.assigned_to) {
+    changes.assignedTo = { from: result.existing.assigned_to, to: result.finalIssue.assigned_to };
+  }
+  if (Object.keys(changes).length > 0) {
+    logger.info({
+      projectId: result.finalIssue.project_id,
+      issueId,
+      issueNumber: result.finalIssue.number,
+      actor: actorId,
+      changes,
+    }, 'issue.updated');
+  }
+
+  if (result.parentCompletion) {
+    logger.info({
+      projectId: result.updated.project_id,
+      issueId: result.parentCompletion.parentIssueId,
+      issueNumber: result.parentCompletion.parentIssueNumber,
+      childCount: result.parentCompletion.childCount,
+    }, 'issue.children_completed');
+  }
+
+  if (result.returnedToUser) {
+    logger.info({
+      projectId: result.finalIssue.project_id,
+      issueId,
+      issueNumber: result.finalIssue.number,
+      assignedTo: 'user',
+      reason: 'task_completed',
+    }, 'issue.returned_to_user');
+  }
 
   broadcastToProject(result.updated.project_id, {
     type: 'issue_updated',
@@ -512,6 +570,11 @@ export function deleteIssue(db: Database.Database, issueId: string): void {
   if (childCount > 0) throw new IssueHasChildrenDeleteConflictError(childCount);
 
   db.prepare('DELETE FROM issues WHERE id = ?').run(issueId);
+  logger.info({
+    projectId: issue.project_id,
+    issueId,
+    issueNumber: issue.number,
+  }, 'issue.deleted');
 }
 
 export function acknowledgeIssue(db: Database.Database, issueId: string): any {

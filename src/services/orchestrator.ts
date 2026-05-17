@@ -101,7 +101,7 @@ function recordOrchestrationRun(projectId: string, input: OrchestrationRunRecord
       safeJson(input.dispatchResults)
     );
   } catch (err) {
-    logger.warn(err, `Failed to record orchestration run for project ${projectId}`);
+    logger.warn({ err, projectId }, 'orchestration.record_failed');
   }
 }
 
@@ -131,7 +131,10 @@ function startNativeController(input: ControllerOrchestrationInput): void {
 }
 
 function startLangGraphController(input: ControllerOrchestrationInput): void {
-  logger.info(`Triggering controller via langgraph for project "${input.project.name}"`);
+  logger.info({
+    projectId: input.project.id,
+    controllerAgentId: input.controller.id,
+  }, 'langgraph.controller.triggered');
 
   void runControllerWithLangGraph(input)
     .then((result) => {
@@ -171,9 +174,14 @@ function startLangGraphController(input: ControllerOrchestrationInput): void {
       });
 
       if (result.controllerStarted) {
-        logger.info(
-          `LangGraph controller run created (project=${input.project.id}, agent=${input.controller.id}, runId=${result.runId}, pid=${result.pid}, decision=${result.decision}, dispatched=${result.dispatchCount})`
-        );
+        logger.info({
+          projectId: input.project.id,
+          controllerAgentId: input.controller.id,
+          runId: result.runId,
+          pid: result.pid,
+          decision: result.decision,
+          dispatchCount: result.dispatchCount,
+        }, 'langgraph.controller.started');
         return;
       }
 
@@ -181,9 +189,14 @@ function startLangGraphController(input: ControllerOrchestrationInput): void {
       const backoffText = result.backoffLabel
         ? `, backoff=${result.backoffLabel}(${Math.round(result.backoffMs / 60000)}m)`
         : '';
-      logger.info(
-        `LangGraph orchestration finished without controller start (project=${input.project.id}, decision=${result.decision}, dispatched=${result.dispatchCount}, reasons=${reasonText}${backoffText})`
-      );
+      logger.debug({
+        projectId: input.project.id,
+        decision: result.decision,
+        dispatchCount: result.dispatchCount,
+        reasons: reasonText,
+        backoffLabel: result.backoffLabel || '',
+        backoffText,
+      }, 'langgraph.controller.not_started');
     })
     .catch((err) => {
       const errorMessage = err?.message || String(err);
@@ -210,7 +223,12 @@ function startLangGraphController(input: ControllerOrchestrationInput): void {
         backoffReason: errorMessage,
         backoffLabel,
       });
-      logger.error(err, `LangGraph controller run failed for project ${input.project.id}; applying ${backoffLabel} backoff`);
+      logger.error({
+        err,
+        projectId: input.project.id,
+        controllerAgentId: input.controller.id,
+        backoffLabel,
+      }, 'langgraph.controller.failed');
     });
 }
 

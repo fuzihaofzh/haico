@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { Agent } from '../../types';
+import logger from '../../logger';
 import {
   calculateKnowledgeExpiresAt,
   DEFAULT_KNOWLEDGE_CATEGORY,
@@ -189,13 +190,22 @@ export function updateAgentKnowledgeMemory(
   const importance = validateImportance(input.importance);
   const category = input.category === undefined ? undefined : requireCategory(input.category);
 
-  return upsertAgentKnowledgeEntry(db, agent, {
+  const updated = upsertAgentKnowledgeEntry(db, agent, {
     content: String(input.content),
     tags: input.tags,
     category,
     importance,
     actor: input.verified_by || agent.id,
   }) as KnowledgeEntry;
+  logger.debug({
+    projectId: updated.project_id,
+    knowledgeEntryId: updated.id,
+    ownerAgentId: updated.owner_agent_id,
+    category: updated.category,
+    importance: updated.importance,
+    verifiedBy: updated.verified_by,
+  }, 'knowledge.agent_memory_updated');
+  return updated;
 }
 
 export function listKnowledgeEntries(
@@ -321,7 +331,17 @@ export function createKnowledgeEntry(
     actor
   );
 
-  return getKnowledgeEntryOrThrow(db, id);
+  const created = getKnowledgeEntryOrThrow(db, id);
+  logger.debug({
+    projectId,
+    knowledgeEntryId: created.id,
+    ownerAgentId: created.owner_agent_id,
+    category: created.category,
+    importance: created.importance,
+    status: created.status,
+    createdBy: created.created_by,
+  }, 'knowledge.created');
+  return created;
 }
 
 export function getKnowledgeEntry(db: Database.Database, id: string): KnowledgeEntry {
@@ -374,7 +394,21 @@ export function updateKnowledgeEntry(
     ).run(title, content, tags, importance, category, expiresAt, verifiedBy, status, id);
   }
 
-  return getKnowledgeEntryOrThrow(db, id);
+  const updated = getKnowledgeEntryOrThrow(db, id);
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  if (existing.importance !== updated.importance) changes.importance = { from: existing.importance, to: updated.importance };
+  if (existing.category !== updated.category) changes.category = { from: existing.category, to: updated.category };
+  if (existing.status !== updated.status) changes.status = { from: existing.status, to: updated.status };
+  if (Object.keys(changes).length > 0 || shouldVerifyLifecycle) {
+    logger.debug({
+      projectId: updated.project_id,
+      knowledgeEntryId: updated.id,
+      ownerAgentId: updated.owner_agent_id,
+      changes,
+      verifiedBy: shouldVerifyLifecycle ? updated.verified_by : undefined,
+    }, 'knowledge.updated');
+  }
+  return updated;
 }
 
 export function verifyKnowledgeEntry(
@@ -392,10 +426,23 @@ export function verifyKnowledgeEntry(
      WHERE id = ?`
   ).run(actor, expiresAt, id);
 
-  return getKnowledgeEntryOrThrow(db, id);
+  const verified = getKnowledgeEntryOrThrow(db, id);
+  logger.debug({
+    projectId: verified.project_id,
+    knowledgeEntryId: verified.id,
+    ownerAgentId: verified.owner_agent_id,
+    verifiedBy: actor,
+    expiresAt,
+  }, 'knowledge.verified');
+  return verified;
 }
 
 export function deleteKnowledgeEntry(db: Database.Database, id: string): void {
-  getKnowledgeEntryOrThrow(db, id);
+  const existing = getKnowledgeEntryOrThrow(db, id);
   db.prepare('DELETE FROM knowledge_entries WHERE id = ?').run(id);
+  logger.debug({
+    projectId: existing.project_id,
+    knowledgeEntryId: existing.id,
+    ownerAgentId: existing.owner_agent_id,
+  }, 'knowledge.deleted');
 }

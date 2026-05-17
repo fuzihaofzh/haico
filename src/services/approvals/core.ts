@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { broadcastToProject } from '../../realtime';
 import { ApprovalRequest } from '../../types';
+import logger from '../../logger';
 import {
   ApprovalAgentNotFoundError,
   ApprovalAlreadyDecidedError,
@@ -179,6 +180,15 @@ export function createApproval(
     data: { ...created, agent_name: agent.name },
   });
 
+  logger.info({
+    projectId,
+    approvalId: created.id,
+    agentId,
+    issueId: created.issue_id,
+    riskLevel: created.risk_level,
+    status: created.status,
+  }, 'approval.created');
+
   return created;
 }
 
@@ -224,6 +234,15 @@ export function decideApproval(
     projectId: result.projectId,
     data: result.approval,
   });
+
+  logger.info({
+    projectId: result.projectId,
+    approvalId: result.approval.id,
+    agentId: result.approval.agent_id,
+    status: result.approval.status,
+    decidedBy: result.approval.decided_by,
+    riskLevel: result.approval.risk_level,
+  }, 'approval.decided');
 
   return result.approval;
 }

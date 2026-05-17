@@ -1306,6 +1306,13 @@ export async function runDashboardChatTurn(
   const toolCalls: DashboardChatToolCall[] = [];
   const toolResults: Array<{ tool: string; arguments: Record<string, unknown>; result: unknown }> = [];
 
+  request.log.debug({
+    selectedProjectId: selectedProject?.id || null,
+    projectCount: seedContext.availableProjects.length,
+    commandType: command.type,
+    profileId: command.profileId,
+  }, 'dashboard_chat.started');
+
   for (let step = 0; step < MAX_CHAT_STEPS; step += 1) {
     const prompt = buildChatPrompt({
       projects: seedContext.availableProjects,
@@ -1318,6 +1325,13 @@ export async function runDashboardChatTurn(
     const envelope = parseAssistantEnvelope(rawOutput);
 
     if (envelope.type === 'answer') {
+      request.log.debug({
+        selectedProjectId: selectedProject?.id || null,
+        stepCount: step + 1,
+        toolCallCount: toolCalls.length,
+        commandType: command.type,
+        profileId: command.profileId,
+      }, 'dashboard_chat.completed');
       return {
         message: envelope.message,
         tool_calls: toolCalls,
@@ -1343,6 +1357,11 @@ export async function runDashboardChatTurn(
         result,
       });
     } catch (error: any) {
+      request.log.warn({
+        err: error,
+        tool: envelope.tool,
+        selectedProjectId: selectedProject?.id || null,
+      }, 'dashboard_chat.tool_failed');
       toolResults.push({
         tool: envelope.tool,
         arguments: envelope.arguments,
@@ -1351,6 +1370,11 @@ export async function runDashboardChatTurn(
     }
   }
 
+  request.log.warn({
+    selectedProjectId: selectedProject?.id || null,
+    toolCallCount: toolCalls.length,
+    maxSteps: MAX_CHAT_STEPS,
+  }, 'dashboard_chat.step_limit_reached');
   return {
     message: 'I hit the tool-call limit for this turn. Please narrow the request or specify the exact project or issue you want me to operate on.',
     tool_calls: toolCalls,

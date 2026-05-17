@@ -27,7 +27,7 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
   // 规则2: issue assigned_to = "user" 且非 open/in_progress → 无需操作
   // open/in_progress 的 user-assigned issue 需要 controller 重新分配（如用户 reopen 了已完成的 issue）
   if (issue.assigned_to === 'user' && issue.status !== 'open' && issue.status !== 'in_progress') {
-    logger.info(`Pre-controller: issue #${triggerIssueNumber} assigned to user (status=${issue.status}), skipping LLM`);
+    logger.debug({ projectId, issueNumber: triggerIssueNumber, status: issue.status }, 'pre_controller.skipped_user_assigned');
     return true;
   }
 
@@ -36,12 +36,15 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
   if (issue.status === 'pending') {
     const deps = getPendingDependencyState(db, projectId, issue.id);
     if (deps.activeChildren > 0 || deps.activeBlockers > 0) {
-      logger.info(
-        `Pre-controller: issue #${triggerIssueNumber} is pending (active_children=${deps.activeChildren}, active_blockers=${deps.activeBlockers}), skipping LLM`
-      );
+      logger.debug({
+        projectId,
+        issueNumber: triggerIssueNumber,
+        activeChildren: deps.activeChildren,
+        activeBlockers: deps.activeBlockers,
+      }, 'pre_controller.skipped_pending_dependencies');
       return true;
     }
-    logger.info(`Pre-controller: pending issue #${triggerIssueNumber} is ready to resume`);
+    logger.info({ projectId, issueNumber: triggerIssueNumber }, 'pre_controller.pending_ready');
   }
 
   // 规则3: issue 已完成 (done/closed) → 检查是否还有其他需要 controller 处理的 issue
@@ -49,7 +52,7 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
     const pendingForController = findControllerRecoveryIssue(db, projectId);
 
     if (!pendingForController) {
-      logger.info(`Pre-controller: issue #${triggerIssueNumber} is ${issue.status}, no pending controller issues, skipping LLM`);
+      logger.debug({ projectId, issueNumber: triggerIssueNumber, status: issue.status }, 'pre_controller.skipped_completed_issue');
       return true;
     }
     // 还有待处理的 issue 需要 controller 决策
@@ -72,13 +75,13 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
 
     // agent 正在运行 → 无需操作（它会处理）
     if (agent.status === 'running' || isAgentRunning(agent.id)) {
-      logger.info(`Pre-controller: issue #${triggerIssueNumber} assigned to ${agent.name} which is running, skipping LLM`);
+      logger.debug({ projectId, issueNumber: triggerIssueNumber, agentId: agent.id }, 'pre_controller.skipped_agent_running');
       return true;
     }
 
     // agent in cooldown → skip restart, treat as handled (will restart after cooldown)
     if (agent.status === 'idle' && isAgentInCooldown(agent.id)) {
-      logger.info(`Pre-controller: agent ${agent.name} in restart cooldown, deferring start for issue #${triggerIssueNumber}`);
+      logger.debug({ projectId, issueNumber: triggerIssueNumber, agentId: agent.id }, 'pre_controller.skipped_agent_cooldown');
       return true;
     }
 
@@ -90,7 +93,7 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
       const allAssigned = listDispatchableIssuesForAgent(db, projectId, agent.id);
       const wakeDecision = getAgentWakeupDecision(agent, allAssigned, { source: 'pre-controller' });
       if (!wakeDecision.allowed) {
-        logger.info(`Pre-controller: auto-start suppressed for ${agent.name}: ${wakeDecision.reason}`);
+        logger.debug({ projectId, issueNumber: triggerIssueNumber, agentId: agent.id, reason: wakeDecision.reason }, 'pre_controller.autostart_suppressed');
         return true;
       }
       const issueBatch = getAgentIssueBatch(allAssigned);
@@ -112,7 +115,13 @@ export function tryHandleWithoutLLM(projectId: string, triggerIssueNumber?: numb
         listDispatchableIssuesForAgent(db, projectId, agent.id)
       );
 
-      logger.info(`Pre-controller: directly starting ${agent.name} for ${issueBatch.currentBatch.length}/${issueBatch.activeIssues.length} issue(s) in current batch (triggered by #${triggerIssueNumber}), bypassing LLM controller`);
+      logger.info({
+        projectId,
+        issueNumber: triggerIssueNumber,
+        agentId: agent.id,
+        currentBatchCount: issueBatch.currentBatch.length,
+        activeIssueCount: issueBatch.activeIssues.length,
+      }, 'pre_controller.agent_started');
       startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
       recordAgentWakeup(agent.id, recordedWakeup.signature, 'pre-controller', recordedWakeup.activityKey);
       return true;

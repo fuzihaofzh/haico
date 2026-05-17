@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import type { CreateProjectInput } from '../types';
 import type { ToolReadinessSummary } from './tool-readiness';
+import logger from '../logger';
 
 const REMOTE_INSTANCES_SETTINGS_KEY = 'remote_instances';
 const REMOTE_FETCH_TIMEOUT_MS = 5000;
@@ -278,6 +279,17 @@ async function requestRemoteJson<T>(
             || `Remote API returned ${res.status} ${res.statusText}`
         );
 
+    if (!res.ok) {
+      logger.warn({
+        remoteInstanceId: instance.id,
+        pathname,
+        method: init.method || (init.body !== undefined ? 'POST' : 'GET'),
+        status: res.status,
+        statusText: res.statusText,
+        error,
+      }, 'remote.request_failed');
+    }
+
     return {
       ok: res.ok,
       status: res.status,
@@ -286,14 +298,22 @@ async function requestRemoteJson<T>(
       error,
     };
   } catch (error: any) {
+    const message = error?.name === 'AbortError'
+      ? 'Connection to remote instance timed out'
+      : String(error?.message || error || 'Request failed');
+    logger.warn({
+      remoteInstanceId: instance.id,
+      pathname,
+      method: init.method || (init.body !== undefined ? 'POST' : 'GET'),
+      error: message,
+      timeout: error?.name === 'AbortError',
+    }, 'remote.request_failed');
     return {
       ok: false,
       status: 502,
       statusText: 'Bad Gateway',
       data: null,
-      error: error?.name === 'AbortError'
-        ? 'Connection to remote instance timed out'
-        : String(error?.message || error || 'Request failed'),
+      error: message,
     };
   } finally {
     clearTimeout(timer);
@@ -561,6 +581,11 @@ export async function probeRemoteInstance(instance: RemoteInstanceRecord): Promi
     });
 
     if (!res.ok) {
+      logger.warn({
+        remoteInstanceId: instance.id,
+        status: res.status,
+        statusText: res.statusText,
+      }, 'remote.probe_failed');
       return {
         ok: false,
         projectCount: 0,
@@ -578,10 +603,16 @@ export async function probeRemoteInstance(instance: RemoteInstanceRecord): Promi
       checkedAt,
     };
   } catch (error: any) {
+    const message = error?.name === 'AbortError' ? 'Connection timed out' : String(error?.message || error || 'Request failed');
+    logger.warn({
+      remoteInstanceId: instance.id,
+      error: message,
+      timeout: error?.name === 'AbortError',
+    }, 'remote.probe_failed');
     return {
       ok: false,
       projectCount: 0,
-      error: error?.name === 'AbortError' ? 'Connection timed out' : String(error?.message || error || 'Request failed'),
+      error: message,
       checkedAt,
     };
   } finally {
@@ -639,6 +670,11 @@ export async function fetchRemoteProjects(instance: RemoteInstanceRecord): Promi
     });
 
     if (!res.ok) {
+      logger.warn({
+        remoteInstanceId: instance.id,
+        status: res.status,
+        statusText: res.statusText,
+      }, 'remote.projects_fetch_failed');
       return {
         projects: [],
         status: 'error',
@@ -655,10 +691,16 @@ export async function fetchRemoteProjects(instance: RemoteInstanceRecord): Promi
       projects: projects.map((project: any) => toAggregatedRemoteProject(instance, project)),
     };
   } catch (error: any) {
+    const message = error?.name === 'AbortError' ? 'Connection timed out' : String(error?.message || error || 'Request failed');
+    logger.warn({
+      remoteInstanceId: instance.id,
+      error: message,
+      timeout: error?.name === 'AbortError',
+    }, 'remote.projects_fetch_failed');
     return {
       projects: [],
       status: 'error',
-      error: error?.name === 'AbortError' ? 'Connection timed out' : String(error?.message || error || 'Request failed'),
+      error: message,
     };
   } finally {
     clearTimeout(timer);

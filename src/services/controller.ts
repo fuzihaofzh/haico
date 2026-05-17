@@ -98,20 +98,29 @@ export function enqueueControllerTrigger(
         ? trigger.issueNumbers.values().next().value as number
         : undefined;
 
-      logger.info(
-        `Coalesced controller trigger for "${trigger.project.name}": ${trigger.reasons.length} event(s) [${trigger.highestPriority}], issues=[${[...trigger.issueNumbers].join(',')}], reasons=[${trigger.reasons.slice(0, 3).join('; ')}${trigger.reasons.length > 3 ? '...' : ''}]`
-      );
+      logger.debug({
+        projectId: trigger.project.id,
+        eventCount: trigger.reasons.length,
+        priority: trigger.highestPriority,
+        issueNumbers: [...trigger.issueNumbers],
+        reasons: trigger.reasons.slice(0, 3),
+        truncatedReasons: trigger.reasons.length > 3,
+      }, 'controller.trigger.coalesced');
 
       try {
         triggerControllerAgent(trigger.project, trigger.skipActivityCheck, triggerIssueNumber);
       } catch (e) {
-        logger.error(e, 'Coalesced controller trigger failed');
+        logger.error({ err: e, projectId: trigger.project.id }, 'controller.trigger.failed');
       }
     }, delay);
     coalescingTimers.set(pid, timer);
 
     if (delay > windowMs) {
-      logger.info(`Controller trigger queued for "${project.name}" in ${Math.round(delay / 1000)}s (min interval enforced, ${opts.reason})`);
+      logger.info({
+        projectId: project.id,
+        delaySeconds: Math.round(delay / 1000),
+        reason: opts.reason,
+      }, 'controller.trigger.queued');
     }
   }
 }
@@ -293,17 +302,17 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
   ).get(project.id) as Agent | undefined;
 
   if (!controller) {
-    logger.warn(`No controller agent found for project ${project.id}`);
+    logger.warn({ projectId: project.id }, 'controller.missing');
     return;
   }
 
   if (controller.status === 'running') {
-    logger.info(`Controller agent for project ${project.id} is already running, skipping.`);
+    logger.debug({ projectId: project.id, controllerAgentId: controller.id }, 'controller.trigger.skipped_running');
     return;
   }
 
   if (controller.paused) {
-    logger.info(`Controller agent for project ${project.id} is paused, skipping.`);
+    logger.debug({ projectId: project.id, controllerAgentId: controller.id }, 'controller.trigger.skipped_paused');
     return;
   }
 
@@ -315,15 +324,21 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
     if (backoff) {
       if (backoff.snapshot === snapshot) {
         const remainingMs = getRemainingBackoffMs(project.id);
-        logger.info(
-          `Skipping controller trigger: active ${backoff.source} backoff (${formatBackoffDuration(remainingMs)}) for project "${project.name}" because snapshot is unchanged; reason=${backoff.reason}`
-        );
+        logger.debug({
+          projectId: project.id,
+          source: backoff.source,
+          remainingMs,
+          remaining: formatBackoffDuration(remainingMs),
+          reason: backoff.reason,
+        }, 'controller.trigger.skipped_backoff');
         return;
       }
       clearControllerBackoff(project.id);
-      logger.info(
-        `Clearing controller backoff for project "${project.name}" because activity snapshot changed (previous=${backoff.label})`
-      );
+      logger.debug({
+        projectId: project.id,
+        source: backoff.source,
+        previousLabel: backoff.label,
+      }, 'controller.backoff.cleared');
     }
   }
 
@@ -358,9 +373,12 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
       };
 
       if ((depState?.active_children ?? 0) > 0 || (depState?.active_blockers ?? 0) > 0) {
-        logger.info(
-          `Skipping controller trigger: issue #${triggerIssueNumber} is pending with active_children=${depState?.active_children ?? 0}, active_blockers=${depState?.active_blockers ?? 0} in project "${project.name}"`
-        );
+        logger.debug({
+          projectId: project.id,
+          issueNumber: triggerIssueNumber,
+          activeChildren: depState?.active_children ?? 0,
+          activeBlockers: depState?.active_blockers ?? 0,
+        }, 'controller.trigger.skipped_pending_dependencies');
         return;
       }
     }
@@ -415,11 +433,11 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
       ).get(project.id, project.id, project.id);
 
       if (!errorWorkersWithIssues && !stalePending) {
-        logger.info(`Skipping controller trigger: no unassigned issues, no errored workers with active issues, and no stale pending issues in project "${project.name}"`);
+        logger.debug({ projectId: project.id }, 'controller.trigger.skipped_no_work');
         return;
       }
-      if (errorWorkersWithIssues) logger.info(`Controller trigger: errored workers with active issues detected in project "${project.name}"`);
-      if (stalePending) logger.info(`Controller trigger: pending issue(s) with all children completed detected in project "${project.name}"`);
+      if (errorWorkersWithIssues) logger.info({ projectId: project.id }, 'controller.trigger.error_workers_detected');
+      if (stalePending) logger.info({ projectId: project.id }, 'controller.trigger.stale_pending_detected');
     }
   }
 
@@ -427,7 +445,7 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
   if (!skipActivityCheck) {
     const prevSnapshot = lastTriggerSnapshot.get(project.id);
     if (prevSnapshot && prevSnapshot === snapshot) {
-      logger.info(`Skipping controller trigger: snapshot unchanged for project "${project.name}"`);
+      logger.debug({ projectId: project.id }, 'controller.trigger.skipped_snapshot_unchanged');
       return;
     }
   }
@@ -438,7 +456,11 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
   lastControllerRunMs.set(project.id, Date.now());
 
   try {
-    logger.info(`Triggering controller agent for project "${project.name}"`);
+    logger.info({
+      projectId: project.id,
+      controllerAgentId: controller.id,
+      triggerIssueNumber,
+    }, 'controller.run.started');
     startControllerOrchestration({ project, controller, taskPrompt, triggerIssueNumber, activitySnapshot: snapshot });
 
     lastTriggerSnapshot.set(project.id, snapshot);

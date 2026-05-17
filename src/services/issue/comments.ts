@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { Agent, Project } from '../../types';
 import { broadcastToProject } from '../../realtime';
+import logger from '../../logger';
 import {
   IssueCommentNotFoundError,
   IssueNotFoundError,
@@ -43,11 +44,26 @@ function handleUserCommentReassignment(db: Database.Database, issue: any, body: 
   const targetAgent = findFirstMentionedAgent(body, agents);
   const controllerAgent = agents.find((agent) => agent.is_controller);
   const newAssignee = targetAgent ? targetAgent.id : (controllerAgent?.id || FALLBACK_CONTROLLER_ID);
+  const previousAssignee = issue.assigned_to;
+  const previousStatus = issue.status;
 
   db.prepare('UPDATE issues SET assigned_to = ? WHERE id = ?').run(newAssignee, issueId);
 
   if (issue.status === 'done' || issue.status === 'closed') {
     db.prepare("UPDATE issues SET status = 'open' WHERE id = ?").run(issueId);
+  }
+
+  if (previousAssignee !== newAssignee || previousStatus === 'done' || previousStatus === 'closed') {
+    logger.info({
+      projectId: issue.project_id,
+      issueId,
+      issueNumber: issue.number,
+      assignedTo: newAssignee,
+      previousAssignee,
+      reopened: previousStatus === 'done' || previousStatus === 'closed',
+      previousStatus,
+      targetAgentId: targetAgent?.id || controllerAgent?.id || null,
+    }, 'issue.user_comment_routed');
   }
 
   const agentToStart = targetAgent || (controllerAgent as Agent | undefined);

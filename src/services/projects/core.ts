@@ -7,6 +7,7 @@ import { isLegacyAuthUser } from '../auth/request';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
 import { getProjectPermission, listAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-access';
 import { isAgentRunning, stopAgentProcess } from '../process-manager';
+import logger, { AppLogger } from '../../logger';
 import {
   InvalidProjectOrchestratorEngineError,
   MissingProjectTaskDescriptionError,
@@ -40,7 +41,7 @@ export interface SerializedProject extends Project {
 }
 
 export interface ProjectServiceLogger {
-  error(payload: unknown, message?: string): void;
+  error: AppLogger['error'];
 }
 
 export function normalizeOrchestratorEngine(value: unknown): OrchestratorEngine | null {
@@ -184,10 +185,11 @@ export function createProject(
     throw new InvalidProjectOrchestratorEngineError();
   }
 
-  const createdProject = db.transaction(() => {
+  const result = db.transaction(() => {
     const id = uuidv4();
     const tmpl = input.command_template || config.defaultCommandTemplate;
     const resolvedCommandType = resolveCommandType(input.command_type, tmpl);
+    const resolvedEngine = orchestratorEngine || config.defaultOrchestratorEngine;
     const ownerId = context.user && !isLegacyAuthUser(context.user) ? context.user.id : null;
 
     db.prepare(`
@@ -200,7 +202,7 @@ export function createProject(
       input.task_description,
       tmpl,
       resolvedCommandType,
-      orchestratorEngine || config.defaultOrchestratorEngine,
+      resolvedEngine,
       ownerId
     );
 
@@ -258,10 +260,26 @@ export function createProject(
       custom_instructions: '',
     });
 
-    return db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project;
+    return {
+      project: db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project,
+      controllerId,
+      assistantId,
+      ownerId,
+      commandType: resolvedCommandType,
+      orchestratorEngine: resolvedEngine,
+    };
   })();
 
-  return serializeProject(db, createdProject, { user: context.user, localhostBypass: false });
+  logger.info({
+    projectId: result.project.id,
+    ownerId: result.ownerId,
+    orchestratorEngine: result.orchestratorEngine,
+    commandType: result.commandType,
+    controllerAgentId: result.controllerId,
+    assistantAgentId: result.assistantId,
+  }, 'project.created');
+
+  return serializeProject(db, result.project, { user: context.user, localhostBypass: false });
 }
 
 export interface UpdateProjectInput extends Partial<CreateProjectInput> {
@@ -292,6 +310,17 @@ export function updateProject(
     throw new InvalidProjectOrchestratorEngineError();
   }
 
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  if (input.status !== undefined && input.status !== existing.status) {
+    changes.status = { from: existing.status, to: input.status };
+  }
+  if (orchestratorEngine !== null && orchestratorEngine !== existing.orchestrator_engine) {
+    changes.orchestratorEngine = { from: existing.orchestrator_engine, to: orchestratorEngine };
+  }
+  if ((hasCommandType || hasCommandTemplate) && nextCommandType !== existing.command_type) {
+    changes.commandType = { from: existing.command_type, to: nextCommandType };
+  }
+
   db.prepare(`
     UPDATE projects SET
       name = COALESCE(?, name),
@@ -317,6 +346,9 @@ export function updateProject(
   );
 
   const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project;
+  if (Object.keys(changes).length > 0) {
+    logger.info({ projectId, changes }, 'project.updated');
+  }
   return serializeProject(db, updated, context);
 }
 
@@ -324,7 +356,7 @@ export function deleteProject(
   db: Database.Database,
   projectId: string,
   permission: ProjectPermission,
-  logger?: ProjectServiceLogger
+  requestLogger?: ProjectServiceLogger
 ): { success: true } {
   if (permission.level === 'editor') {
     throw new ProjectDeleteForbiddenError();
@@ -334,14 +366,21 @@ export function deleteProject(
   if (!existing) throw new ProjectNotFoundError();
 
   const agents = db.prepare('SELECT * FROM agents WHERE project_id = ?').all(projectId) as Agent[];
+  const stoppedAgentIds: string[] = [];
   for (const agent of agents) {
-    if (isAgentRunning(agent.id)) stopAgentProcess(agent.id);
+    if (isAgentRunning(agent.id)) {
+      stopAgentProcess(agent.id);
+      stoppedAgentIds.push(agent.id);
+    }
+  }
+  if (stoppedAgentIds.length > 0) {
+    logger.warn({ projectId, stoppedAgentIds }, 'project.delete.stopped_agents');
   }
 
   try {
     db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
   } catch (err) {
-    logger?.error({ err, projectId }, 'Failed to delete project');
+    (requestLogger || logger).error({ err, projectId }, 'project.delete.failed');
     const message = err instanceof Error ? err.message : String(err);
     if (/foreign key|constraint|agents_old|issues_old|projects_old/i.test(message)) {
       throw new ProjectDeleteBlockedError();
@@ -349,5 +388,6 @@ export function deleteProject(
     throw err;
   }
 
+  logger.info({ projectId, agentCount: agents.length, permission: permission.level }, 'project.deleted');
   return { success: true };
 }

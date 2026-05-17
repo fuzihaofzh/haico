@@ -16,6 +16,7 @@ import { killAllPtySessions } from './services/terminal';
 import { clearAllPtyCleanupTimers, handleWebSocketError } from './realtime';
 import { setupErrorHandler } from './middleware/error-handler';
 import { Agent, Project } from './types';
+import { loggerOptions } from './logger';
 
 export interface AppOptions {
   port?: number;
@@ -28,7 +29,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   const port = opts.port ?? config.port;
   const host = opts.host ?? config.host;
 
-  const fastify = Fastify({ logger: opts.logger ?? true });
+  const fastify = Fastify({ logger: opts.logger === false ? false : loggerOptions });
   setupErrorHandler(fastify);
 
   await fastify.register(fastifyCompress, {
@@ -68,16 +69,22 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
           });
 
           if (restartResult.started) {
-            fastify.log.info(
-              `Worker "${agent.name}" finished and was immediately restarted for ${restartResult.currentBatchIssueNumbers.length}/${restartResult.activeIssueCount} dispatchable issue(s)`
-            );
+            fastify.log.info({
+              projectId: project.id,
+              agentId: agent.id,
+              currentBatchCount: restartResult.currentBatchIssueNumbers.length,
+              activeIssueCount: restartResult.activeIssueCount,
+            }, 'agent.finish.immediate_restart');
             return;
           }
 
           if (restartResult.activeIssueCount > 0) {
-            fastify.log.info(
-              `Worker "${agent.name}" finished with ${restartResult.activeIssueCount} dispatchable issue(s), but immediate restart was suppressed: ${restartResult.reason}`
-            );
+            fastify.log.debug({
+              projectId: project.id,
+              agentId: agent.id,
+              activeIssueCount: restartResult.activeIssueCount,
+              reason: restartResult.reason,
+            }, 'agent.finish.restart_suppressed');
             return;
           }
         }
@@ -91,7 +98,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
         });
       }
     } catch (e) {
-      fastify.log.warn(e, 'Failed to handle agent finish (DB may be closed)');
+      fastify.log.warn({ err: e }, 'agent.finish.handler_failed');
     }
   });
 

@@ -349,9 +349,16 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
     const probe = await probeRemoteInstance(candidate);
     const nextInstances = instances.concat(applyProbeToRemoteInstance(candidate, probe));
     saveRemoteInstances(db, nextInstances);
+    const saved = nextInstances[nextInstances.length - 1];
+    request.log.info({
+      remoteInstanceId: saved.id,
+      enabled: saved.enabled,
+      probeOk: probe.ok,
+      projectCount: probe.projectCount,
+    }, 'remote_instance.created');
 
     return reply.status(201).send({
-      instance: serializeRemoteInstance(nextInstances[nextInstances.length - 1]),
+      instance: serializeRemoteInstance(saved),
       probe,
     });
   });
@@ -430,6 +437,12 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
       db,
       instances.map((instance) => (instance.id === existing.id ? finalInstance : instance))
     );
+    request.log.info({
+      remoteInstanceId: finalInstance.id,
+      enabled: finalInstance.enabled,
+      probeOk: probe.ok,
+      projectCount: probe.projectCount,
+    }, 'remote_instance.updated');
 
     return {
       instance: serializeRemoteInstance(finalInstance),
@@ -453,6 +466,12 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
       db,
       instances.map((instance) => (instance.id === existing.id ? checked : instance))
     );
+    request.log.info({
+      remoteInstanceId: checked.id,
+      enabled: checked.enabled,
+      probeOk: probe.ok,
+      projectCount: probe.projectCount,
+    }, 'remote_instance.checked');
 
     return {
       instance: serializeRemoteInstance(checked),
@@ -472,6 +491,7 @@ export function registerRemoteInstanceRoutes(fastify: FastifyInstance): void {
       return reply.status(404).send({ error: 'Remote instance not found' });
     }
     saveRemoteInstances(db, nextInstances);
+    request.log.info({ remoteInstanceId: request.params.id }, 'remote_instance.deleted');
     return { ok: true };
   });
 

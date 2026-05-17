@@ -65,7 +65,13 @@ export function parseMentionsAndStartAgents(
           ? getAgentWakeupDecision(agent, [issue], { source: 'issue-mention', allowStatuses: ['idle', 'error'] })
           : { allowed: agent.status === 'idle', reason: 'issue-mention: no issue context', signature: '', activityKey: '', activeIssueCount: 0, currentBatchIssueNumbers: [] };
         if (!wakeDecision.allowed) {
-          logger.info(`Mention auto-start skipped for agent "${agent.name}" on issue #${issueNumber}: ${wakeDecision.reason}`);
+          logger.debug({
+            projectId,
+            issueId,
+            issueNumber,
+            agentId: agent.id,
+            reason: wakeDecision.reason,
+          }, 'issue.mention_autostart_skipped');
           continue;
         }
 
@@ -73,8 +79,16 @@ export function parseMentionsAndStartAgents(
         const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
         const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
         const systemPrompt = isRaw ? undefined : buildSystemPrompt(agent, project);
-        startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
+        const run = startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
         recordAgentWakeup(agent.id, wakeDecision.signature, 'issue-mention', wakeDecision.activityKey);
+        logger.info({
+          projectId,
+          issueId,
+          issueNumber,
+          agentId: agent.id,
+          runId: run.runId,
+          triggeredBy: authorId,
+        }, 'issue.mention_autostarted');
 
         eventStmt.run(
           uuidv4(),
@@ -148,7 +162,13 @@ export function autoStartAssignedAgentForIssue(
     allowStatuses: ['idle', 'error'],
   });
   if (!result.started) {
-    logger.info(`Assigned issue auto-start skipped for agent "${agent.name}" on issue #${issueNumber}: ${result.reason}`);
+    logger.debug({
+      projectId,
+      issueNumber,
+      agentId: agent.id,
+      reason: result.reason,
+      activeIssueCount: result.activeIssueCount,
+    }, 'issue.assigned_autostart_skipped');
   }
 }
 
@@ -175,6 +195,12 @@ export function autoStartAgentFromUserComment(
     allowStatuses: ['idle', 'error'],
   });
   if (!result.started) {
-    logger.info(`User comment auto-start skipped for agent "${agent.name}" on issue #${issueNumber}: ${result.reason}`);
+    logger.debug({
+      projectId: project.id,
+      issueNumber,
+      agentId: agent.id,
+      reason: result.reason,
+      activeIssueCount: result.activeIssueCount,
+    }, 'issue.user_comment_autostart_skipped');
   }
 }

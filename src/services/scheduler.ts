@@ -59,7 +59,7 @@ function startLogCleanup(): void {
         logger.info(`Log cleanup: deleted ${result.changes} log entries older than ${days} days`);
       }
     } catch (e) {
-      logger.error(e, 'Log cleanup failed');
+      logger.error({ err: e }, 'scheduler.log_cleanup_failed');
     }
   });
   logger.info(`Log cleanup scheduled: retain ${config.logRetentionDays} days`);
@@ -93,7 +93,11 @@ export function runIssueScanOnce(): void {
           ).get(worker.id) as any;
           const lastErrorAge = lastError ? Date.now() - new Date(lastError.created_at + 'Z').getTime() : Infinity;
           if (lastErrorAge < 60 * 60 * 1000) {
-            logger.info(`Skipping auto-restart for errored agent "${worker.name}": ${recentErrors.cnt} error run(s) in last 10 min, backing off until 1h after last error`);
+            logger.debug({
+              projectId: project.id,
+              agentId: worker.id,
+              recentErrorCount: recentErrors.cnt,
+            }, 'scheduler.worker_autostart_skipped_error_backoff');
             continue;
           }
         }
@@ -105,7 +109,12 @@ export function runIssueScanOnce(): void {
           allowStatuses: ['idle', 'error'],
         });
         if (!wakeDecision.allowed) {
-          logger.info(`Issue scan: suppressed worker "${worker.name}" auto-start: ${wakeDecision.reason}`);
+          logger.debug({
+            projectId: project.id,
+            agentId: worker.id,
+            reason: wakeDecision.reason,
+            activeIssueCount: wakeDecision.activeIssueCount,
+          }, 'scheduler.worker_autostart_suppressed');
           continue;
         }
 
@@ -124,11 +133,17 @@ export function runIssueScanOnce(): void {
           listDispatchableIssuesForAgent(db, project.id, worker.id)
         );
 
-        logger.info(`Issue scan: auto-starting worker "${worker.name}" with ${issueBatch.currentBatch.length}/${issueBatch.activeIssues.length} dispatchable issue(s) for project "${project.name}"`);
-        startAgentProcess(worker, prompt, commandTemplate, systemPrompt);
+        const run = startAgentProcess(worker, prompt, commandTemplate, systemPrompt);
+        logger.info({
+          projectId: project.id,
+          agentId: worker.id,
+          runId: run.runId,
+          currentBatchCount: issueBatch.currentBatch.length,
+          activeIssueCount: issueBatch.activeIssues.length,
+        }, 'scheduler.worker_autostarted');
         recordAgentWakeup(worker.id, recordedWakeup.signature, 'scheduler', recordedWakeup.activityKey);
       } catch (e) {
-        logger.error(e, `Issue scan: failed to auto-start worker "${worker.name}"`);
+        logger.error({ err: e, projectId: project.id, agentId: worker.id }, 'scheduler.worker_autostart_failed');
       }
     }
 
@@ -144,7 +159,7 @@ function startIssueScan(): void {
     try {
       runIssueScanOnce();
     } catch (e) {
-      logger.error(e, 'Worker scan failed');
+      logger.error({ err: e }, 'scheduler.worker_scan_failed');
     }
   });
   logger.info('Worker scan scheduled: every 3 minutes');
@@ -189,12 +204,20 @@ function startWatchdog(): void {
             if (agent.pid) {
               const cpuStatus = checkChildCpuActivity(agent.id, agent.pid);
               if (cpuStatus === 'active') {
-                logger.info(`Watchdog: agent "${agent.name}" idle for ${Math.round(idleMs / 60000)} min but child processes are CPU-active, resetting timer`);
+                logger.debug({
+                  projectId: agent.project_id,
+                  agentId: agent.id,
+                  idleMinutes: Math.round(idleMs / 60000),
+                }, 'watchdog.idle_cpu_active');
                 resetAgentActivity(agent.id);
                 continue;
               }
               if (cpuStatus === 'warming') {
-                logger.info(`Watchdog: agent "${agent.name}" idle for ${Math.round(idleMs / 60000)} min, child CPU unchanged but below stale threshold, waiting`);
+                logger.debug({
+                  projectId: agent.project_id,
+                  agentId: agent.id,
+                  idleMinutes: Math.round(idleMs / 60000),
+                }, 'watchdog.idle_cpu_warming');
                 resetAgentActivity(agent.id);
                 continue;
               }
@@ -224,7 +247,7 @@ function startWatchdog(): void {
         }
       }
     } catch (e) {
-      logger.error(e, 'Watchdog scan failed');
+      logger.error({ err: e }, 'watchdog.scan_failed');
     }
   });
   logger.info(`Watchdog scheduled: every 5 minutes, idle timeout ${DEFAULT_IDLE_TIMEOUT_MS / 60000} minutes`);

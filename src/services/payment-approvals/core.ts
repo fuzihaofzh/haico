@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { PaymentApprovalDecision, PaymentApprovalRequest } from '../../types';
 import { broadcastToProject } from '../../realtime';
+import logger from '../../logger';
 import {
   InvalidPaymentApprovalAmountError,
   InvalidPaymentApprovalDecisionError,
@@ -207,6 +208,18 @@ export function createPaymentApproval(
     data: created,
   });
 
+  logger.info({
+    projectId,
+    paymentApprovalId: created.id,
+    requestedBy: created.requested_by,
+    amount: created.amount,
+    currency: created.currency,
+    riskLevel: created.risk_level,
+    requiredApprovals: created.required_approvals,
+    status: created.status,
+    issueId: created.issue_id,
+  }, 'payment_approval.created');
+
   return created;
 }
 
@@ -291,12 +304,41 @@ export function submitPaymentApprovalDecision(
     data: result.decisionEvent,
   });
 
+  logger.info({
+    projectId: result.projectId,
+    paymentApprovalId,
+    decidedBy,
+    decision,
+    riskLevel: result.approval.risk_level,
+    approvalCount: result.approval.approval_count,
+    rejectionCount: result.approval.rejection_count,
+    status: result.approval.status,
+  }, 'payment_approval.decided');
+
+  if (decision === 'reject' && (result.approval.risk_level === 'high' || result.approval.risk_level === 'critical')) {
+    logger.warn({
+      projectId: result.projectId,
+      paymentApprovalId,
+      decidedBy,
+      riskLevel: result.approval.risk_level,
+      status: result.approval.status,
+    }, 'payment_approval.high_risk_rejected');
+  }
+
   if (result.resolved) {
     broadcastToProject(result.projectId, {
       type: 'payment_approval_resolved',
       projectId: result.projectId,
       data: result.approval,
     });
+    logger.info({
+      projectId: result.projectId,
+      paymentApprovalId,
+      status: result.approval.status,
+      approvalCount: result.approval.approval_count,
+      rejectionCount: result.approval.rejection_count,
+      requiredApprovals: result.approval.required_approvals,
+    }, 'payment_approval.resolved');
   }
 
   return result.approval;
@@ -339,6 +381,23 @@ export function cancelPaymentApproval(
     data: result.approval,
   });
 
+  logger.info({
+    projectId: result.projectId,
+    paymentApprovalId,
+    cancelledBy,
+    riskLevel: result.approval.risk_level,
+    status: result.approval.status,
+  }, 'payment_approval.cancelled');
+
+  if (result.approval.risk_level === 'high' || result.approval.risk_level === 'critical') {
+    logger.warn({
+      projectId: result.projectId,
+      paymentApprovalId,
+      cancelledBy,
+      riskLevel: result.approval.risk_level,
+    }, 'payment_approval.high_risk_cancelled');
+  }
+
   return result.approval;
 }
 
@@ -374,7 +433,7 @@ export function validatePaymentApproval(
     );
   }
 
-  return {
+  const result = {
     payment_approval_id: paymentApprovalId,
     status: paymentApproval.status,
     required_approvals: paymentApproval.required_approvals,
@@ -383,4 +442,14 @@ export function validatePaymentApproval(
     is_valid: violations.length === 0,
     violations,
   };
+  if (violations.length > 0) {
+    logger.warn({
+      projectId: paymentApproval.project_id,
+      paymentApprovalId,
+      status: paymentApproval.status,
+      violationCount: violations.length,
+      violations,
+    }, 'payment_approval.validation_failed');
+  }
+  return result;
 }

@@ -9,7 +9,7 @@ export function setupErrorHandler(fastify: FastifyInstance): void {
     if (statusCode >= 500) {
       request.log.error({ err: error }, 'Request failed');
     } else {
-      request.log.info({ err: error }, 'Request failed');
+      request.log.debug({ err: error, statusCode }, 'Request failed');
     }
 
     const message = mapped

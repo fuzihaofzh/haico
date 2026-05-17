@@ -6,6 +6,7 @@ import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
 import { validateParentAgentAssignment } from './hierarchy';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
 import { isAgentRunning, stopAgentProcess } from '../process-manager';
+import logger from '../../logger';
 import { AgentInvalidParentAssignmentError, AgentNameRequiredError, AgentNotFoundError, AgentProjectNotFoundError } from './errors';
 import { UpdateAgentInput } from './types';
 
@@ -116,6 +117,13 @@ export function createAgent(projectId: string, input: CreateAgentInput): Agent {
 
   const createdAgent = getAgentOrThrow(db, id);
   ensureAgentKnowledgeEntry(db, createdAgent);
+  logger.info({
+    projectId,
+    agentId: createdAgent.id,
+    isController: Boolean(createdAgent.is_controller),
+    parentAgentId: createdAgent.parent_agent_id,
+    commandType: createdAgent.command_type,
+  }, 'agent.created');
   return createdAgent;
 }
 
@@ -225,11 +233,17 @@ export function deleteAgent(agentId: string): { success: true } {
   const db = getDatabase();
   const agent = getAgentOrThrow(db, agentId);
 
-  if (isAgentRunning(agent.id)) {
+  const wasRunning = isAgentRunning(agent.id);
+  if (wasRunning) {
     stopAgentProcess(agent.id);
   }
 
   db.prepare('UPDATE issues SET assigned_to = NULL WHERE assigned_to = ?').run(agentId);
   db.prepare('DELETE FROM agents WHERE id = ?').run(agentId);
+  logger.info({
+    projectId: agent.project_id,
+    agentId: agent.id,
+    wasRunning,
+  }, 'agent.deleted');
   return { success: true };
 }

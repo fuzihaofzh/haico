@@ -390,9 +390,11 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     const refreshedIssues = listOrchestrationIssues(db, state.project.id);
 
     if (hints.length > 0 || reconciled.movedCount > 0) {
-      logger.info(
-        'LangGraph worker outcome hints detected (project=' + state.project.id + ', hints=' + hints.length + ', moved_to_user=' + reconciled.movedCount + ')'
-      );
+      logger.debug({
+        projectId: state.project.id,
+        hintCount: hints.length,
+        movedToUserCount: reconciled.movedCount,
+      }, 'langgraph.worker_outcome_hints');
     }
 
     return {
@@ -603,9 +605,13 @@ const controllerGraph = new StateGraph(ControllerGraphState)
         );
         recordAgentWakeup(agent.id, recordedWakeup.signature, 'langgraph', recordedWakeup.activityKey);
 
-        logger.info(
-          'LangGraph dispatched worker agent (project=' + state.project.id + ', agent=' + agent.id + ', issues=' + issueBatch.currentBatch.length + '/' + issueBatch.activeIssues.length + ', runId=' + process.runId + ')'
-        );
+        logger.info({
+          projectId: state.project.id,
+          agentId: agent.id,
+          currentBatchCount: issueBatch.currentBatch.length,
+          activeIssueCount: issueBatch.activeIssues.length,
+          runId: process.runId,
+        }, 'langgraph.worker_dispatched');
         results.push({
           agentId: action.agentId,
           started: true,
@@ -685,9 +691,13 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     const backoffText = backoffPlan
       ? '; backoff=' + backoffPlan.label + ' (' + Math.round(backoffPlan.ms / 60000) + 'm)'
       : '';
-    logger.info(
-      'LangGraph orchestration finished without controller run (project=' + state.project.id + '): ' + summary + '; reasons=' + reasonText + idleText + backoffText
-    );
+    logger.debug({
+      projectId: state.project.id,
+      summary,
+      reasons: reasonText,
+      idleReasons: idleText,
+      backoff: backoffText,
+    }, 'langgraph.finished_without_controller');
     return {
       backoffMs: backoffPlan?.ms || 0,
       backoffReason: backoffPlan?.reason || '',

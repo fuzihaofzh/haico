@@ -97,7 +97,7 @@ function cleanupPromptFile(fp: string): void {
     fs.unlinkSync(fp);
   } catch (e: any) {
     if (e?.code !== 'ENOENT') {
-      logger.error(e, 'Failed to cleanup prompt file %s', fp);
+      logger.error({ err: e, promptFile: fp }, 'agent.prompt_file.cleanup_failed');
     }
   }
 }
@@ -170,6 +170,7 @@ export function startAgentProcess(
 ): { runId: string; pid: number } {
   const db = getDatabase();
   const runId = uuidv4();
+  const startedAtMs = Date.now();
 
   // Write prompt to temp file (written later after fullPrompt is determined)
   let promptFile: string;
@@ -192,7 +193,7 @@ export function startAgentProcess(
   // Forced new session per run
   if (newSessionPerRun) {
     shouldReset = true;
-    logger.info(`Agent ${agent.id} new_session_per_run=true, starting new session`);
+    logger.debug({ agentId: agent.id, reason: 'new_session_per_run' }, 'agent.session.reset');
   }
 
   // Time-based reset: if last session ended more than resumeTimeout seconds ago, start fresh
@@ -201,7 +202,12 @@ export function startAgentProcess(
     const elapsed = (Date.now() - finishedTime) / 1000;
     if (elapsed > resumeTimeout) {
       shouldReset = true;
-      logger.info(`Agent ${agent.id} session idle for ${Math.round(elapsed)}s (timeout=${resumeTimeout}s), starting new session`);
+      logger.debug({
+        agentId: agent.id,
+        elapsedSeconds: Math.round(elapsed),
+        resumeTimeoutSeconds: resumeTimeout,
+        reason: 'idle_timeout',
+      }, 'agent.session.reset');
     }
   }
 
@@ -221,13 +227,23 @@ export function startAgentProcess(
       }
       if (cacheTokens >= maxTokens) {
         shouldReset = true;
-        logger.info(`Agent ${agent.id} cache tokens (${cacheTokens}) >= max (${maxTokens}), resetting session`);
+        logger.debug({
+          agentId: agent.id,
+          cacheTokens,
+          maxTokens,
+          reason: 'cache_token_limit',
+        }, 'agent.session.reset');
       }
     }
     // Check run count (independent of token check)
     if (!shouldReset && runCount > maxRuns) {
       shouldReset = true;
-      logger.info(`Agent ${agent.id} run count (${runCount}) > max (${maxRuns}), resetting session`);
+      logger.debug({
+        agentId: agent.id,
+        runCount,
+        maxRuns,
+        reason: 'run_count_limit',
+      }, 'agent.session.reset');
     }
   }
   const existingSessionId = shouldReset ? null : agent.session_id;
@@ -280,7 +296,11 @@ export function startAgentProcess(
   promptFile = writePromptFile(runId, fullPrompt);
 
   if (existingSessionId && systemPrompt) {
-    logger.info(`Agent ${agent.id} resuming session ${sessionId}, skipping system prompt (saved ~${systemPrompt.length} chars)`);
+    logger.debug({
+      agentId: agent.id,
+      sessionId,
+      savedChars: systemPrompt.length,
+    }, 'agent.session.resumed');
   }
 
   // Update agent status
@@ -298,11 +318,23 @@ export function startAgentProcess(
   if (cwd.startsWith('~/')) cwd = path.join(os.homedir(), cwd.slice(2));
   try {
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
-      logger.warn(`Agent ${agent.id} working directory "${cwd}" is missing, falling back to process cwd "${process.cwd()}"`);
+      logger.warn({
+        projectId: agent.project_id,
+        agentId: agent.id,
+        cwd,
+        fallbackCwd: process.cwd(),
+        reason: 'missing',
+      }, 'agent.working_directory_fallback');
       cwd = process.cwd();
     }
   } catch {
-    logger.warn(`Agent ${agent.id} working directory "${cwd}" is invalid, falling back to process cwd "${process.cwd()}"`);
+    logger.warn({
+      projectId: agent.project_id,
+      agentId: agent.id,
+      cwd,
+      fallbackCwd: process.cwd(),
+      reason: 'invalid',
+    }, 'agent.working_directory_fallback');
     cwd = process.cwd();
   }
 
@@ -324,9 +356,13 @@ export function startAgentProcess(
   } as NodeJS.ProcessEnv;
 
   if (promptEnv.truncated) {
-    logger.warn(
-      `Agent ${agent.id} prompt exceeded ${PROMPT_ENV_MAX_CHARS} chars; HAICO_PROMPT was truncated and full prompt is available via HAICO_PROMPT_FILE`
-    );
+    logger.warn({
+      projectId: agent.project_id,
+      agentId: agent.id,
+      runId,
+      promptEnvMaxChars: PROMPT_ENV_MAX_CHARS,
+      promptFile,
+    }, 'agent.prompt_env_truncated');
   }
 
   // nvm aborts shell init when npm_config_prefix is preset, which prevents
@@ -351,6 +387,17 @@ export function startAgentProcess(
   lastActivityTime.set(agent.id, Date.now());
 
   db.prepare('UPDATE agents SET pid = ? WHERE id = ?').run(pid, agent.id);
+
+  logger.info({
+    projectId: agent.project_id,
+    agentId: agent.id,
+    runId,
+    pid,
+    commandType: resolvedCommandType,
+    sessionId,
+    resumedSession: Boolean(existingSessionId),
+    cwd,
+  }, 'agent.run.started');
 
   const logStmt = db.prepare(
     'INSERT INTO conversation_logs (agent_id, run_id, content, stream) VALUES (?, ?, ?, ?)'
@@ -407,7 +454,7 @@ export function startAgentProcess(
             db.prepare('UPDATE agents SET session_id = ? WHERE id = ?')
               .run(sessionId, agent.id);
           }
-          logger.info(`Agent ${agent.id} Codex thread started: ${sessionId}`);
+          logger.debug({ agentId: agent.id, runId, sessionId }, 'agent.codex_thread.started');
         } else if (obj.type === 'item.completed' && obj.item) {
           handled = true;
           if (obj.item.type === 'agent_message' && obj.item.text) {
@@ -577,15 +624,41 @@ export function startAgentProcess(
     });
 
     if (code === 0 && sawClosedStdinSessionError && !hadFinalResult) {
-      logger.info(`Agent ${agent.id} exited with code 0 but had closed-stdin tool session errors; marking run as error`);
+      logger.warn({
+        projectId: agent.project_id,
+        agentId: agent.id,
+        runId,
+        exitCode: code,
+      }, 'agent.run.closed_stdin_error');
     }
     if (code === 0 && requiresCompletionSignal && !sawClosedStdinSessionError && !sawCompletionSignal && !hadFinalResult) {
-      logger.info(`Agent ${agent.id} exited with code 0 but without a completion signal; marking run as error`);
+      logger.warn({
+        projectId: agent.project_id,
+        agentId: agent.id,
+        runId,
+        exitCode: code,
+      }, 'agent.run.missing_completion_signal');
       logAndBroadcast('HAICO: agent exited without emitting a completion event; marking this run as error\n', 'stderr');
     }
 
+    logger.info({
+      projectId: agent.project_id,
+      agentId: agent.id,
+      runId,
+      status,
+      exitCode: code,
+      durationMs: Date.now() - startedAtMs,
+      pid,
+      hadFinalResult,
+      sawCompletionSignal,
+    }, 'agent.run.completed');
+
     if (status === 'error' && existingSessionId && !sawStdout && RESUME_MISSING_FILE_RE.test(stderrSample)) {
-      logger.info(`Agent ${agent.id} resume failed with missing file, retrying with a fresh session`);
+      logger.warn({
+        projectId: agent.project_id,
+        agentId: agent.id,
+        runId,
+      }, 'agent.run.resume_missing_file');
       logAndBroadcast('HAICO: 旧 session 恢复失败，自动改为新 session 重试...\n', 'stderr');
       db.prepare("UPDATE agents SET session_id = NULL, status = 'idle', pid = NULL WHERE id = ?").run(agent.id);
       const freshAgent = { ...agent, session_id: null };
@@ -602,7 +675,13 @@ export function startAgentProcess(
         if (apiErrCount <= 1) {
           // First API connection failure: auto-retry after 5 minutes to avoid wasting tokens
           const retryDelayMs = 5 * 60 * 1000; // 5 minutes
-          logger.info(`Agent ${agent.id} API connection failed (attempt ${apiErrCount}), auto-retrying in 5 minutes`);
+          logger.warn({
+            projectId: agent.project_id,
+            agentId: agent.id,
+            runId,
+            attempt: apiErrCount,
+            retryDelayMs,
+          }, 'agent.run.api_connection_retry_scheduled');
           logAndBroadcast('HAICO: API连接失败，5分钟后自动重试...\n', 'stderr');
           // Set status to 'waiting' during retry delay — visible in UI, prevents scheduler re-trigger
           db.prepare(`
@@ -617,7 +696,11 @@ export function startAgentProcess(
             if (shuttingDown || !isDatabaseOpen()) return;
             const retryAgent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agent.id) as Agent | undefined;
             if (retryAgent && (retryAgent.status === 'waiting' || retryAgent.status === 'running')) {
-              logger.info(`Agent ${agent.id} auto-retrying after 5-minute API wait`);
+              logger.info({
+                projectId: agent.project_id,
+                agentId: agent.id,
+                previousRunId: runId,
+              }, 'agent.run.api_connection_retrying');
               startAgentProcess(retryAgent, prompt, commandTemplate, systemPrompt);
             }
           }, retryDelayMs);
@@ -625,7 +708,12 @@ export function startAgentProcess(
           return;
         } else {
           // Second+ API connection failure: give up, report error
-          logger.info(`Agent ${agent.id} API connection failed ${apiErrCount} times, giving up`);
+          logger.error({
+            projectId: agent.project_id,
+            agentId: agent.id,
+            runId,
+            attempts: apiErrCount,
+          }, 'agent.run.api_connection_failed');
           logAndBroadcast('HAICO: API连接持续失败，请检查网络/API配置后手动重启agent\n', 'stderr');
           agentApiConnectErrorCount.delete(agent.id);
           // Fall through to normal error handling below
@@ -636,7 +724,12 @@ export function startAgentProcess(
       }
 
       // Clear session on error — avoid resuming a broken session repeatedly
-      logger.info(`Agent ${agent.id} error, clearing session for fresh start on next run`);
+      logger.debug({
+        projectId: agent.project_id,
+        agentId: agent.id,
+        runId,
+        reason: 'error',
+      }, 'agent.session.cleared');
       db.prepare(`
         UPDATE agents SET status = ?, pid = NULL, finished_at = datetime('now'), session_id = NULL WHERE id = ?
       `).run(status, agent.id);
@@ -668,7 +761,15 @@ export function startAgentProcess(
   });
 
   child.on('error', (err: any) => {
-    logger.error(`Spawn error: ${err.message} code=${err.code} path=${err.path} syscall=${err.syscall} cwd=${cwd} shell=${shellPath}`);
+    logger.error({
+      err,
+      projectId: agent.project_id,
+      agentId: agent.id,
+      runId,
+      cwd,
+      shell: shellPath,
+      durationMs: Date.now() - startedAtMs,
+    }, 'agent.run.spawn_failed');
     runningProcesses.delete(agent.id);
     lastActivityTime.delete(agent.id);
     childCpuSnapshots.delete(agent.id);
@@ -798,13 +899,13 @@ export function stopAgentProcess(agentId: string): boolean {
   const child = runningProcesses.get(agentId);
   if (!child) return false;
 
-  logger.info(`stopAgentProcess: sending SIGTERM to agent ${agentId} (pid=${child.pid})`);
+  logger.debug({ agentId, pid: child.pid }, 'agent.process.sigterm');
   child.kill('SIGTERM');
   // Force kill after 5 seconds
   const killTimer = setTimeout(() => {
     pendingStopTimers.delete(killTimer);
     if (runningProcesses.has(agentId)) {
-      logger.info(`stopAgentProcess: sending SIGKILL to agent ${agentId} (pid=${child.pid})`);
+      logger.warn({ agentId, pid: child.pid }, 'agent.process.sigkill');
       child.kill('SIGKILL');
       detachChildProcessIo(child);
       // Force cleanup after 3 more seconds — grandchild processes may hold
@@ -812,7 +913,7 @@ export function stopAgentProcess(agentId: string): boolean {
       const cleanupTimer = setTimeout(() => {
         pendingStopTimers.delete(cleanupTimer);
         if (runningProcesses.has(agentId)) {
-          logger.info(`Force cleanup: agent ${agentId} close event not fired after SIGKILL, cleaning up`);
+          logger.warn({ agentId, pid: child.pid }, 'agent.process.force_cleanup');
           detachChildProcessIo(child);
           runningProcesses.delete(agentId);
           lastActivityTime.delete(agentId);
