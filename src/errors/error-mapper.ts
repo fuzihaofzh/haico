@@ -50,7 +50,7 @@ import {
   SourceIssueNotFoundError,
   TargetIssueNotFoundError,
   TargetIssueProjectMismatchError,
-} from '../services/issue-errors';
+} from '../services/issue/errors';
 import {
   AgentAlreadyPausedError,
   AgentAlreadyRunningError,

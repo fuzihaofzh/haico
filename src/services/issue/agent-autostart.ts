@@ -1,11 +1,11 @@
 import type Database from 'better-sqlite3';
-import { Agent, Project } from '../types';
-import { config } from '../config';
-import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
-import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
-import { listDispatchableIssuesForAgent } from './issue-dispatch';
-import { startAgentProcess } from './process-manager';
-import { buildSystemPrompt } from './system-prompt';
+import { Agent, Project } from '../../types';
+import { config } from '../../config';
+import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './batch';
+import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from '../agent-wakeup-guard';
+import { listDispatchableIssuesForAgent } from './dispatch';
+import { startAgentProcess } from '../process-manager';
+import { buildSystemPrompt } from '../system-prompt';
 
 export interface AssignedIssueAutoStartResult {
   started: boolean;

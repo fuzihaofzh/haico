@@ -859,7 +859,7 @@ JSON
     it('worker finish immediately starts the next changed issue batch without waiting for scheduler', async () => {
       const { getDatabase } = await import('../../src/db/database');
       const { autoStartAgentForDispatchableIssues } = await import(
-        '../../src/services/assigned-issue-autostart'
+        '../../src/services/issue/agent-autostart'
       );
       const { resetAgentWakeupState } = await import(
         '../../src/services/agent-wakeup-guard'

@@ -3,8 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   MilestoneNotFoundError,
   MissingMilestoneTitleError,
-} from './issue-errors';
-import { buildSqlPlaceholders } from './issue-utils';
+} from './issue/errors';
+import { buildSqlPlaceholders } from './issue/utils';
 
 export interface CreateMilestoneInput {
   title?: string;

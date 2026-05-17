@@ -1,14 +1,14 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { Agent, Issue, Project } from '../types';
-import { config } from '../config';
-import logger from '../logger';
-import { autoStartAgentForDispatchableIssues } from './assigned-issue-autostart';
-import { enqueueControllerTrigger } from './controller';
-import { getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
-import { tryHandleWithoutLLM } from './pre-controller';
-import { buildSystemPrompt } from './system-prompt';
-import { isAgentRunning, startAgentProcess } from './process-manager';
+import { Agent, Issue, Project } from '../../types';
+import { config } from '../../config';
+import logger from '../../logger';
+import { autoStartAgentForDispatchableIssues } from './agent-autostart';
+import { enqueueControllerTrigger } from '../controller';
+import { getAgentWakeupDecision, recordAgentWakeup } from '../agent-wakeup-guard';
+import { tryHandleWithoutLLM } from '../pre-controller';
+import { buildSystemPrompt } from '../system-prompt';
+import { isAgentRunning, startAgentProcess } from '../process-manager';
 
 export function parseMentionedAgentNames(text: string): string[] {
   if (!text) return [];

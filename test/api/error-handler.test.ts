@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import Fastify, { FastifyInstance } from 'fastify';
 import { setupErrorHandler } from '../../src/middleware/error-handler';
 import { InvalidKnowledgeStatusError } from '../../src/services/knowledge-errors';
-import { InvalidIssueStatusError } from '../../src/services/issue-errors';
+import { InvalidIssueStatusError } from '../../src/services/issue/errors';
 
 async function withErrorTestApp(
   nodeEnv: string | undefined,

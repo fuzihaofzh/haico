@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { broadcastToProject } from './websocket';
+import { broadcastToProject } from '../websocket';
 import {
   InvalidIssueStatusError,
   IssueDeleteStatusConflictError,
@@ -9,13 +9,13 @@ import {
   IssueParentNotFoundError,
   IssueParentProjectMismatchError,
   MissingIssueCreateFieldsError,
-} from './issue-errors';
-import { attachCommentReactions } from './issue-utils';
+} from './errors';
+import { attachCommentReactions } from './utils';
 import {
   autoStartAssignedAgentForIssue,
   parseMentionsAndStartAgents,
   triggerControllerOnDemand,
-} from './issue-automation';
+} from './automation';
 
 const ISSUE_STATUSES = ['open', 'in_progress', 'pending', 'done', 'closed'] as const;
 type IssueStatus = typeof ISSUE_STATUSES[number];

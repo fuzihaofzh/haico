@@ -9,7 +9,7 @@ import { getDatabase, closeDatabase } from './db/database';
 import { registerRoutes } from './routes/route';
 import { initializeScheduler } from './services/scheduler';
 import { setOnAgentFinish, stopAllProcesses } from './services/process-manager';
-import { autoStartAgentForDispatchableIssues } from './services/assigned-issue-autostart';
+import { autoStartAgentForDispatchableIssues } from './services/issue/agent-autostart';
 import { enqueueControllerTrigger, clearCoalescingTimers } from './services/controller';
 import { stopAllSchedulers } from './services/scheduler';
 import { killAllPtySessions } from './services/terminal';

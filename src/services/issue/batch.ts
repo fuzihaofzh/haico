@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { Issue } from '../types';
+import { Issue } from '../../types';
 
 export const MAX_ASSIGNED_ISSUES_PER_RUN = 2;
 

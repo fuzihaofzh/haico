@@ -1,7 +1,7 @@
 import { config } from '../../config';
 import { getDatabase } from '../../db/database';
-import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from '../agent-issue-batch';
-import { listDispatchableIssuesForAgent } from '../issue-dispatch';
+import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from '../issue/batch';
+import { listDispatchableIssuesForAgent } from '../issue/dispatch';
 import { isAgentRunning, startAgentProcess, stopAgentProcess } from '../process-manager';
 import { buildSystemPrompt } from '../system-prompt';
 import { broadcastToProject } from '../websocket';

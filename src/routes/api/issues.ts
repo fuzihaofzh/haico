@@ -10,27 +10,26 @@ import {
 } from '../../services/project-permissions';
 import {
   acknowledgeIssue,
+  addIssueComment,
+  createIssueRelation,
   createIssue,
+  deleteIssueComment,
+  deleteIssueRelation,
   deleteIssue,
   getIssueByNumberDetail,
   getIssueCounts,
   getIssueDetail,
-  listIssues,
-  searchProjectIssues,
-  unacknowledgeIssue,
-  updateIssue,
-} from '../../services/issues';
-import {
-  addIssueComment,
-  deleteIssueComment,
-  listIssueComments,
-  updateIssueComment,
-} from '../../services/issue-comments';
-import {
   getIssueNotifications,
+  listIssueComments,
+  listIssueRelations,
+  listIssues,
   listMyIssues,
+  searchProjectIssues,
   searchInboxIssues,
-} from '../../services/issue-inbox';
+  unacknowledgeIssue,
+  updateIssueComment,
+  updateIssue,
+} from '../../services/issue';
 import {
   assertReactionTargetType,
   listReactions,
@@ -42,11 +41,6 @@ import {
   listMilestones,
   updateMilestone,
 } from '../../services/milestones';
-import {
-  createIssueRelation,
-  deleteIssueRelation,
-  listIssueRelations,
-} from '../../services/issue-relations';
 
 export function registerIssueRoutes(fastify: FastifyInstance): void {
   fastify.get<{

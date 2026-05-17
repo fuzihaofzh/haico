@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { Issue } from '../types';
+import { Issue } from '../../types';
 
 function readyPendingFromClause(): string {
   return `

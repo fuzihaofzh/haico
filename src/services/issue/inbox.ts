@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { ProjectRequestContext, listAccessibleProjectIds } from './project-permissions';
+import { ProjectRequestContext, listAccessibleProjectIds } from '../project-permissions';
 import {
   DEFAULT_INBOX_PAGE_LIMIT,
   MAX_INBOX_PAGE_LIMIT,
@@ -7,7 +7,7 @@ import {
   buildSqlPlaceholders,
   parseBoundedInt,
   previewSql,
-} from './issue-utils';
+} from './utils';
 
 export interface InboxQuery {
   scope?: string;

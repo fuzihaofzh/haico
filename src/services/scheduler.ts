@@ -2,11 +2,11 @@ import cron from 'node-cron';
 import { getDatabase, isDatabaseOpen } from '../db/database';
 import { Agent, Project } from '../types';
 import { startAgentProcess, stopAgentProcess, isAgentRunning, getAgentIdleMs, resetAgentActivity, checkChildCpuActivity, clearCpuSnapshot, getAgentFinalResultAge, isAgentInCooldown, DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS } from './process-manager';
-import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
+import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './issue/batch';
 import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
 import { buildSystemPrompt } from './system-prompt';
 import { triggerControllerAgent } from './controller';
-import { findControllerRecoveryIssue, listDispatchableIssuesForAgent } from './issue-dispatch';
+import { findControllerRecoveryIssue, listDispatchableIssuesForAgent } from './issue/dispatch';
 import { config } from '../config';
 import logger from '../logger';
 

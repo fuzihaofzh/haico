@@ -42,7 +42,7 @@ describe('Agent issue batching', () => {
   let buildAssignedIssuesPrompt: (batch: any, options?: any) => string;
 
   before(async () => {
-    const batch = await import('../../src/services/agent-issue-batch');
+    const batch = await import('../../src/services/issue/batch');
     getAgentIssueBatch = batch.getAgentIssueBatch;
     buildAssignedIssuesPrompt = batch.buildAssignedIssuesPrompt;
   });

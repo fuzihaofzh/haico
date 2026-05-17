@@ -3,8 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   InvalidReactionTargetTypeError,
   MissingReactionFieldsError,
-} from './issue-errors';
-import { ReactionTargetType, isSqliteUniqueConstraintError } from './issue-utils';
+} from './issue/errors';
+import { ReactionTargetType, isSqliteUniqueConstraintError } from './issue/utils';
 
 export interface ToggleReactionInput {
   user_id?: string;

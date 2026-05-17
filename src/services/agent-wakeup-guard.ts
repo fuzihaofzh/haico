@@ -1,5 +1,5 @@
 import { Agent, Issue } from '../types';
-import { getAgentIssueBatch, MAX_ASSIGNED_ISSUES_PER_RUN } from './agent-issue-batch';
+import { getAgentIssueBatch, MAX_ASSIGNED_ISSUES_PER_RUN } from './issue/batch';
 
 interface WakeupRecord {
   signature: string;

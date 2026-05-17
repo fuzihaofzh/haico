@@ -5,10 +5,10 @@ import { config } from '../config';
 import { getDatabase } from '../db/database';
 import logger from '../logger';
 import { startAgentProcess } from './process-manager';
-import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
+import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './issue/batch';
 import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
 import { buildSystemPrompt } from './system-prompt';
-import { listDispatchableIssuesForAgent, listOrchestrationIssues } from './issue-dispatch';
+import { listDispatchableIssuesForAgent, listOrchestrationIssues } from './issue/dispatch';
 
 export interface LangGraphControllerInput {
   project: Project;

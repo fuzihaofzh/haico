@@ -1,19 +1,19 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { Agent, Project } from '../types';
-import { broadcastToProject } from './websocket';
+import { Agent, Project } from '../../types';
+import { broadcastToProject } from '../websocket';
 import {
   IssueCommentNotFoundError,
   IssueNotFoundError,
   MissingIssueCommentFieldsError,
-} from './issue-errors';
-import { attachCommentReactions } from './issue-utils';
+} from './errors';
+import { attachCommentReactions } from './utils';
 import {
   autoStartAgentFromUserComment,
   findFirstMentionedAgent,
   parseMentionsAndStartAgents,
   triggerControllerOnDemand,
-} from './issue-automation';
+} from './automation';
 
 const FALLBACK_CONTROLLER_ID = 'b9b6362c-2d59-40cd-9ffc-fd871a7e811e';
 

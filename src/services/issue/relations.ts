@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { broadcastToProject } from './websocket';
+import { broadcastToProject } from '../websocket';
 import {
   InvalidIssueRelationTypeError,
   IssueRelationAlreadyExistsError,
@@ -10,8 +10,8 @@ import {
   SourceIssueNotFoundError,
   TargetIssueNotFoundError,
   TargetIssueProjectMismatchError,
-} from './issue-errors';
-import { isSqliteUniqueConstraintError } from './issue-utils';
+} from './errors';
+import { isSqliteUniqueConstraintError } from './utils';
 
 type IssueRelationType = 'blocks' | 'related_to';
 

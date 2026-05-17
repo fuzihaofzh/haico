@@ -1,10 +1,10 @@
 import { getDatabase } from '../db/database';
 import { Agent, Project, Issue } from '../types';
 import { startAgentProcess, isAgentRunning, isAgentInCooldown } from './process-manager';
-import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './agent-issue-batch';
+import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './issue/batch';
 import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
 import { buildSystemPrompt } from './system-prompt';
-import { findControllerRecoveryIssue, getPendingDependencyState, listDispatchableIssuesForAgent } from './issue-dispatch';
+import { findControllerRecoveryIssue, getPendingDependencyState, listDispatchableIssuesForAgent } from './issue/dispatch';
 import { config } from '../config';
 import logger from '../logger';
 
