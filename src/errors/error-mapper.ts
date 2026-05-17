@@ -28,6 +28,29 @@ import {
   ProjectAccessProjectNotFoundError,
   ProjectManagementAccessRequiredError,
 } from '../services/project-permission-errors';
+import {
+  InvalidIssueRelationTypeError,
+  InvalidIssueStatusError,
+  InvalidReactionTargetTypeError,
+  IssueCommentNotFoundError,
+  IssueDeleteStatusConflictError,
+  IssueHasChildrenDeleteConflictError,
+  IssueNotFoundError,
+  IssueParentNotFoundError,
+  IssueParentProjectMismatchError,
+  IssueRelationAlreadyExistsError,
+  IssueRelationNotFoundError,
+  MilestoneNotFoundError,
+  MissingIssueCommentFieldsError,
+  MissingIssueCreateFieldsError,
+  MissingIssueRelationFieldsError,
+  MissingMilestoneTitleError,
+  MissingReactionFieldsError,
+  SelfIssueRelationError,
+  SourceIssueNotFoundError,
+  TargetIssueNotFoundError,
+  TargetIssueProjectMismatchError,
+} from '../services/issue-errors';
 
 export interface HttpErrorMapping {
   statusCode: number;
@@ -111,6 +134,46 @@ function mapProjectPermissionError(error: unknown): HttpErrorMapping | null {
   return null;
 }
 
+function mapIssueError(error: unknown): HttpErrorMapping | null {
+  if (
+    error instanceof MissingIssueCreateFieldsError
+    || error instanceof IssueParentNotFoundError
+    || error instanceof IssueParentProjectMismatchError
+    || error instanceof InvalidIssueStatusError
+    || error instanceof MissingIssueCommentFieldsError
+    || error instanceof InvalidReactionTargetTypeError
+    || error instanceof MissingReactionFieldsError
+    || error instanceof MissingMilestoneTitleError
+    || error instanceof MissingIssueRelationFieldsError
+    || error instanceof InvalidIssueRelationTypeError
+    || error instanceof SelfIssueRelationError
+    || error instanceof TargetIssueProjectMismatchError
+  ) {
+    return { statusCode: 400, message: error.message };
+  }
+
+  if (
+    error instanceof IssueNotFoundError
+    || error instanceof IssueCommentNotFoundError
+    || error instanceof MilestoneNotFoundError
+    || error instanceof SourceIssueNotFoundError
+    || error instanceof TargetIssueNotFoundError
+    || error instanceof IssueRelationNotFoundError
+  ) {
+    return { statusCode: 404, message: error.message };
+  }
+
+  if (
+    error instanceof IssueDeleteStatusConflictError
+    || error instanceof IssueHasChildrenDeleteConflictError
+    || error instanceof IssueRelationAlreadyExistsError
+  ) {
+    return { statusCode: 409, message: error.message };
+  }
+
+  return null;
+}
+
 function mapFrameworkError(error: unknown): HttpErrorMapping | null {
   if (!error || typeof error !== 'object') return null;
   const statusCode = (error as { statusCode?: unknown; status?: unknown }).statusCode;
@@ -125,7 +188,7 @@ function mapFrameworkError(error: unknown): HttpErrorMapping | null {
 }
 
 export function mapErrorToHttp(error: unknown): HttpErrorMapping | null {
-  return mapKnowledgeError(error) || mapAgentMessageError(error) || mapProjectPermissionError(error) || mapFrameworkError(error);
+  return mapKnowledgeError(error) || mapAgentMessageError(error) || mapProjectPermissionError(error) || mapIssueError(error) || mapFrameworkError(error);
 }
 
 export function getUnexpectedErrorMessage(error: unknown): string {

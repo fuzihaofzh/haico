@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import Fastify, { FastifyInstance } from 'fastify';
 import { setupErrorHandler } from '../../src/middleware/error-handler';
 import { InvalidKnowledgeStatusError } from '../../src/services/knowledge-errors';
+import { InvalidIssueStatusError } from '../../src/services/issue-errors';
 
 async function withErrorTestApp(
   nodeEnv: string | undefined,
@@ -19,6 +20,9 @@ async function withErrorTestApp(
   setupErrorHandler(app);
   app.get('/domain-error', async () => {
     throw new InvalidKnowledgeStatusError({ includeAll: true });
+  });
+  app.get('/issue-domain-error', async () => {
+    throw new InvalidIssueStatusError();
   });
   app.get('/unknown-error', async () => {
     throw new Error('database secret detail');
@@ -43,6 +47,16 @@ it('global error handler maps domain errors to public API errors', async () => {
 
     assert.equal(res.statusCode, 400);
     assert.deepEqual(body, { error: 'Invalid status. Must be one of: all, active, stale, archived' });
+  });
+});
+
+it('global error handler maps issue domain errors to public API errors', async () => {
+  await withErrorTestApp(undefined, async (app) => {
+    const res = await app.inject('/issue-domain-error');
+    const body = JSON.parse(res.body);
+
+    assert.equal(res.statusCode, 400);
+    assert.deepEqual(body, { error: 'Invalid status' });
   });
 });
 
