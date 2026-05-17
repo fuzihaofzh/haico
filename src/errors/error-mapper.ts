@@ -1,5 +1,6 @@
 import { agentMessageErrorHttpEntries } from './http-error-tables/agent-messages';
 import { agentErrorHttpEntries } from './http-error-tables/agents';
+import { approvalErrorHttpEntries } from './http-error-tables/approvals';
 import { issueErrorHttpEntries } from './http-error-tables/issues';
 import { knowledgeErrorHttpEntries } from './http-error-tables/knowledge';
 import { paymentApprovalErrorHttpEntries } from './http-error-tables/payment-approvals';
@@ -21,6 +22,7 @@ const errorHttpEntries = [
   ...projectErrorHttpEntries,
   ...issueErrorHttpEntries,
   ...agentErrorHttpEntries,
+  ...approvalErrorHttpEntries,
   ...paymentApprovalErrorHttpEntries,
 ] satisfies readonly ErrorHttpEntry[];
 

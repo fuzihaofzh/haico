@@ -171,6 +171,24 @@ export function ensureMessageAccess(
   );
 }
 
+export function ensureApprovalAccess(
+  db: Database.Database,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  approvalId: string,
+  requireManage = false
+) {
+  return ensureEntityAccess<{ id: string; project_id: string }>(
+    db,
+    request,
+    reply,
+    'SELECT id, project_id FROM approval_requests WHERE id = ?',
+    approvalId,
+    'Approval request not found',
+    requireManage
+  );
+}
+
 export function ensurePaymentApprovalAccess(
   db: Database.Database,
   request: FastifyRequest,
