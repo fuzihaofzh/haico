@@ -3,6 +3,13 @@ import Database from 'better-sqlite3';
 import { isLocalhostBypassRequest } from './auth/localhost-bypass';
 import { getRequestUser } from './auth/request';
 import { Project, User } from '../types';
+import {
+  AgentAccessAgentNotFoundError,
+  MessageAccessMessageNotFoundError,
+  ProjectAccessDeniedError,
+  ProjectAccessProjectNotFoundError,
+  ProjectManagementAccessRequiredError,
+} from './project-permission-errors';
 
 export type ProjectPermissionLevel = 'none' | 'member' | 'editor' | 'owner' | 'admin' | 'bypass';
 
@@ -79,6 +86,25 @@ export function getProjectPermission(
   return { exists: true, allowed: false, canManage: false, level: 'none' };
 }
 
+export function requireProjectAccess(
+  db: Database.Database,
+  context: ProjectRequestContext,
+  projectId: string,
+  requireManage = false
+): ProjectRequestContext & { permission: ProjectPermission } {
+  const permission = getProjectPermission(db, projectId, context.user, context.localhostBypass);
+
+  if (!permission.exists) {
+    throw new ProjectAccessProjectNotFoundError();
+  }
+
+  if (requireManage ? !permission.canManage : !permission.allowed) {
+    throw requireManage ? new ProjectManagementAccessRequiredError() : new ProjectAccessDeniedError();
+  }
+
+  return { ...context, permission };
+}
+
 export function listAccessibleProjects(
   db: Database.Database,
   user: User | null | undefined,
@@ -153,6 +179,23 @@ function ensureEntityAccess<T extends ProjectScopedEntity>(
   return { ...access, entity };
 }
 
+function requireEntityAccess<T extends ProjectScopedEntity>(
+  db: Database.Database,
+  context: ProjectRequestContext,
+  query: string,
+  id: string,
+  createNotFoundError: () => Error,
+  requireManage = false
+): ProjectRequestContext & { permission: ProjectPermission; entity: T } {
+  const entity = db.prepare(query).get(id) as T | undefined;
+  if (!entity) {
+    throw createNotFoundError();
+  }
+
+  const access = requireProjectAccess(db, context, entity.project_id, requireManage);
+  return { ...access, entity };
+}
+
 export function ensureAgentAccess(
   db: Database.Database,
   request: FastifyRequest,
@@ -167,6 +210,22 @@ export function ensureAgentAccess(
     'SELECT id, project_id FROM agents WHERE id = ?',
     agentId,
     'Agent not found',
+    requireManage
+  );
+}
+
+export function requireAgentAccess(
+  db: Database.Database,
+  context: ProjectRequestContext,
+  agentId: string,
+  requireManage = false
+) {
+  return requireEntityAccess<{ id: string; project_id: string }>(
+    db,
+    context,
+    'SELECT id, project_id FROM agents WHERE id = ?',
+    agentId,
+    () => new AgentAccessAgentNotFoundError(),
     requireManage
   );
 }
@@ -260,6 +319,22 @@ export function ensureMessageAccess(
     'SELECT id, project_id, from_agent_id, to_agent_id FROM agent_messages WHERE id = ?',
     messageId,
     'Message not found',
+    requireManage
+  );
+}
+
+export function requireMessageAccess(
+  db: Database.Database,
+  context: ProjectRequestContext,
+  messageId: string,
+  requireManage = false
+) {
+  return requireEntityAccess<{ id: string; project_id: string; from_agent_id: string; to_agent_id: string }>(
+    db,
+    context,
+    'SELECT id, project_id, from_agent_id, to_agent_id FROM agent_messages WHERE id = ?',
+    messageId,
+    () => new MessageAccessMessageNotFoundError(),
     requireManage
   );
 }
