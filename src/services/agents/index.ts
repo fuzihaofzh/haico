@@ -6,7 +6,6 @@
  * - lifecycle.ts: start/retry/stop/pause/unpause/status/system prompt
  * - messages.ts: direct agent-to-agent messaging
  * - hierarchy.ts: parent/child hierarchy validation and traversal
- * - knowledge.ts: agent-owned knowledge memory lifecycle
  * - files.ts: workspace file list/content/serve/upload/download/SQLite preview
  * - runs.ts: terminal/log/cost/run/report serialization
  * - git.ts: agent working-directory git status

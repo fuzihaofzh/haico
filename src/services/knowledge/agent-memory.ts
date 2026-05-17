@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { Agent } from '../../types';
-import { calculateKnowledgeExpiresAt } from '../knowledge-lifecycle';
+import { calculateKnowledgeExpiresAt } from './lifecycle';
 
 const AGENT_KNOWLEDGE_TITLE = 'Agent Memory';
 const AGENT_KNOWLEDGE_DEFAULT_IMPORTANCE = 'medium';

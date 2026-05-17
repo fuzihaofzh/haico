@@ -3,8 +3,8 @@ import { Agent, Project } from '../types';
 import { config } from '../config';
 import { getDirectChildAgents, loadProjectHierarchyAgents } from './agents/hierarchy';
 import { resolveCommandType } from './command-profiles';
-import { markExpiredKnowledgeEntries } from './knowledge-lifecycle';
-import { ensureAgentKnowledgeEntry } from './agents/knowledge';
+import { markExpiredKnowledgeEntries } from './knowledge/lifecycle';
+import { ensureAgentKnowledgeEntry } from './knowledge/agent-memory';
 
 const BASE_URL = () => `http://localhost:${config.port}`;
 

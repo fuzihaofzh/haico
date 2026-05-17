@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../../db/database';
 import { Agent, CreateAgentInput, Project } from '../../types';
-import { ensureAgentKnowledgeEntry } from './knowledge';
+import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
 import { validateParentAgentAssignment } from './hierarchy';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
 import { isAgentRunning, stopAgentProcess } from '../process-manager';

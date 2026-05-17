@@ -4,7 +4,7 @@ import logger from '../logger';
 import {
   hasLegacyAgentMemoriesTable,
   seedMissingAgentKnowledgeEntriesFromLegacyMemories,
-} from '../services/agents/knowledge';
+} from '../services/knowledge/agent-memory';
 
 function cleanupLegacyAgentMemoriesArtifacts(db: Database.Database): void {
   const legacyMemoriesTableExists = hasLegacyAgentMemoriesTable(db);

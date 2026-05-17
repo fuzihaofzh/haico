@@ -1,4 +1,4 @@
-import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_STATUSES } from './knowledge-lifecycle';
+import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_STATUSES } from './lifecycle';
 
 export class KnowledgeEntryNotFoundError extends Error {
   constructor() {

@@ -8,7 +8,7 @@ import {
   KnowledgeEntryNotFoundError,
   MissingKnowledgeContentError,
   MissingKnowledgeTitleError,
-} from '../services/knowledge-errors';
+} from '../services/knowledge/errors';
 import {
   AgentMessageNotFoundError,
   AgentMessageNotInAgentInboxError,

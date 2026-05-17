@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { Agent } from '../types';
+import { Agent } from '../../types';
 import {
   calculateKnowledgeExpiresAt,
   DEFAULT_KNOWLEDGE_CATEGORY,
@@ -11,8 +11,8 @@ import {
   markExpiredKnowledgeEntries,
   normalizeKnowledgeCategory,
   normalizeKnowledgeStatus,
-} from './knowledge-lifecycle';
-import { ensureAgentKnowledgeEntry, upsertAgentKnowledgeEntry } from './agents/knowledge';
+} from './lifecycle';
+import { ensureAgentKnowledgeEntry, upsertAgentKnowledgeEntry } from './agent-memory';
 import {
   DuplicateOwnerKnowledgeEntryError,
   InvalidKnowledgeCategoryError,
@@ -23,7 +23,7 @@ import {
   KnowledgeEntryNotFoundError,
   MissingKnowledgeContentError,
   MissingKnowledgeTitleError,
-} from './knowledge-errors';
+} from './errors';
 
 const VALID_IMPORTANCE = ['high', 'medium', 'low'] as const;
 
