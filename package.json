@@ -29,7 +29,7 @@
     "test:api:suite": "npx tsx test/api.test.ts",
     "test:api:standalone": "node --import tsx --test --test-concurrency=1 test/api/*.test.ts",
     "test:api:grep": "node --import tsx --test --test-concurrency=1 --test-name-pattern",
-    "postinstall": "node -e \"const fs=require('fs'),p=require('path');[['docx-preview/dist/docx-preview.min.js','js/docx-preview.min.js'],['xlsx/dist/xlsx.full.min.js','js/xlsx.full.min.js'],['jszip/dist/jszip.min.js','js/jszip.min.js'],['@vscode/codicons/dist/codicon.css','css/codicon.css'],['@vscode/codicons/dist/codicon.ttf','css/codicon.ttf']].forEach(([s,d])=>{try{fs.copyFileSync(p.join('node_modules',s),p.join('public',d))}catch(e){}})\""
+    "postinstall": "node -e \"const fs=require('fs'),p=require('path');[['docx-preview/dist/docx-preview.min.js','vendor/docx-preview.min.js'],['xlsx/dist/xlsx.full.min.js','vendor/xlsx.full.min.js'],['jszip/dist/jszip.min.js','vendor/jszip.min.js'],['@vscode/codicons/dist/codicon.css','css/codicon.css'],['@vscode/codicons/dist/codicon.ttf','css/codicon.ttf']].forEach(([s,d])=>{try{fs.copyFileSync(p.join('node_modules',s),p.join('public',d))}catch(e){}})\""
   },
   "dependencies": {
     "@fastify/compress": "^8.3.1",

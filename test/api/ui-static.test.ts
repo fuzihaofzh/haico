@@ -6,21 +6,26 @@ import path from 'path';
 describe('Frontend UI English copy (#540)', () => {
   const publicDir = path.join(__dirname, '..', '..', 'public');
   const jsDir = path.join(publicDir, 'js');
+  const vendorDir = path.join(publicDir, 'vendor');
   const publicRoot = path.join(__dirname, '..', '..');
   const vendorFiles = new Set([
+    'docx-preview.min.js',
     'mammoth.browser.min.js',
     'xlsx.full.min.js',
     'jszip.min.js',
   ]);
+  function listFilesRecursive(dir: string): string[] {
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const entryPath = path.join(dir, entry.name);
+      return entry.isDirectory() ? listFilesRecursive(entryPath) : [entryPath];
+    });
+  }
   const filesToScan = [
     ...fs
       .readdirSync(publicDir)
       .filter((name) => name.endsWith('.html'))
       .map((name) => path.join(publicDir, name)),
-    ...fs
-      .readdirSync(jsDir)
-      .filter((name) => name.endsWith('.js') && !vendorFiles.has(name))
-      .map((name) => path.join(jsDir, name)),
+    ...listFilesRecursive(jsDir).filter((filePath) => filePath.endsWith('.js')),
   ];
   const hanRegex = /\p{Script=Han}/u;
 
@@ -37,6 +42,22 @@ describe('Frontend UI English copy (#540)', () => {
     assert.deepEqual(offenders, []);
   });
 
+  it('third-party browser bundles live under public/vendor', () => {
+    for (const fileName of vendorFiles) {
+      assert.equal(fs.existsSync(path.join(jsDir, fileName)), false);
+      assert.equal(fs.existsSync(path.join(vendorDir, fileName)), true);
+    }
+  });
+
+  it('first-party browser scripts are classified under role directories', () => {
+    const rootJsFiles = fs
+      .readdirSync(jsDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
+      .map((entry) => entry.name);
+
+    assert.deepEqual(rootJsFiles, []);
+  });
+
   it('representative UI strings are translated to English', () => {
     const dashboardHtml = fs.readFileSync(
       path.join(publicDir, 'index.html'),
@@ -50,12 +71,18 @@ describe('Frontend UI English copy (#540)', () => {
       path.join(publicDir, 'agent.html'),
       'utf-8'
     );
-    const commonJs = fs.readFileSync(path.join(jsDir, 'common.js'), 'utf-8');
-    const dashboardJs = fs.readFileSync(
-      path.join(jsDir, 'dashboard.js'),
+    const commonJs = fs.readFileSync(
+      path.join(jsDir, 'shared', 'common.js'),
       'utf-8'
     );
-    const projectJs = fs.readFileSync(path.join(jsDir, 'project.js'), 'utf-8');
+    const dashboardJs = fs.readFileSync(
+      path.join(jsDir, 'pages', 'dashboard.js'),
+      'utf-8'
+    );
+    const projectJs = fs.readFileSync(
+      path.join(jsDir, 'pages', 'project.js'),
+      'utf-8'
+    );
 
     assert.ok(dashboardHtml.includes('Search issues...'));
     assert.ok(projectHtml.includes('Share Settings'));
