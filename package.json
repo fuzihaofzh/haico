@@ -29,6 +29,11 @@
     "test:api:suite": "npx tsx test/api.test.ts",
     "test:api:standalone": "node --import tsx --test --test-concurrency=1 test/api/*.test.ts",
     "test:api:grep": "node --import tsx --test --test-concurrency=1 --test-name-pattern",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report",
     "postinstall": "node -e \"const fs=require('fs'),p=require('path');[['docx-preview/dist/docx-preview.min.js','vendor/docx-preview.min.js'],['xlsx/dist/xlsx.full.min.js','vendor/xlsx.full.min.js'],['jszip/dist/jszip.min.js','vendor/jszip.min.js'],['@vscode/codicons/dist/codicon.css','css/codicon.css'],['@vscode/codicons/dist/codicon.ttf','css/codicon.ttf']].forEach(([s,d])=>{try{fs.copyFileSync(p.join('node_modules',s),p.join('public',d))}catch(e){}})\""
   },
   "dependencies": {
@@ -49,6 +54,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "@types/node-cron": "^3.0.11",

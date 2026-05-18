@@ -1,5 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const e2ePort = Number(process.env.HAICO_E2E_PORT || 4599);
+const baseURL = process.env.HAICO_BASE_URL || `http://127.0.0.1:${e2ePort}`;
+const shouldStartServer = !process.env.HAICO_BASE_URL;
+const e2eDbPath = process.env.HAICO_E2E_DB_PATH || './test-e2e.db';
+
 export default defineConfig({
   testDir: './test/e2e',
   fullyParallel: true,
@@ -13,9 +18,10 @@ export default defineConfig({
   outputDir: 'test-results',
 
   use: {
-    baseURL: process.env.HAICO_BASE_URL || 'http://127.0.0.1:4567',
-    trace: 'on-first-retry',
+    baseURL,
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
   },
 
   projects: [
@@ -25,14 +31,18 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
+  webServer: shouldStartServer ? {
     command: 'npm run build && node dist/index.js',
-    port: 4567,
-    reuseExistingServer: !process.env.CI,
+    url: baseURL,
+    reuseExistingServer: false,
+    stdout: 'pipe',
+    stderr: 'pipe',
     timeout: 30_000,
     env: {
-      HAICO_PORT: '4567',
-      HAICO_DB_PATH: './test-e2e.db',
+      HAICO_PORT: String(e2ePort),
+      HAICO_HOST: '127.0.0.1',
+      HAICO_DB_PATH: e2eDbPath,
+      HAICO_NO_AUTH: 'true',
     },
-  },
+  } : undefined,
 });
