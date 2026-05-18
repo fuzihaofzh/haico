@@ -7,18 +7,20 @@
   <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
   <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
   <link rel="stylesheet" href="/public/css/auth.css">
-  <script defer src="/public/js/pages/auth-pages.js"></script>
+  <script defer src="/public/vendor/htmx.min.js"></script>
+  <script type="module" src="/public/js/pages/auth-pages.js"></script>
 </head>
 <body>
   <div class="card">
     <h1><span>HAICO</span></h1>
-    <form id="login-form">
+    <form id="login-form" class="auth-form" data-auth-action="login" hx-post="/api/auth/login" hx-swap="none">
       <label for="username">Username</label>
       <input type="text" id="username" name="username" autofocus required>
       <label for="password">Password</label>
       <input type="password" id="password" name="password" required>
       <button type="submit">Login</button>
       <div class="error" id="error"></div>
+      <div class="success" id="success"></div>
       <p class="auth-link">Don't have an account? <a href="/register">Register</a></p>
     </form>
   </div>

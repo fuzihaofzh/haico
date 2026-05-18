@@ -95,6 +95,22 @@ export function registerAuthSuites(
       assert.ok(body.token, "Login should return a token (passwordHash)");
     });
 
+    it("POST /api/auth accepts htmx form-encoded password", async () => {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/api/auth",
+        payload: "password=test1234",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "hx-request": "true",
+        },
+      });
+      assert.equal(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.ok(body.token, "Form login should return a token");
+    });
+
     it("returns JSON for unauthenticated protected APIs after auth is configured", async () => {
       const { status, body, headers } = await ctx.api("/api/remote-instances");
       assert.equal(status, 401);
@@ -390,6 +406,22 @@ export function registerAuthSuites(
       assert.ok(body.token, "Should return session token");
       assert.equal(body.user.username, "testadmin");
       adminToken = body.token;
+    });
+
+    it("POST /api/auth/login accepts htmx form-encoded credentials", async () => {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/api/auth/login",
+        payload: "username=testadmin&password=admin1234",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "hx-request": "true",
+        },
+      });
+      assert.equal(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+      assert.ok(body.token, "Form login should return a session token");
+      assert.equal(body.user.username, "testadmin");
     });
 
     it("POST /api/auth/login rejects wrong password", async () => {

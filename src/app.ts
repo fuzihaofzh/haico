@@ -4,6 +4,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import path from 'path';
+import { parse as parseQueryString } from 'querystring';
 import { config } from './config';
 import { getDatabase, closeDatabase } from './db/database';
 import { registerRoutes } from './routes/route';
@@ -38,6 +39,9 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
     encodings: ['gzip', 'deflate', 'br'],
   });
   await fastify.register(fastifyMultipart, { limits: { fileSize: 50 * 1024 * 1024 } });
+  fastify.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_request, body, done) => {
+    done(null, parseQueryString(typeof body === 'string' ? body : body.toString('utf-8')));
+  });
   await fastify.register(fastifyWebsocket, {
     errorHandler(error, socket, request) {
       handleWebSocketError(socket, error, {

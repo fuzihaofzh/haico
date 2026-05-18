@@ -85,6 +85,11 @@ button:hover {
   background: #2ea043;
 }
 
+.auth-form.htmx-request button {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 .auth-link {
   text-align: center;
   margin-top: 1rem;

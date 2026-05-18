@@ -54,6 +54,13 @@ src/
 - **WebSocket**: `broadcastToProject(projectId, { type, projectId, data })`, type 用 `snake_case` (与 JS/TS camelCase 习惯不同)
 - **DB**: better-sqlite3 同步 API | 批量 IN 子句: `buildSqlPlaceholders(values)` | cost 查询仅取每 run_id 最后一条（累积值）
 
+## Frontend
+
+- **基础形态**: `public/*.html` + `public/css/` + `public/js/`，无前端构建工具；页面资源通过 `/public/...` 本地路径引用。
+- **JS 模块化**: 新增或重写前端脚本时优先使用 ES Module（`<script type="module">` + `import/export`），便于按页面、共享工具、组件拆分与复用；仅在兼容既有非模块脚本时保留普通 script。
+- **第三方库**: 浏览器端依赖 vendored 到 `public/vendor/`，禁止直接引用外部 CDN；新增/升级库时记录版本并确保静态文件可离线加载。
+- **htmx**: 本地文件 `public/vendor/htmx.min.js`；适合轻量表单/局部交互。htmx 表单默认 `application/x-www-form-urlencoded`，服务端需保持对应 parser；复杂业务逻辑仍放在 `public/js/pages/` 或 service/API 层。
+
 ## Route / Service / Error Boundary
 
 - **路由只管传输**: 解析 params/body/query、执行 `ensureXxxAccess`、调用 service、设置成功状态码/headers/content-type，并处理 multipart/stream/binary 响应。

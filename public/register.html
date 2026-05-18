@@ -7,13 +7,14 @@
   <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
   <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
   <link rel="stylesheet" href="/public/css/auth.css">
-  <script defer src="/public/js/pages/auth-pages.js"></script>
+  <script defer src="/public/vendor/htmx.min.js"></script>
+  <script type="module" src="/public/js/pages/auth-pages.js"></script>
 </head>
 <body>
   <div class="card">
     <h1><span>HAICO</span></h1>
     <p class="subtitle">Create your account</p>
-    <form id="register-form">
+    <form id="register-form" class="auth-form" data-auth-action="register" hx-post="/api/auth/register" hx-swap="none">
       <label for="username">Username</label>
       <input type="text" id="username" name="username" placeholder="2-32 characters" autofocus required>
       <label for="display_name">Display Name (optional)</label>
@@ -24,6 +25,7 @@
       <input type="password" id="confirm" name="confirm" required>
       <button type="submit">Register</button>
       <div class="error" id="error"></div>
+      <div class="success" id="success"></div>
       <p class="auth-link">Already have an account? <a href="/login">Login</a></p>
     </form>
   </div>
