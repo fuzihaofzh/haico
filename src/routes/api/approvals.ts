@@ -11,11 +11,11 @@ import {
   ListApprovalsFilters,
 } from '../../services/approvals';
 import {
-  ensureApprovalAccess,
-  ensureProjectAccess,
-  getProjectRequestContext,
+  requireApprovalAccess,
+  requireProjectAccess,
   listAccessibleProjectIds,
 } from '../../services/project-access';
+import { getProjectRequestContext } from '../../middleware/request-context';
 import { getProjectWorkflowStatus } from '../../services/workflow-status';
 
 export function registerApprovalRoutes(fastify: FastifyInstance): void {
@@ -23,8 +23,7 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
     '/projects/:pid/approvals',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.pid);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
       return listApprovals(db, request.params.pid, request.query);
     }
@@ -41,8 +40,7 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
     '/projects/:pid/approvals',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.pid);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
       const approval = createApproval(db, request.params.pid, request.body || {});
       return reply.code(201).send(approval);
@@ -53,8 +51,7 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
     '/approvals/:id',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureApprovalAccess(db, request, reply, request.params.id);
-      if (!access) return;
+      requireApprovalAccess(db, getProjectRequestContext(request), request.params.id);
 
       return decideApproval(db, request.params.id, request.body || {});
     }
@@ -64,8 +61,7 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
     '/approvals/:id',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureApprovalAccess(db, request, reply, request.params.id);
-      if (!access) return;
+      requireApprovalAccess(db, getProjectRequestContext(request), request.params.id);
 
       return getApproval(db, request.params.id);
     }
@@ -75,8 +71,7 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
     '/projects/:pid/workflow-status',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.pid);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
       return getProjectWorkflowStatus(db, request.params.pid);
     }

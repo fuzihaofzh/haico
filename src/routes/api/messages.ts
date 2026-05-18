@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { getDatabase } from '../../db/database';
+import { getProjectRequestContext } from '../../middleware/request-context';
 import {
   assertSendAgentMessageInput,
   listAgentInboxMessages,
@@ -9,7 +10,6 @@ import {
   sendAgentMessage,
 } from '../../services/agents/index';
 import {
-  getProjectRequestContext,
   requireAgentAccess,
   requireMessageAccess,
 } from '../../services/project-access';

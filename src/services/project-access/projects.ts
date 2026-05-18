@@ -1,4 +1,3 @@
-import { FastifyReply, FastifyRequest } from 'fastify';
 import Database from 'better-sqlite3';
 import { Project, User } from '../../types';
 import {
@@ -6,7 +5,6 @@ import {
   ProjectAccessProjectNotFoundError,
   ProjectManagementAccessRequiredError,
 } from './errors';
-import { getProjectRequestContext } from './context';
 import { shouldBypassProjectPermissions } from './policy';
 import { ProjectPermission, ProjectPermissionLevel, ProjectRequestContext } from './types';
 
@@ -102,27 +100,4 @@ export function listAccessibleProjectIds(
   localhostBypass = false
 ): string[] {
   return listAccessibleProjects(db, user, localhostBypass).map((project) => project.id);
-}
-
-export function ensureProjectAccess(
-  db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
-  projectId: string,
-  requireManage = false
-): (ProjectRequestContext & { permission: ProjectPermission }) | null {
-  const context = getProjectRequestContext(request);
-  const permission = getProjectPermission(db, projectId, context.user, context.localhostBypass);
-
-  if (!permission.exists) {
-    reply.code(404).send({ error: 'Project not found' });
-    return null;
-  }
-
-  if (requireManage ? !permission.canManage : !permission.allowed) {
-    reply.code(403).send({ error: requireManage ? 'Project management access required' : 'Project access denied' });
-    return null;
-  }
-
-  return { ...context, permission };
 }

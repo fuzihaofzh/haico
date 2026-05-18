@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { getDatabase } from '../../db/database';
-import { ensureAgentAccess, ensureKnowledgeAccess, ensureProjectAccess } from '../../services/project-access';
+import { getProjectRequestContext } from '../../middleware/request-context';
+import { requireAgentAccess, requireKnowledgeAccess, requireProjectAccess } from '../../services/project-access';
 import {
   createKnowledgeEntry,
   deleteKnowledgeEntry,
@@ -17,8 +18,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
     '/agents/:id/knowledge-memory',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureAgentAccess(db, request, reply, request.params.id);
-      if (!access) return;
+      requireAgentAccess(db, getProjectRequestContext(request), request.params.id);
 
       return getAgentKnowledgeMemory(db, request.params.id);
     }
@@ -28,8 +28,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
     '/agents/:id/knowledge-memory',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureAgentAccess(db, request, reply, request.params.id, true);
-      if (!access) return;
+      requireAgentAccess(db, getProjectRequestContext(request), request.params.id, true);
 
       return updateAgentKnowledgeMemory(db, request.params.id, request.body || {});
     }
@@ -39,8 +38,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
     '/projects/:pid/knowledge',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.pid);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
       const entries = listKnowledgeEntries(db, request.params.pid, request.query);
       return { entries };
@@ -51,8 +49,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
     '/projects/:pid/knowledge',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.pid, true);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.pid, true);
 
       const entry = createKnowledgeEntry(db, request.params.pid, request.body || {});
       return reply.status(201).send(entry);
@@ -63,8 +60,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
     '/knowledge/:id',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureKnowledgeAccess(db, request, reply, request.params.id);
-      if (!access) return;
+      requireKnowledgeAccess(db, getProjectRequestContext(request), request.params.id);
 
       return getKnowledgeEntry(db, request.params.id);
     }
@@ -74,8 +70,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
     '/knowledge/:id',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureKnowledgeAccess(db, request, reply, request.params.id, true);
-      if (!access) return;
+      requireKnowledgeAccess(db, getProjectRequestContext(request), request.params.id, true);
 
       return updateKnowledgeEntry(db, request.params.id, request.body || {});
     }
@@ -85,8 +80,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
     '/knowledge/:id/verify',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureKnowledgeAccess(db, request, reply, request.params.id, true);
-      if (!access) return;
+      requireKnowledgeAccess(db, getProjectRequestContext(request), request.params.id, true);
 
       return verifyKnowledgeEntry(db, request.params.id, request.body || {});
     }
@@ -96,8 +90,7 @@ export function registerKnowledgeRoutes(fastify: FastifyInstance): void {
     '/knowledge/:id',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureKnowledgeAccess(db, request, reply, request.params.id, true);
-      if (!access) return;
+      requireKnowledgeAccess(db, getProjectRequestContext(request), request.params.id, true);
 
       deleteKnowledgeEntry(db, request.params.id);
       return { success: true };

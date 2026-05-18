@@ -17,7 +17,8 @@ import {
   updateExecutiveSummaryBlock,
   UpdateExecutiveSummaryInput,
 } from '../../services/executive-summaries';
-import { ensureProjectAccess } from '../../services/project-access';
+import { getProjectRequestContext } from '../../middleware/request-context';
+import { requireProjectAccess } from '../../services/project-access';
 
 export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
   fastify.get<{
@@ -25,8 +26,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     Querystring: ListExecutiveSummariesFilters;
   }>('/projects/:pid/executive-summaries', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.pid);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
     return listExecutiveSummaries(db, request.params.pid, request.query);
   });
@@ -35,8 +35,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     '/projects/:pid/executive-summaries/:sid',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.pid);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
       return getExecutiveSummary(db, request.params.pid, request.params.sid);
     }
@@ -47,8 +46,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     Body: CreateExecutiveSummaryInput;
   }>('/projects/:pid/executive-summaries', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.pid);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
     const summary = createExecutiveSummary(db, request.params.pid, request.body || {});
     return reply.code(201).send(summary);
@@ -59,8 +57,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     Body: UpdateExecutiveSummaryInput;
   }>('/projects/:pid/executive-summaries/:sid', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.pid);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
     return updateExecutiveSummary(db, request.params.pid, request.params.sid, request.body || {});
   });
@@ -69,8 +66,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     '/projects/:pid/executive-summaries/:sid',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.pid);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
       return deleteExecutiveSummary(db, request.params.pid, request.params.sid);
     }
@@ -81,8 +77,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     Body: UpdateExecutiveSummaryBlockInput;
   }>('/projects/:pid/executive-summaries/:sid/blocks/:bid', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.pid);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
     return updateExecutiveSummaryBlock(
       db,
@@ -98,8 +93,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     Body: CreateExecutiveSummaryBlockInput;
   }>('/projects/:pid/executive-summaries/:sid/blocks', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.pid);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
     const block = createExecutiveSummaryBlock(db, request.params.pid, request.params.sid, request.body || {});
     return reply.code(201).send(block);
@@ -109,8 +103,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     '/projects/:pid/executive-summaries/:sid/blocks/:bid',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.pid);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
       return deleteExecutiveSummaryBlock(db, request.params.pid, request.params.sid, request.params.bid);
     }
@@ -120,8 +113,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     '/projects/:pid/executive-summaries/:sid/generate',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.pid);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
       return generateExecutiveSummary(db, request.params.pid, request.params.sid);
     }
@@ -131,8 +123,7 @@ export function registerExecutiveSummaryRoutes(fastify: FastifyInstance): void {
     '/projects/:pid/executive-summaries/:sid/finalize',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.pid);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
 
       return finalizeExecutiveSummary(db, request.params.pid, request.params.sid);
     }

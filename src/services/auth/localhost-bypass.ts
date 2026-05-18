@@ -1,5 +1,3 @@
-import { FastifyRequest } from 'fastify';
-
 const LOCALHOST_SAFE_PREFIXES = [
   '/api/projects',
   '/api/issues/',
@@ -34,11 +32,6 @@ export function isLocalhostSafeRoute(method: string, url: string): boolean {
   return false;
 }
 
-export function isLocalhostRequest(request: FastifyRequest): boolean {
-  const remoteIp = request.ip;
-  return remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '::ffff:127.0.0.1';
-}
-
-export function isLocalhostBypassRequest(request: FastifyRequest): boolean {
-  return isLocalhostRequest(request) && isLocalhostSafeRoute(request.method, request.url);
+export function isLocalhostRequest(ip: string): boolean {
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
 }

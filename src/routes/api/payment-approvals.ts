@@ -13,9 +13,10 @@ import {
   validatePaymentApproval,
 } from '../../services/payment-approvals';
 import {
-  ensurePaymentApprovalAccess,
-  ensureProjectAccess,
+  requirePaymentApprovalAccess,
+  requireProjectAccess,
 } from '../../services/project-access';
+import { getProjectRequestContext } from '../../middleware/request-context';
 
 export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
   fastify.get<{
@@ -23,15 +24,13 @@ export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
     Querystring: ListPaymentApprovalsFilters;
   }>('/projects/:pid/payment-approvals', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.pid);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
     return listPaymentApprovals(db, request.params.pid, request.query);
   });
 
   fastify.get<{ Params: { id: string } }>('/payment-approvals/:id', async (request, reply) => {
     const db = getDatabase();
-    const access = ensurePaymentApprovalAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    requirePaymentApprovalAccess(db, getProjectRequestContext(request), request.params.id);
     return getPaymentApproval(db, request.params.id);
   });
 
@@ -40,8 +39,7 @@ export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
     Body: CreatePaymentApprovalInput;
   }>('/projects/:pid/payment-approvals', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.pid);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.pid);
     const approval = createPaymentApproval(db, request.params.pid, request.body || {});
     return reply.code(201).send(approval);
   });
@@ -51,8 +49,7 @@ export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
     Body: SubmitPaymentApprovalDecisionInput;
   }>('/payment-approvals/:id/decisions', async (request, reply) => {
     const db = getDatabase();
-    const access = ensurePaymentApprovalAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    requirePaymentApprovalAccess(db, getProjectRequestContext(request), request.params.id);
     return submitPaymentApprovalDecision(db, request.params.id, request.body || {});
   });
 
@@ -61,15 +58,13 @@ export function registerPaymentApprovalRoutes(fastify: FastifyInstance): void {
     Body: CancelPaymentApprovalInput;
   }>('/payment-approvals/:id/cancel', async (request, reply) => {
     const db = getDatabase();
-    const access = ensurePaymentApprovalAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    requirePaymentApprovalAccess(db, getProjectRequestContext(request), request.params.id);
     return cancelPaymentApproval(db, request.params.id, request.body || {});
   });
 
   fastify.get<{ Params: { id: string } }>('/payment-approvals/:id/validate', async (request, reply) => {
     const db = getDatabase();
-    const access = ensurePaymentApprovalAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    requirePaymentApprovalAccess(db, getProjectRequestContext(request), request.params.id);
     return validatePaymentApproval(db, request.params.id);
   });
 }

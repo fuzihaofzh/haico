@@ -1,6 +1,7 @@
 export interface HttpErrorMapping {
   statusCode: number;
   message: string;
+  redirect?: string;
   extra?: Record<string, unknown>;
 }
 

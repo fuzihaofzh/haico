@@ -1,11 +1,9 @@
-import { FastifyRequest } from 'fastify';
-import { isLocalhostBypassRequest } from '../auth/localhost-bypass';
-import { getRequestUser } from '../auth/request';
+import { User } from '../../types';
 import { ProjectRequestContext } from './types';
 
-export function getProjectRequestContext(request: FastifyRequest): ProjectRequestContext {
-  return {
-    user: getRequestUser(request),
-    localhostBypass: isLocalhostBypassRequest(request),
-  };
+export function createProjectRequestContext(
+  user: User | null,
+  localhostBypass = false
+): ProjectRequestContext {
+  return { user, localhostBypass };
 }

@@ -1,10 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { getDatabase } from '../../db/database';
 import { CreateProjectInput } from '../../types';
-import {
-  ensureProjectAccess,
-  getProjectRequestContext,
-} from '../../services/project-access';
+import { getProjectRequestContext } from '../../middleware/request-context';
+import { requireProjectAccess } from '../../services/project-access';
 import {
   assertProjectTaskDescription,
   buildProjectExport,
@@ -100,22 +98,19 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{ Params: { id: string }; Querystring: { period?: string } }>('/projects/:id/costs', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
     return getProjectCosts(db, request.params.id, request.query.period);
   });
 
   fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/projects/:id/git-log', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
     return getProjectGitLog(db, request.params.id, request.query.limit);
   });
 
   fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/projects/:id/activity', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
     return getProjectActivity(db, request.params.id, request.query.limit);
   });
 
@@ -123,8 +118,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     '/projects/:id/orchestration-runs',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.id);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
       return listProjectOrchestrationRuns(db, request.params.id, request.query.limit);
     }
   );
@@ -175,8 +169,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{ Params: { id: string } }>('/projects/:id', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    const access = requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
     return getProject(db, request.params.id, access);
   });
 
@@ -184,16 +177,14 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     '/projects/:id',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.id, true);
-      if (!access) return;
+      const access = requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
       return updateProject(db, request.params.id, request.body || {}, access);
     }
   );
 
   fastify.get<{ Params: { id: string } }>('/projects/:id/members', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
     return { members: listProjectMembers(db, request.params.id) };
   });
 
@@ -201,8 +192,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     '/projects/:id/members',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.id, true);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
       const result = upsertProjectMember(db, request.params.id, request.body || {});
       return reply.code(result.created ? 201 : 200).send(result.member);
     }
@@ -212,8 +202,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     '/projects/:id/members/:userId',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.id, true);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
       return removeProjectMember(db, request.params.id, request.params.userId);
     }
   );
@@ -222,16 +211,14 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     '/projects/:id/members/:userId',
     async (request, reply) => {
       const db = getDatabase();
-      const access = ensureProjectAccess(db, request, reply, request.params.id, true);
-      if (!access) return;
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
       return updateProjectMemberRole(db, request.params.id, request.params.userId, request.body?.role);
     }
   );
 
   fastify.get<{ Params: { id: string } }>('/projects/:id/export', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
     const result = buildProjectExport(db, request.params.id);
     reply.header('Content-Type', 'application/json');
     reply.header('Content-Disposition', `attachment; filename="${result.fileName}"`);
@@ -240,8 +227,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
 
   fastify.get<{ Params: { id: string } }>('/projects/:id/export/issues.csv', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.id);
-    if (!access) return;
+    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
     const result = buildProjectIssuesCsv(db, request.params.id);
     reply.header('Content-Type', 'text/csv');
     reply.header('Content-Disposition', `attachment; filename="${result.fileName}"`);
@@ -250,8 +236,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
 
   fastify.delete<{ Params: { id: string } }>('/projects/:id', async (request, reply) => {
     const db = getDatabase();
-    const access = ensureProjectAccess(db, request, reply, request.params.id, true);
-    if (!access) return;
+    const access = requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
     return deleteProject(db, request.params.id, access.permission, request.log);
   });
 }

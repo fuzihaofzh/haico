@@ -1,31 +1,19 @@
-import { FastifyReply, FastifyRequest } from 'fastify';
 import Database from 'better-sqlite3';
 import {
   AgentAccessAgentNotFoundError,
   MessageAccessMessageNotFoundError,
 } from './errors';
-import { ensureProjectAccess, requireProjectAccess } from './projects';
+import { ApprovalNotFoundError } from '../approvals/errors';
+import {
+  IssueCommentNotFoundError,
+  IssueNotFoundError,
+  IssueRelationNotFoundError,
+  MilestoneNotFoundError,
+} from '../issue/errors';
+import { KnowledgeEntryNotFoundError } from '../knowledge/errors';
+import { PaymentApprovalNotFoundError } from '../payment-approvals/errors';
+import { requireProjectAccess } from './projects';
 import { ProjectPermission, ProjectRequestContext, ProjectScopedEntity } from './types';
-
-function ensureEntityAccess<T extends ProjectScopedEntity>(
-  db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
-  query: string,
-  id: string,
-  notFoundError: string,
-  requireManage = false
-): (ProjectRequestContext & { permission: ProjectPermission; entity: T }) | null {
-  const entity = db.prepare(query).get(id) as T | undefined;
-  if (!entity) {
-    reply.code(404).send({ error: notFoundError });
-    return null;
-  }
-
-  const access = ensureProjectAccess(db, request, reply, entity.project_id, requireManage);
-  if (!access) return null;
-  return { ...access, entity };
-}
 
 function requireEntityAccess<T extends ProjectScopedEntity>(
   db: Database.Database,
@@ -44,24 +32,6 @@ function requireEntityAccess<T extends ProjectScopedEntity>(
   return { ...access, entity };
 }
 
-export function ensureAgentAccess(
-  db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
-  agentId: string,
-  requireManage = false
-) {
-  return ensureEntityAccess<{ id: string; project_id: string }>(
-    db,
-    request,
-    reply,
-    'SELECT id, project_id FROM agents WHERE id = ?',
-    agentId,
-    'Agent not found',
-    requireManage
-  );
-}
-
 export function requireAgentAccess(
   db: Database.Database,
   context: ProjectRequestContext,
@@ -78,131 +48,101 @@ export function requireAgentAccess(
   );
 }
 
-export function ensureIssueAccess(
+export function requireIssueAccess(
   db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
+  context: ProjectRequestContext,
   issueId: string,
   requireManage = false
 ) {
-  return ensureEntityAccess<{ id: string; project_id: string }>(
+  return requireEntityAccess<{ id: string; project_id: string }>(
     db,
-    request,
-    reply,
+    context,
     'SELECT id, project_id FROM issues WHERE id = ?',
     issueId,
-    'Issue not found',
+    () => new IssueNotFoundError(),
     requireManage
   );
 }
 
-export function ensureCommentAccess(
+export function requireCommentAccess(
   db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
+  context: ProjectRequestContext,
   commentId: string,
   requireManage = false
 ) {
-  return ensureEntityAccess<{ id: string; project_id: string }>(
+  return requireEntityAccess<{ id: string; project_id: string }>(
     db,
-    request,
-    reply,
+    context,
     `SELECT c.id, i.project_id
      FROM issue_comments c
      JOIN issues i ON i.id = c.issue_id
      WHERE c.id = ?`,
     commentId,
-    'Comment not found',
+    () => new IssueCommentNotFoundError(),
     requireManage
   );
 }
 
-export function ensureMilestoneAccess(
+export function requireMilestoneAccess(
   db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
+  context: ProjectRequestContext,
   milestoneId: string,
   requireManage = false
 ) {
-  return ensureEntityAccess<{ id: string; project_id: string }>(
+  return requireEntityAccess<{ id: string; project_id: string }>(
     db,
-    request,
-    reply,
+    context,
     'SELECT id, project_id FROM milestones WHERE id = ?',
     milestoneId,
-    'Milestone not found',
+    () => new MilestoneNotFoundError(),
     requireManage
   );
 }
 
-export function ensureKnowledgeAccess(
+export function requireKnowledgeAccess(
   db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
+  context: ProjectRequestContext,
   knowledgeId: string,
   requireManage = false
 ) {
-  return ensureEntityAccess<{ id: string; project_id: string }>(
+  return requireEntityAccess<{ id: string; project_id: string }>(
     db,
-    request,
-    reply,
+    context,
     'SELECT id, project_id FROM knowledge_entries WHERE id = ?',
     knowledgeId,
-    'Knowledge entry not found',
+    () => new KnowledgeEntryNotFoundError(),
     requireManage
   );
 }
 
-export function ensureMessageAccess(
+export function requireApprovalAccess(
   db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
-  messageId: string,
-  requireManage = false
-) {
-  return ensureEntityAccess<{ id: string; project_id: string; from_agent_id: string; to_agent_id: string }>(
-    db,
-    request,
-    reply,
-    'SELECT id, project_id, from_agent_id, to_agent_id FROM agent_messages WHERE id = ?',
-    messageId,
-    'Message not found',
-    requireManage
-  );
-}
-
-export function ensureApprovalAccess(
-  db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
+  context: ProjectRequestContext,
   approvalId: string,
   requireManage = false
 ) {
-  return ensureEntityAccess<{ id: string; project_id: string }>(
+  return requireEntityAccess<{ id: string; project_id: string }>(
     db,
-    request,
-    reply,
+    context,
     'SELECT id, project_id FROM approval_requests WHERE id = ?',
     approvalId,
-    'Approval request not found',
+    () => new ApprovalNotFoundError(),
     requireManage
   );
 }
 
-export function ensurePaymentApprovalAccess(
+export function requirePaymentApprovalAccess(
   db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
+  context: ProjectRequestContext,
   paymentApprovalId: string,
   requireManage = false
 ) {
-  return ensureEntityAccess<{ id: string; project_id: string }>(
+  return requireEntityAccess<{ id: string; project_id: string }>(
     db,
-    request,
-    reply,
+    context,
     'SELECT id, project_id FROM payment_approval_requests WHERE id = ?',
     paymentApprovalId,
-    'Payment approval request not found',
+    () => new PaymentApprovalNotFoundError(),
     requireManage
   );
 }
@@ -223,23 +163,21 @@ export function requireMessageAccess(
   );
 }
 
-export function ensureRelationAccess(
+export function requireRelationAccess(
   db: Database.Database,
-  request: FastifyRequest,
-  reply: FastifyReply,
+  context: ProjectRequestContext,
   relationId: string,
   requireManage = false
 ) {
-  return ensureEntityAccess<{ id: string; project_id: string; from_issue_id: string; to_issue_id: string }>(
+  return requireEntityAccess<{ id: string; project_id: string; from_issue_id: string; to_issue_id: string }>(
     db,
-    request,
-    reply,
+    context,
     `SELECT r.id, src.project_id, r.from_issue_id, r.to_issue_id
      FROM issue_relations r
      JOIN issues src ON src.id = r.from_issue_id
      WHERE r.id = ?`,
     relationId,
-    'Relation not found',
+    () => new IssueRelationNotFoundError(),
     requireManage
   );
 }

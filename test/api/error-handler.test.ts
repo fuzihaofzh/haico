@@ -5,6 +5,7 @@ import { setupErrorHandler } from '../../src/middleware/error-handler';
 import { InvalidKnowledgeStatusError } from '../../src/services/knowledge/errors';
 import { InvalidIssueStatusError } from '../../src/services/issue/errors';
 import { ProjectMetadataToolError } from '../../src/services/projects/errors';
+import { AuthenticationRequiredError } from '../../src/services/auth/errors';
 import type { ToolReadinessSummary } from '../../src/services/tool-readiness';
 
 const missingToolReadiness = {
@@ -53,6 +54,15 @@ async function withErrorTestApp(
   });
   app.get('/unknown-error', async () => {
     throw new Error('database secret detail');
+  });
+  app.get('/page-auth-error', async () => {
+    throw new AuthenticationRequiredError();
+  });
+  app.get('/api/auth-error', async () => {
+    throw new AuthenticationRequiredError();
+  });
+  app.get('/ws/auth-error', async () => {
+    throw new AuthenticationRequiredError();
   });
 
   try {
@@ -119,5 +129,23 @@ it('global error handler masks unknown error messages in production', async () =
 
     assert.equal(res.statusCode, 500);
     assert.deepEqual(body, { error: 'Internal server error' });
+  });
+});
+
+it('global error handler redirects page auth errors only', async () => {
+  await withErrorTestApp(undefined, async (app) => {
+    const pageRes = await app.inject('/page-auth-error');
+    assert.equal(pageRes.statusCode, 302);
+    assert.equal(pageRes.headers.location, '/login');
+
+    const apiRes = await app.inject('/api/auth-error');
+    assert.equal(apiRes.statusCode, 401);
+    assert.equal(apiRes.headers.location, undefined);
+    assert.deepEqual(JSON.parse(apiRes.body), { error: 'Unauthorized' });
+
+    const wsRes = await app.inject('/ws/auth-error');
+    assert.equal(wsRes.statusCode, 401);
+    assert.equal(wsRes.headers.location, undefined);
+    assert.deepEqual(JSON.parse(wsRes.body), { error: 'Unauthorized' });
   });
 });

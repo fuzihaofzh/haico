@@ -1,6 +1,7 @@
 import { agentMessageErrorHttpEntries } from './http-error-tables/agent-messages';
 import { agentErrorHttpEntries } from './http-error-tables/agents';
 import { approvalErrorHttpEntries } from './http-error-tables/approvals';
+import { authErrorHttpEntries } from './http-error-tables/auth';
 import { executiveSummaryErrorHttpEntries } from './http-error-tables/executive-summaries';
 import { issueErrorHttpEntries } from './http-error-tables/issues';
 import { knowledgeErrorHttpEntries } from './http-error-tables/knowledge';
@@ -17,6 +18,7 @@ import type {
 export type { HttpErrorMapping } from './http-error-types';
 
 const errorHttpEntries = [
+  ...authErrorHttpEntries,
   ...knowledgeErrorHttpEntries,
   ...agentMessageErrorHttpEntries,
   ...projectAccessErrorHttpEntries,

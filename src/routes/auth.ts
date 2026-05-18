@@ -3,7 +3,6 @@ import logger from '../logger';
 import { getDatabase } from '../db/database';
 import { checkSinglePassword, loadAuthConfig, setSinglePassword } from '../services/auth/config';
 import { buildAuthCookie, buildClearAuthCookie, COOKIE_NAME, parseCookies } from '../services/auth/cookies';
-import { getRequestUser } from '../services/auth/request';
 import { createSession, deleteSessionByToken } from '../services/auth/sessions';
 import {
   authenticateUser,
@@ -87,7 +86,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const user = registerUser(db, body!);
     if (user === 'duplicate') return reply.status(409).send({ error: 'Username already taken' });
 
-    const callerUser = getRequestUser(request);
+    const callerUser = request.user;
     if (!callerUser) {
       const session = createSession(db, user.id);
       reply.header('Set-Cookie', buildAuthCookie(session.token));
@@ -123,7 +122,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   });
 
   app.get('/auth/me', async (request, reply) => {
-    const user = getRequestUser(request);
+    const user = request.user;
     if (user) {
       return {
         id: user.id,
@@ -138,13 +137,13 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   });
 
   app.get('/auth/users', async (request, reply) => {
-    const user = getRequestUser(request);
+    const user = request.user;
     if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
     return { users: listUsers(getDatabase()) };
   });
 
   app.put('/auth/users/:id', async (request, reply) => {
-    const user = getRequestUser(request);
+    const user = request.user;
     if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
 
     const { id } = request.params as { id: string };
@@ -158,7 +157,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   });
 
   app.delete('/auth/users/:id', async (request, reply) => {
-    const user = getRequestUser(request);
+    const user = request.user;
     if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
 
     const { id } = request.params as { id: string };

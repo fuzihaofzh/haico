@@ -1,15 +1,26 @@
-import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { FastifyInstance, FastifyRequest } from 'fastify';
 import { getDatabase } from '../db/database';
 import { loadAuthConfig, isValidSinglePasswordToken } from '../services/auth/config';
 import { COOKIE_NAME, parseCookies } from '../services/auth/cookies';
 import {
-  isLocalhostBypassRequest,
   isLocalhostRequest,
   isLocalhostSafeRoute,
 } from '../services/auth/localhost-bypass';
-import { getRequestUser, isLegacyAuthUser } from '../services/auth/request';
-import { isValidSessionToken } from '../services/auth/sessions';
+import { isLegacyAuthUser } from '../services/auth/request';
+import { getUserBySessionToken } from '../services/auth/sessions';
 import { hasAnyUsers } from '../services/auth/users';
+import {
+  AuthenticationRequiredError,
+  NoAuthenticationConfiguredError,
+} from '../services/auth/errors';
+import { User } from '../types';
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    user: User | null;
+    localhostBypass: boolean;
+  }
+}
 
 function hasConfiguredUsers(): boolean {
   try {
@@ -19,77 +30,103 @@ function hasConfiguredUsers(): boolean {
   }
 }
 
-function isValidAuthToken(token: string, authConfig = loadAuthConfig()): boolean {
-  if (isValidSinglePasswordToken(token, authConfig)) return true;
-  try {
-    return isValidSessionToken(getDatabase(), token);
-  } catch {
-    return false;
+function getLegacyAuthUser(): User {
+  return {
+    id: 'legacy',
+    username: 'admin',
+    email: '',
+    password_hash: '',
+    password_salt: '',
+    display_name: 'Admin',
+    role: 'admin',
+    created_at: '',
+    last_login_at: null,
+  };
+}
+
+function getQueryToken(query: unknown): string | null {
+  const value = (query as Record<string, string | string[] | undefined> | null)?.token;
+  if (Array.isArray(value)) return value[0] || null;
+  return value || null;
+}
+
+function getRequestToken(request: FastifyRequest): string | null {
+  const cookies = parseCookies(request.headers.cookie);
+  let token = cookies[COOKIE_NAME];
+
+  if (!token) {
+    const authHeader = request.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    }
   }
+
+  return token || getQueryToken(request.query);
+}
+
+function getUserForToken(token: string, authConfig = loadAuthConfig()): User | null {
+  try {
+    const user = getUserBySessionToken(getDatabase(), token);
+    if (user) return user;
+  } catch {
+    return null;
+  }
+
+  if (isValidSinglePasswordToken(token, authConfig)) {
+    return getLegacyAuthUser();
+  }
+
+  return null;
+}
+
+function isPublicAuthRoute(url: string): boolean {
+  return url === '/login'
+    || url === '/setup'
+    || url === '/register'
+    || url.startsWith('/api/auth')
+    || url === '/favicon.ico'
+    || url.startsWith('/public/')
+    || url.startsWith('/css/')
+    || url.startsWith('/js/')
+    || url.startsWith('/vendor/');
 }
 
 export function setupAuth(app: FastifyInstance): void {
-  app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.addHook('onRequest', async (request: FastifyRequest) => {
     const url = request.url;
+    request.user = null;
+    request.localhostBypass = isLocalhostRequest(request.ip) && isLocalhostSafeRoute(request.method, url);
+
+    const authConfig = loadAuthConfig();
+    const token = getRequestToken(request);
+    if (token) {
+      request.user = getUserForToken(token, authConfig);
+    }
 
     if (process.env.HAICO_NO_AUTH === 'true') {
       return;
     }
 
-    if (
-      request.method === 'OPTIONS' ||
-      url === '/login' ||
-      url === '/setup' ||
-      url === '/register' ||
-      url.startsWith('/api/auth') ||
-      url === '/favicon.ico'
-    ) {
+    if (request.method === 'OPTIONS' || isPublicAuthRoute(url)) {
       return;
     }
 
-    if (isLocalhostBypassRequest(request)) {
+    if (request.localhostBypass) {
       return;
     }
 
-    const authConfig = loadAuthConfig();
     if (!authConfig.passwordHash && !hasConfiguredUsers()) {
-      if (url.startsWith('/api/') || url.startsWith('/ws')) {
-        reply.status(401).send({ error: 'No authentication configured. Visit /register to create the first account.' });
-      } else {
-        reply.redirect('/register');
-      }
-      return;
+      throw new NoAuthenticationConfiguredError();
     }
 
-    const cookies = parseCookies(request.headers.cookie);
-    const token = cookies[COOKIE_NAME];
-    if (token && isValidAuthToken(token, authConfig)) return;
+    if (request.user) return;
 
-    const authHeader = request.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      const bearerToken = authHeader.slice(7);
-      if (isValidAuthToken(bearerToken, authConfig)) return;
-    }
-
-    const queryToken = (request.query as Record<string, string>)?.token;
-    if (queryToken && isValidAuthToken(queryToken, authConfig)) return;
-
-    if (url.startsWith('/public/') || url.startsWith('/css/') || url.startsWith('/js/') || url.startsWith('/vendor/')) {
-      return;
-    }
-
-    if (!url.startsWith('/api/') && !url.startsWith('/ws')) {
-      return reply.redirect('/login');
-    }
-
-    reply.status(401).send({ error: 'Unauthorized' });
+    throw new AuthenticationRequiredError();
   });
 }
 
 export {
-  getRequestUser,
   isLegacyAuthUser,
-  isLocalhostBypassRequest,
   isLocalhostRequest,
   isLocalhostSafeRoute,
 };

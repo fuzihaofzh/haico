@@ -36,6 +36,22 @@ export function registerAuthSuites(
       assert.ok(res.body.includes("Set a password"));
     });
 
+    it("redirects protected pages to registration when auth is not configured", async () => {
+      const res = await ctx.inject({ url: "/change-password" });
+      assert.equal(res.statusCode, 302);
+      assert.equal(res.headers.location, "/register");
+    });
+
+    it("returns JSON for protected APIs when auth is not configured", async () => {
+      const { status, body, headers } = await ctx.api("/api/remote-instances");
+      assert.equal(status, 401);
+      assert.equal(headers.location, undefined);
+      assert.equal(
+        body.error,
+        "No authentication configured. Visit /register to create the first account."
+      );
+    });
+
     it("POST /api/auth/setup rejects short password", async () => {
       const { status } = await ctx.api("/api/auth/setup", {
         method: "POST",
@@ -77,6 +93,13 @@ export function registerAuthSuites(
       assert.equal(status, 200);
       assert.equal(body.ok, true);
       assert.ok(body.token, "Login should return a token (passwordHash)");
+    });
+
+    it("returns JSON for unauthenticated protected APIs after auth is configured", async () => {
+      const { status, body, headers } = await ctx.api("/api/remote-instances");
+      assert.equal(status, 401);
+      assert.equal(headers.location, undefined);
+      assert.deepEqual(body, { error: "Unauthorized" });
     });
 
     it("POST /api/auth/setup sets cookie on first setup", async () => {

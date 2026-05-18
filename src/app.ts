@@ -29,6 +29,8 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   const host = opts.host ?? config.host;
 
   const fastify = Fastify({ logger: opts.logger === false ? false : loggerOptions });
+  fastify.decorateRequest('user', null);
+  fastify.decorateRequest('localhostBypass', false);
   setupErrorHandler(fastify);
 
   await fastify.register(fastifyCompress, {

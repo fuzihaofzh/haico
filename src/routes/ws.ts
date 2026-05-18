@@ -5,8 +5,8 @@ import {
   attachProjectEventSocket,
   attachTerminalSocket,
 } from '../realtime';
+import { getProjectRequestContext } from '../middleware/request-context';
 import {
-  getProjectRequestContext,
   requireAgentAccess,
   requireProjectAccess,
 } from '../services/project-access';

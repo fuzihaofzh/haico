@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { getDatabase } from '../../db/database';
-import { getRequestUser } from '../../services/auth/request';
 import {
   acknowledgeRemoteIssue,
   addRemoteIssueRelation,
@@ -32,7 +31,7 @@ import {
 } from '../../services/remote-instances';
 
 function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
-  const user = getRequestUser(request);
+  const user = request.user;
   if (!user || user.role !== 'admin') {
     reply.status(403).send({ error: 'Admin access required' });
     return null;
