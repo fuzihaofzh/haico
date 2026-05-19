@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Projects - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <link rel="stylesheet" href="/public/css/style.css?v=8">
+  <link rel="stylesheet" href="/public/css/issues.css">
+  <link rel="stylesheet" href="/public/vendor/katex/katex.min.css?v=0.16.11">
+</head>
+<body class="dashboard-shell" data-dashboard-page="projects">
+  <div data-dashboard-sidebar></div>
+
+  <header>
+    <div class="header-right">
+      <a class="btn btn-primary btn-sm" href="/projects/new">+ New Project</a>
+    </div>
+  </header>
+
+  <main id="main-content" class="container">
+    <!-- Pending Approvals Banner -->
+    <div id="dashboard-approvals-panel" class="dashboard-view dashboard-view-projects" style="display:none;margin-bottom:16px">
+      <div class="card" style="border-left:3px solid var(--warning);padding:12px 16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <strong style="font-size:13px;color:var(--warning)">Pending Approvals</strong>
+          <span id="dashboard-approval-count" class="notif-badge" style="background:var(--warning)">0</span>
+        </div>
+        <div id="dashboard-approvals-list" style="font-size:12px"></div>
+      </div>
+    </div>
+
+    <!-- Agent Status Board -->
+    <div id="agent-board-panel" class="card dashboard-view dashboard-view-projects" style="display:none;margin-bottom:16px;padding:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <strong style="font-size:14px">Agent Status Board</strong>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-sm agent-filter-btn" data-action="filter-agent-board" data-status="all">All</button>
+          <button class="btn btn-sm agent-filter-btn active" data-action="filter-agent-board" data-status="running">Running</button>
+          <button class="btn btn-sm agent-filter-btn" data-action="filter-agent-board" data-status="idle">Idle</button>
+          <button class="btn btn-sm agent-filter-btn" data-action="filter-agent-board" data-status="error">Error</button>
+        </div>
+      </div>
+      <div id="agent-board-list"></div>
+    </div>
+
+    <!-- Projects Grid (full width) -->
+    <div id="projects-view-panel" class="dashboard-view dashboard-view-projects" style="margin-bottom:16px">
+      <div id="projects" class="grid">
+        <div class="empty-state">Loading projects...</div>
+      </div>
+    </div>
+
+    <!-- Activity Stream (full width, collapsible) -->
+    <div id="activity-stream-panel" class="card dashboard-view dashboard-view-projects" style="display:none;margin-bottom:16px;padding:16px;max-height:400px;overflow:hidden;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:8px">
+          <strong style="font-size:14px">Activity Stream</strong>
+          <span id="activity-stream-count" style="font-size:11px;color:var(--text-secondary)"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <select id="activity-project-filter" style="font-size:12px;background:var(--bg-secondary);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:2px 6px">
+            <option value="">All Projects</option>
+          </select>
+          <button class="btn btn-sm" data-action="toggle-activity-stream" id="activity-toggle-btn" style="font-size:11px;padding:2px 8px">Collapse</button>
+        </div>
+      </div>
+      <div id="activity-stream-list" style="overflow-y:auto;flex:1"></div>
+    </div>
+  </main>
+
+  <script src="/public/vendor/marked.js"></script>
+  <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
+  <script src="/public/js/components/dashboard-sidebar.js?v=1"></script>
+  <script src="/public/js/shared/common.js?v=3"></script>
+  <script src="/public/js/shared/command-profiles.js?v=3"></script>
+  <script src="/public/js/components/issue-renderer.js?v=3"></script>
+  <script type="module" src="/public/js/pages/dashboard-projects.js?v=1"></script>
+</body>
+</html>

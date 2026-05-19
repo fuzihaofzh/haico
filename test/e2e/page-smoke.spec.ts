@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { randomUUID } from 'crypto';
 import { listE2EAgents } from './helpers/agents';
 import { createE2EIssue } from './helpers/issues';
 import { expectNoPageErrors, trackPageErrors } from './helpers/page-health';
@@ -9,25 +10,77 @@ test.describe('page smoke checks', () => {
     const pageErrors = trackPageErrors(page);
 
     await page.goto('/');
+    await expect(page).toHaveURL(/\/inbox$/);
 
-    await expect(page).toHaveTitle(/HAICO/);
-    await expect(page.getByRole('button', { name: 'Inbox' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Projects' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Usage' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
+    await expect(page).toHaveTitle(/Inbox - HAICO/);
+    await expect(page.getByRole('link', { name: 'Inbox' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Projects' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Usage' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '+ New Project' })).toHaveAttribute('href', '/projects/new');
     await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
+    await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'inbox');
 
-    await page.getByRole('button', { name: 'Projects' }).click();
+    await page.goto('/projects');
     await expect(page.locator('#projects-view-panel')).toBeVisible();
+    await expect(page.getByRole('link', { name: '+ New Project' })).toHaveAttribute('href', '/projects/new');
+    await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'projects');
 
-    await page.getByRole('button', { name: 'Usage' }).click();
+    await page.goto('/usage');
     await expect(page.locator('#usage-by-project-panel')).toBeVisible();
+    await expect(page.getByRole('link', { name: '+ New Project' })).toHaveAttribute('href', '/projects/new');
+    await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'usage');
 
-    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.goto('/settings');
     await expect(page.locator('#settings-view-panel')).toBeVisible();
     await expect(page.locator('[data-command-profiles-root]').first()).toBeVisible();
+    await expect(page.getByRole('link', { name: '+ New Project' })).toHaveAttribute('href', '/projects/new');
+    await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'settings');
+
+    await page.goto('/projects/new');
+    await expect(page).toHaveTitle(/New Project - HAICO/);
+    await expect(page.locator('#proj-task')).toBeVisible();
+    await expect(page.locator('#proj-cmd-profile')).toBeVisible();
+    await expect(page.locator('#proj-target-instance')).toBeVisible();
+    await expect(page.locator('#proj-workdir')).toBeVisible();
+    await expect(page.locator('#create-project-readiness')).toBeVisible();
+    await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'projects');
 
     await expectNoPageErrors(pageErrors);
+  });
+
+  test('new project page creates a local project and redirects to detail', async ({ page, request }) => {
+    const pageErrors = trackPageErrors(page);
+    const unique = randomUUID().slice(0, 8);
+    const profileResponse = await request.post('/api/command-profiles', {
+      data: {
+        name: `aa-e2e-tool-${unique}`,
+        command: 'echo',
+        type: 'codex',
+      },
+    });
+    await expect(profileResponse, await profileResponse.text()).toBeOK();
+    const profile = await profileResponse.json();
+    let projectId = '';
+
+    try {
+      await page.goto('/projects/new');
+      await page.locator('#proj-cmd-profile').selectOption(profile.id);
+      await page.locator('#proj-task').fill(`Create a smoke test project ${unique}`);
+      await page.getByRole('button', { name: 'Create' }).click();
+      await page.waitForURL((url) => {
+        const parts = url.pathname.split('/').filter(Boolean);
+        return parts.length === 2 && parts[0] === 'projects' && parts[1] !== 'new';
+      });
+      projectId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop() || '');
+      await expect(page.locator('#project-title')).toBeVisible();
+      await expectNoPageErrors(pageErrors);
+    } finally {
+      if (projectId && !projectId.includes(':')) {
+        await deleteE2EProject(request, projectId);
+      }
+      await request.delete(`/api/command-profiles/${encodeURIComponent(profile.id)}`);
+    }
   });
 
   test('project page renders overview, agents, issues, and knowledge tabs', async ({ page, request }) => {

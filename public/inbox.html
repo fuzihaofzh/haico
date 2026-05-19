@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inbox - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <link rel="stylesheet" href="/public/css/style.css?v=8">
+  <link rel="stylesheet" href="/public/css/issues.css">
+  <link rel="stylesheet" href="/public/vendor/katex/katex.min.css?v=0.16.11">
+</head>
+<body class="dashboard-shell" data-dashboard-page="inbox">
+  <div data-dashboard-sidebar></div>
+
+  <header>
+    <div class="header-right">
+      <a class="btn btn-primary btn-sm" href="/projects/new">+ New Project</a>
+    </div>
+  </header>
+
+  <main id="main-content" class="container">
+    <!-- Aggregate Stats -->
+    <div id="dashboard-stats" class="dashboard-stats dashboard-view dashboard-view-inbox" style="display:none">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-running">0</div>
+        <div class="stat-label">Running Agents</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-open-issues">0</div>
+        <div class="stat-label">Open Issues</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-cost">$0.00</div>
+        <div class="stat-label">Total Cost</div>
+      </div>
+      <div class="stat-card stat-card-errors" id="stat-errors-card" style="display:none">
+        <div class="stat-value" id="stat-errors" style="color:var(--error)">0</div>
+        <div class="stat-label">Agent Errors</div>
+      </div>
+      <div class="stat-card" id="stat-approvals-card" style="display:none">
+        <div class="stat-value" id="stat-approvals" style="color:var(--warning)">0</div>
+        <div class="stat-label">Pending Approvals</div>
+      </div>
+    </div>
+
+    <!-- Inbox Panel (Gmail-style) -->
+    <div id="notifications-panel" class="mail-panel dashboard-view dashboard-view-inbox" style="display:none">
+      <div class="mail-toolbar">
+        <div class="mail-toolbar-left">
+          <span class="mail-title">Inbox</span>
+          <span class="notif-badge" id="notif-count" style="display:none">0</span>
+        </div>
+        <div class="mail-toolbar-center">
+          <div class="notif-filter-group">
+            <button class="notif-filter-btn active" data-action="notif-filter" data-filter="all">All</button>
+            <button class="notif-filter-btn" data-action="notif-filter" data-filter="action">Action required</button>
+            <button class="notif-filter-btn" data-action="notif-filter" data-filter="my">My Issues</button>
+          </div>
+          <div class="inbox-scope-group">
+            <button class="inbox-scope-btn active" data-action="inbox-scope" data-scope="user">User Related</button>
+            <button class="inbox-scope-btn" data-action="inbox-scope" data-scope="all">All Issues</button>
+          </div>
+          <select id="inbox-project-filter" style="font-size:12px;background:var(--bg-secondary);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:2px 6px">
+            <option value="">All Projects</option>
+          </select>
+        </div>
+        <div class="mail-toolbar-right">
+          <button class="btn btn-sm btn-primary compose-toolbar-btn" data-action="open-global-compose">Compose</button>
+          <button class="btn btn-sm" data-action="open-dashboard-chat">Chat</button>
+          <button class="btn btn-sm" data-action="toggle-notifications" id="notif-toggle-icon" title="Collapse/Expand">&#9660;</button>
+        </div>
+      </div>
+      <div class="mail-body" id="mail-body">
+        <div class="mail-search-bar">
+          <input type="text" id="inbox-search" class="mail-search-input" placeholder="Search issues...">
+        </div>
+        <div class="mail-container">
+          <div class="mail-list-pane" id="mail-list-pane">
+            <div id="notifications-body" class="mail-list-items"></div>
+          </div>
+          <div class="mail-resizer" id="mail-resizer"></div>
+          <div class="mail-detail-pane" id="mail-detail-pane">
+            <div class="mail-detail-mobile-header">
+              <button type="button" class="btn btn-sm mail-mobile-back-btn" data-action="show-inbox-list">&#8592; Back to list</button>
+            </div>
+            <div class="mail-detail-content-host" id="mail-detail-content">
+              <div class="mail-detail-empty">
+                <div class="mail-detail-empty-icon">&#9993;</div>
+                <div>Select a message to read</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Issue Detail Floating Panel -->
+  <div class="modal-overlay" id="issueDetailModal">
+    <div class="modal issue-panel-modal">
+      <button data-action="close-issue-panel" style="position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:18px;line-height:1">&times;</button>
+      <div id="issueDetailContent"><div style="padding:20px;text-align:center;color:var(--text-secondary)">Loading...</div></div>
+    </div>
+  </div>
+
+  <script src="/public/vendor/marked.js"></script>
+  <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
+  <script src="/public/js/components/dashboard-sidebar.js?v=1"></script>
+  <script src="/public/js/shared/common.js?v=3"></script>
+  <script src="/public/js/shared/command-profiles.js?v=3"></script>
+  <script src="/public/js/components/issue-renderer.js?v=3"></script>
+  <script type="module" src="/public/js/pages/dashboard-inbox.js?v=1"></script>
+</body>
+</html>

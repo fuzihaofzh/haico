@@ -59,10 +59,9 @@ describe('Frontend UI English copy (#540)', () => {
   });
 
   it('representative UI strings are translated to English', () => {
-    const dashboardHtml = fs.readFileSync(
-      path.join(publicDir, 'index.html'),
-      'utf-8'
-    );
+    const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings.html', 'projects-new.html']
+      .map((name) => fs.readFileSync(path.join(publicDir, name), 'utf-8'))
+      .join('\n');
     const projectHtml = fs.readFileSync(
       path.join(publicDir, 'project.html'),
       'utf-8'
@@ -75,23 +74,50 @@ describe('Frontend UI English copy (#540)', () => {
       path.join(jsDir, 'shared', 'common.js'),
       'utf-8'
     );
-    const dashboardJs = fs.readFileSync(
-      path.join(jsDir, 'pages', 'dashboard.js'),
+    const dashboardCoreJs = fs.readFileSync(
+      path.join(jsDir, 'pages', 'dashboard-core.js'),
+      'utf-8'
+    );
+    const dashboardInboxJs = fs.readFileSync(
+      path.join(jsDir, 'pages', 'dashboard-inbox.js'),
+      'utf-8'
+    );
+    const dashboardProjectStoreJs = fs.readFileSync(
+      path.join(jsDir, 'shared', 'dashboard-project-store.js'),
       'utf-8'
     );
     const projectJs = fs.readFileSync(
       path.join(jsDir, 'pages', 'project.js'),
       'utf-8'
     );
+    const projectNewJs = fs.readFileSync(
+      path.join(jsDir, 'pages', 'project-new.js'),
+      'utf-8'
+    );
 
     assert.ok(dashboardHtml.includes('Search issues...'));
+    assert.ok(dashboardHtml.includes('Create New Project'));
     assert.ok(projectHtml.includes('Share Settings'));
     assert.ok(projectHtml.includes('+ Add Knowledge'));
     assert.ok(projectHtml.includes('Grant Access'));
     assert.ok(agentHtml.includes('Activity Summary'));
     assert.ok(commonJs.includes('Loading...'));
     assert.ok(commonJs.includes('Live updates connected'));
-    assert.ok(dashboardJs.includes('No notifications'));
+    assert.ok(dashboardCoreJs.includes('setupDashboardWS'));
+    assert.ok(dashboardInboxJs.includes('No notifications'));
+    assert.ok(dashboardProjectStoreJs.includes('haico.dashboard.projects.v1'));
     assert.ok(projectJs.includes('No knowledge entries yet.'));
+    assert.ok(projectNewJs.includes('No Agent Tool is configured yet.'));
+  });
+
+  it('dashboard pages avoid page-specific inline event handlers', () => {
+    const dashboardPages = ['inbox.html', 'projects.html', 'usage.html'];
+    const inlineHandlerRegex = /\son(?:click|change|input|mouseenter)=/;
+    const offenders = dashboardPages.filter((name) => {
+      const content = fs.readFileSync(path.join(publicDir, name), 'utf-8');
+      return inlineHandlerRegex.test(content);
+    });
+
+    assert.deepEqual(offenders, []);
   });
 });

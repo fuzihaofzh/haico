@@ -118,6 +118,42 @@ export function registerAuthSuites(
       assert.deepEqual(body, { error: "Unauthorized" });
     });
 
+    it("settings remote instances partial redirects unauthenticated users to login", async () => {
+      const res = await ctx.inject({ url: "/settings/partials/remote-instances" });
+      assert.equal(res.statusCode, 302);
+      assert.equal(res.headers.location, "/login");
+    });
+
+    it("settings remote instances partial returns HTML for legacy admin", async () => {
+      const login = await ctx.api("/api/auth", {
+        method: "POST",
+        body: { password: "test1234" },
+      });
+      const res = await ctx.inject({
+        url: "/settings/partials/remote-instances",
+        headers: { authorization: `Bearer ${login.body.token}` },
+      });
+      assert.equal(res.statusCode, 200);
+      assert.ok(res.headers["content-type"]?.includes("text/html"));
+      assert.ok(res.body.includes("No remote HAICO instances yet."));
+    });
+
+    it("settings remote instances partial returns HTML validation errors", async () => {
+      const login = await ctx.api("/api/auth", {
+        method: "POST",
+        body: { password: "test1234" },
+      });
+      const res = await ctx.inject({
+        method: "POST",
+        url: "/settings/partials/remote-instances",
+        headers: { authorization: `Bearer ${login.body.token}` },
+        body: { base_url: "" },
+      });
+      assert.equal(res.statusCode, 400);
+      assert.ok(res.headers["content-type"]?.includes("text/html"));
+      assert.ok(res.body.includes("base_url is required"));
+    });
+
     it("POST /api/auth/setup sets cookie on first setup", async () => {
       // Setup was already done, so we just verify login works
       const { body } = await ctx.api("/api/auth", {

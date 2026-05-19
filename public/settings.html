@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <link rel="stylesheet" href="/public/css/style.css?v=8">
+  <link rel="stylesheet" href="/public/css/issues.css">
+  <link rel="stylesheet" href="/public/vendor/katex/katex.min.css?v=0.16.11">
+</head>
+<body class="dashboard-shell" data-dashboard-page="settings">
+  <div data-dashboard-sidebar></div>
+
+  <header>
+    <div class="header-right">
+      <a class="btn btn-primary btn-sm" href="/projects/new">+ New Project</a>
+    </div>
+  </header>
+
+  <main id="main-content" class="container">
+    <div id="settings-view-panel" class="dashboard-view dashboard-view-settings">
+      <div class="settings-page-header">
+        <div>
+          <div class="settings-page-eyebrow">Workspace</div>
+          <h2>Settings</h2>
+          <p>Manage dashboard preferences, account actions, and Agent Tool commands.</p>
+        </div>
+      </div>
+
+      <div class="settings-page-grid">
+        <section class="card settings-card">
+          <div class="settings-card-header">
+            <div>
+              <h3>Appearance</h3>
+              <p>Choose the theme used across HAICO.</p>
+            </div>
+          </div>
+          <div class="settings-section settings-section-page">
+            <div class="setting-group">
+              <label>Theme</label>
+              <select id="theme-select" onchange="changeTheme(this.value)">
+                <option value="github-dark">GitHub Dark</option>
+                <option value="dracula">Dracula</option>
+                <option value="nord-dark">Nord Dark</option>
+                <option value="nord-light">Nord Light</option>
+                <option value="monokai">Monokai</option>
+                <option value="solarized-dark">Solarized Dark</option>
+                <option value="solarized-light">Solarized Light</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="card settings-card">
+          <div class="settings-card-header">
+            <div>
+              <h3>Notifications And Account</h3>
+              <p>Control alerts and access common account actions.</p>
+            </div>
+          </div>
+          <div class="settings-section settings-section-page">
+            <div class="setting-group">
+              <label class="toggle-label">
+                Notification Sound
+                <button type="button" class="toggle-switch notif-sound-toggle" onclick="toggleNotificationSound()">
+                  <span class="toggle-knob"></span>
+                </button>
+              </label>
+              <div class="settings-help">Play a short alert when new actionable work arrives.</div>
+            </div>
+
+            <div class="setting-group">
+              <label>Account</label>
+              <div class="settings-action-list">
+                <a href="/change-password" class="settings-action-link">Change Password</a>
+                <a href="#" class="settings-action-link settings-action-link-danger" onclick="logout();return false">Logout</a>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="card settings-card settings-card-wide">
+        <div class="settings-card-header">
+          <div>
+            <h3>Agent Tools</h3>
+            <p>Configure the commands HAICO agents use when they run.</p>
+          </div>
+        </div>
+        <div class="settings-section settings-section-page">
+          <div data-command-profiles-root></div>
+        </div>
+      </section>
+
+      <section class="card settings-card settings-card-wide">
+        <div class="settings-card-header">
+          <div>
+            <h3>Remote HAICO Instances</h3>
+            <p>Add other HAICO machine URLs so their projects appear in this dashboard.</p>
+          </div>
+        </div>
+        <div class="settings-section settings-section-page">
+          <div id="remote-instances-settings" hx-get="/settings/partials/remote-instances" hx-trigger="load, remote-instances-refresh from:body" hx-swap="innerHTML">
+            <div class="empty-state">Loading remote instance settings...</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/public/vendor/marked.js"></script>
+  <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
+  <script src="/public/vendor/htmx.min.js"></script>
+  <script src="/public/js/components/dashboard-sidebar.js?v=1"></script>
+  <script src="/public/js/shared/common.js?v=3"></script>
+  <script src="/public/js/shared/command-profiles.js?v=3"></script>
+  <script src="/public/js/components/issue-renderer.js?v=3"></script>
+  <script type="module" src="/public/js/pages/dashboard-settings.js?v=1"></script>
+</body>
+</html>

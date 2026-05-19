@@ -1,5 +1,5 @@
 // ─── Shared Issue Renderer ───
-// Used by both issue.js (full page) and dashboard.js (floating panel)
+// Used by both issue.js (full page) and dashboard-core.js (floating panel)
 
 var IssueRenderer = (function() {
   var EMOJIS = ['👍','👎','❤️','🎉','😕','🚀'];

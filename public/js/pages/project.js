@@ -18,7 +18,7 @@ const _projectResourceCache = new Map();
 
 function navigateProjectSidebar(view) {
   const nextView = DASHBOARD_NAV_VIEWS.has(view) ? view : 'projects';
-  window.location.href = `/?view=${encodeURIComponent(nextView)}`;
+  window.location.href = nextView === 'inbox' ? '/inbox' : `/${nextView}`;
 }
 
 if (typeof window !== 'undefined') {
