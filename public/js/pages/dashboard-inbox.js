@@ -494,84 +494,8 @@ function selectMailItem(idx) {
   loadInboxIssueDetail(issue.id, idx);
 }
 
-async function loadRemoteInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
-  const detail = getMailDetailContent();
-  const now = Date.now();
-  const cached = _issueDetailCache[issueId];
-
-  function isStale() { return _selectedMailIssueId !== issueId; }
-  function getProjectColor() {
-    var item = _renderedMailItems.find(function(i) { return i.data && i.data.id === issueId; });
-    return (item && item.data && item.data.project_color) || null;
-  }
-
-  const inboxItem = _renderedMailItems[expectedIdx];
-  const remoteIssue = inboxItem && inboxItem.data;
-  if (!remoteIssue || !isRemoteInboxIssue(remoteIssue)) {
-    if (detail) detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary)">Remote issue not found</div>';
-    return;
-  }
-
-  if (cached && !forceRefresh) {
-    if (isStale()) return;
-    const agentsCached = _projectAgentsCache[cached.data.project_id];
-    const agents = agentsCached ? agentsCached.data : [];
-    _currentReplyIssueId = cached.data.id;
-    setInboxMobilePane('detail');
-    IssueRenderer.render(cached.data, agents, detail, {
-      reload: function() { loadRemoteInboxIssueDetail(issueId, _selectedMailIdx, true); },
-      onAfterAction: function() { loadNotifications(); },
-      refreshComments: function(seedComment) { refreshInboxIssueComments(issueId, seedComment); },
-      projectColor: getProjectColor(),
-    });
-    if (now - cached.timestamp > ISSUE_CACHE_TTL) {
-      loadRemoteInboxIssueDetail(issueId, expectedIdx, true);
-    }
-    return;
-  }
-
-  try {
-    const issuePath = buildRemoteIssueApiPath(remoteIssue);
-    const agentsPath = buildRemoteProjectAgentsApiPath(remoteIssue);
-    const [issueRes, agentsRes] = await Promise.all([
-      fetch(issuePath, { headers: apiHeaders() }),
-      agentsPath ? fetch(agentsPath, { headers: apiHeaders() }) : Promise.resolve(null),
-    ]);
-    if (!issueRes.ok || isStale()) return;
-
-    const issue = await issueRes.json();
-    _issueDetailCache[issueId] = { data: issue, timestamp: now };
-
-    let agents = [];
-    if (agentsRes && agentsRes.ok) {
-      agents = await agentsRes.json();
-      _projectAgentsCache[issue.project_id] = { data: agents, timestamp: now };
-    } else {
-      const agentsCached = _projectAgentsCache[issue.project_id];
-      if (agentsCached) agents = agentsCached.data;
-    }
-
-    if (isStale()) return;
-    _currentReplyIssueId = issue.id;
-    setInboxMobilePane('detail');
-    IssueRenderer.render(issue, agents, detail, {
-      reload: function() { loadRemoteInboxIssueDetail(issueId, _selectedMailIdx, true); },
-      onAfterAction: function() { loadNotifications(); },
-      refreshComments: function(seedComment) { refreshInboxIssueComments(issueId, seedComment); },
-      projectColor: getProjectColor(),
-    });
-  } catch (e) {
-    if (isStale()) return;
-    detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary)">Failed to load remote issue</div>';
-  }
-}
-
 async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
   const inboxItem = _renderedMailItems[expectedIdx];
-  if (inboxItem?.data && isRemoteInboxIssue(inboxItem.data)) {
-    return loadRemoteInboxIssueDetail(issueId, expectedIdx, forceRefresh);
-  }
-
   const detail = getMailDetailContent();
   const now = Date.now();
   const cached = _issueDetailCache[issueId];
@@ -830,6 +754,28 @@ function toggleInboxProject(projectId) {
   }
 }
 
+function syncNotifFilterButtons() {
+  document.querySelectorAll('.notif-filter-btn[data-filter]').forEach((btn) => {
+    const active = btn.dataset.filter === _notifFilter;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+function syncInboxScopeButtons() {
+  document.querySelectorAll('.inbox-scope-btn[data-scope]').forEach((btn) => {
+    const active = btn.dataset.scope === _inboxScope;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+function syncInboxProjectFilterControl() {
+  const filter = document.getElementById('inbox-project-filter');
+  if (!filter) return;
+  filter.value = _inboxProject || '';
+}
+
 function populateInboxProjectFilter() {
   const filter = document.getElementById('inbox-project-filter');
   if (!filter) return;
@@ -849,7 +795,7 @@ function populateInboxProjectFilter() {
     options += '<option value="' + id + '"' + (id === current ? ' selected' : '') + '>' + esc(label) + '</option>';
   }
   filter.innerHTML = options;
-  filter.value = current || '';
+  syncInboxProjectFilterControl();
 }
 
 async function loadMyIssues() {

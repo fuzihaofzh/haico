@@ -9,7 +9,6 @@ let _activityStreamCollapsed = false;
 let _agentBoardFilter = 'running';
 let _agentBoardData = [];
 
-function isRemoteProject(project) { return Boolean(project && project.is_remote); }
 function openProjectCard(projectId) {
   const project = _dashboardProjectsById[projectId];
   if (project) window.location.href = buildProjectPageHref(project.id);

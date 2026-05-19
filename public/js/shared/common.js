@@ -118,6 +118,14 @@ function isRemoteAgentId(value) {
   return !!parseRemoteAgentId(value);
 }
 
+function isRemoteProject(project) {
+  return !!(project && (project.is_remote || isRemoteProjectId(project.id)));
+}
+
+function isRemoteInboxIssue(issue) {
+  return !!(issue && (issue.is_remote || isRemoteIssueId(issue.id)));
+}
+
 function buildProjectPageHref(projectId) {
   return `/projects/${encodeURIComponent(decodeRouteParam(projectId))}`;
 }
