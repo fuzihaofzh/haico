@@ -5,6 +5,13 @@
 - 版本 1.5.3 · 仓库 https://github.com/fuzihaofzh/haico · MIT
 - **工具规则**: `todowrite` 必须写全名，禁止缩写；复杂任务（≥3 步）必须先用 `todowrite` 跟踪
 
+## Agent Operating Principles
+
+- Don't assume. Don't hide confusion. Surface tradeoffs.
+- Minimum code that solves the problem. Nothing speculative.
+- Touch only what you must. Clean up only your own mess.
+- Define success criteria. Loop until verified.
+
 ## Commands
 
 ```bash
