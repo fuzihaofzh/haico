@@ -741,9 +741,84 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ─── Project-level WebSocket for real-time updates ───
 
+function updateProjectEventsIndicator(state) {
+  const el = document.getElementById('ws-status-indicator');
+  if (!el) return;
+  const colors = { connected: '#3fb950', connecting: '#d29922', disconnected: '#8b949e', error: '#f85149' };
+  const labels = { connected: 'Live updates connected', connecting: 'Connecting...', disconnected: 'Live updates disconnected', error: 'Live updates error' };
+  el.innerHTML = `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${colors[state] || colors.disconnected};margin-right:4px"></span><span style="font-size:11px;color:var(--text-secondary)">${labels[state] || ''}</span>`;
+  el.title = labels[state] || '';
+}
+
+function connectProjectEventsDirect(projectId) {
+  const listeners = {};
+  let ws = null;
+  let closed = false;
+  let retryDelay = 1000;
+  let serverErrorSeen = false;
+
+  function on(type, cb) {
+    if (!listeners[type]) listeners[type] = [];
+    listeners[type].push(cb);
+    return api;
+  }
+
+  function emit(type, data) {
+    (listeners[type] || []).forEach(cb => { try { cb(data); } catch(e) { console.error('WS listener error:', e); } });
+    (listeners['*'] || []).forEach(cb => {
+      try {
+        const payload = data && typeof data === 'object' ? Object.assign({ type: type }, data) : { type: type, data: data };
+        cb(payload);
+      } catch(e) {}
+    });
+  }
+
+  function connect() {
+    if (closed) return;
+    updateProjectEventsIndicator('connecting');
+    serverErrorSeen = false;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws/projects/${encodeURIComponent(projectId)}/events`);
+
+    ws.onopen = function() { retryDelay = 1000; updateProjectEventsIndicator('connected'); };
+
+    ws.onmessage = function(e) {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'error') {
+          serverErrorSeen = true;
+          updateProjectEventsIndicator('error');
+          emit('error', msg);
+          return;
+        }
+        if (msg.type) emit(msg.type, msg.data || msg);
+      } catch (err) {
+        console.warn('WS message parse error:', err);
+      }
+    };
+
+    ws.onclose = function(e) {
+      updateProjectEventsIndicator(serverErrorSeen ? 'error' : 'disconnected');
+      if (!closed && !serverErrorSeen && e.code !== 1000) {
+        setTimeout(connect, retryDelay);
+        retryDelay = Math.min(Math.round(retryDelay * 1.5), 15000);
+      }
+    };
+
+    ws.onerror = function() { /* onclose will fire */ };
+  }
+
+  const api = {
+    on: on,
+    close: function() { closed = true; if (ws) ws.close(); },
+  };
+  connect();
+  return api;
+}
+
 /**
  * Connect to a project's event stream. Returns an object with .close() and .on(type, cb).
- * Reconnects automatically on disconnect.
+ * Uses the SharedWorker-backed client when available and falls back to direct WebSocket.
  * Event types are defined by src/realtime/protocol.ts and include project events
  * for agents, issues, comments, approvals, payment approvals, and executive summaries.
  */
@@ -759,72 +834,14 @@ function connectProjectEvents(projectId) {
       close: function() {},
     };
   }
-  const listeners = {};
-  let ws = null;
-  let closed = false;
-  let retryDelay = 1000;
-  let serverErrorSeen = false;
 
-  function on(type, cb) {
-    if (!listeners[type]) listeners[type] = [];
-    listeners[type].push(cb);
+  if (window.HAICOProjectEventsClient && typeof window.HAICOProjectEventsClient.connect === 'function') {
+    return window.HAICOProjectEventsClient.connect(projectId, {
+      onStatus: updateProjectEventsIndicator,
+    });
   }
 
-  function emit(type, data) {
-    (listeners[type] || []).forEach(cb => { try { cb(data); } catch(e) { console.error('WS listener error:', e); } });
-    (listeners['*'] || []).forEach(cb => { try { cb({ type, ...data }); } catch(e) {} });
-  }
-
-  function updateWsIndicator(state) {
-    const el = document.getElementById('ws-status-indicator');
-    if (!el) return;
-    const colors = { connected: '#3fb950', connecting: '#d29922', disconnected: '#8b949e', error: '#f85149' };
-    const labels = { connected: 'Live updates connected', connecting: 'Connecting...', disconnected: 'Live updates disconnected', error: 'Live updates error' };
-    el.innerHTML = `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${colors[state] || colors.disconnected};margin-right:4px"></span><span style="font-size:11px;color:var(--text-secondary)">${labels[state] || ''}</span>`;
-    el.title = labels[state] || '';
-  }
-
-  function connect() {
-    if (closed) return;
-    updateWsIndicator('connecting');
-    serverErrorSeen = false;
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${proto}//${location.host}/ws/projects/${projectId}/events`);
-
-    ws.onopen = function() { retryDelay = 1000; updateWsIndicator('connected'); };
-
-    ws.onmessage = function(e) {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'error') {
-          serverErrorSeen = true;
-          updateWsIndicator('error');
-          emit('error', msg);
-          return;
-        }
-        if (msg.type) emit(msg.type, msg.data || msg);
-      } catch (err) {
-        console.warn('WS message parse error:', err);
-      }
-    };
-
-    ws.onclose = function(e) {
-      updateWsIndicator(serverErrorSeen ? 'error' : 'disconnected');
-      if (!closed && !serverErrorSeen && e.code !== 1000) {
-        setTimeout(connect, retryDelay);
-        retryDelay = Math.min(retryDelay * 1.5, 15000);
-      }
-    };
-
-    ws.onerror = function() { /* onclose will fire */ };
-  }
-
-  connect();
-
-  return {
-    on: on,
-    close: function() { closed = true; if (ws) ws.close(); },
-  };
+  return connectProjectEventsDirect(projectId);
 }
 
 // ─── @mention autocomplete for textareas ───
