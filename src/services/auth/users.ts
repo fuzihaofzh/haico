@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { User } from '../../types';
 import { hashPassword, verifyPassword } from './password';
 
+export const DEFAULT_ADMIN_USERNAME = 'haico_default_admin';
+
 export interface PublicUser {
   id: string;
   username: string;
@@ -76,6 +78,35 @@ export function createUserWithRole(
   ).get(userId) as PublicUser;
 }
 
+export function ensureDefaultAdminUser(
+  db: Database.Database,
+  password: string
+): PublicUser {
+  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(DEFAULT_ADMIN_USERNAME) as { id: string } | undefined;
+  const { hash, salt } = hashPassword(password);
+
+  const ensure = db.transaction(() => {
+    if (existing) {
+      db.prepare(
+        "UPDATE users SET password_hash = ?, password_salt = ?, role = 'admin', display_name = CASE WHEN display_name = '' THEN ? ELSE display_name END WHERE id = ?"
+      ).run(hash, salt, 'HAICO Default Admin', existing.id);
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
+      return existing.id;
+    }
+
+    const userId = uuidv4();
+    db.prepare(
+      'INSERT INTO users (id, username, email, password_hash, password_salt, display_name, role) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(userId, DEFAULT_ADMIN_USERNAME, '', hash, salt, 'HAICO Default Admin', 'admin');
+    return userId;
+  });
+
+  const userId = ensure();
+  return db.prepare(
+    'SELECT id, username, email, display_name, role, created_at, last_login_at FROM users WHERE id = ?'
+  ).get(userId) as PublicUser;
+}
+
 export function resetUserPassword(db: Database.Database, username: string, password: string): PublicUser | null {
   const user = db.prepare('SELECT id FROM users WHERE username = ?').get(username) as { id: string } | undefined;
   if (!user) return null;
@@ -86,6 +117,30 @@ export function resetUserPassword(db: Database.Database, username: string, passw
     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
   });
   reset();
+
+  return db.prepare(
+    'SELECT id, username, email, display_name, role, created_at, last_login_at FROM users WHERE id = ?'
+  ).get(user.id) as PublicUser;
+}
+
+export function changeUserPassword(
+  db: Database.Database,
+  userId: string,
+  currentPassword: string,
+  nextPassword: string
+): PublicUser | 'invalid-current' | null {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as User | undefined;
+  if (!user) return null;
+  if (!verifyPassword(currentPassword, user.password_hash, user.password_salt)) {
+    return 'invalid-current';
+  }
+
+  const { hash, salt } = hashPassword(nextPassword);
+  const change = db.transaction(() => {
+    db.prepare('UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?').run(hash, salt, user.id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+  });
+  change();
 
   return db.prepare(
     'SELECT id, username, email, display_name, role, created_at, last_login_at FROM users WHERE id = ?'
@@ -108,18 +163,22 @@ export function listUsers(db: Database.Database): PublicUser[] {
 }
 
 export function updateUserRole(db: Database.Database, userId: string, role?: string): PublicUser | null {
-  const target = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+  const target = db.prepare('SELECT id, username FROM users WHERE id = ?').get(userId) as { id: string; username: string } | undefined;
   if (!target) return null;
+  if (target.username === DEFAULT_ADMIN_USERNAME && role && role !== 'admin') return null;
   if (role) db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
   return db.prepare(
     'SELECT id, username, email, display_name, role, created_at, last_login_at FROM users WHERE id = ?'
   ).get(userId) as PublicUser;
 }
 
-export function deleteUser(db: Database.Database, userId: string): boolean {
-  const target = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
-  if (!target) return false;
+export type DeleteUserResult = 'deleted' | 'not-found' | 'protected';
+
+export function deleteUser(db: Database.Database, userId: string): DeleteUserResult {
+  const target = db.prepare('SELECT id, username FROM users WHERE id = ?').get(userId) as { id: string; username: string } | undefined;
+  if (!target) return 'not-found';
+  if (target.username === DEFAULT_ADMIN_USERNAME) return 'protected';
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
-  return true;
+  return 'deleted';
 }

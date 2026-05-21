@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ApiTestHarness } from './helpers';
-import { createApiTestHarness } from './helpers';
+import { createApiTestHarness, createTestSession } from './helpers';
 
 describe('Project export and cost endpoints', () => {
   let ctx: ApiTestHarness;
@@ -10,6 +10,7 @@ describe('Project export and cost endpoints', () => {
 
   before(async () => {
     ctx = await createApiTestHarness('project-export');
+    await createTestSession(ctx);
 
     const project = await ctx.api('/api/projects', {
       method: 'POST',

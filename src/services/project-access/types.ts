@@ -1,6 +1,6 @@
 import { User } from '../../types';
 
-export type ProjectPermissionLevel = 'none' | 'member' | 'editor' | 'owner' | 'admin' | 'bypass';
+export type ProjectPermissionLevel = 'none' | 'member' | 'editor' | 'owner' | 'admin';
 
 export interface ProjectPermission {
   exists: boolean;
@@ -11,7 +11,6 @@ export interface ProjectPermission {
 
 export interface ProjectRequestContext {
   user: User | null;
-  localhostBypass: boolean;
 }
 
 export interface ProjectScopedEntity {

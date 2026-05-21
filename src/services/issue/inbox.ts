@@ -22,7 +22,7 @@ export function getIssueNotifications(
   context: ProjectRequestContext,
   query: InboxQuery
 ): any {
-  const projectIds = listAccessibleProjectIds(db, context.user, context.localhostBypass);
+  const projectIds = listAccessibleProjectIds(db, context.user);
   const limit = parseBoundedInt(query?.limit, DEFAULT_INBOX_PAGE_LIMIT, 1, MAX_INBOX_PAGE_LIMIT);
   const offset = parseBoundedInt(query?.offset, 0, 0, 100000);
 
@@ -145,7 +145,7 @@ export function getIssueNotifications(
 }
 
 export function listMyIssues(db: Database.Database, context: ProjectRequestContext): any[] {
-  const projectIds = listAccessibleProjectIds(db, context.user, context.localhostBypass);
+  const projectIds = listAccessibleProjectIds(db, context.user);
   if (projectIds.length === 0) return [];
 
   const placeholders = buildSqlPlaceholders(projectIds);
@@ -163,7 +163,7 @@ export function searchInboxIssues(db: Database.Database, context: ProjectRequest
   const q = query.trim();
   if (!q) return [];
 
-  const projectIds = listAccessibleProjectIds(db, context.user, context.localhostBypass);
+  const projectIds = listAccessibleProjectIds(db, context.user);
   if (projectIds.length === 0) return [];
 
   const placeholders = buildSqlPlaceholders(projectIds);

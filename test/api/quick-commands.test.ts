@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ApiTestHarness } from './helpers';
-import { createApiTestHarness } from './helpers';
+import { createApiTestHarness, createTestSession } from './helpers';
 
 describe('Quick Commands removed (#230)', () => {
   let ctx: ApiTestHarness;
@@ -9,6 +9,7 @@ describe('Quick Commands removed (#230)', () => {
 
   before(async () => {
     ctx = await createApiTestHarness('quick-commands');
+    await createTestSession(ctx);
     const project = await ctx.api('/api/projects', {
       method: 'POST',
       body: {

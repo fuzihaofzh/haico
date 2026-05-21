@@ -1217,19 +1217,16 @@ export function registerKnowledgeAndCollaborationSuites(
       assert.equal(leaf2.parent_agent_id, treeManagerId);
     });
 
-    it('flat project agents have no parent_agent_id', async () => {
+    it('flat project agents attach workers to the controller', async () => {
       const { status, body } = await ctx.api(
         `/api/projects/${flatProjectId}/agents`
       );
       assert.equal(status, 200);
 
-      for (const agent of body) {
-        assert.equal(
-          agent.parent_agent_id,
-          null,
-          `agent ${agent.name} should have no parent`
-        );
-      }
+      const controller = body.find((agent: any) => agent.id === flatControllerId);
+      const worker = body.find((agent: any) => agent.id === flatWorkerId);
+      assert.equal(controller.parent_agent_id, null);
+      assert.equal(worker.parent_agent_id, flatControllerId);
     });
 
     it('GET /api/agents/:id returns correct detail for hierarchical agent', async () => {

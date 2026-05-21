@@ -57,25 +57,6 @@ function validateAuthForm(form) {
   return '';
 }
 
-async function submitLegacyLogin(form) {
-  const password = getFormValue(form, 'password');
-  const res = await fetch('/api/auth', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'HX-Request': 'true',
-    },
-    body: new URLSearchParams({ password }),
-  });
-
-  if (res.ok) {
-    window.location.href = '/';
-    return;
-  }
-
-  showAuthError('Invalid username or password', form);
-}
-
 document.body.addEventListener('htmx:beforeRequest', (event) => {
   const form = event.detail.elt;
   if (!(form instanceof HTMLFormElement) || !form.classList.contains('auth-form')) return;
@@ -102,11 +83,6 @@ document.body.addEventListener('htmx:afterRequest', (event) => {
       return;
     }
     window.location.href = '/';
-    return;
-  }
-
-  if (action === 'login') {
-    submitLegacyLogin(form).catch(() => showAuthError('Invalid username or password', form));
     return;
   }
 

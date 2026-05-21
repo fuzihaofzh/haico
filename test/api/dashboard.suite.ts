@@ -54,7 +54,10 @@ export function registerDashboardSuites(
     });
 
     it("GET /api/dashboard/summary requires auth (not localhost-safe)", async () => {
-      const res = await ctx.inject({ url: "/api/dashboard/summary" });
+      const res = await ctx.inject({
+        url: "/api/dashboard/summary",
+        headers: { cookie: "" },
+      });
       assert.equal(
         res.statusCode,
         401,
@@ -84,7 +87,10 @@ export function registerDashboardSuites(
     });
 
     it("GET /api/dashboard/usage-by-project requires auth", async () => {
-      const res = await ctx.inject({ url: "/api/dashboard/usage-by-project" });
+      const res = await ctx.inject({
+        url: "/api/dashboard/usage-by-project",
+        headers: { cookie: "" },
+      });
       assert.equal(res.statusCode, 401);
     });
 
@@ -133,7 +139,10 @@ export function registerDashboardSuites(
     });
 
     it("GET /api/dashboard/activity-stream requires auth", async () => {
-      const res = await ctx.inject({ url: "/api/dashboard/activity-stream" });
+      const res = await ctx.inject({
+        url: "/api/dashboard/activity-stream",
+        headers: { cookie: "" },
+      });
       assert.equal(res.statusCode, 401);
     });
 
@@ -215,7 +224,10 @@ export function registerDashboardSuites(
     });
 
     it("GET /api/dashboard/agents requires auth", async () => {
-      const res = await ctx.inject({ url: "/api/dashboard/agents" });
+      const res = await ctx.inject({
+        url: "/api/dashboard/agents",
+        headers: { cookie: "" },
+      });
       assert.equal(res.statusCode, 401);
     });
 
@@ -238,7 +250,10 @@ export function registerDashboardSuites(
     });
 
     it("GET /api/dashboard/today-cost requires auth", async () => {
-      const res = await ctx.inject({ url: "/api/dashboard/today-cost" });
+      const res = await ctx.inject({
+        url: "/api/dashboard/today-cost",
+        headers: { cookie: "" },
+      });
       assert.equal(res.statusCode, 401);
     });
 

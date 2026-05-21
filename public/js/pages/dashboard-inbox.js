@@ -22,6 +22,8 @@ let _dashboardChatPending = false;
 let _dashboardChatStatus = { message: '', type: '' };
 let _dashboardChatProfileId = '';
 let _dashboardChatProjectId = '';
+let _panelIssueId = null;
+let _panelAgents = [];
 const DASHBOARD_CHAT_PROFILE_STORAGE_KEY = 'haico.dashboardChat.profileId';
 const DASHBOARD_CHAT_PROJECT_STORAGE_KEY = 'haico.dashboardChat.projectId';
 const INBOX_ITEM_LIMIT = 20;
@@ -651,7 +653,6 @@ async function refreshInboxIssueComments(issueId, seedComment) {
 // Prefetch issue detail on hover for faster click response
 function prefetchIssueDetail(issueId) {
   if (_issueDetailCache[issueId]) return;
-  const issue = getInboxIssueById(issueId);
   const prefetchUrl = buildIssueApiPath(issueId);
   if (!prefetchUrl) return;
   fetch(prefetchUrl, { headers: apiHeaders() })
@@ -662,6 +663,15 @@ function prefetchIssueDetail(issueId) {
       }
     })
     .catch(() => {});
+}
+
+function getInboxIssueById(issueId) {
+  const id = String(issueId || '');
+  if (!id) return null;
+  const rendered = _renderedMailItems.find((item) => item.data && item.data.id === id);
+  if (rendered) return rendered.data;
+  const cached = _inboxAllItems.find((item) => item.data && item.data.id === id);
+  return cached ? cached.data : null;
 }
 
 function matchesSearch(query, ...fields) {
@@ -1145,9 +1155,6 @@ async function sendDashboardChat() {
         loadDashboardSummary(),
         loadProjects(),
         loadNotifications({ reset: true }),
-        loadAgentBoard(),
-        loadActivityStream(),
-        loadDashboardApprovals(),
       ]).catch(() => {});
     }
     setDashboardChatStatus('', '');

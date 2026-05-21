@@ -22,9 +22,11 @@ describe('Approval service routes', () => {
       },
     });
     assert.equal(ownerRegister.status, 201, ownerRegister.raw);
+    ownerCookie = `haico-auth=${ownerRegister.body.token}`;
 
     const outsiderRegister = await ctx.api('/api/auth/register', {
       method: 'POST',
+      headers: { cookie: ownerCookie },
       body: {
         username: `approval-outsider-${suffix}`,
         password: 'pass1234',

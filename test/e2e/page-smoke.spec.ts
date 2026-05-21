@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { randomUUID } from 'crypto';
 import { listE2EAgents } from './helpers/agents';
 import { createE2EIssue } from './helpers/issues';

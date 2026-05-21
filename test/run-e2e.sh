@@ -16,8 +16,8 @@ ok() { echo -e "${GREEN}✓ $1${NC}"; }
 
 # Auth
 info "Setting up auth..."
-curl -s -X POST "$HOST/api/auth/setup" -H "Content-Type: application/json" -d '{"password":"test1234"}' -c "$COOKIE" > /dev/null 2>&1 || true
-curl -s -X POST "$HOST/api/auth" -H "Content-Type: application/json" -d '{"password":"test1234"}' -c "$COOKIE" > /dev/null
+curl -s -X POST "$HOST/api/auth/register" -H "Content-Type: application/json" -d '{"username":"e2e_admin","password":"test1234"}' -c "$COOKIE" > /dev/null 2>&1 || true
+curl -s -X POST "$HOST/api/auth/login" -H "Content-Type: application/json" -d '{"username":"e2e_admin","password":"test1234"}' -c "$COOKIE" > /dev/null
 ok "Authenticated"
 
 # Clean old projects

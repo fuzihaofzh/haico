@@ -80,7 +80,7 @@ export async function getDashboardSummary(
   db: Database.Database,
   context: ProjectRequestContext
 ): Promise<any> {
-  const projectIds = listAccessibleProjectIds(db, context.user, context.localhostBypass);
+  const projectIds = listAccessibleProjectIds(db, context.user);
   const remoteProjects = await loadAccessibleRemoteProjects(db);
 
   let localAgentStats = { total: 0, running: 0, error_count: 0 };
@@ -170,7 +170,7 @@ export function getUsageByProject(
   periodInput?: string
 ): any {
   const period = periodInput || 'day';
-  const projectIds = listAccessibleProjectIds(db, context.user, context.localhostBypass);
+  const projectIds = listAccessibleProjectIds(db, context.user);
 
   if (projectIds.length === 0) {
     return { period, time_buckets: [], projects: [], data: {} };
@@ -209,7 +209,7 @@ export function getDashboardActivityStream(
   context: ProjectRequestContext,
   input: { limit?: string; project_id?: string } = {}
 ): any[] {
-  const projectIds = listAccessibleProjectIds(db, context.user, context.localhostBypass);
+  const projectIds = listAccessibleProjectIds(db, context.user);
   const limit = parseBoundedLimit(input.limit, 50, 200);
   const filterProjectId = input.project_id;
 
@@ -273,7 +273,7 @@ export async function listDashboardAgents(
   context: ProjectRequestContext,
   statusFilter?: string
 ): Promise<any[]> {
-  const projectIds = listAccessibleProjectIds(db, context.user, context.localhostBypass);
+  const projectIds = listAccessibleProjectIds(db, context.user);
   let agents: any[] = [];
 
   if (projectIds.length > 0) {
@@ -331,7 +331,7 @@ export async function listDashboardAgents(
 }
 
 export function getTodayCost(db: Database.Database, context: ProjectRequestContext): any {
-  const projectIds = listAccessibleProjectIds(db, context.user, context.localhostBypass);
+  const projectIds = listAccessibleProjectIds(db, context.user);
   if (projectIds.length === 0) return { today_cost_usd: 0, by_project: {} };
 
   const today = new Date().toISOString().slice(0, 10);

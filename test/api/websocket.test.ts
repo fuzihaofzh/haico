@@ -26,13 +26,13 @@ async function registerTestUser(
   usernamePrefix: string
 ): Promise<{ token: string; username: string }> {
   const username = uniqueUsername(usernamePrefix);
-  const user = await ctx.api('/api/auth/register', {
-    method: 'POST',
-    body: { username, password: 'test1234' },
-  });
-  assert.equal(user.status, 201);
-  assert.ok(user.body.token);
-  return { token: user.body.token, username };
+  const { getDatabase } = await import('../../src/db/database');
+  const { createUserWithRole } = await import('../../src/services/auth/users');
+  const { createSession } = await import('../../src/services/auth/sessions');
+  const user = createUserWithRole(getDatabase(), username, 'test1234', 'member');
+  assert.notEqual(user, 'duplicate');
+  const session = createSession(getDatabase(), (user as any).id);
+  return { token: session.token, username };
 }
 
 async function connectWs(
@@ -217,7 +217,7 @@ describe('WebSocket realtime routes', () => {
   });
 
   it('allows read sockets for project members but requires manage access for interactive terminal', async () => {
-    const ctx = await createApiTestHarness('websocket-permissions');
+      const ctx = await createApiTestHarness('websocket-permissions');
     try {
       const owner = await registerTestUser(ctx, 'wsowner');
       const member = await registerTestUser(ctx, 'wsmember');

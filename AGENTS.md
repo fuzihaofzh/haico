@@ -28,7 +28,7 @@ src/
 ├── app.ts              # Fastify 入口
 ├── config.ts           # 环境变量: HAICO_PORT, HOST, DB_PATH, ORCHESTRATOR_ENGINE
 ├── types.ts            # 核心类型定义
-├── middleware/auth.ts   # 认证 + localhost bypass
+├── middleware/auth.ts   # users + sessions 认证
 ├── db/
 │   ├── database.ts     # SQLite 连接
 │   └── schema.ts       # Schema + 迁移
@@ -76,7 +76,7 @@ src/
 - **启动时**自动将 stuck running agents 重置为 idle，勿手动干预
 - **Agent 编排硬约束**: Project 创建自动生成 1 Controller + 1 Assistant; Worker 必须挂 Controller (parent_agent_id); Controller 完成后自动检查更多可分派 Issue
 - **Issue 自动化**: @mention 自动启动 Agent; 子 Issue 全完成 → 触发父 Issue Controller 汇总; Agent 标记 done → 自动指派回 user
-- **权限**: Localhost bypass (127.0.0.1, 排除 /api/auth/) | Legacy 用户全权限 bypass | 实体权限通过 project_id 回溯到项目级
+- **权限**: 后端只认真实 user session；admin 全权限，owner/member/editor 通过 project_id 回溯到项目级
 - **远程实例 ID 装饰**: `remote-{entity}:{instanceId}:{remoteId}`，代理请求需剥除前缀再转发
 
 ## References

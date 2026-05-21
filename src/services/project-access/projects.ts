@@ -5,22 +5,16 @@ import {
   ProjectAccessProjectNotFoundError,
   ProjectManagementAccessRequiredError,
 } from './errors';
-import { shouldBypassProjectPermissions } from './policy';
 import { ProjectPermission, ProjectPermissionLevel, ProjectRequestContext } from './types';
 
 export function getProjectPermission(
   db: Database.Database,
   projectId: string,
-  user: User | null | undefined,
-  localhostBypass = false
+  user: User | null | undefined
 ): ProjectPermission {
   const project = db.prepare('SELECT owner_id FROM projects WHERE id = ?').get(projectId) as { owner_id: string | null } | undefined;
   if (!project) {
     return { exists: false, allowed: false, canManage: false, level: 'none' };
-  }
-
-  if (shouldBypassProjectPermissions(user, localhostBypass)) {
-    return { exists: true, allowed: true, canManage: true, level: 'bypass' };
   }
 
   if (!user) {
@@ -58,7 +52,7 @@ export function requireProjectAccess(
   projectId: string,
   requireManage = false
 ): ProjectRequestContext & { permission: ProjectPermission } {
-  const permission = getProjectPermission(db, projectId, context.user, context.localhostBypass);
+  const permission = getProjectPermission(db, projectId, context.user);
 
   if (!permission.exists) {
     throw new ProjectAccessProjectNotFoundError();
@@ -73,10 +67,9 @@ export function requireProjectAccess(
 
 export function listAccessibleProjects(
   db: Database.Database,
-  user: User | null | undefined,
-  localhostBypass = false
+  user: User | null | undefined
 ): Project[] {
-  if (shouldBypassProjectPermissions(user, localhostBypass) || user?.role === 'admin') {
+  if (user?.role === 'admin') {
     return db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all() as Project[];
   }
 
@@ -96,8 +89,7 @@ export function listAccessibleProjects(
 
 export function listAccessibleProjectIds(
   db: Database.Database,
-  user: User | null | undefined,
-  localhostBypass = false
+  user: User | null | undefined
 ): string[] {
-  return listAccessibleProjects(db, user, localhostBypass).map((project) => project.id);
+  return listAccessibleProjects(db, user).map((project) => project.id);
 }

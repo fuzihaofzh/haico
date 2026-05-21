@@ -1,16 +1,14 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'fs';
-import path from 'path';
 import type { ApiTestContext } from './helpers';
 
 export function registerFocusedApiRegressionSuites(ctx: ApiTestContext): void {
   // ─── UI ───
 
   describe('UI Pages', () => {
-    it('GET /setup returns HTML', async () => {
+    it('GET /setup is removed', async () => {
       const res = await ctx.inject({ url: '/setup' });
-      assert.equal(res.statusCode, 302); // password set, redirects to /login
+      assert.equal(res.statusCode, 404);
     });
 
     it('GET /login returns HTML', async () => {
@@ -20,50 +18,20 @@ export function registerFocusedApiRegressionSuites(ctx: ApiTestContext): void {
     });
   });
 
-  // ─── Config Read Failure (#120): should NOT redirect to /setup ───
-  //
-  // Bug: When config file is unreadable at startup (e.g. NFS timeout),
-  // passwordWasEverSet was false, causing the auth middleware to redirect
-  // to /setup even for existing users. Fix: if file exists but read fails,
-  // assume password was set (passwordWasEverSet = true).
-  //
-  // These tests verify the loadAuthConfig function and auth hook behavior
-  // by examining the code structure. The runtime onRequest hook re-reads
-  // config when passwordHash is null. We test the fix indirectly by
-  // verifying existing auth behavior is intact and loadAuthConfig returns
-  // correct readError/fileExists values.
-
-  describe('Config Read Failure Guard (#120)', () => {
-    it('loadAuthConfig: valid config is readable from database', async () => {
-      // Auth config is now stored in DB (migrated from file-based auth)
-      // Verify that the password set during setup is accessible via login
-      const { status } = await ctx.api('/api/auth', {
+  describe('Session auth regression guard', () => {
+    it('username/password login works through sessions', async () => {
+      const { status } = await ctx.api('/api/auth/login', {
         method: 'POST',
-        body: { password: 'test1234' },
+        body: { username: 'testadmin', password: 'admin1234' },
       });
-      assert.equal(status, 200, 'Auth config should be readable from DB');
+      assert.equal(status, 200);
     });
 
-    it('loadAuthConfig: invalid JSON in config file triggers catch block', () => {
-      // Verify the catch block behavior by testing JSON.parse with invalid content
-      let threw = false;
-      try {
-        JSON.parse('<<<CORRUPTED>>>');
-      } catch {
-        threw = true;
-      }
-      assert.ok(
-        threw,
-        'Invalid JSON should throw, triggering readError path in loadAuthConfig'
-      );
-    });
-
-    it('auth middleware does not redirect authenticated user to /setup', async () => {
-      // Login to get valid token
+    it('auth middleware does not redirect authenticated user to setup', async () => {
       const loginRes = await ctx.app.inject({
         method: 'POST',
-        url: '/api/auth',
-        payload: { password: 'test1234' },
+        url: '/api/auth/login',
+        payload: { username: 'testadmin', password: 'admin1234' },
         headers: { 'content-type': 'application/json' },
       });
       assert.equal(loginRes.statusCode, 200);
@@ -71,7 +39,6 @@ export function registerFocusedApiRegressionSuites(ctx: ApiTestContext): void {
         /haico-auth=([^;]+)/
       )![1];
 
-      // Authenticated request should succeed, never redirect to /setup
       const res = await ctx.app.inject({
         method: 'GET',
         url: '/api/dashboard/summary',
@@ -86,9 +53,7 @@ export function registerFocusedApiRegressionSuites(ctx: ApiTestContext): void {
       }
     });
 
-    it('unauthenticated request redirects to /login, not /setup (password was set)', async () => {
-      // When password is set, unauthenticated page requests should redirect to /login, not /setup
-      // Use page route to test cookie-based auth redirect
+    it('unauthenticated request redirects to /login, not /setup', async () => {
       const res = await ctx.inject({
         url: '/change-password',
         headers: { cookie: 'haico-auth=invalid' },
@@ -103,50 +68,6 @@ export function registerFocusedApiRegressionSuites(ctx: ApiTestContext): void {
         '/login',
         'Should redirect to /login, not /setup'
       );
-    });
-
-    it('GET /setup redirects to /login when password is set (not show setup form)', async () => {
-      const res = await ctx.inject({ url: '/setup' });
-      assert.equal(res.statusCode, 302);
-      assert.equal(
-        res.headers.location,
-        '/login',
-        'Should redirect to /login, not show setup form'
-      );
-    });
-
-    it('auth config is stored in database (migrated from file)', () => {
-      // Auth was migrated from file-based to DB-based storage (#120 fix)
-      // Verify auth.ts uses database for config persistence
-      const authSource = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'middleware', 'auth.ts'),
-        'utf-8'
-      );
-
-      // Verify auth.ts uses DB
-      assert.ok(
-        authSource.includes('getDatabase') || authSource.includes('database'),
-        'loadAuthConfig should use database for storage'
-      );
-
-      // Verify it does NOT redirect to /setup when DB has a password
-      // Auth uses DB-reload approach: if passwordHash is empty, reload from DB before checking
-      assert.ok(
-        authSource.includes('loadAuthConfig') ||
-          authSource.includes('authConfig.passwordHash'),
-        'Should reload auth config from DB to prevent /setup redirect'
-      );
-    });
-
-    it('login works with DB-based auth (not affected by file system state)', async () => {
-      // Auth config is now in DB, not file — login should always work
-      // regardless of the state of the legacy ~/.haico/config.json file
-      const { status, body } = await ctx.api('/api/auth', {
-        method: 'POST',
-        body: { password: 'test1234' },
-      });
-      assert.equal(status, 200);
-      assert.equal(body.ok, true);
     });
   });
 

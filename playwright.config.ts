@@ -4,6 +4,7 @@ const e2ePort = Number(process.env.HAICO_E2E_PORT || 4599);
 const baseURL = process.env.HAICO_BASE_URL || `http://127.0.0.1:${e2ePort}`;
 const shouldStartServer = !process.env.HAICO_BASE_URL;
 const e2eDbPath = process.env.HAICO_E2E_DB_PATH || './test-e2e.db';
+const e2eAdminPassword = process.env.HAICO_E2E_ADMIN_PASSWORD || 'haico-e2e-password';
 
 export default defineConfig({
   testDir: './test/e2e',
@@ -42,7 +43,8 @@ export default defineConfig({
       HAICO_PORT: String(e2ePort),
       HAICO_HOST: '127.0.0.1',
       HAICO_DB_PATH: e2eDbPath,
-      HAICO_NO_AUTH: 'true',
+      HAICO_DEFAULT_ADMIN: 'true',
+      HAICO_DEFAULT_ADMIN_PASSWORD: e2eAdminPassword,
     },
   } : undefined,
 });

@@ -64,16 +64,25 @@ async function api(
 }
 
 let app: FastifyInstance;
+let sessionToken: string;
 
 const apiTestContext: ApiTestContext = {
   get app() {
     return app;
   },
   api(url, opts = {}) {
-    return api(app, url, opts);
+    const headers = { ...(opts.headers || {}) };
+    if (sessionToken && headers.cookie === undefined && headers.authorization === undefined) {
+      headers.cookie = `haico-auth=${sessionToken}`;
+    }
+    return api(app, url, { ...opts, headers });
   },
   inject(opts) {
-    return inject(app, opts);
+    const headers = { ...(opts.headers || {}) };
+    if (sessionToken && headers.cookie === undefined && headers.authorization === undefined) {
+      headers.cookie = `haico-auth=${sessionToken}`;
+    }
+    return inject(app, { ...opts, headers });
   },
 };
 
@@ -115,8 +124,6 @@ describe("HAICO API", () => {
   });
 
   // ─── Auth ───
-
-  let sessionToken: string;
 
   registerAuthSuites(apiTestContext, {
     get sessionToken() {
@@ -209,28 +216,6 @@ describe("HAICO API", () => {
       return workerId;
     },
   });
-  describe("Cleanup", () => {
-    it("DELETE agent", async () => {
-      const { status } = await api(app, `/api/agents/${workerId}`, {
-        method: "DELETE",
-      });
-      assert.equal(status, 200);
-      const { status: s2 } = await api(app, `/api/agents/${workerId}`);
-      assert.equal(s2, 404);
-    });
-
-    it("DELETE project cascades", async () => {
-      const { status } = await api(app, `/api/projects/${projectId}`, {
-        method: "DELETE",
-      });
-      assert.equal(status, 200);
-      const { status: cs } = await api(app, `/api/agents/${controllerId}`);
-      assert.equal(cs, 404);
-      const { status: ps } = await api(app, `/api/projects/${projectId}`);
-      assert.equal(ps, 404);
-    });
-  });
-
   registerFocusedApiRegressionSuites(apiTestContext);
   registerKnowledgeAndCollaborationSuites(apiTestContext);
   registerSchedulingRegressionSuites(apiTestContext, {
@@ -239,4 +224,34 @@ describe("HAICO API", () => {
     },
   });
   registerProcessManagerSuites(apiTestContext);
+
+  describe("Cleanup", () => {
+    it("DELETE agent", async () => {
+      const { status } = await api(app, `/api/agents/${workerId}`, {
+        method: "DELETE",
+        headers: { cookie: `haico-auth=${sessionToken}` },
+      });
+      assert.equal(status, 200);
+      const { status: s2 } = await api(app, `/api/agents/${workerId}`, {
+        headers: { cookie: `haico-auth=${sessionToken}` },
+      });
+      assert.equal(s2, 404);
+    });
+
+    it("DELETE project cascades", async () => {
+      const { status } = await api(app, `/api/projects/${projectId}`, {
+        method: "DELETE",
+        headers: { cookie: `haico-auth=${sessionToken}` },
+      });
+      assert.equal(status, 200);
+      const { status: cs } = await api(app, `/api/agents/${controllerId}`, {
+        headers: { cookie: `haico-auth=${sessionToken}` },
+      });
+      assert.equal(cs, 404);
+      const { status: ps } = await api(app, `/api/projects/${projectId}`, {
+        headers: { cookie: `haico-auth=${sessionToken}` },
+      });
+      assert.equal(ps, 404);
+    });
+  });
 });

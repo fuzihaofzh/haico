@@ -36,12 +36,6 @@ const PROJECT_ACCESS_META = {
     summary: 'Global Admin',
     detail: 'Admin view',
   },
-  bypass: {
-    badge: 'DEBUG',
-    tone: 'debug',
-    summary: 'Debug mode',
-    detail: 'legacy / localhost bypass',
-  },
   none: {
     badge: 'UNKNOWN',
     tone: 'shared',

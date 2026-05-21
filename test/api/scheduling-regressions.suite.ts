@@ -384,7 +384,9 @@ JSON
       assert.equal(updated?.assigned_to, 'user');
       assert.equal(updated?.acknowledged_at, null);
 
-      const { body: notifications } = await ctx.api('/api/notifications');
+      const { body: notifications } = await ctx.api(
+        `/api/notifications?project_id=${encodeURIComponent(isolated.projectId)}&limit=100`
+      );
       const found = notifications.user_issues.find(
         (issue: any) => issue.id === issueId
       );

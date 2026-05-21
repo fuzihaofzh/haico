@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ApiTestHarness } from './helpers';
-import { createApiTestHarness } from './helpers';
+import { createApiTestHarness, createTestSession } from './helpers';
 
 describe('Agent Runs and Run Report', () => {
   let ctx: ApiTestHarness;
@@ -10,6 +10,7 @@ describe('Agent Runs and Run Report', () => {
 
   before(async () => {
     ctx = await createApiTestHarness('agent-runs');
+    await createTestSession(ctx);
     const project = await ctx.api('/api/projects', {
       method: 'POST',
       body: {

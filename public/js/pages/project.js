@@ -186,12 +186,6 @@ const PROJECT_ACCESS_META = {
     summary: 'Global Admin',
     detail: 'You are viewing this project as a global admin.',
   },
-  bypass: {
-    badge: 'DEBUG',
-    tone: 'debug',
-    summary: 'Debug mode',
-    detail: 'legacy / localhost bypass, for debugging only and not a normal user role.',
-  },
   editor: {
     badge: 'EDITOR',
     tone: 'success',

@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ApiTestHarness } from './helpers';
-import { createApiTestHarness, createSinglePasswordSession } from './helpers';
+import { createApiTestHarness, createTestSession } from './helpers';
 
 describe('Breadcrumb Navigation', () => {
   let ctx: ApiTestHarness;
@@ -11,7 +11,7 @@ describe('Breadcrumb Navigation', () => {
 
   before(async () => {
     ctx = await createApiTestHarness('breadcrumb-navigation');
-    sessionToken = await createSinglePasswordSession(ctx);
+    sessionToken = await createTestSession(ctx);
 
     const project = await ctx.api('/api/projects', {
       method: 'POST',

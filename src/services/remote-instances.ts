@@ -525,11 +525,11 @@ export async function authenticateRemoteInstance(params: {
   const timer = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
 
   try {
-    const body = params.username
-      ? { username: params.username, password: params.password }
-      : { password: params.password };
-    const authPath = params.username ? '/api/auth/login' : '/api/auth';
-    const res = await fetch(new URL(authPath, params.baseUrl), {
+    if (!params.username) {
+      throw new Error('Remote username is required');
+    }
+    const body = { username: params.username, password: params.password };
+    const res = await fetch(new URL('/api/auth/login', params.baseUrl), {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

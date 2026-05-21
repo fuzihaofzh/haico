@@ -23,26 +23,17 @@ export function registerAuthSuites(
   }
 
   describe("Auth", () => {
-    it("/ accessible from localhost (auth bypass)", async () => {
-      // Localhost bypasses auth, so we get the page or redirect to setup
-      const res = await ctx.inject({ url: "/" });
-      // inject simulates 127.0.0.1 so auth is bypassed
-      assert.ok(res.statusCode === 200 || res.statusCode === 302);
-    });
+    let adminUserId: string;
+    let memberUserId: string;
+    let memberToken: string;
 
-    it("GET /setup returns setup HTML", async () => {
-      const res = await ctx.inject({ url: "/setup" });
-      assert.equal(res.statusCode, 200);
-      assert.ok(res.body.includes("Set a password"));
-    });
-
-    it("redirects protected pages to registration when auth is not configured", async () => {
+    it("redirects protected pages to registration when no users exist", async () => {
       const res = await ctx.inject({ url: "/change-password" });
       assert.equal(res.statusCode, 302);
       assert.equal(res.headers.location, "/register");
     });
 
-    it("returns JSON for protected APIs when auth is not configured", async () => {
+    it("returns JSON for protected APIs when no users exist", async () => {
       const { status, body, headers } = await ctx.api("/api/remote-instances");
       assert.equal(status, 401);
       assert.equal(headers.location, undefined);
@@ -52,358 +43,27 @@ export function registerAuthSuites(
       );
     });
 
-    it("POST /api/auth/setup rejects short password", async () => {
-      const { status } = await ctx.api("/api/auth/setup", {
-        method: "POST",
-        body: { password: "ab" },
-      });
-      assert.equal(status, 400);
-    });
-
-    it("POST /api/auth/setup sets password", async () => {
-      const { status, body } = await ctx.api("/api/auth/setup", {
-        method: "POST",
-        body: { password: "test1234" },
-      });
-      assert.equal(status, 200);
-      assert.equal(body.ok, true);
-    });
-
-    it("rejects setup when password already set", async () => {
-      const { status } = await ctx.api("/api/auth/setup", {
-        method: "POST",
-        body: { password: "another" },
-      });
-      assert.equal(status, 403);
-    });
-
-    it("POST /api/auth rejects wrong password", async () => {
-      const { status } = await ctx.api("/api/auth", {
-        method: "POST",
-        body: { password: "wrong" },
-      });
-      assert.equal(status, 401);
-    });
-
-    it("POST /api/auth accepts correct password and returns token", async () => {
-      const { status, body } = await ctx.api("/api/auth", {
-        method: "POST",
-        body: { password: "test1234" },
-      });
-      assert.equal(status, 200);
-      assert.equal(body.ok, true);
-      assert.ok(body.token, "Login should return a token (passwordHash)");
-    });
-
-    it("POST /api/auth accepts htmx form-encoded password", async () => {
-      const res = await ctx.app.inject({
-        method: "POST",
-        url: "/api/auth",
-        payload: "password=test1234",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          "hx-request": "true",
-        },
-      });
-      assert.equal(res.statusCode, 200);
-      const body = JSON.parse(res.body);
-      assert.equal(body.ok, true);
-      assert.ok(body.token, "Form login should return a token");
-    });
-
-    it("returns JSON for unauthenticated protected APIs after auth is configured", async () => {
-      const { status, body, headers } = await ctx.api("/api/remote-instances");
-      assert.equal(status, 401);
-      assert.equal(headers.location, undefined);
-      assert.deepEqual(body, { error: "Unauthorized" });
-    });
-
-    it("settings remote instances partial redirects unauthenticated users to login", async () => {
-      const res = await ctx.inject({ url: "/settings/partials/remote-instances" });
-      assert.equal(res.statusCode, 302);
-      assert.equal(res.headers.location, "/login");
-    });
-
-    it("settings remote instances partial returns HTML for legacy admin", async () => {
-      const login = await ctx.api("/api/auth", {
-        method: "POST",
-        body: { password: "test1234" },
-      });
-      const res = await ctx.inject({
-        url: "/settings/partials/remote-instances",
-        headers: { authorization: `Bearer ${login.body.token}` },
-      });
-      assert.equal(res.statusCode, 200);
-      assert.ok(res.headers["content-type"]?.includes("text/html"));
-      assert.ok(res.body.includes("No remote HAICO instances yet."));
-    });
-
-    it("settings remote instances partial returns HTML validation errors", async () => {
-      const login = await ctx.api("/api/auth", {
-        method: "POST",
-        body: { password: "test1234" },
-      });
-      const res = await ctx.inject({
-        method: "POST",
-        url: "/settings/partials/remote-instances",
-        headers: { authorization: `Bearer ${login.body.token}` },
-        body: { base_url: "" },
-      });
-      assert.equal(res.statusCode, 400);
-      assert.ok(res.headers["content-type"]?.includes("text/html"));
-      assert.ok(res.body.includes("base_url is required"));
-    });
-
-    it("POST /api/auth/setup sets cookie on first setup", async () => {
-      // Setup was already done, so we just verify login works
-      const { body } = await ctx.api("/api/auth", {
-        method: "POST",
-        body: { password: "test1234" },
-      });
-      assert.ok(body.token, "Should return token");
-    });
-  });
-
-  // ─── Auth Security (Cookie-based, no server-side sessions) ───
-
-  describe("Auth Security", () => {
-    it("login returns cookie with passwordHash", async () => {
-      const loginRes = await ctx.app.inject({
-        method: "POST",
-        url: "/api/auth",
-        payload: { password: "test1234" },
-        headers: { "content-type": "application/json" },
-      });
-      assert.equal(loginRes.statusCode, 200);
-      const setCookie = loginRes.headers["set-cookie"] as string;
-      assert.ok(setCookie, "Should set a cookie");
-      assert.ok(
-        setCookie.includes("haico-auth="),
-        "Cookie should be haico-auth"
-      );
-      assert.ok(setCookie.includes("HttpOnly"), "Cookie should be HttpOnly");
-      assert.ok(
-        setCookie.includes("SameSite=Lax"),
-        "Cookie should have SameSite"
-      );
-      assert.ok(
-        !setCookie.includes("Max-Age"),
-        "Cookie should NOT have Max-Age (session cookie)"
-      );
-
-      const match = setCookie.match(/haico-auth=([^;]+)/);
-      assert.ok(match, "Should extract token");
-      setSessionToken(match![1]);
-
-      const loginBody = JSON.parse(loginRes.body);
-      assert.ok(loginBody.token, "Should return token in body");
-      assert.equal(
-        loginBody.token,
-        getSessionToken(),
-        "Body token should match cookie"
-      );
-    });
-
-    it("POST /api/auth/logout clears cookie", async () => {
-      const { status, body } = await ctx.api("/api/auth/logout", {
-        method: "POST",
-      });
-      assert.equal(status, 200);
-      assert.equal(body.ok, true);
-    });
-
-    it("POST /api/auth/change-password rejects wrong current password", async () => {
-      const { status } = await ctx.api("/api/auth/change-password", {
-        method: "POST",
-        body: { current: "wrongpass", password: "newpass1234" },
-        headers: { cookie: `haico-auth=${getSessionToken()}` },
-      });
-      assert.equal(status, 401);
-    });
-
-    it("POST /api/auth/change-password rejects short new password", async () => {
-      const { status } = await ctx.api("/api/auth/change-password", {
-        method: "POST",
-        body: { current: "test1234", password: "ab" },
-        headers: { cookie: `haico-auth=${getSessionToken()}` },
-      });
-      assert.equal(status, 400);
-    });
-
-    it("POST /api/auth/change-password works with correct current password", async () => {
-      const { status, body } = await ctx.api("/api/auth/change-password", {
-        method: "POST",
-        body: { current: "test1234", password: "newpass1234" },
-        headers: { cookie: `haico-auth=${getSessionToken()}` },
-      });
-      assert.equal(status, 200);
-      assert.equal(body.ok, true);
-
-      // Verify login with new password works
-      const { status: s2 } = await ctx.api("/api/auth", {
-        method: "POST",
-        body: { password: "newpass1234" },
-      });
-      assert.equal(s2, 200);
-
-      // Verify old password no longer works
-      const { status: s3 } = await ctx.api("/api/auth", {
-        method: "POST",
-        body: { password: "test1234" },
-      });
-      assert.equal(s3, 401);
-
-      // Change back for remaining tests
-      const loginRes2 = await ctx.app.inject({
-        method: "POST",
-        url: "/api/auth",
-        payload: { password: "newpass1234" },
-        headers: { "content-type": "application/json" },
-      });
-      const cookie2 = (loginRes2.headers["set-cookie"] as string).match(
-        /haico-auth=([^;]+)/
-      )![1];
-      await ctx.api("/api/auth/change-password", {
-        method: "POST",
-        body: { current: "newpass1234", password: "test1234" },
-        headers: { cookie: `haico-auth=${cookie2}` },
-      });
-
-      // Refresh getSessionToken() for subsequent tests
-      const refreshRes = await ctx.app.inject({
-        method: "POST",
-        url: "/api/auth",
-        payload: { password: "test1234" },
-        headers: { "content-type": "application/json" },
-      });
-      const refreshedToken = (refreshRes.headers["set-cookie"] as string).match(
-        /haico-auth=([^;]+)/
-      )![1];
-      setSessionToken(refreshedToken);
-    });
-
-    it("GET /change-password returns HTML", async () => {
-      const res = await ctx.inject({
-        url: "/change-password",
-        headers: { cookie: `haico-auth=${getSessionToken()}` },
-      });
-      assert.equal(res.statusCode, 200);
-      assert.ok(res.body.includes("Change"));
-    });
-
-    it("localhost bypass only works for safe API routes", async () => {
-      const { status: projStatus } = await ctx.api("/api/projects");
-      assert.equal(projStatus, 200);
-    });
-
-    it("change-password invalidates old cookie (hash changes)", async () => {
-      // Login to get current token
-      const loginRes = await ctx.app.inject({
-        method: "POST",
-        url: "/api/auth",
-        payload: { password: "test1234" },
-        headers: { "content-type": "application/json" },
-      });
-      const oldToken = (loginRes.headers["set-cookie"] as string).match(
-        /haico-auth=([^;]+)/
-      )![1];
-
-      // Change password
-      const changeRes = await ctx.app.inject({
-        method: "POST",
-        url: "/api/auth/change-password",
-        payload: { current: "test1234", password: "changed1234" },
-        headers: {
-          "content-type": "application/json",
-          cookie: `haico-auth=${oldToken}`,
-        },
-      });
-      assert.equal(changeRes.statusCode, 200);
-
-      // Old token should be invalid (passwordHash changed)
-      // Use page route to test cookie-based auth redirect
-      const oldRes = await ctx.inject({
-        url: "/change-password",
-        headers: { cookie: `haico-auth=${oldToken}` },
-      });
-      assert.equal(
-        oldRes.statusCode,
-        302,
-        "Old token should be invalidated after password change (redirects to /login)"
-      );
-
-      // Restore password for remaining tests
-      const newLogin = await ctx.app.inject({
-        method: "POST",
-        url: "/api/auth",
-        payload: { password: "changed1234" },
-        headers: { "content-type": "application/json" },
-      });
-      const newToken = (newLogin.headers["set-cookie"] as string).match(
-        /haico-auth=([^;]+)/
-      )![1];
-      await ctx.app.inject({
-        method: "POST",
-        url: "/api/auth/change-password",
-        payload: { current: "changed1234", password: "test1234" },
-        headers: {
-          "content-type": "application/json",
-          cookie: `haico-auth=${newToken}`,
-        },
-      });
-
-      // Refresh getSessionToken() for subsequent tests
-      const refreshRes = await ctx.app.inject({
-        method: "POST",
-        url: "/api/auth",
-        payload: { password: "test1234" },
-        headers: { "content-type": "application/json" },
-      });
-      const refreshedToken = (refreshRes.headers["set-cookie"] as string).match(
-        /haico-auth=([^;]+)/
-      )![1];
-      setSessionToken(refreshedToken);
-    });
-
-    it("invalid cookie token is rejected", async () => {
-      // Use page route to test cookie-based auth redirect
-      const res = await ctx.inject({
-        url: "/change-password",
-        headers: { cookie: "haico-auth=invalid-token-value" },
-      });
-      assert.equal(
-        res.statusCode,
-        302,
-        "Invalid token should be rejected (redirects to /login)"
-      );
-    });
-
-    it("GET /login shows login page when password is set", async () => {
+    it("GET /login redirects to /register when no users exist", async () => {
       const res = await ctx.inject({ url: "/login" });
-      assert.equal(res.statusCode, 200);
-      assert.ok(
-        res.body.includes("Login"),
-        "Should show login page when password is set"
-      );
-    });
-
-    it("GET /setup redirects to /login when password already set", async () => {
-      const res = await ctx.inject({ url: "/setup" });
       assert.equal(res.statusCode, 302);
-      assert.ok(res.headers.location === "/login", "Should redirect to /login");
+      assert.equal(res.headers.location, "/register");
     });
-  });
 
-  // ─── Multi-user Auth (#420) ───
+    it("removed single-password endpoints are unavailable", async () => {
+      const setup = await ctx.api("/api/auth/setup", {
+        method: "POST",
+        body: { password: "test1234" },
+      });
+      const singlePasswordLogin = await ctx.api("/api/auth", {
+        method: "POST",
+        body: { password: "test1234" },
+      });
+      assert.equal(setup.status, 404);
+      assert.equal(singlePasswordLogin.status, 404);
+    });
 
-  describe("Multi-user Auth (#420)", () => {
-    let adminToken: string;
-    let memberToken: string;
-    let adminUserId: string;
-    let memberUserId: string;
-
-    it("POST /api/auth/register creates first user as admin", async () => {
-      const { status, body } = await ctx.api("/api/auth/register", {
+    it("POST /api/auth/register creates the first user as admin and logs in", async () => {
+      const { status, body, headers } = await ctx.api("/api/auth/register", {
         method: "POST",
         body: {
           username: "testadmin",
@@ -412,36 +72,44 @@ export function registerAuthSuites(
         },
       });
       assert.equal(status, 201);
-      assert.equal(body.user.role, "admin", "First user should be admin");
+      assert.equal(body.user.role, "admin");
       assert.equal(body.user.username, "testadmin");
+      assert.ok(body.token);
+      assert.ok(String(headers["set-cookie"]).includes("haico-auth="));
       adminUserId = body.user.id;
+      setSessionToken(body.token);
     });
 
-    it("POST /api/auth/register rejects invalid username", async () => {
-      const { status } = await ctx.api("/api/auth/register", {
-        method: "POST",
-        body: { username: "a", password: "pass1234" },
+    it("returns JSON for unauthenticated protected APIs after a user exists", async () => {
+      const { status, body, headers } = await ctx.api("/api/remote-instances", {
+        headers: { cookie: "" },
       });
-      assert.equal(status, 400);
+      assert.equal(status, 401);
+      assert.equal(headers.location, undefined);
+      assert.deepEqual(body, { error: "Unauthorized" });
     });
 
-    it("POST /api/auth/register rejects duplicate username", async () => {
-      const { status } = await ctx.api("/api/auth/register", {
-        method: "POST",
-        body: { username: "testadmin", password: "pass1234" },
-      });
-      assert.equal(status, 409);
+    it("GET /login shows login page when users exist", async () => {
+      const res = await ctx.inject({ url: "/login" });
+      assert.equal(res.statusCode, 200);
+      assert.ok(res.body.includes("Login"));
     });
 
-    it("POST /api/auth/login authenticates user", async () => {
-      const { status, body } = await ctx.api("/api/auth/login", {
+    it("GET /setup is removed", async () => {
+      const res = await ctx.inject({ url: "/setup" });
+      assert.equal(res.statusCode, 404);
+    });
+
+    it("POST /api/auth/login authenticates a user", async () => {
+      const { status, body, headers } = await ctx.api("/api/auth/login", {
         method: "POST",
         body: { username: "testadmin", password: "admin1234" },
       });
       assert.equal(status, 200);
-      assert.ok(body.token, "Should return session token");
+      assert.ok(body.token);
       assert.equal(body.user.username, "testadmin");
-      adminToken = body.token;
+      assert.ok(String(headers["set-cookie"]).includes("haico-auth="));
+      setSessionToken(body.token);
     });
 
     it("POST /api/auth/login accepts htmx form-encoded credentials", async () => {
@@ -456,11 +124,11 @@ export function registerAuthSuites(
       });
       assert.equal(res.statusCode, 200);
       const body = JSON.parse(res.body);
-      assert.ok(body.token, "Form login should return a session token");
+      assert.ok(body.token);
       assert.equal(body.user.username, "testadmin");
     });
 
-    it("POST /api/auth/login rejects wrong password", async () => {
+    it("POST /api/auth/login rejects wrong passwords", async () => {
       const { status } = await ctx.api("/api/auth/login", {
         method: "POST",
         body: { username: "testadmin", password: "wrongpass" },
@@ -468,176 +136,210 @@ export function registerAuthSuites(
       assert.equal(status, 401);
     });
 
-    it("GET /api/auth/me returns current user", async () => {
+    it("password-hash style tokens are rejected", async () => {
+      const { status } = await ctx.api("/api/auth/me", {
+        headers: { cookie: "haico-auth=not-a-session-token" },
+      });
+      assert.equal(status, 401);
+    });
+
+    it("HAICO_NO_AUTH does not bypass authentication", async () => {
+      const previous = process.env.HAICO_NO_AUTH;
+      process.env.HAICO_NO_AUTH = "true";
+      try {
+        const { status } = await ctx.api("/api/projects", {
+          headers: { cookie: "" },
+        });
+        assert.equal(status, 401);
+      } finally {
+        if (previous === undefined) delete process.env.HAICO_NO_AUTH;
+        else process.env.HAICO_NO_AUTH = previous;
+      }
+    });
+
+    it("GET /api/auth/me returns the current user", async () => {
       const { status, body } = await ctx.api("/api/auth/me", {
-        headers: { cookie: `haico-auth=${adminToken}` },
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
       });
       assert.equal(status, 200);
       assert.equal(body.username, "testadmin");
       assert.equal(body.role, "admin");
     });
 
-    it("POST /api/auth/register creates second user as member", async () => {
+    it("unauthenticated register is rejected after the first user exists", async () => {
       const { status, body } = await ctx.api("/api/auth/register", {
         method: "POST",
+        headers: { cookie: "" },
+        body: { username: "blockedmember", password: "member1234" },
+      });
+      assert.equal(status, 403);
+      assert.equal(body.error, "Admin access required");
+    });
+
+    it("admin can register a member", async () => {
+      const { status, body } = await ctx.api("/api/auth/register", {
+        method: "POST",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
         body: { username: "testmember", password: "member1234" },
       });
       assert.equal(status, 201);
-      assert.equal(body.user.role, "member", "Second user should be member");
+      assert.equal(body.user.role, "member");
       memberUserId = body.user.id;
+
       const login = await ctx.api("/api/auth/login", {
         method: "POST",
         body: { username: "testmember", password: "member1234" },
       });
+      assert.equal(login.status, 200);
       memberToken = login.body.token;
     });
 
-    it("GET /api/auth/users lists users (admin only)", async () => {
-      const { status, body } = await ctx.api("/api/auth/users", {
-        headers: { cookie: `haico-auth=${adminToken}` },
-      });
-      assert.equal(status, 200);
-      assert.ok(Array.isArray(body.users));
-      assert.ok(body.users.length >= 2);
-    });
-
-    it("GET /api/auth/users returns 403 for non-admin", async () => {
-      const { status } = await ctx.api("/api/auth/users", {
+    it("member cannot register another user", async () => {
+      const { status } = await ctx.api("/api/auth/register", {
+        method: "POST",
         headers: { cookie: `haico-auth=${memberToken}` },
+        body: { username: "blockedbyrole", password: "member1234" },
       });
       assert.equal(status, 403);
     });
 
-    it("PUT /api/auth/users/:id updates role (admin only)", async () => {
-      const { status, body } = await ctx.api(
-        `/api/auth/users/${memberUserId}`,
-        {
-          method: "PUT",
-          headers: { cookie: `haico-auth=${adminToken}` },
-          body: { role: "admin" },
-        }
-      );
-      assert.equal(status, 200);
-      assert.equal(body.user.role, "admin");
-    });
-
-    it("DELETE /api/auth/users/:id deletes user (admin only)", async () => {
-      const { status } = await ctx.api(`/api/auth/users/${memberUserId}`, {
-        method: "DELETE",
-        headers: { cookie: `haico-auth=${adminToken}` },
-      });
-      assert.equal(status, 200);
-    });
-
-    it("DELETE /api/auth/users/:id rejects deleting self", async () => {
-      const { status } = await ctx.api(`/api/auth/users/${adminUserId}`, {
-        method: "DELETE",
-        headers: { cookie: `haico-auth=${adminToken}` },
-      });
-      assert.equal(status, 400);
-    });
-  });
-
-  describe("Legacy admin fallback for user management (#482/#483)", () => {
-    let fallbackMemberId: string;
-    let fallbackMemberToken: string;
-
-    it("creates a fresh member for legacy fallback checks", async () => {
-      const username = `legacycheck${Date.now()}`;
-      const { status, body } = await ctx.api("/api/auth/register", {
-        method: "POST",
-        body: {
-          username,
-          password: "member1234",
-          display_name: "Legacy Check Member",
-        },
-      });
-      assert.equal(status, 201);
-      assert.equal(body.user.role, "member");
-      fallbackMemberId = body.user.id;
-
-      const login = await ctx.api("/api/auth/login", {
-        method: "POST",
-        body: { username, password: "member1234" },
-      });
-      assert.equal(login.status, 200);
-      fallbackMemberToken = login.body.token;
-    });
-
-    it("GET /api/auth/me returns legacy admin from single-password cookie", async () => {
-      const { status, body } = await ctx.api("/api/auth/me", {
-        headers: { cookie: `haico-auth=${getSessionToken()}` },
-      });
-      assert.equal(status, 200);
-      assert.equal(body.id, "legacy");
-      assert.equal(body.username, "admin");
-      assert.equal(body.role, "admin");
-    });
-
-    it("legacy single-password admin can list users", async () => {
-      const { status, body } = await ctx.api("/api/auth/users", {
-        headers: { cookie: `haico-auth=${getSessionToken()}` },
-      });
-      assert.equal(status, 200);
-      assert.ok(Array.isArray(body.users));
-      assert.ok(body.users.some((user: any) => user.id === fallbackMemberId));
-    });
-
-    it("multi-user admin/member permissions still work alongside legacy fallback", async () => {
-      const adminLogin = await ctx.api("/api/auth/login", {
-        method: "POST",
-        body: { username: "testadmin", password: "admin1234" },
-      });
-      assert.equal(adminLogin.status, 200);
-      const adminToken = adminLogin.body.token;
-
+    it("GET /api/auth/users lists users for admins only", async () => {
       const adminUsers = await ctx.api("/api/auth/users", {
-        headers: { cookie: `haico-auth=${adminToken}` },
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
       });
       assert.equal(adminUsers.status, 200);
       assert.ok(Array.isArray(adminUsers.body.users));
+      assert.ok(adminUsers.body.users.length >= 2);
 
       const memberUsers = await ctx.api("/api/auth/users", {
-        headers: { cookie: `haico-auth=${fallbackMemberToken}` },
+        headers: { cookie: `haico-auth=${memberToken}` },
       });
       assert.equal(memberUsers.status, 403);
-      assert.equal(memberUsers.body.error, "Admin access required");
     });
 
-    it("legacy single-password admin can update another user role", async () => {
-      const { status, body } = await ctx.api(
-        `/api/auth/users/${fallbackMemberId}`,
-        {
-          method: "PUT",
-          headers: { cookie: `haico-auth=${getSessionToken()}` },
-          body: { role: "admin" },
-        }
-      );
-      assert.equal(status, 200);
-      assert.equal(body.user.id, fallbackMemberId);
-      assert.equal(body.user.role, "admin");
+    it("admin can update and delete another user", async () => {
+      const updated = await ctx.api(`/api/auth/users/${memberUserId}`, {
+        method: "PUT",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+        body: { role: "admin" },
+      });
+      assert.equal(updated.status, 200);
+      assert.equal(updated.body.user.role, "admin");
+
+      const deleted = await ctx.api(`/api/auth/users/${memberUserId}`, {
+        method: "DELETE",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(deleted.status, 200);
     });
 
-    it("legacy single-password admin can delete another user", async () => {
-      const { status, body } = await ctx.api(
-        `/api/auth/users/${fallbackMemberId}`,
-        {
-          method: "DELETE",
-          headers: { cookie: `haico-auth=${getSessionToken()}` },
-        }
-      );
+    it("admin cannot delete self", async () => {
+      const { status } = await ctx.api(`/api/auth/users/${adminUserId}`, {
+        method: "DELETE",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(status, 400);
+    });
+
+    it("change-password requires the current user password", async () => {
+      const wrong = await ctx.api("/api/auth/change-password", {
+        method: "POST",
+        body: { current: "wrongpass", password: "newpass1234" },
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(wrong.status, 401);
+
+      const short = await ctx.api("/api/auth/change-password", {
+        method: "POST",
+        body: { current: "admin1234", password: "ab" },
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(short.status, 400);
+    });
+
+    it("change-password invalidates old sessions and returns a fresh session", async () => {
+      const oldToken = getSessionToken();
+      const changed = await ctx.api("/api/auth/change-password", {
+        method: "POST",
+        body: { current: "admin1234", password: "newpass1234" },
+        headers: { cookie: `haico-auth=${oldToken}` },
+      });
+      assert.equal(changed.status, 200);
+      assert.ok(changed.body.token);
+
+      const oldSession = await ctx.api("/api/auth/me", {
+        headers: { cookie: `haico-auth=${oldToken}` },
+      });
+      assert.equal(oldSession.status, 401);
+
+      const newLogin = await ctx.api("/api/auth/login", {
+        method: "POST",
+        body: { username: "testadmin", password: "newpass1234" },
+      });
+      assert.equal(newLogin.status, 200);
+
+      const oldPassword = await ctx.api("/api/auth/login", {
+        method: "POST",
+        body: { username: "testadmin", password: "admin1234" },
+      });
+      assert.equal(oldPassword.status, 401);
+
+      const restored = await ctx.api("/api/auth/change-password", {
+        method: "POST",
+        body: { current: "newpass1234", password: "admin1234" },
+        headers: { cookie: `haico-auth=${newLogin.body.token}` },
+      });
+      assert.equal(restored.status, 200);
+      setSessionToken(restored.body.token);
+    });
+
+    it("GET /change-password returns HTML for authenticated users", async () => {
+      const res = await ctx.inject({
+        url: "/change-password",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(res.statusCode, 200);
+      assert.ok(res.body.includes("Change"));
+    });
+
+    it("localhost no longer bypasses authentication", async () => {
+      const { status } = await ctx.api("/api/projects", {
+        headers: { cookie: "" },
+      });
+      assert.equal(status, 401);
+    });
+
+    it("settings remote instances partial requires admin session", async () => {
+      const unauthenticated = await ctx.inject({
+        url: "/settings/partials/remote-instances",
+        headers: { cookie: "" },
+      });
+      assert.equal(unauthenticated.statusCode, 302);
+      assert.equal(unauthenticated.headers.location, "/login");
+
+      const authenticated = await ctx.inject({
+        url: "/settings/partials/remote-instances",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(authenticated.statusCode, 200);
+      assert.ok(authenticated.headers["content-type"]?.includes("text/html"));
+      assert.ok(authenticated.body.includes("No remote HAICO instances yet."));
+    });
+
+    it("POST /api/auth/logout clears cookie", async () => {
+      const { status, body } = await ctx.api("/api/auth/logout", {
+        method: "POST",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
       assert.equal(status, 200);
       assert.equal(body.ok, true);
 
-      const users = await ctx.api("/api/auth/users", {
-        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      const login = await ctx.api("/api/auth/login", {
+        method: "POST",
+        body: { username: "testadmin", password: "admin1234" },
       });
-      assert.equal(users.status, 200);
-      assert.ok(
-        !users.body.users.some((user: any) => user.id === fallbackMemberId)
-      );
+      assert.equal(login.status, 200);
+      setSessionToken(login.body.token);
     });
   });
-
-  // ─── Projects ───
 }

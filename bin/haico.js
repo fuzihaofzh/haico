@@ -16,7 +16,11 @@ if (command === 'create-user' || command === 'reset-password') {
     if (args[i] === '--port' && args[i + 1]) process.env.HAICO_PORT = args[++i];
     else if (args[i] === '--host' && args[i + 1]) process.env.HAICO_HOST = args[++i];
     else if (args[i] === '--db' && args[i + 1]) process.env.HAICO_DB_PATH = args[++i];
-    else if (args[i] === '--no-auth') process.env.HAICO_NO_AUTH = 'true';
+    else if (args[i] === '--default-admin') process.env.HAICO_DEFAULT_ADMIN = 'true';
+    else if (args[i] === '--default-admin-password' && args[i + 1]) {
+      process.env.HAICO_DEFAULT_ADMIN = 'true';
+      process.env.HAICO_DEFAULT_ADMIN_PASSWORD = args[++i];
+    }
     else if (args[i] === '--help' || args[i] === '-h') {
       console.log(`
 Human-Agent Interactive Collaboration Orchestrator (HAICO)
@@ -29,7 +33,9 @@ Options:
   --port <port>    Server port (default: 4567)
   --host <host>    Bind address (default: 0.0.0.0)
   --db <path>      SQLite database path (default: ./haico.db)
-  --no-auth        Disable authentication
+  --default-admin  Ensure haico_default_admin exists as an admin user
+  --default-admin-password <password>
+                   Use a fixed default-admin password (development/test only)
   -h, --help       Show this help message
 
 Maintenance Commands:

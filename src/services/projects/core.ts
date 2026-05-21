@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { config } from '../../config';
 import { Agent, CreateProjectInput, OrchestratorEngine, Project } from '../../types';
 import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
-import { isLegacyAuthUser } from '../auth/request';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
 import { getProjectPermission, listAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-access';
 import { isAgentRunning, stopAgentProcess } from '../process-manager';
@@ -87,7 +86,7 @@ export function serializeProject(
   project: Project,
   context: ProjectRequestContext
 ): SerializedProject {
-  const permission = getProjectPermission(db, project.id, context.user, context.localhostBypass);
+  const permission = getProjectPermission(db, project.id, context.user);
   return {
     ...project,
     permission_level: permission.level,
@@ -102,7 +101,7 @@ export function listProjects(
   context: ProjectRequestContext,
   options: { withStats?: boolean } = {}
 ): SerializedProject[] {
-  const projects = listAccessibleProjects(db, context.user, context.localhostBypass).map((project) =>
+  const projects = listAccessibleProjects(db, context.user).map((project) =>
     serializeProject(db, project, context)
   );
 
@@ -190,7 +189,7 @@ export function createProject(
     const tmpl = input.command_template || config.defaultCommandTemplate;
     const resolvedCommandType = resolveCommandType(input.command_type, tmpl);
     const resolvedEngine = orchestratorEngine || config.defaultOrchestratorEngine;
-    const ownerId = context.user && !isLegacyAuthUser(context.user) ? context.user.id : null;
+    const ownerId = context.user ? context.user.id : null;
 
     db.prepare(`
       INSERT INTO projects (id, name, description, task_description, command_template, command_type, orchestrator_engine, owner_id, status)
@@ -279,7 +278,7 @@ export function createProject(
     assistantAgentId: result.assistantId,
   }, 'project.created');
 
-  return serializeProject(db, result.project, { user: context.user, localhostBypass: false });
+  return serializeProject(db, result.project, { user: context.user });
 }
 
 export interface UpdateProjectInput extends Partial<CreateProjectInput> {

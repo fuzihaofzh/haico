@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ApiTestHarness } from './helpers';
-import { createApiTestHarness, createSinglePasswordSession } from './helpers';
+import { createApiTestHarness, createTestSession } from './helpers';
 
 describe('API cost reporting', () => {
   let ctx: ApiTestHarness;
@@ -9,7 +9,7 @@ describe('API cost reporting', () => {
 
   before(async () => {
     ctx = await createApiTestHarness('costs');
-    sessionToken = await createSinglePasswordSession(ctx);
+    sessionToken = await createTestSession(ctx);
   });
 
   after(async () => {

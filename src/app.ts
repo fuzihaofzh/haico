@@ -15,6 +15,7 @@ import { enqueueControllerTrigger, clearCoalescingTimers } from './services/cont
 import { killAllPtySessions } from './services/terminal';
 import { clearAllPtyCleanupTimers, handleWebSocketError } from './realtime';
 import { setupErrorHandler } from './middleware/error-handler';
+import { bootstrapDefaultAdmin } from './services/auth/default-admin';
 import { Agent, Project } from './types';
 import { loggerOptions } from './logger';
 
@@ -31,7 +32,6 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
 
   const fastify = Fastify({ logger: opts.logger === false ? false : loggerOptions });
   fastify.decorateRequest('user', null);
-  fastify.decorateRequest('localhostBypass', false);
   setupErrorHandler(fastify);
 
   await fastify.register(fastifyCompress, {
@@ -56,9 +56,10 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
     maxAge: '1h',
   });
 
-  await registerRoutes(fastify);
+  const db = getDatabase();
+  bootstrapDefaultAdmin(db);
 
-  getDatabase();
+  await registerRoutes(fastify);
 
   setOnAgentFinish((agent: Agent, exitCode: number | null) => {
     try {

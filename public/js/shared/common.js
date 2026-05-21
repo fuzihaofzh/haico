@@ -621,7 +621,7 @@ window.fetch = function(input, init) {
   return _originalFetch.call(this, input, init).then(function(resp) {
     if (resp.status === 401) {
       var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-      // Don't redirect for auth endpoints (login/setup/logout)
+      // Don't redirect for auth endpoints (login/register/logout)
       if (url.indexOf('/api/auth') === -1) {
         window.location.href = '/login';
       }

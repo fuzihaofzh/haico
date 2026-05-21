@@ -5,6 +5,7 @@
 set -e
 
 BASE="http://localhost:3099"
+COOKIE="/tmp/argus-test-cookies"
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
@@ -17,11 +18,12 @@ info() { echo -e "${YELLOW}► $1${NC}"; }
 # ── 清理旧数据 ──
 info "Cleaning up old test data..."
 rm -f "$(dirname "$0")/../data/argus.db"
+rm -f "$COOKIE"
 
 # ── 启动服务器 ──
 info "Starting Argus server on port 3099..."
 cd "$(dirname "$0")/.."
-ARGUS_PORT=3099 node dist/index.js &
+HAICO_PORT=3099 node dist/index.js &
 SERVER_PID=$!
 sleep 2
 
@@ -34,23 +36,28 @@ cleanup() {
 trap cleanup EXIT
 
 # 检查服务器是否启动
-curl -sf "$BASE/login" > /dev/null 2>&1 || curl -sf "$BASE/setup" > /dev/null 2>&1
+curl -sf "$BASE/login" > /dev/null 2>&1 || curl -sf "$BASE/register" > /dev/null 2>&1
 pass "Server started"
 
-# ── 1. 设置密码 ──
-info "1. Setting up password..."
-RES=$(curl -sf -X POST "$BASE/api/auth/setup" \
+# ── 1. 创建首个管理员 ──
+info "1. Registering admin..."
+RES=$(curl -sf -X POST "$BASE/api/auth/register" \
   -H "Content-Type: application/json" \
-  -d '{"password":"test1234"}')
-echo "$RES" | grep -q '"ok":true' && pass "Password setup" || fail "Password setup: $RES"
+  -d '{"username":"smoke_admin","password":"test1234"}' \
+  -c "$COOKIE")
+echo "$RES" | grep -q '"ok":true' && pass "Admin registered" || fail "Admin registration: $RES"
 
 # ── 2. 登录 ──
 info "2. Logging in..."
-RES=$(curl -sf -X POST "$BASE/api/auth" \
+RES=$(curl -sf -X POST "$BASE/api/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"password":"test1234"}' \
-  -c /tmp/argus-test-cookies)
+  -d '{"username":"smoke_admin","password":"test1234"}' \
+  -c "$COOKIE")
 echo "$RES" | grep -q '"ok":true' && pass "Login" || fail "Login: $RES"
+
+curl() {
+  command curl -b "$COOKIE" "$@"
+}
 
 # ── 3. 创建项目 ──
 info "3. Creating project..."
@@ -210,10 +217,9 @@ CTRL_CHECK=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/agents/$CONTROLLE
 
 # ── 22. 测试远程访问需要认证 ──
 info "22. Testing auth enforcement..."
-# 不带 cookie 从"非 localhost"视角测试（这里只能验证 API 结构正确）
-AUTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/projects")
-# localhost 免认证，所以这里应该返回 200
-[ "$AUTH_CHECK" = "200" ] && pass "Localhost bypasses auth" || fail "Localhost auth: HTTP $AUTH_CHECK"
+# 不带 cookie 验证普通 API 不再允许 localhost 绕过认证
+AUTH_CHECK=$(command curl -s -o /dev/null -w "%{http_code}" "$BASE/api/projects")
+[ "$AUTH_CHECK" = "401" ] && pass "Unauthenticated API rejected" || fail "Unauthenticated API: HTTP $AUTH_CHECK"
 
 echo ""
 echo -e "${GREEN}═══════════════════════════════════════${NC}"

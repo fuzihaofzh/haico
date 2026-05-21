@@ -139,7 +139,7 @@ describe('business event logging', () => {
         name: 'logging-project',
         task_description: 'verify business logging',
       },
-      { user: null, localhostBypass: true }
+      { user: null }
     );
     const projectId = project.id;
 

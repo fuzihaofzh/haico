@@ -1,13 +1,8 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 export interface PasswordHash {
   hash: string;
   salt: string;
-}
-
-export interface LegacyPasswordConfig {
-  passwordHash?: string;
-  passwordSalt?: string;
 }
 
 export function hashPassword(pwd: string, salt?: string): PasswordHash {
@@ -22,12 +17,4 @@ export function verifyPassword(pwd: string, storedHash: string, salt: string): b
   const b = Buffer.from(storedHash, 'hex');
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
-}
-
-export function isLegacySha256(config: LegacyPasswordConfig): boolean {
-  return !!config.passwordHash && !config.passwordSalt;
-}
-
-export function legacySha256(pwd: string): string {
-  return createHash('sha256').update(pwd).digest('hex');
 }

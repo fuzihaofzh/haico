@@ -174,7 +174,10 @@ That's it. Open `http://localhost:4567`.
 
 ```bash
 # CLI options
-haico --port 8080 --host 0.0.0.0 --db ./my-project.db --no-auth
+haico --port 8080 --host 0.0.0.0 --db ./my-project.db
+
+# Development convenience: create/reset a real admin user at startup
+haico --default-admin
 ```
 
 Maintenance commands:
@@ -209,6 +212,20 @@ npm run build && npm start
 
 On first visit, you'll be prompted to create an admin account.
 
+For local development or test environments, you can ask HAICO to bootstrap a
+real admin user on startup:
+
+```bash
+HAICO_DEFAULT_ADMIN=true haico
+```
+
+The username is always `haico_default_admin`. If no password is configured,
+HAICO generates a new random password on each startup, resets that user's
+password, clears its old sessions, and prints the generated password once. To
+use a fixed development password, set `HAICO_DEFAULT_ADMIN_PASSWORD`; HAICO will
+not print the fixed password and will log a warning because this is not
+recommended for production.
+
 ### Option 3: Build the macOS Desktop App
 
 ```bash
@@ -229,7 +246,8 @@ The Electron app bundles the HAICO server, frontend assets, production dependenc
 | `HAICO_HOST` | `0.0.0.0` | Bind address |
 | `HAICO_DB_PATH` | `./haico.db` | SQLite database path |
 | `HAICO_ORCHESTRATOR_ENGINE` | `langgraph` | `native` or `langgraph` |
-| `HAICO_NO_AUTH` | `false` | Disable authentication |
+| `HAICO_DEFAULT_ADMIN` | `false` | When `true`, ensure `haico_default_admin` exists as an admin user |
+| `HAICO_DEFAULT_ADMIN_PASSWORD` | unset | Optional fixed password for the default admin; intended for development/test only |
 
 ---
 

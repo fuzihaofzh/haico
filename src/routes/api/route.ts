@@ -14,7 +14,7 @@ import { registerTemplateRoutes } from './templates';
 
 // Protected business API routes only.
 // Auth routes are registered separately in routes/route.ts because their
-// setup/login endpoints must remain available before the auth guard.
+// login/register endpoints must remain available before the auth guard.
 export async function registerApiRoutes(fastify: FastifyInstance): Promise<void> {
   registerProjectRoutes(fastify);
   registerAgentRoutes(fastify);

@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../db/database';
-import { isSinglePasswordConfigured } from '../services/auth/config';
 import { hasAnyUsers } from '../services/auth/users';
 import {
   authenticateRemoteInstance,
@@ -195,9 +194,7 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
   }
 
   function isRequestAdmin(request: any): boolean {
-    return process.env.HAICO_NO_AUTH === 'true'
-      || Boolean(request.localhostBypass)
-      || Boolean(request.user && request.user.role === 'admin');
+    return Boolean(request.user && request.user.role === 'admin');
   }
 
   fastify.get<{ Querystring: { edit?: string } }>('/settings/partials/remote-instances', async (request, reply) => {
@@ -336,17 +333,12 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return sendRemoteInstancesPartial(reply, { isAdmin: true, notice: 'Remote instance deleted' });
   });
 
-  fastify.get('/setup', async (_request, reply) => {
-    if (isSinglePasswordConfigured()) return reply.redirect('/login');
-    return reply.type('text/html').send(serveHtml('setup.html'));
-  });
-
   fastify.get('/login', async (_request, reply) => {
     let usersConfigured = false;
     try {
       usersConfigured = hasAnyUsers(getDatabase());
     } catch {}
-    if (!isSinglePasswordConfigured() && !usersConfigured) return reply.redirect('/register');
+    if (!usersConfigured) return reply.redirect('/register');
     return reply.type('text/html').send(serveHtml('login.html'));
   });
 

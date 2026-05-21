@@ -124,18 +124,18 @@ export function registerProjectSuites(
     });
 
     it("stores remote HAICO instances and aggregates remote projects", async () => {
-      const login = await ctx.api("/api/auth", {
+      const login = await ctx.api("/api/auth/login", {
         method: "POST",
-        body: { password: "test1234" },
+        body: { username: "testadmin", password: "admin1234" },
       });
       assert.equal(login.status, 200);
       const adminCookie = `haico-auth=${login.body.token}`;
 
       const remoteApp = Fastify({ logger: false });
-      await remoteApp.post("/api/auth", async (request, reply) => {
-        const body = request.body as { password?: string } | undefined;
-        if (body?.password !== "remote-secret") {
-          return reply.status(401).send({ error: "Invalid remote password" });
+      await remoteApp.post("/api/auth/login", async (request, reply) => {
+        const body = request.body as { username?: string; password?: string } | undefined;
+        if (body?.username !== "remote-admin" || body?.password !== "remote-secret") {
+          return reply.status(401).send({ error: "Invalid remote credentials" });
         }
         return { ok: true, token: "remote-token-1234" };
       });
@@ -181,6 +181,7 @@ export function registerProjectSuites(
           body: {
             name: "Remote Box",
             base_url: `127.0.0.1:${remotePort}`,
+            remote_username: "remote-admin",
             remote_password: "remote-secret",
           },
         });

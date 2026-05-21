@@ -4,7 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import type { ApiTestHarness } from './helpers';
-import { createApiTestHarness } from './helpers';
+import { createApiTestHarness, createTestSession } from './helpers';
 
 describe('Agent File API', () => {
   let ctx: ApiTestHarness;
@@ -15,6 +15,7 @@ describe('Agent File API', () => {
 
   before(async () => {
     ctx = await createApiTestHarness('agent-files');
+    await createTestSession(ctx);
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haico-files-'));
     fs.mkdirSync(path.join(tmpDir, 'nested'));
     fs.writeFileSync(path.join(tmpDir, 'visible.txt'), 'hello from file api');
@@ -230,7 +231,7 @@ describe('Agent File API', () => {
       `--${boundary}--`,
     ].join('\r\n');
 
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/agents/${fileAgentId}/files/upload`,
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
@@ -263,7 +264,7 @@ describe('Agent File API', () => {
       `--${boundary}--`,
     ].join('\r\n');
 
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/agents/${fileAgentId}/files/upload`,
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
@@ -291,7 +292,7 @@ describe('Agent File API', () => {
       `--${boundary}--`,
     ].join('\r\n');
 
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/agents/${fileAgentId}/files/upload`,
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
@@ -314,7 +315,7 @@ describe('Agent File API', () => {
       `--${boundary}--`,
     ].join('\r\n');
 
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/agents/${fileAgentId}/files/upload`,
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
@@ -339,7 +340,7 @@ describe('Agent File API', () => {
       `--${boundary}--`,
     ].join('\r\n');
 
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/agents/${fileAgentId}/files/upload`,
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
@@ -365,7 +366,7 @@ describe('Agent File API', () => {
       `--${boundary}--`,
     ].join('\r\n');
 
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/agents/${noWorkdirAgentId}/files/upload`,
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
@@ -473,7 +474,7 @@ describe('Agent File API', () => {
       `--${boundary}--`,
     ].join('\r\n');
 
-    const uploadRes = await ctx.app.inject({
+    const uploadRes = await ctx.inject({
       method: 'POST',
       url: `/api/agents/${fileAgentId}/files/upload`,
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },

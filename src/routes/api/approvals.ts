@@ -31,8 +31,8 @@ export function registerApprovalRoutes(fastify: FastifyInstance): void {
 
   fastify.get('/approvals/pending-count', async (request) => {
     const db = getDatabase();
-    const { user, localhostBypass } = getProjectRequestContext(request);
-    const projectIds = listAccessibleProjectIds(db, user, localhostBypass);
+    const { user } = getProjectRequestContext(request);
+    const projectIds = listAccessibleProjectIds(db, user);
     return { count: countPendingApprovals(db, projectIds) };
   });
 

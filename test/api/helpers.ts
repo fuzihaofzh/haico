@@ -18,12 +18,14 @@ export interface ApiRequestOptions {
 
 export interface InjectOptions extends ApiRequestOptions {
   url: string;
+  payload?: any;
 }
 
 export interface ApiTestContext {
   readonly app: FastifyInstance;
   api(url: string, opts?: ApiRequestOptions): Promise<ApiResponse>;
   inject(opts: InjectOptions): Promise<any>;
+  setAuthToken?(token: string | undefined): void;
 }
 
 export interface ApiTestHarness extends ApiTestContext {
@@ -39,7 +41,7 @@ export function inject(app: FastifyInstance, opts: InjectOptions) {
   return app.inject({
     method: (opts.method as any) || 'GET',
     url: opts.url,
-    payload: opts.body,
+    payload: opts.payload ?? opts.body,
     headers,
   });
 }
@@ -88,15 +90,39 @@ export async function createApiTestHarness(
     logger: false,
     skipScheduler: true,
   });
+  let authToken: string | undefined;
+
+  function withDefaultAuthHeaders(
+    headers: Record<string, string> = {}
+  ): Record<string, string> {
+    const merged = { ...headers };
+    if (
+      authToken &&
+      merged.cookie === undefined &&
+      merged.authorization === undefined
+    ) {
+      merged.cookie = `haico-auth=${authToken}`;
+    }
+    return merged;
+  }
 
   return {
     app,
     dbPath,
     api(url, opts = {}) {
-      return api(app, url, opts);
+      return api(app, url, {
+        ...opts,
+        headers: withDefaultAuthHeaders(opts.headers),
+      });
     },
     inject(opts) {
-      return inject(app, opts);
+      return inject(app, {
+        ...opts,
+        headers: withDefaultAuthHeaders(opts.headers),
+      });
+    },
+    setAuthToken(token) {
+      authToken = token;
     },
     async close() {
       await destroyApp(app);
@@ -105,28 +131,32 @@ export async function createApiTestHarness(
   };
 }
 
-export async function createSinglePasswordSession(
+export async function createTestSession(
   ctx: ApiTestContext,
   password = 'test1234'
 ): Promise<string> {
-  const setup = await ctx.api('/api/auth/setup', {
+  const username = `admin_${Date.now().toString(36)}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+  const register = await ctx.api('/api/auth/register', {
     method: 'POST',
-    body: { password },
+    body: { username, password },
   });
-  if (setup.status !== 200 && setup.status !== 403) {
+  if (register.status !== 201 && register.status !== 409) {
     throw new Error(
-      `Failed to set up auth password: ${setup.status} ${setup.raw}`
+      `Failed to register admin user: ${register.status} ${register.raw}`
     );
   }
 
-  const login = await ctx.api('/api/auth', {
+  const login = await ctx.api('/api/auth/login', {
     method: 'POST',
-    body: { password },
+    body: { username, password },
   });
   if (login.status !== 200 || !login.body.token) {
     throw new Error(
       `Failed to create auth session: ${login.status} ${login.raw}`
     );
   }
+  ctx.setAuthToken?.(login.body.token);
   return login.body.token;
 }

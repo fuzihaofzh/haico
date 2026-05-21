@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { createE2EProject, deleteE2EProject } from './helpers/projects';
 
 test('dashboard shows a project created through the API', async ({ page, request }) => {
@@ -8,7 +8,7 @@ test('dashboard shows a project created through the API', async ({ page, request
     await page.goto('/');
 
     await expect(page).toHaveTitle(/HAICO/);
-    await page.getByRole('button', { name: 'Projects' }).click();
+    await page.getByRole('link', { name: 'Projects' }).click();
     await expect(page.locator('.project-card-title').getByText(project.name, { exact: true })).toBeVisible();
   } finally {
     await deleteE2EProject(request, project.id);

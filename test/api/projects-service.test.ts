@@ -22,6 +22,7 @@ describe('Project service refactor boundaries', () => {
 
     const memberRegister = await ctx.api('/api/auth/register', {
       method: 'POST',
+      headers: { cookie: `haico-auth=${ownerRegister.body.token}` },
       body: { username: memberUsername, password: 'pass1234', display_name: 'Project Member' },
     });
     assert.equal(memberRegister.status, 201);
