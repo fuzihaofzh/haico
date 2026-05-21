@@ -2657,6 +2657,26 @@ header h1 span { color: var(--accent); }
   flex-direction: column;
   gap: 10px;
 }
+.project-section-nav {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+.project-section-nav a {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.project-section-nav a.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--selected-bg);
+}
 .project-title-row {
   display: flex;
   align-items: center;

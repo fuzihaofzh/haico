@@ -57,7 +57,7 @@ describe('Breadcrumb Navigation', () => {
     );
   });
 
-  it('project.html has breadcrumb with section span', async () => {
+  it('project overview page has breadcrumb with section span', async () => {
     const res = await ctx.inject({
       url: `/projects/${projectId}`,
       headers: { cookie: `haico-auth=${sessionToken}` },
@@ -73,34 +73,31 @@ describe('Breadcrumb Navigation', () => {
     );
   });
 
-  it('project.html exposes the Files tab alongside the existing project tabs', async () => {
+  it('project pages expose real section routes in the project nav', async () => {
     const res = await ctx.inject({
       url: `/projects/${projectId}`,
       headers: { cookie: `haico-auth=${sessionToken}` },
     });
     assert.equal(res.statusCode, 200);
-    assert.ok(res.body.includes("switchTab('git')"), 'Should have Git tab');
-    assert.ok(
-      res.body.includes("switchTab('overview')"),
-      'Should have Overview tab'
-    );
-    assert.ok(
-      res.body.includes("switchTab('agents')"),
-      'Should have Agents tab'
-    );
-    assert.ok(
-      res.body.includes("switchTab('issues')"),
-      'Should have Issues tab'
-    );
-    assert.ok(
-      res.body.includes("switchTab('activity')"),
-      'Should have Activity tab'
-    );
-    assert.ok(
-      res.body.includes("switchTab('knowledge')"),
-      'Should have Knowledge tab'
-    );
-    assert.ok(res.body.includes("switchTab('files')"), 'Should have Files tab');
+    for (const view of ['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow']) {
+      assert.ok(
+        res.body.includes(`data-project-section-link="${view}"`),
+        `Should have ${view} project section link`
+      );
+    }
+    assert.ok(!res.body.includes('switchTab('), 'Project overview should not use hash tab switching');
+  });
+
+  it('project child routes render their dedicated project views', async () => {
+    for (const view of ['agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow']) {
+      const res = await ctx.inject({
+        url: `/projects/${projectId}/${view}`,
+        headers: { cookie: `haico-auth=${sessionToken}` },
+      });
+      assert.equal(res.statusCode, 200);
+      assert.ok(res.body.includes(`data-project-view="${view}"`));
+      assert.ok(res.body.includes(`project/${view}.js`));
+    }
   });
 
   it('agent.html no longer renders the embedded Files workspace tab', async () => {

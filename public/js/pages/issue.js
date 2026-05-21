@@ -34,7 +34,7 @@ async function loadIssue() {
   if (agentsRes.status === 'fulfilled' && agentsRes.value.ok) agentsData = await agentsRes.value.json();
 
   document.getElementById('project-link').href = buildProjectPageHref(data.project_id);
-  document.getElementById('issues-link').href = `${buildProjectPageHref(data.project_id)}#issues`;
+  document.getElementById('issues-link').href = `${buildProjectPageHref(data.project_id)}/issues`;
   let projectColor = issueProjectColor;
   if (projectRes.status === 'fulfilled' && projectRes.value.ok) { const p = await projectRes.value.json(); document.getElementById('project-link').textContent = p.name; projectColor = p.color; }
   issueProjectColor = projectColor;

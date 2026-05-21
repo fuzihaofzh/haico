@@ -149,7 +149,7 @@ async function loadProjects(options = {}) {
           : '';
         const userCount = remote ? 0 : (s.userIssues?.length || 0);
         const notifBadge = userCount > 0
-          ? `<a href="${link}#issues" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</a>`
+          ? `<a href="${link}/issues" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</a>`
           : '';
         const lastAct = remote ? p.updated_at : _lastActivityMap[p.id];
         const activityText = lastAct ? timeAgo(lastAct) : null;
@@ -372,7 +372,7 @@ async function loadDashboardApprovals() {
         '<div>' +
           '<strong>' + esc(a.title) + '</strong>' +
           '<div style="font-size:11px;color:var(--text-secondary)">' +
-            '<a href="' + buildProjectPageHref(a._project_id) + '#workflow" style="color:var(--link)">' + esc(a._project_name) + '</a>' +
+            '<a href="' + buildProjectPageHref(a._project_id) + '/workflow" style="color:var(--link)">' + esc(a._project_name) + '</a>' +
             ' \u00b7 Agent: ' + esc(a.agent_name || 'unknown') +
             ' \u00b7 Risk: <span style="color:' + riskColor + '">' + a.risk_level + '</span>' +
             ' \u00b7 ' + timeAgo(a.created_at) +
@@ -459,12 +459,12 @@ async function loadActivityStream() {
         case 'agent_started':
           icon = '<span style="color:var(--success)">&#9654;</span>';
           label = 'Agent Started';
-          detail = '<a href="' + buildProjectPageHref(ev.project_id) + '#agents">' + esc(ev.agent_name) + '</a>';
+          detail = '<a href="' + buildProjectPageHref(ev.project_id) + '/agents">' + esc(ev.agent_name) + '</a>';
           break;
         case 'agent_stopped':
           icon = '<span style="color:var(--text-secondary)">&#9632;</span>';
           label = 'Agent Stopped';
-          detail = '<a href="' + buildProjectPageHref(ev.project_id) + '#agents">' + esc(ev.agent_name) + '</a>';
+          detail = '<a href="' + buildProjectPageHref(ev.project_id) + '/agents">' + esc(ev.agent_name) + '</a>';
           break;
         case 'approval_created':
           icon = '<span style="color:var(--warning)">&#9888;</span>';
@@ -560,7 +560,7 @@ async function loadAgentBoard() {
           '<div style="color:' + color + ';font-size:14px;flex-shrink:0;line-height:18px">' + icon + '</div>' +
           '<div style="flex:1;min-width:0">' +
             '<div style="display:flex;align-items:center;gap:4px">' +
-              '<a href="' + buildProjectPageHref(agent.project_id) + '#agents" style="font-weight:600;font-size:13px;color:var(--fg);text-decoration:none">' + esc(agent.name) + '</a>' +
+              '<a href="' + buildProjectPageHref(agent.project_id) + '/agents" style="font-weight:600;font-size:13px;color:var(--fg);text-decoration:none">' + esc(agent.name) + '</a>' +
               controllerBadge + pausedBadge + remoteBadge +
             '</div>' +
             '<div style="font-size:11px;color:var(--text-secondary)">' +

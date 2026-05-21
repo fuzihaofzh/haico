@@ -355,7 +355,35 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
   });
 
   fastify.get('/projects/:id', async (_request, reply) => {
-    return reply.type('text/html').send(serveHtml('project.html'));
+    return reply.type('text/html').send(serveHtml('project/overview.html'));
+  });
+
+  fastify.get('/projects/:id/agents', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/agents.html'));
+  });
+
+  fastify.get('/projects/:id/issues', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/issues.html'));
+  });
+
+  fastify.get('/projects/:id/activity', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/activity.html'));
+  });
+
+  fastify.get('/projects/:id/git', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/git.html'));
+  });
+
+  fastify.get('/projects/:id/knowledge', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/knowledge.html'));
+  });
+
+  fastify.get('/projects/:id/files', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/files.html'));
+  });
+
+  fastify.get('/projects/:id/workflow', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/workflow.html'));
   });
 
   fastify.get('/projects/:id/operations-console', async (_request, reply) => {

@@ -756,27 +756,20 @@ var IssueRenderer = (function() {
       return;
     }
     var targetAgentId = resolveFileOpenAgentId(agentId);
-    // On project page: switch to Files tab directly
-    if (typeof switchTab === 'function') {
-      // Switch agent in files panel if agentId is provided
+    // On the project files page, open directly if the files panel is already mounted.
+    if (window.ProjectFiles && typeof window.ProjectFiles.openFile === 'function') {
       if (targetAgentId && typeof handleProjectFilesAgentChange === 'function') {
         handleProjectFilesAgentChange(targetAgentId);
         var sel = document.getElementById('project-files-agent');
         if (sel) sel.value = targetAgentId;
       }
-      switchTab('files');
-      // setAgent() is synchronous; call openFile immediately.
-      // If agent is ready it fetches directly; otherwise pendingFile handles retry.
-      var panel = window.ProjectFiles;
-      if (panel && typeof panel.openFile === 'function') {
-        panel.openFile(filePath);
-      }
+      window.ProjectFiles.openFile(filePath);
       return;
     }
-    // On dashboard/other pages: navigate to the project page's Files tab
+    // On dashboard/other project pages: navigate to the project Files route.
     var projectId = _ctx.issue && _ctx.issue.project_id;
     if (projectId) {
-      var url = buildProjectPageHref(projectId) + '#files?file=' + encodeURIComponent(filePath);
+      var url = buildProjectPageHref(projectId) + '/files?file=' + encodeURIComponent(filePath);
       if (targetAgentId) url += '&agent=' + encodeURIComponent(targetAgentId);
       window.open(url, '_blank');
     }

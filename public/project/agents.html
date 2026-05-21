@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HAICO - Project</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <link rel="stylesheet" href="/public/css/style.css?v=9">
+  <link rel="stylesheet" href="/public/css/issues.css">
+  <link rel="stylesheet" href="/public/css/codicon.css">
+</head>
+<body class="project-shell" data-dashboard-page="projects" data-project-view="agents">
+  <div data-dashboard-sidebar></div>
+
+  <header>
+    <div class="breadcrumb" style="margin-left:12px">
+      <a href="/projects">Projects</a> / <a id="project-name" href="#" style="color:var(--link);text-decoration:none">Loading...</a><span id="breadcrumb-section"></span>
+    </div>
+    <div class="header-right">
+      <div id="ws-status-indicator" style="display:flex;align-items:center;padding-right:12px"></div>
+    </div>
+  </header>
+
+  <main id="main-content" class="container">
+    <div class="project-header mb-16">
+      <div class="project-header-main">
+        <div class="project-title-row">
+          <h2 id="project-title">Project</h2>
+          <span id="project-status" class="status-badge"></span>
+          <span id="project-access-badge"></span>
+        </div>
+        <div class="project-access-row">
+          <span class="meta-chip" id="project-access-summary"></span>
+          <span class="meta-chip" id="project-owner-summary"></span>
+          <span class="meta-chip meta-chip-remote meta-chip-remote-address" id="project-remote-summary" style="display:none"></span>
+          <button class="btn btn-sm" id="btn-view-members" onclick="openProjectMembersModal(false)">Members</button>
+          <a class="btn btn-sm" id="btn-open-ops-console" href="#" style="display:none;text-decoration:none">Operations Console</a>
+          <button class="btn btn-sm btn-primary" id="btn-share-project" data-project-requires-manage onclick="openProjectMembersModal(true)" style="display:none">Share Settings</button>
+        </div>
+        <div class="project-inline-note" id="project-debug-note" style="display:none"></div>
+        <div class="project-readonly-banner" id="project-readonly-banner" style="display:none"></div>
+      </div>
+      <div class="flex" id="project-manage-actions" data-project-requires-manage style="display:none">
+        <button class="btn btn-sm" id="btn-toggle" onclick="toggleProjectStatus()">Pause</button>
+        <button class="btn btn-sm btn-primary" id="btn-trigger" onclick="triggerController()">Trigger Controller</button>
+        <button class="btn btn-sm btn-danger" id="btn-delete-project" data-project-requires-delete onclick="deleteProject()">Delete</button>
+      </div>
+    </div>
+
+    <nav class="project-section-nav" aria-label="Project sections">
+      <a href="#" data-project-section-link="overview">Overview</a>
+      <a href="#" data-project-section-link="agents">Agents</a>
+      <a href="#" data-project-section-link="issues">Issues</a>
+      <a href="#" data-project-section-link="activity">Activity</a>
+      <a href="#" data-project-section-link="git">Git</a>
+      <a href="#" data-project-section-link="knowledge">Knowledge</a>
+      <a href="#" data-project-section-link="files">Files</a>
+      <a href="#" data-project-section-link="workflow">Workflow</a>
+    </nav>
+
+    <div id="tab-agents">
+      <div id="agent-graph-container" style="margin-bottom:16px"></div>
+      <div id="orchestration-decision-container" style="margin-bottom:16px"></div>
+      <div class="flex-between mb-16">
+        <h3>Agents</h3>
+        <button class="btn btn-primary btn-sm" id="btn-new-agent" onclick="showCreateAgentModal()" style="display:none">+ New Agent</button>
+      </div>
+      <div id="agent-error-banner" style="display:none;padding:10px 14px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:6px;margin-bottom:12px;color:var(--error);font-size:12px"></div>
+      <div class="card">
+        <ul id="agent-list" class="agent-list">
+          <li class="empty-state">Loading agents...</li>
+        </ul>
+      </div>
+      <div id="agent-detail" style="display:none"></div>
+    </div>
+
+  <div class="modal-overlay" id="createAgentModal">
+    <div class="modal">
+      <h3>Create New Agent</h3>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="agent-name" placeholder="worker-1">
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <textarea id="agent-role" rows="3" placeholder="Describe the agent's role in detail..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Working Directory</label>
+        <input type="text" id="agent-workdir" placeholder="/path/to/project (optional)">
+      </div>
+      <div class="form-group">
+        <label>Parent Agent</label>
+        <select id="agent-parent" onchange="markCreateAgentParentChosen()">
+          <option value="">No parent (top-level agent)</option>
+        </select>
+        <div style="font-size:11px;color:var(--fg-dim);margin-top:2px">Direct parent agent. Defaults to the controller if one exists. The hierarchy graph follows this parent-child relation.</div>
+      </div>
+      <div class="form-group">
+        <label>Agent Tool</label>
+        <select id="agent-command-profile" onchange="handleCreateAgentCommandProfileChange()">
+          <option value="">Use project default</option>
+        </select>
+        <input type="hidden" id="agent-cmdtpl">
+        <div id="agent-cmdtpl-preview" style="font-size:11px;color:var(--fg-dim);margin-top:2px">Leave blank to use the project-level Agent Tool setting. Agent Tool selection will also save command type.</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="hideModal('createAgentModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="createAgent()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Start Agent Modal -->
+  <div class="modal-overlay" id="startAgentModal">
+    <div class="modal">
+      <h3>Start with Custom Prompt</h3>
+      <div class="form-group">
+        <label>Custom Prompt (optional — leave empty to auto-generate from role and task)</label>
+        <textarea id="start-prompt" placeholder="Override prompt, or leave empty..." rows="5"></textarea>
+      </div>
+      <input type="hidden" id="start-agent-id">
+      <div class="modal-actions">
+        <button class="btn" onclick="hideModal('startAgentModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="startAgent()">Start</button>
+      </div>
+    </div>
+  </div>
+
+  </main>
+
+  <div class="modal-overlay" id="projectMembersModal" onclick="if(event.target===this)hideModal('projectMembersModal')">
+    <div class="modal project-members-modal">
+      <div class="project-members-header">
+        <div>
+          <h3>Project Members &amp; Sharing</h3>
+          <div class="project-inline-note" id="project-members-subtitle"></div>
+        </div>
+        <button class="drawer-close" type="button" onclick="hideModal('projectMembersModal')">&times;</button>
+      </div>
+      <div class="project-readonly-banner" id="project-members-readonly-note" style="display:none"></div>
+      <div class="project-inline-note" id="project-members-debug-hint" style="display:none"></div>
+      <div id="project-members-manage-panel">
+        <div class="project-share-form">
+          <div class="form-group" style="margin-bottom:0">
+            <label for="project-share-username">Add Member</label>
+            <input type="text" id="project-share-username" placeholder="Enter username, e.g. alice" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();addProjectMember()}">
+          </div>
+          <select id="project-share-role" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:13px;">
+            <option value="member">Read Only</option>
+            <option value="editor" selected>Editor</option>
+            <option value="owner">Owner</option>
+          </select>
+          <button class="btn btn-primary" id="btn-add-member" onclick="addProjectMember()">Grant Access</button>
+        </div>
+      </div>
+      <div id="project-members-list" class="project-members-list">
+        <div class="empty-state">Loading members...</div>
+      </div>
+    </div>
+  </div>
+
+
+
+  <script src="/public/vendor/marked.js"></script>
+  <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
+  <script src="/public/js/components/dashboard-sidebar.js?v=1"></script>
+  <script src="/public/js/shared/common.js?v=3"></script>
+  <script src="/public/js/shared/command-profiles.js?v=3"></script>
+
+  <script src="/public/js/pages/project/shell.js?v=1"></script>
+  <script src="/public/js/pages/project/members.js?v=1"></script>
+  <script src="/public/js/pages/project/agents.js?v=1"></script>
+</body>
+</html>

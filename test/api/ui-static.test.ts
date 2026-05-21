@@ -21,10 +21,7 @@ describe('Frontend UI English copy (#540)', () => {
     });
   }
   const filesToScan = [
-    ...fs
-      .readdirSync(publicDir)
-      .filter((name) => name.endsWith('.html'))
-      .map((name) => path.join(publicDir, name)),
+    ...listFilesRecursive(publicDir).filter((filePath) => filePath.endsWith('.html')),
     ...listFilesRecursive(jsDir).filter((filePath) => filePath.endsWith('.js')),
   ];
   const hanRegex = /\p{Script=Han}/u;
@@ -62,10 +59,9 @@ describe('Frontend UI English copy (#540)', () => {
     const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings.html', 'projects-new.html']
       .map((name) => fs.readFileSync(path.join(publicDir, name), 'utf-8'))
       .join('\n');
-    const projectHtml = fs.readFileSync(
-      path.join(publicDir, 'project.html'),
-      'utf-8'
-    );
+    const projectHtml = ['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow']
+      .map((name) => fs.readFileSync(path.join(publicDir, 'project', `${name}.html`), 'utf-8'))
+      .join('\n');
     const agentHtml = fs.readFileSync(
       path.join(publicDir, 'agent.html'),
       'utf-8'
@@ -86,10 +82,10 @@ describe('Frontend UI English copy (#540)', () => {
       path.join(jsDir, 'shared', 'dashboard-project-store.js'),
       'utf-8'
     );
-    const projectJs = fs.readFileSync(
-      path.join(jsDir, 'pages', 'project.js'),
-      'utf-8'
-    );
+    const projectJs = listFilesRecursive(path.join(jsDir, 'pages', 'project'))
+      .filter((filePath) => filePath.endsWith('.js'))
+      .map((filePath) => fs.readFileSync(filePath, 'utf-8'))
+      .join('\n');
     const projectNewJs = fs.readFileSync(
       path.join(jsDir, 'pages', 'project-new.js'),
       'utf-8'

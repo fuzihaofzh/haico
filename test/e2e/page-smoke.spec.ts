@@ -98,19 +98,41 @@ test.describe('page smoke checks', () => {
       await expect(page.locator('#project-name-edit')).toHaveValue(project.name);
       await expect(page.locator('#project-task')).toBeVisible();
 
-      await page.locator('.tab-bar .tab').filter({ hasText: /^Agents/ }).click();
+      await page.goto(`/projects/${project.id}/agents`);
       await expect(page.locator('#agent-list')).toBeVisible();
       await expect(page.locator('.agent-item')).toHaveCount(2);
       await expect(page.getByRole('button', { name: 'New Agent' })).toBeVisible();
 
-      await page.locator('.tab-bar .tab').filter({ hasText: /^Issues/ }).click();
+      await page.goto(`/projects/${project.id}/issues`);
       await expect(page.locator('#issue-list')).toBeVisible();
       await expect(page.locator('.issue-title').filter({ hasText: issue.title })).toBeVisible();
       await expect(page.getByRole('button', { name: 'New Issue' })).toBeVisible();
 
-      await page.locator('.tab-bar .tab').filter({ hasText: 'Knowledge' }).click();
+      await page.goto(`/projects/${project.id}/knowledge`);
       await expect(page.locator('#knowledge-list')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Add Knowledge' })).toBeVisible();
+
+      await page.goto(`/projects/${project.id}/activity`);
+      await expect(page.locator('#activity-list')).toBeVisible();
+
+      await page.goto(`/projects/${project.id}/git`);
+      await expect(page.locator('#git-commit-list')).toBeVisible();
+
+      await page.goto(`/projects/${project.id}/files`);
+      await expect(page.locator('#project-files-shell')).toBeVisible();
+
+      await page.goto(`/projects/${project.id}/workflow`);
+      await expect(page.locator('#workflow-graph-container')).toBeVisible();
+
+      await page.goto(`/projects/${project.id}#issues`);
+      await expect(page).toHaveURL((url) => url.pathname === `/projects/${project.id}/issues`);
+
+      await page.goto(`/projects/${project.id}#files?file=README.md&agent=controller`);
+      await expect(page).toHaveURL((url) =>
+        url.pathname === `/projects/${project.id}/files`
+        && url.searchParams.get('file') === 'README.md'
+        && url.searchParams.get('agent') === 'controller'
+      );
 
       await expectNoPageErrors(pageErrors);
     } finally {
