@@ -58,8 +58,8 @@
         <section class="card settings-card">
           <div class="settings-card-header">
             <div>
-              <h3>Notifications And Account</h3>
-              <p>Control browser alerts and access common account actions.</p>
+              <h3>Notifications</h3>
+              <p>Control browser alerts and local sound preferences.</p>
             </div>
           </div>
           <div class="settings-section settings-section-page">
@@ -88,9 +88,26 @@
                 </button>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section class="card settings-card">
+          <div class="settings-card-header">
+            <div>
+              <h3>Account</h3>
+              <p>Review your signed-in account and manage session security.</p>
+            </div>
+          </div>
+          <div class="settings-section settings-section-page">
+            <div class="setting-group">
+              <label>Current Account</label>
+              <div class="settings-account-summary" id="settings-account-summary" aria-live="polite">
+                <div class="empty-state">Loading account...</div>
+              </div>
+            </div>
 
             <div class="setting-group">
-              <label>Account</label>
+              <label>Security</label>
               <div class="settings-action-list">
                 <a href="/change-password" class="settings-action-link">Change Password</a>
                 <a href="#" class="settings-action-link settings-action-link-danger" onclick="logout();return false">Logout</a>

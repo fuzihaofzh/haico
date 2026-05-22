@@ -95,6 +95,10 @@ describe('Frontend UI English copy (#540)', () => {
     assert.ok(dashboardHtml.includes('Create New Project'));
     assert.ok(dashboardHtml.includes('Browser Notifications'));
     assert.ok(dashboardHtml.includes('Sound Alerts'));
+    assert.ok(dashboardHtml.includes('Control browser alerts and local sound preferences.'));
+    assert.ok(dashboardHtml.includes('Review your signed-in account and manage session security.'));
+    assert.ok(dashboardHtml.includes('Current Account'));
+    assert.equal(dashboardHtml.includes('Notifications And Account'), false);
     assert.equal(dashboardHtml.includes('Notification Sound'), false);
     assert.ok(projectHtml.includes('Sharing'));
     assert.ok(projectHtml.includes('Project Members &amp; Sharing'));
