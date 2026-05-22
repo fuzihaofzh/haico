@@ -395,6 +395,10 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('project/workflow.html'));
   });
 
+  fastify.get('/projects/:id/sharing', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/sharing.html'));
+  });
+
   fastify.get('/projects/:id/operations-console', async (_request, reply) => {
     return reply.type('text/html').send(serveHtml('operations-console.html'));
   });

@@ -36,9 +36,8 @@
           <span class="meta-chip" id="project-access-summary"></span>
           <span class="meta-chip" id="project-owner-summary"></span>
           <span class="meta-chip meta-chip-remote meta-chip-remote-address" id="project-remote-summary" style="display:none"></span>
-          <button class="btn btn-sm" id="btn-view-members" onclick="openProjectMembersModal(false)">Members</button>
+          <a class="btn btn-sm" id="btn-view-members" href="#" style="text-decoration:none">Members</a>
           <a class="btn btn-sm" id="btn-open-ops-console" href="#" style="display:none;text-decoration:none">Operations Console</a>
-          <button class="btn btn-sm btn-primary" id="btn-share-project" data-project-requires-manage onclick="openProjectMembersModal(true)" style="display:none">Share Settings</button>
         </div>
         <div class="project-inline-note" id="project-debug-note" style="display:none"></div>
         <div class="project-readonly-banner" id="project-readonly-banner" style="display:none"></div>
@@ -59,6 +58,7 @@
       <a href="#" data-project-section-link="knowledge">Knowledge</a>
       <a href="#" data-project-section-link="files">Files</a>
       <a href="#" data-project-section-link="workflow">Workflow</a>
+      <a href="#" data-project-section-link="sharing">Sharing</a>
     </nav>
 
     <div id="tab-files">
@@ -110,38 +110,6 @@
 
   </main>
 
-  <div class="modal-overlay" id="projectMembersModal" onclick="if(event.target===this)hideModal('projectMembersModal')">
-    <div class="modal project-members-modal">
-      <div class="project-members-header">
-        <div>
-          <h3>Project Members &amp; Sharing</h3>
-          <div class="project-inline-note" id="project-members-subtitle"></div>
-        </div>
-        <button class="drawer-close" type="button" onclick="hideModal('projectMembersModal')">&times;</button>
-      </div>
-      <div class="project-readonly-banner" id="project-members-readonly-note" style="display:none"></div>
-      <div class="project-inline-note" id="project-members-debug-hint" style="display:none"></div>
-      <div id="project-members-manage-panel">
-        <div class="project-share-form">
-          <div class="form-group" style="margin-bottom:0">
-            <label for="project-share-username">Add Member</label>
-            <input type="text" id="project-share-username" placeholder="Enter username, e.g. alice" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();addProjectMember()}">
-          </div>
-          <select id="project-share-role" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:13px;">
-            <option value="member">Read Only</option>
-            <option value="editor" selected>Editor</option>
-            <option value="owner">Owner</option>
-          </select>
-          <button class="btn btn-primary" id="btn-add-member" onclick="addProjectMember()">Grant Access</button>
-        </div>
-      </div>
-      <div id="project-members-list" class="project-members-list">
-        <div class="empty-state">Loading members...</div>
-      </div>
-    </div>
-  </div>
-
-
   <script src="/public/vendor/marked.js"></script>
   <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
   <script src="/public/js/components/dashboard-sidebar.js?v=1"></script>
@@ -151,7 +119,6 @@
   <script src="/public/js/components/files-panel.js"></script>
 
   <script src="/public/js/pages/project/shell.js?v=1"></script>
-  <script src="/public/js/pages/project/members.js?v=2"></script>
   <script src="/public/js/pages/project/files.js?v=1"></script>
 </body>
 </html>

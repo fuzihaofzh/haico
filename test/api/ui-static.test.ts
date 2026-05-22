@@ -59,7 +59,7 @@ describe('Frontend UI English copy (#540)', () => {
     const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings.html', 'projects-new.html']
       .map((name) => fs.readFileSync(path.join(publicDir, name), 'utf-8'))
       .join('\n');
-    const projectHtml = ['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow']
+    const projectHtml = ['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow', 'sharing']
       .map((name) => fs.readFileSync(path.join(publicDir, 'project', `${name}.html`), 'utf-8'))
       .join('\n');
     const agentHtml = fs.readFileSync(
@@ -93,7 +93,9 @@ describe('Frontend UI English copy (#540)', () => {
 
     assert.ok(dashboardHtml.includes('Search issues...'));
     assert.ok(dashboardHtml.includes('Create New Project'));
-    assert.ok(projectHtml.includes('Share Settings'));
+    assert.ok(projectHtml.includes('Sharing'));
+    assert.ok(projectHtml.includes('Project Members &amp; Sharing'));
+    assert.equal(projectHtml.includes('Share Settings'), false);
     assert.ok(projectHtml.includes('+ Add Knowledge'));
     assert.ok(projectHtml.includes('Grant Access'));
     assert.ok(agentHtml.includes('Activity Summary'));

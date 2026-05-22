@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HAICO - Project</title>
+  <title>HAICO - Project Sharing</title>
   <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
   <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="/public/css/issues.css">
   <link rel="stylesheet" href="/public/css/codicon.css">
 </head>
-<body class="project-shell" data-dashboard-page="projects" data-project-view="activity">
+<body class="project-shell" data-dashboard-page="projects" data-project-view="sharing">
   <div data-dashboard-sidebar></div>
 
   <header>
@@ -61,36 +61,43 @@
       <a href="#" data-project-section-link="sharing">Sharing</a>
     </nav>
 
-    <div id="tab-activity">
-      <div class="card" id="activity-list">
-        <div class="empty-state">Loading activity...</div>
+    <section id="tab-sharing" class="project-sharing-page">
+      <div class="project-sharing-header">
+        <div>
+          <h3>Project Members &amp; Sharing</h3>
+          <div class="project-inline-note" id="project-members-subtitle"></div>
+        </div>
       </div>
-    </div>
+      <div class="project-sharing-content">
+        <div class="project-readonly-banner" id="project-members-readonly-note" style="display:none"></div>
+        <div class="project-inline-note" id="project-members-debug-hint" style="display:none"></div>
+        <div id="project-members-manage-panel">
+          <form class="project-share-form" id="project-share-form">
+            <div class="form-group project-share-username-field">
+              <label for="project-share-username">Add Member</label>
+              <input type="text" id="project-share-username" autocomplete="off" placeholder="Enter username, e.g. alice">
+            </div>
+            <div class="form-group project-share-role-field">
+              <label for="project-share-role">Role</label>
+              <select id="project-share-role">
+                <option value="member">Read Only</option>
+                <option value="editor" selected>Editor</option>
+                <option value="owner">Owner</option>
+              </select>
+            </div>
+            <div class="form-group project-share-submit-field">
+              <label class="project-share-submit-label" aria-hidden="true">Action</label>
+              <button class="btn btn-primary" id="btn-add-member" type="submit">Grant Access</button>
+            </div>
+          </form>
+        </div>
+        <div id="project-members-list" class="project-members-list">
+          <div class="empty-state">Loading members...</div>
+        </div>
+      </div>
+    </section>
 
   </main>
-
-  <template id="tmpl-activity-issue">
-    <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
-      <span data-slot="icon" style="flex-shrink:0"></span>
-      <div><strong data-slot="actor"></strong> <span data-slot="action"></span> issue <strong data-slot="number"></strong> <span data-slot="title"></span> <span data-slot="time" style="color:var(--text-secondary)"></span></div>
-    </div>
-  </template>
-
-  <template id="tmpl-activity-comment">
-    <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
-      <span data-slot="icon" style="color:var(--text-secondary);flex-shrink:0">💬</span>
-      <div><strong data-slot="actor"></strong> commented on <strong data-slot="number"></strong> <span data-slot="title"></span> <span data-slot="time" style="color:var(--text-secondary)"></span>
-        <div data-slot="preview" style="font-size:12px;color:var(--text-secondary);margin-top:2px"></div>
-      </div>
-    </div>
-  </template>
-
-  <template id="tmpl-activity-agent-run">
-    <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
-      <span data-slot="icon" style="flex-shrink:0">⚡</span>
-      <div>Agent <strong data-slot="name"></strong> <span data-slot="status-text"></span> <span data-slot="time" style="color:var(--text-secondary)"></span></div>
-    </div>
-  </template>
 
   <script src="/public/vendor/marked.js"></script>
   <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
@@ -100,6 +107,7 @@
   <script src="/public/js/shared/command-profiles.js?v=3"></script>
 
   <script src="/public/js/pages/project/shell.js?v=1"></script>
-  <script src="/public/js/pages/project/activity.js?v=1"></script>
+  <script src="/public/js/pages/project/members.js?v=3"></script>
+  <script src="/public/js/pages/project/sharing.js?v=1"></script>
 </body>
 </html>

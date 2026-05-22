@@ -2706,6 +2706,26 @@ header h1 span { color: var(--accent); }
   width: min(720px, 94vw);
   max-width: 720px;
 }
+.project-sharing-page {
+  max-width: 920px;
+}
+.project-sharing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 4px 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+.project-sharing-header h3 {
+  margin: 0 0 6px;
+}
+.project-sharing-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 18px;
+}
 .project-members-header {
   display: flex;
   justify-content: space-between;
@@ -2714,13 +2734,37 @@ header h1 span { color: var(--accent); }
   margin-bottom: 16px;
 }
 .project-share-form {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(140px, 180px) auto;
   gap: 12px;
-  align-items: flex-end;
-  margin-bottom: 16px;
+  align-items: start;
 }
 .project-share-form .form-group {
-  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.project-share-submit-field {
+  min-width: max-content;
+}
+.project-share-submit-label {
+  visibility: hidden;
+}
+.project-share-form input,
+.project-share-form select {
+  width: 100%;
+  height: 35px;
+  box-sizing: border-box;
+}
+.project-share-form .btn {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  height: 35px;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 .project-members-list {
   display: flex;
@@ -3302,7 +3346,13 @@ header h1 span { color: var(--accent); }
   .dashboard-chat-note { max-width: none; }
   .issue-panel-modal { width: 95vw; max-width: 95vw; max-height: 90vh; padding: 16px; }
   .project-header { flex-direction: column; }
-  .project-share-form { flex-direction: column; align-items: stretch; }
+  .project-share-form { grid-template-columns: 1fr; align-items: stretch; }
+  .project-share-submit-field { min-width: 0; }
+  .project-share-submit-label { display: none; }
+  .project-share-form .btn { width: 100%; }
+  .project-member-item { align-items: flex-start; flex-direction: column; }
+  .project-member-actions { width: 100%; justify-content: space-between; }
+  .project-member-actions select { min-width: 0; flex: 1; }
   .project-card-head { flex-direction: column; }
   .info-panel { grid-template-columns: 1fr; }
   .agent-item { flex-wrap: wrap; }

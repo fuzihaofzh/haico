@@ -5,7 +5,7 @@ var agentsData = [];
 var orchestrationRunsData = [];
 
 const CUSTOM_COMMAND_PROFILE_VALUE = '__custom__';
-const PROJECT_VIEWS = ['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow'];
+const PROJECT_VIEWS = ['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow', 'sharing'];
 const PROJECT_VIEW_LABELS = {
   overview: '',
   agents: 'Agents',
@@ -15,6 +15,7 @@ const PROJECT_VIEW_LABELS = {
   knowledge: 'Knowledge',
   files: 'Files',
   workflow: 'Workflow',
+  sharing: 'Sharing',
 };
 
 function getProjectIdFromPath() {
@@ -210,7 +211,7 @@ function applyProjectManageState() {
     el.style.display = canDeleteProject() ? '' : 'none';
   });
 
-  const manageIds = ['btn-toggle', 'btn-trigger', 'btn-share-project', 'btn-save-overview', 'btn-new-agent', 'btn-new-issue', 'btn-new-knowledge'];
+  const manageIds = ['btn-toggle', 'btn-trigger', 'btn-save-overview', 'btn-new-agent', 'btn-new-issue', 'btn-new-knowledge'];
   manageIds.forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.style.display = canManage ? '' : 'none';
@@ -265,7 +266,10 @@ function renderProjectAccessSummary() {
   }
 
   const membersButton = document.getElementById('btn-view-members');
-  if (membersButton) membersButton.textContent = `Members (${memberCount})`;
+  if (membersButton) {
+    membersButton.textContent = `Members (${memberCount})`;
+    membersButton.href = `${buildProjectPageHref(projectId)}/sharing`;
+  }
 }
 
 async function loadProjectShell() {

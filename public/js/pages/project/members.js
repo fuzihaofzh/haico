@@ -131,12 +131,11 @@ async function loadProjectMembers() {
   }
 }
 
-async function openProjectMembersModal(focusShare) {
+async function renderProjectMembersPanel(focusShare) {
   if (!projectData) return;
 
   const meta = getProjectAccessMeta(projectData);
   const canManage = !!projectData.can_manage;
-  document.getElementById('projectMembersModal').classList.add('active');
 
   const subtitle = document.getElementById('project-members-subtitle');
   if (subtitle) subtitle.textContent = `Access: ${meta.summary} · Members ${Number.isFinite(projectData.member_count) ? projectData.member_count : 0}`;
@@ -156,6 +155,10 @@ async function openProjectMembersModal(focusShare) {
     const input = document.getElementById('project-share-username');
     if (input) input.focus();
   }
+}
+
+async function openProjectMembersPage(focusShare) {
+  await renderProjectMembersPanel(focusShare);
 }
 
 async function addProjectMember() {
