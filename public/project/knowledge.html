@@ -143,6 +143,27 @@
   </div>
 
 
+  <template id="tmpl-knowledge-list">
+    <div style="padding:8px 0" data-slot="entries"></div>
+  </template>
+
+  <template id="tmpl-knowledge-entry">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span data-slot="importance" style="padding:1px 6px;border-radius:3px;font-size:10px;color:#fff"></span>
+          <span data-slot="title" style="font-weight:600;font-size:13px"></span>
+        </div>
+        <div data-slot="content" style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;max-height:60px;overflow:hidden;white-space:pre-wrap"></div>
+        <div data-slot="tags" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+      </div>
+      <div data-slot="actions" style="display:flex;gap:4px;flex-shrink:0;margin-left:12px">
+        <button type="button" class="btn btn-sm" data-action="edit-knowledge" style="padding:3px 8px">Edit</button>
+        <button type="button" class="btn btn-sm" data-action="delete-knowledge" style="padding:3px 8px;color:var(--error)">Delete</button>
+      </div>
+    </div>
+  </template>
+
 
   <script src="/public/vendor/marked.js"></script>
   <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
@@ -152,7 +173,7 @@
   <script src="/public/js/shared/command-profiles.js?v=3"></script>
 
   <script src="/public/js/pages/project/shell.js?v=1"></script>
-  <script src="/public/js/pages/project/members.js?v=1"></script>
+  <script src="/public/js/pages/project/members.js?v=2"></script>
   <script src="/public/js/pages/project/knowledge.js?v=1"></script>
 </body>
 </html>

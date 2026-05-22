@@ -13,31 +13,62 @@ async function loadKnowledge() {
       el.innerHTML = `<div class="empty-state">No knowledge entries yet.${canManage ? ' Click "Add Knowledge" to start building the project knowledge base.' : ''}</div>`;
       return;
     }
-    const impBadge = (imp) => {
-      const colors = { high: 'var(--error)', medium: 'var(--warning)', low: 'var(--text-secondary)' };
-      const labels = { high: 'High', medium: 'Medium', low: 'Low' };
-      return `<span style="padding:1px 6px;border-radius:3px;font-size:10px;background:${colors[imp] || 'var(--text-secondary)'};color:#fff">${labels[imp] || imp}</span>`;
-    };
-    el.innerHTML = '<div style="padding:8px 0">' + entries.map(e => `
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-            ${impBadge(e.importance)}
-            <span style="font-weight:600;font-size:13px">${esc(e.title)}</span>
-          </div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;max-height:60px;overflow:hidden;white-space:pre-wrap">${esc((e.content || '').slice(0, 200))}${e.content && e.content.length > 200 ? '...' : ''}</div>
-          ${e.tags ? `<div style="display:flex;gap:4px;flex-wrap:wrap">${e.tags.split(',').filter(t => t.trim()).map(t => `<span style="padding:1px 6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;font-size:10px">${esc(t.trim())}</span>`).join('')}</div>` : ''}
-        </div>
-        ${canManage ? `<div style="display:flex;gap:4px;flex-shrink:0;margin-left:12px">
-          <button class="btn btn-sm" onclick="editKnowledge('${e.id}')" style="padding:3px 8px">Edit</button>
-          <button class="btn btn-sm" onclick="deleteKnowledge('${e.id}')" style="padding:3px 8px;color:var(--error)">Delete</button>
-        </div>` : ''}
-      </div>
-    `).join('') + '</div>';
+    const list = cloneKnowledgeTemplate('tmpl-knowledge-list');
+    list.querySelector('[data-slot="entries"]').replaceChildren(...entries.map((entry) => renderKnowledgeEntry(entry, canManage)));
+    el.replaceChildren(list);
   } catch (e) { el.innerHTML = renderError(e, 'loadKnowledge()'); }
 }
 
 let _knowledgeCache = [];
+
+function cloneKnowledgeTemplate(id) {
+  return document.getElementById(id).content.firstElementChild.cloneNode(true);
+}
+
+function setKnowledgeText(root, slotName, value) {
+  const node = root.querySelector(`[data-slot="${slotName}"]`);
+  if (node) node.textContent = value == null ? '' : String(value);
+}
+
+function renderKnowledgeEntry(entry, canManage) {
+  const row = cloneKnowledgeTemplate('tmpl-knowledge-entry');
+  const importance = entry.importance || 'low';
+  const colors = { high: 'var(--error)', medium: 'var(--warning)', low: 'var(--text-secondary)' };
+  const labels = { high: 'High', medium: 'Medium', low: 'Low' };
+  const badge = row.querySelector('[data-slot="importance"]');
+  badge.style.background = colors[importance] || 'var(--text-secondary)';
+  badge.textContent = labels[importance] || importance;
+  setKnowledgeText(row, 'title', entry.title);
+  setKnowledgeText(row, 'content', `${(entry.content || '').slice(0, 200)}${entry.content && entry.content.length > 200 ? '...' : ''}`);
+
+  const tags = row.querySelector('[data-slot="tags"]');
+  const tagItems = String(entry.tags || '').split(',').map((tag) => tag.trim()).filter(Boolean);
+  if (tagItems.length) {
+    tags.replaceChildren(...tagItems.map(createKnowledgeTag));
+  } else {
+    tags.remove();
+  }
+
+  const actions = row.querySelector('[data-slot="actions"]');
+  if (canManage) {
+    row.querySelector('[data-action="edit-knowledge"]').addEventListener('click', () => editKnowledge(entry.id));
+    row.querySelector('[data-action="delete-knowledge"]').addEventListener('click', () => deleteKnowledge(entry.id));
+  } else {
+    actions.remove();
+  }
+  return row;
+}
+
+function createKnowledgeTag(label) {
+  const tag = document.createElement('span');
+  tag.style.padding = '1px 6px';
+  tag.style.background = 'var(--bg)';
+  tag.style.border = '1px solid var(--border)';
+  tag.style.borderRadius = '3px';
+  tag.style.fontSize = '10px';
+  tag.textContent = label;
+  return tag;
+}
 
 function showCreateKnowledgeModal() {
   if (!requireProjectManageAccess('Insufficient permission to add knowledge')) return;

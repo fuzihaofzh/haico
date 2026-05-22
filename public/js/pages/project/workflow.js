@@ -1,6 +1,15 @@
 let _workflowData = null;
 let _workflowApprovalsData = [];
 
+function cloneWorkflowTemplate(id) {
+  return document.getElementById(id).content.firstElementChild.cloneNode(true);
+}
+
+function setWorkflowText(root, slotName, value) {
+  var node = root.querySelector('[data-slot="' + slotName + '"]');
+  if (node) node.textContent = value == null ? '' : String(value);
+}
+
 async function loadWorkflowTab() {
   await Promise.all([loadWorkflowGraph(), loadWorkflowApprovals()]);
   await Promise.all([loadTreasuryWorkflowLayer(), loadWorkflowActivity()]);
@@ -131,7 +140,12 @@ function renderWorkflowGraphHierarchy(container, data) {
   }
   roots.forEach(function(root) { positionSubtree(root, 0); });
 
-  var svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;margin:0 auto">';
+  var svg = createWorkflowSvg('svg', {
+    width: W,
+    height: H,
+    viewBox: '0 0 ' + W + ' ' + H,
+    style: 'display:block;margin:0 auto',
+  });
 
   // Draw hierarchy edges (parent -> child)
   agents.forEach(function(agent) {
@@ -140,7 +154,15 @@ function renderWorkflowGraphHierarchy(container, data) {
     var parentPos = positions[pid];
     var childPos = positions[agent.id];
     if (!parentPos || !childPos) return;
-    svg += '<line x1="' + parentPos.x + '" y1="' + (parentPos.y + nodeH / 2) + '" x2="' + childPos.x + '" y2="' + (childPos.y - nodeH / 2) + '" stroke="var(--border)" stroke-width="1.2" opacity="0.7"/>';
+    svg.appendChild(createWorkflowSvg('line', {
+      x1: parentPos.x,
+      y1: parentPos.y + nodeH / 2,
+      x2: childPos.x,
+      y2: childPos.y - nodeH / 2,
+      stroke: 'var(--border)',
+      'stroke-width': '1.2',
+      opacity: '0.7',
+    }));
   });
 
   // Draw message edges
@@ -155,14 +177,29 @@ function renderWorkflowGraphHierarchy(container, data) {
       var from = positions[parts[0]];
       var to = positions[parts[1]];
       if (from && to) {
-        svg += '<line x1="' + from.x + '" y1="' + from.y + '" x2="' + to.x + '" y2="' + to.y + '" stroke="var(--accent)" stroke-width="1.5" opacity="0.4" stroke-dasharray="6,3"/>';
+        svg.appendChild(createWorkflowSvg('line', {
+          x1: from.x,
+          y1: from.y,
+          x2: to.x,
+          y2: to.y,
+          stroke: 'var(--accent)',
+          'stroke-width': '1.5',
+          opacity: '0.4',
+          'stroke-dasharray': '6,3',
+        }));
         var dx = to.x - from.x;
         var dy = to.y - from.y;
         var len = Math.sqrt(dx * dx + dy * dy);
         if (len > 0) {
           var mx = from.x + dx * 0.65;
           var my = from.y + dy * 0.65;
-          svg += '<circle cx="' + mx + '" cy="' + my + '" r="3" fill="var(--accent)" opacity="0.6"/>';
+          svg.appendChild(createWorkflowSvg('circle', {
+            cx: mx,
+            cy: my,
+            r: '3',
+            fill: 'var(--accent)',
+            opacity: '0.6',
+          }));
         }
       }
     });
@@ -174,40 +211,87 @@ function renderWorkflowGraphHierarchy(container, data) {
     if (!pos) return;
     var color = getWorkflowStatusColor(agent);
     var nw = Math.max(70, agent.name.length * 7.5 + 20);
-    var pulse = agent.status === 'running'
-      ? '<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/>'
-      : '';
     var issues = agent.current_issues || [];
     var issueCount = issues.length;
     var topIssue = issues[0];
     var statusLabel = agent.paused ? 'paused' : agent.status;
     var metaParts = [statusLabel, issueCount > 0 ? issueCount + ' issues' : null].filter(Boolean).join(' \u00b7 ');
 
-    svg += '<g style="cursor:pointer" onclick="viewAgent(\'' + agent.id + '\')">';
-    svg += '<rect x="' + (pos.x - nw / 2) + '" y="' + (pos.y - nodeH / 2) + '" width="' + nw + '" height="' + nodeH + '" rx="8" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (agent.is_controller ? '2.8' : '2') + '"' + (agent.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</rect>';
-    svg += '<text x="' + pos.x + '" y="' + (pos.y - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(agent.name) + '</text>';
-    svg += '<text x="' + pos.x + '" y="' + (pos.y + 12) + '" text-anchor="middle" fill="' + color + '" font-size="8.5">' + esc(metaParts) + '</text>';
-    if (topIssue) {
-      svg += '<text x="' + pos.x + '" y="' + (pos.y + nodeH / 2 + 12) + '" text-anchor="middle" fill="var(--accent)" font-size="8">#' + topIssue.number + (issueCount > 1 ? ' +' + (issueCount - 1) : '') + '</text>';
+    var group = createWorkflowSvg('g', { style: 'cursor:pointer' });
+    group.addEventListener('click', function() { viewAgent(agent.id); });
+    var rectAttrs = {
+      x: pos.x - nw / 2,
+      y: pos.y - nodeH / 2,
+      width: nw,
+      height: nodeH,
+      rx: '8',
+      fill: color + '22',
+      stroke: color,
+      'stroke-width': agent.is_controller ? '2.8' : '2',
+    };
+    if (agent.paused) rectAttrs['stroke-dasharray'] = '4,4';
+    var rect = createWorkflowSvg('rect', rectAttrs);
+    if (agent.status === 'running') {
+      rect.appendChild(createWorkflowSvg('animate', {
+        attributeName: 'opacity',
+        values: '1;0.6;1',
+        dur: '2s',
+        repeatCount: 'indefinite',
+      }));
     }
-    svg += '</g>';
+    group.appendChild(rect);
+    group.appendChild(createWorkflowText(pos.x, pos.y - 2, agent.name, {
+      'text-anchor': 'middle',
+      fill: 'var(--fg)',
+      'font-size': '11',
+      'font-weight': '600',
+    }));
+    group.appendChild(createWorkflowText(pos.x, pos.y + 12, metaParts, {
+      'text-anchor': 'middle',
+      fill: color,
+      'font-size': '8.5',
+    }));
+    if (topIssue) {
+      group.appendChild(createWorkflowText(pos.x, pos.y + nodeH / 2 + 12, '#' + topIssue.number + (issueCount > 1 ? ' +' + (issueCount - 1) : ''), {
+        'text-anchor': 'middle',
+        fill: 'var(--accent)',
+        'font-size': '8',
+      }));
+    }
+    svg.appendChild(group);
   });
 
   // Pending approvals indicator
   if (data.pending_approvals && data.pending_approvals.length > 0) {
-    svg += '<text x="' + (W - 10) + '" y="20" text-anchor="end" fill="var(--warning)" font-size="11" font-weight="600">\u26a0 ' + data.pending_approvals.length + ' pending approval(s)</text>';
+    svg.appendChild(createWorkflowText(W - 10, 20, '\u26a0 ' + data.pending_approvals.length + ' pending approval(s)', {
+      'text-anchor': 'end',
+      fill: 'var(--warning)',
+      'font-size': '11',
+      'font-weight': '600',
+    }));
   }
 
-  svg += '</svg>';
-
-  // Summary line
-  var summary = '<div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px">';
-  summary += agents.length + ' agents \u00b7 ' + data.total_active_issues + ' active issues';
+  var summary = cloneWorkflowTemplate('tmpl-workflow-graph-summary');
+  var summaryText = agents.length + ' agents \u00b7 ' + data.total_active_issues + ' active issues';
   if (data.recent_messages && data.recent_messages.length > 0) {
-    summary += ' \u00b7 ' + data.recent_messages.length + ' recent messages';
+    summaryText += ' \u00b7 ' + data.recent_messages.length + ' recent messages';
   }
-  summary += '</div>';
-  container.innerHTML = svg + summary;
+  summary.textContent = summaryText;
+  container.replaceChildren(svg, summary);
+}
+
+function createWorkflowSvg(tagName, attrs) {
+  var node = document.createElementNS('http://www.w3.org/2000/svg', tagName);
+  Object.keys(attrs || {}).forEach(function(name) {
+    node.setAttribute(name, String(attrs[name]));
+  });
+  return node;
+}
+
+function createWorkflowText(x, y, text, attrs) {
+  var node = createWorkflowSvg('text', Object.assign({ x: x, y: y }, attrs || {}));
+  node.textContent = text == null ? '' : String(text);
+  return node;
 }
 
 function getWorkflowStatusColor(agent) {
@@ -226,25 +310,60 @@ async function loadWorkflowActivity() {
     var events = await res.json();
     if (!events.length) { container.innerHTML = '<div class="empty-state">No activity yet.</div>'; return; }
 
-    container.innerHTML = events.map(function(e) {
-      var time = timeAgo(e.time);
-      if (e.event_type === 'issue') {
-        var icon = e.status === 'open' ? '<span style="color:var(--success)">\u25cf</span>' : '<span style="color:var(--accent)">\u2713</span>';
-        return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
-          icon + '<div><strong>' + esc(nameOf(e.actor)) + '</strong> ' + (e.status === 'open' ? 'opened' : 'updated') + ' <a href="' + buildIssuePageHref({ issueId: e.id, projectId: e.project_id, issueNumber: e.number }) + '" style="color:var(--link)">#' + e.number + '</a> ' + esc(e.title) + ' <span style="color:var(--text-secondary)">' + time + '</span></div></div>';
-      } else if (e.event_type === 'comment') {
-        return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
-          '<span style="color:var(--text-secondary)">\ud83d\udcac</span><div><strong>' + esc(nameOf(e.actor)) + '</strong> commented on <a href="' + buildIssuePageHref({ issueId: e.id, projectId: e.project_id, issueNumber: e.issue_number }) + '" style="color:var(--link)">#' + e.issue_number + '</a> ' + esc(e.issue_title) + ' <span style="color:var(--text-secondary)">' + time + '</span></div></div>';
-      } else if (e.event_type === 'agent_run') {
-        var statusColor = e.agent_status === 'running' ? 'var(--success)' : (e.agent_status === 'error' ? 'var(--error)' : 'var(--text-secondary)');
-        return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
-          '<span style="color:' + statusColor + '">\u26a1</span><div>Agent <strong>' + esc(e.name) + '</strong> [' + e.agent_status + '] <span style="color:var(--text-secondary)">' + time + '</span></div></div>';
-      }
-      return '';
-    }).join('');
+    container.replaceChildren(...events.map(renderWorkflowActivityEvent).filter(Boolean));
   } catch (e) {
     container.innerHTML = '<div class="empty-state">Failed to load activity.</div>';
   }
+}
+
+function renderWorkflowActivityEvent(event) {
+  var row = cloneWorkflowTemplate('tmpl-workflow-activity-item');
+  var icon = row.querySelector('[data-slot="icon"]');
+  var link = row.querySelector('[data-slot="issue-link"]');
+  var actorPrefix = row.querySelector('[data-slot="actor-prefix"]');
+  var agentPrefix = row.querySelector('[data-slot="agent-prefix"]');
+  var time = timeAgo(event.time);
+
+  if (event.event_type === 'issue') {
+    icon.textContent = event.status === 'open' ? '\u25cf' : '\u2713';
+    icon.style.color = event.status === 'open' ? 'var(--success)' : 'var(--accent)';
+    setWorkflowText(row, 'actor', nameOf(event.actor));
+    setWorkflowText(row, 'action', event.status === 'open' ? 'opened' : 'updated');
+    link.href = buildIssuePageHref({ issueId: event.id, projectId: event.project_id, issueNumber: event.number });
+    link.textContent = '#' + event.number;
+    setWorkflowText(row, 'title', event.title);
+    setWorkflowText(row, 'time', time);
+    agentPrefix.remove();
+    return row;
+  }
+
+  if (event.event_type === 'comment') {
+    icon.textContent = '\ud83d\udcac';
+    icon.style.color = 'var(--text-secondary)';
+    setWorkflowText(row, 'actor', nameOf(event.actor));
+    setWorkflowText(row, 'action', 'commented on');
+    link.href = buildIssuePageHref({ issueId: event.id, projectId: event.project_id, issueNumber: event.issue_number });
+    link.textContent = '#' + event.issue_number;
+    setWorkflowText(row, 'title', event.issue_title);
+    setWorkflowText(row, 'time', time);
+    agentPrefix.remove();
+    return row;
+  }
+
+  if (event.event_type === 'agent_run') {
+    var statusColor = event.agent_status === 'running' ? 'var(--success)' : (event.agent_status === 'error' ? 'var(--error)' : 'var(--text-secondary)');
+    icon.textContent = '\u26a1';
+    icon.style.color = statusColor;
+    setWorkflowText(row, 'agent-name', event.name);
+    setWorkflowText(row, 'agent-status', '[' + event.agent_status + ']');
+    setWorkflowText(row, 'time', time);
+    actorPrefix.remove();
+    link.remove();
+    row.querySelector('[data-slot="title"]').remove();
+    return row;
+  }
+
+  return null;
 }
 
 // ─── Approval Requests (#616) ───
@@ -263,31 +382,46 @@ async function loadWorkflowApprovals() {
 
     if (approvals.length === 0) {
       panel.style.display = 'none';
+      listEl.replaceChildren();
+      if (countEl) { countEl.textContent = '0'; countEl.style.display = 'none'; }
       return;
     }
 
     panel.style.display = '';
     if (countEl) { countEl.textContent = approvals.length; countEl.style.display = ''; }
 
-    listEl.innerHTML = approvals.map(function(a) {
-      var riskColors = { low: 'var(--success)', medium: 'var(--warning)', high: 'var(--error)', critical: 'var(--error)' };
-      var riskColor = riskColors[a.risk_level] || 'var(--warning)';
-      return '<div class="approval-card" style="border:1px solid ' + riskColor + '44;border-left:3px solid ' + riskColor + ';border-radius:6px;padding:10px 12px;margin-bottom:8px;background:' + riskColor + '08">' +
-        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">' +
-          '<div><strong style="font-size:13px">' + esc(a.title) + '</strong>' +
-          '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">Agent: ' + esc(a.agent_name || 'unknown') + ' \u00b7 Risk: <span style="color:' + riskColor + ';font-weight:600">' + a.risk_level + '</span> \u00b7 ' + timeAgo(a.created_at) + '</div></div>' +
-        '</div>' +
-        (a.description ? '<div style="font-size:12px;color:var(--fg);margin-bottom:8px">' + esc(a.description) + '</div>' : '') +
-        '<div style="display:flex;gap:6px">' +
-          '<button class="btn btn-sm btn-primary" onclick="decideApproval(\'' + a.id + '\', \'approved\')">Approve</button>' +
-          '<button class="btn btn-sm btn-danger" onclick="decideApproval(\'' + a.id + '\', \'rejected\')">Reject</button>' +
-        '</div>' +
-      '</div>';
-    }).join('');
+    listEl.replaceChildren(...approvals.map(renderWorkflowApproval));
   } catch (e) {
     _workflowApprovalsData = [];
     panel.style.display = 'none';
   }
+}
+
+function renderWorkflowApproval(approval) {
+  var row = cloneWorkflowTemplate('tmpl-workflow-approval-card');
+  var riskColors = { low: 'var(--success)', medium: 'var(--warning)', high: 'var(--error)', critical: 'var(--error)' };
+  var riskColor = riskColors[approval.risk_level] || 'var(--warning)';
+  row.style.borderColor = riskColor + '44';
+  row.style.borderLeftColor = riskColor;
+  row.style.background = riskColor + '08';
+  setWorkflowText(row, 'title', approval.title);
+  setWorkflowText(row, 'agent-name', approval.agent_name || 'unknown');
+  setWorkflowText(row, 'risk', approval.risk_level);
+  row.querySelector('[data-slot="risk"]').style.color = riskColor;
+  setWorkflowText(row, 'time', timeAgo(approval.created_at));
+  var description = row.querySelector('[data-slot="description"]');
+  if (approval.description) {
+    description.textContent = approval.description;
+  } else {
+    description.remove();
+  }
+  row.querySelector('[data-action="approve"]').addEventListener('click', function() {
+    decideApproval(approval.id, 'approved');
+  });
+  row.querySelector('[data-action="reject"]').addEventListener('click', function() {
+    decideApproval(approval.id, 'rejected');
+  });
+  return row;
 }
 
 async function decideApproval(approvalId, decision) {

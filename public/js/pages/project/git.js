@@ -15,25 +15,9 @@ async function loadGitTab() {
     // Render status summary (branch info per agent)
     const validStatuses = agentStatuses.filter(s => s && s.data && s.data.branch);
     if (validStatuses.length > 0) {
-      statusContainer.innerHTML = `<div class="card" style="padding:14px 18px">
-        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:10px">Repository Status</div>
-        ${validStatuses.map(s => {
-          const d = s.data;
-          const lastCommit = d.recent_commits && d.recent_commits[0]
-            ? `<code style="color:var(--accent)">${esc(d.recent_commits[0].hash)}</code> ${esc(d.recent_commits[0].message.slice(0, 60))} <span style="color:var(--text-secondary)">${timeAgo(d.recent_commits[0].date)}</span>`
-            : '<span style="color:var(--text-secondary)">no commits</span>';
-          const uncommitted = d.has_uncommitted
-            ? `<span style="color:var(--warning);margin-left:12px">${(d.uncommitted_files || []).length} uncommitted</span>`
-            : '';
-          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;flex-wrap:wrap">
-            <div style="flex-shrink:0">${roleAvatarHtml(s.agent.name, 22, projectData?.color)}</div>
-            <strong>${esc(s.agent.name)}</strong>
-            <span style="background:var(--bg);padding:2px 8px;border-radius:10px;border:1px solid var(--border);font-family:monospace;font-size:11px">${esc(d.branch)}</span>
-            <div style="flex:1">${lastCommit}</div>
-            ${uncommitted}
-          </div>`;
-        }).join('')}
-      </div>`;
+      const summary = cloneGitTemplate('tmpl-git-status-summary');
+      summary.querySelector('[data-slot="rows"]').replaceChildren(...validStatuses.map(renderGitStatusRow));
+      statusContainer.replaceChildren(summary);
     } else {
       statusContainer.innerHTML = '';
     }
@@ -48,27 +32,17 @@ async function loadGitTab() {
       return;
     }
 
-    commitContainer.innerHTML = `
-      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:10px;padding:0 4px">Recent Commits</div>
-      ${commits.map(c => `<div style="display:flex;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border);font-size:13px;align-items:flex-start">
-        <span style="color:var(--success);flex-shrink:0;margin-top:2px">●</span>
-        <code style="color:var(--accent);flex-shrink:0;font-size:12px">${esc(c.short_hash)}</code>
-        <div style="flex:1;min-width:0">
-          <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.message)}</div>
-          <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${esc(c.author)} <span style="color:var(--text-secondary)">${timeAgo(c.date)}</span></div>
-        </div>
-      </div>`).join('')}`;
+    const commitList = cloneGitTemplate('tmpl-git-commit-list');
+    commitList.querySelector('[data-slot="rows"]').replaceChildren(...commits.map(renderGitCommitRow));
+    commitContainer.replaceChildren(commitList);
 
     // Render uncommitted changes
     const allUncommitted = validStatuses.filter(s => s.data.has_uncommitted && s.data.uncommitted_files && s.data.uncommitted_files.length > 0);
     if (allUncommitted.length > 0) {
-      uncommittedContainer.innerHTML = `<div class="card" style="padding:14px 18px">
-        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:10px">Uncommitted Changes</div>
-        ${allUncommitted.map(s => s.data.uncommitted_files.map(f => `<div style="display:flex;gap:8px;padding:4px 0;font-size:12px;font-family:monospace;border-bottom:1px solid var(--border)">
-          <span style="color:${f.status === 'M' ? 'var(--warning)' : f.status === 'A' || f.status === '?' ? 'var(--success)' : 'var(--error)'};width:20px;text-align:center;flex-shrink:0">${esc(f.status)}</span>
-          <span>${esc(f.file)}</span>
-        </div>`).join('')).join('')}
-      </div>`;
+      const uncommitted = cloneGitTemplate('tmpl-git-uncommitted');
+      const rows = allUncommitted.flatMap(s => s.data.uncommitted_files.map(renderGitUncommittedRow));
+      uncommitted.querySelector('[data-slot="rows"]').replaceChildren(...rows);
+      uncommittedContainer.replaceChildren(uncommitted);
     } else {
       uncommittedContainer.innerHTML = '';
     }
@@ -77,6 +51,83 @@ async function loadGitTab() {
     statusContainer.innerHTML = '';
     uncommittedContainer.innerHTML = '';
   }
+}
+
+function cloneGitTemplate(id) {
+  return document.getElementById(id).content.firstElementChild.cloneNode(true);
+}
+
+function setGitText(root, slotName, value) {
+  const node = root.querySelector(`[data-slot="${slotName}"]`);
+  if (node) node.textContent = value == null ? '' : String(value);
+}
+
+function createGitAgentAvatar(agentName) {
+  const span = document.createElement('span');
+  const size = 22;
+  span.className = 'role-avatar';
+  span.style.display = 'inline-flex';
+  span.style.alignItems = 'center';
+  span.style.justifyContent = 'center';
+  span.style.width = `${size}px`;
+  span.style.height = `${size}px`;
+  span.style.borderRadius = '50%';
+  span.style.background = agentHslColor(agentName);
+  span.style.color = '#fff';
+  span.style.fontSize = `${Math.round(size * 0.4)}px`;
+  span.style.fontWeight = '600';
+  span.style.lineHeight = '1';
+  span.style.flexShrink = '0';
+  span.style.textTransform = 'uppercase';
+  span.style.letterSpacing = '-0.5px';
+  span.textContent = getNameInitials(agentName || '?');
+  return span;
+}
+
+function renderGitStatusRow(status) {
+  const row = cloneGitTemplate('tmpl-git-status-row');
+  const data = status.data;
+  row.querySelector('[data-slot="avatar"]').replaceChildren(createGitAgentAvatar(status.agent.name));
+  setGitText(row, 'agent-name', status.agent.name);
+  setGitText(row, 'branch', data.branch);
+
+  const lastCommit = row.querySelector('[data-slot="last-commit"]');
+  const recent = data.recent_commits && data.recent_commits[0];
+  if (recent) {
+    setGitText(row, 'commit-hash', recent.hash);
+    setGitText(row, 'commit-message', recent.message.slice(0, 60));
+    setGitText(row, 'commit-time', timeAgo(recent.date));
+    row.querySelector('[data-slot="no-commits"]').remove();
+  } else {
+    lastCommit.replaceChildren(row.querySelector('[data-slot="no-commits"]'));
+  }
+
+  const uncommitted = row.querySelector('[data-slot="uncommitted"]');
+  if (data.has_uncommitted) {
+    uncommitted.textContent = `${(data.uncommitted_files || []).length} uncommitted`;
+  } else {
+    uncommitted.remove();
+  }
+  return row;
+}
+
+function renderGitCommitRow(commit) {
+  const row = cloneGitTemplate('tmpl-git-commit-row');
+  setGitText(row, 'short-hash', commit.short_hash);
+  setGitText(row, 'message', commit.message);
+  setGitText(row, 'author', commit.author);
+  setGitText(row, 'time', timeAgo(commit.date));
+  return row;
+}
+
+function renderGitUncommittedRow(file) {
+  const row = cloneGitTemplate('tmpl-git-uncommitted-row');
+  const status = row.querySelector('[data-slot="status"]');
+  const tone = file.status === 'M' ? 'var(--warning)' : file.status === 'A' || file.status === '?' ? 'var(--success)' : 'var(--error)';
+  status.style.color = tone;
+  status.textContent = file.status;
+  setGitText(row, 'file', file.file);
+  return row;
 }
 
 // ─── Dashboard & Visualization ───

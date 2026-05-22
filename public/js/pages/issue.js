@@ -13,15 +13,23 @@ let issueData = null;
 let agentsData = [];
 let issueProjectColor = null;
 
+function showIssueNotFound() {
+  const page = document.getElementById('issue-page');
+  const empty = document.createElement('div');
+  empty.className = 'empty-state';
+  empty.textContent = 'Issue not found.';
+  page.replaceChildren(empty);
+}
+
 async function loadIssue() {
   let data;
   if (issueId) {
     const res = await fetch(buildIssueApiPath(issueId), { headers: apiHeaders() });
-    if (!res.ok) { document.getElementById('issue-page').innerHTML = '<div class="empty-state">Issue not found.</div>'; return; }
+    if (!res.ok) { showIssueNotFound(); return; }
     data = await res.json();
   } else if (projectId && issueNum) {
     const res = await fetch(buildProjectIssueLookupApiPath(projectId, issueNum), { headers: apiHeaders() });
-    if (!res.ok) { document.getElementById('issue-page').innerHTML = '<div class="empty-state">Issue not found.</div>'; return; }
+    if (!res.ok) { showIssueNotFound(); return; }
     data = await res.json();
   }
   issueData = data; issueId = data.id;

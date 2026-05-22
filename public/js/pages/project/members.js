@@ -1,4 +1,6 @@
 let projectMembersData = [];
+let projectMembersTemplatesPromise = null;
+const PROJECT_MEMBERS_TEMPLATE_URL = '/public/templates/project-members.html?v=1';
 
 function mergeOwnerIntoMembers(members) {
   const normalized = Array.isArray(members) ? [...members] : [];
@@ -19,7 +21,7 @@ function mergeOwnerIntoMembers(members) {
   });
 }
 
-function renderProjectMembers() {
+async function renderProjectMembers() {
   const list = document.getElementById('project-members-list');
   if (!list) return;
 
@@ -31,11 +33,11 @@ function renderProjectMembers() {
 
   const canManage = !!projectData?.can_manage;
   const isProjectOwner = (uid) => projectData?.owner?.id === uid;
+  await ensureProjectMemberTemplatesLoaded();
 
-  list.innerHTML = members.map((member) => {
+  list.replaceChildren(...members.map((member) => {
     const ownerFlag = isProjectOwner(member.user_id);
     const displayName = displayProjectUser(member);
-    const encodedDisplayName = encodeURIComponent(displayName);
     const username = member.username ? `@${member.username}` : member.user_id;
     const accountRole = member.user_role === 'admin' ? 'Global Admin' : 'Member';
     const roleBadgeMap = {
@@ -45,41 +47,74 @@ function renderProjectMembers() {
     };
     const rb = roleBadgeMap[member.role] || roleBadgeMap.member;
 
-    let roleControl;
+    const row = cloneProjectMemberTemplate();
+    row.dataset.userId = member.user_id;
+    row.dataset.displayName = displayName;
+    setMemberText(row, 'display-name', displayName);
+    setMemberText(row, 'meta', `${username} · ${accountRole}`);
+    const badge = row.querySelector('[data-slot="permission-badge"]');
+    badge.textContent = rb.badge;
+    badge.title = rb.badge;
+    badge.className = `permission-badge permission-${rb.tone}`;
+
+    const staticRole = row.querySelector('[data-slot="role-static"]');
+    const roleSelect = row.querySelector('[data-slot="role-select"]');
+    const removeButton = row.querySelector('[data-slot="remove-button"]');
     if (ownerFlag) {
-      roleControl = '<span class="project-member-static">Project Owner</span>';
+      staticRole.textContent = 'Project Owner';
+      staticRole.style.display = '';
+      roleSelect.remove();
+      removeButton.remove();
     } else if (canManage) {
-      roleControl = `<select class="member-role-select" onchange="updateMemberRole('${member.user_id}', this.value)" style="padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">
-        <option value="member"${member.role === 'member' ? ' selected' : ''}>Read Only</option>
-        <option value="editor"${member.role === 'editor' ? ' selected' : ''}>Editor</option>
-        <option value="owner"${member.role === 'owner' ? ' selected' : ''}>Owner</option>
-      </select>`;
+      staticRole.remove();
+      roleSelect.value = member.role || 'member';
+      roleSelect.addEventListener('change', () => updateMemberRole(member.user_id, roleSelect.value));
+      removeButton.addEventListener('click', () => removeProjectMember(member.user_id, encodeURIComponent(displayName)));
     } else {
-      roleControl = `<span class="project-member-static">${rb.badge}</span>`;
+      staticRole.textContent = rb.badge;
+      staticRole.style.display = '';
+      roleSelect.remove();
+      removeButton.remove();
     }
 
-    const removeButton = ownerFlag
-      ? ''
-      : canManage
-        ? `<button class="btn btn-sm" onclick="removeProjectMember('${member.user_id}', '${encodedDisplayName}')" style="color:var(--error)">Remove</button>`
-        : '';
+    return row;
+  }));
+}
 
-    return `
-      <div class="project-member-item">
-        <div class="project-member-main">
-          <div class="project-member-name-row">
-            <strong>${esc(displayName)}</strong>
-            ${renderPermissionBadge({ badge: rb.badge, tone: rb.tone, summary: rb.badge })}
-          </div>
-          <div class="project-member-meta">${esc(username)} · ${esc(accountRole)}</div>
-        </div>
-        <div class="project-member-actions" style="display:flex;align-items:center;gap:8px;">
-          ${roleControl}
-          ${removeButton}
-        </div>
-      </div>
-    `;
-  }).join('');
+function cloneProjectMemberTemplate() {
+  const template = document.getElementById('tmpl-project-member-item');
+  if (!template) throw new Error('Project member template is not loaded');
+  return template.content.firstElementChild.cloneNode(true);
+}
+
+function ensureProjectMemberTemplatesLoaded() {
+  if (document.getElementById('tmpl-project-member-item')) {
+    return Promise.resolve();
+  }
+  if (!projectMembersTemplatesPromise) {
+    projectMembersTemplatesPromise = fetch(PROJECT_MEMBERS_TEMPLATE_URL, { headers: typeof apiHeaders === 'function' ? apiHeaders() : {} })
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to load project member templates');
+        return res.text();
+      })
+      .then((html) => {
+        const host = document.createElement('div');
+        host.setAttribute('data-project-member-templates', '');
+        host.style.display = 'none';
+        host.innerHTML = html;
+        document.body.appendChild(host);
+      })
+      .catch((err) => {
+        projectMembersTemplatesPromise = null;
+        throw err;
+      });
+  }
+  return projectMembersTemplatesPromise;
+}
+
+function setMemberText(root, slotName, value) {
+  const node = root.querySelector(`[data-slot="${slotName}"]`);
+  if (node) node.textContent = value == null ? '' : String(value);
 }
 
 async function loadProjectMembers() {
@@ -90,7 +125,7 @@ async function loadProjectMembers() {
   try {
     const data = await fetchProjectJson(projectApiPath('/members'), 'Failed to load members');
     projectMembersData = Array.isArray(data.members) ? data.members : [];
-    renderProjectMembers();
+    await renderProjectMembers();
   } catch (e) {
     if (list) list.innerHTML = renderError(e, 'loadProjectMembers()');
   }

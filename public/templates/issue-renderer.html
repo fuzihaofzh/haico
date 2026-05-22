@@ -1,0 +1,59 @@
+<template id="tmpl-ir-timeline-event">
+  <div style="display:flex;align-items:center;gap:8px;padding:8px 0 8px 40px;font-size:12px;color:var(--text-secondary)">
+    <span data-slot="icon"></span>
+    <span><strong data-slot="actor"></strong> <span data-slot="body"></span> <span data-slot="time" style="cursor:default"></span></span>
+  </div>
+</template>
+
+<template id="tmpl-ir-timeline-comment">
+  <div class="timeline-item">
+    <div class="timeline-avatar" data-slot="avatar" style="background:none;border:none"></div>
+    <div class="timeline-comment">
+      <div class="timeline-comment-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span><strong data-slot="author"></strong> commented <span data-slot="time" style="cursor:default"></span></span>
+        <span data-slot="actions" style="display:flex;gap:4px"></span>
+      </div>
+      <div class="timeline-comment-body markdown-body" data-slot="body"></div>
+      <div data-slot="reactions"></div>
+    </div>
+  </div>
+</template>
+
+<template id="tmpl-ir-comment-edit">
+  <div>
+    <textarea data-slot="textarea" rows="4" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:13px;font-family:inherit"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end">
+      <button type="button" class="btn btn-sm" data-action="cancel">Cancel</button>
+      <button type="button" class="btn btn-sm btn-primary" data-action="save">Save</button>
+    </div>
+  </div>
+</template>
+
+<template id="tmpl-ir-add-relation-dialog">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--header-bg);border:1px solid var(--border);border-radius:8px;padding:16px;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,0.3);min-width:300px">
+    <div style="font-weight:600;margin-bottom:12px">Add Dependency</div>
+    <div style="margin-bottom:8px">
+      <label style="font-size:12px;color:var(--text-secondary)">Type</label>
+      <select id="ir-rel-type" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px">
+        <option value="blocks">This issue blocks...</option>
+        <option value="blocked_by">This issue is blocked by...</option>
+        <option value="related_to">Related to...</option>
+      </select>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--text-secondary)">Issue number (e.g. 42)</label>
+      <input type="text" id="ir-rel-target" placeholder="#" style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button type="button" class="btn btn-sm" data-action="cancel">Cancel</button>
+      <button type="button" class="btn btn-sm btn-primary" data-action="add">Add</button>
+    </div>
+  </div>
+</template>
+
+<template id="tmpl-ir-emoji-picker">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--header-bg);border:1px solid var(--border);border-radius:8px;padding:12px;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,0.3)">
+    <div data-slot="options"></div>
+    <div style="text-align:center;margin-top:8px"><button type="button" class="btn btn-sm" data-action="close">Close</button></div>
+  </div>
+</template>

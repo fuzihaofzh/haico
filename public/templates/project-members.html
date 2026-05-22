@@ -1,0 +1,20 @@
+<template id="tmpl-project-member-item">
+  <div class="project-member-item">
+    <div class="project-member-main">
+      <div class="project-member-name-row">
+        <strong data-slot="display-name"></strong>
+        <span data-slot="permission-badge"></span>
+      </div>
+      <div class="project-member-meta" data-slot="meta"></div>
+    </div>
+    <div class="project-member-actions" style="display:flex;align-items:center;gap:8px;">
+      <span class="project-member-static" data-slot="role-static" style="display:none"></span>
+      <select class="member-role-select" data-slot="role-select" style="padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">
+        <option value="member">Read Only</option>
+        <option value="editor">Editor</option>
+        <option value="owner">Owner</option>
+      </select>
+      <button type="button" class="btn btn-sm" data-slot="remove-button" style="color:var(--error)">Remove</button>
+    </div>
+  </div>
+</template>

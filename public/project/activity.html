@@ -101,6 +101,28 @@
   </div>
 
 
+  <template id="tmpl-activity-issue">
+    <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span data-slot="icon" style="flex-shrink:0"></span>
+      <div><strong data-slot="actor"></strong> <span data-slot="action"></span> issue <strong data-slot="number"></strong> <span data-slot="title"></span> <span data-slot="time" style="color:var(--text-secondary)"></span></div>
+    </div>
+  </template>
+
+  <template id="tmpl-activity-comment">
+    <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span data-slot="icon" style="color:var(--text-secondary);flex-shrink:0">💬</span>
+      <div><strong data-slot="actor"></strong> commented on <strong data-slot="number"></strong> <span data-slot="title"></span> <span data-slot="time" style="color:var(--text-secondary)"></span>
+        <div data-slot="preview" style="font-size:12px;color:var(--text-secondary);margin-top:2px"></div>
+      </div>
+    </div>
+  </template>
+
+  <template id="tmpl-activity-agent-run">
+    <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span data-slot="icon" style="flex-shrink:0">⚡</span>
+      <div>Agent <strong data-slot="name"></strong> <span data-slot="status-text"></span> <span data-slot="time" style="color:var(--text-secondary)"></span></div>
+    </div>
+  </template>
 
   <script src="/public/vendor/marked.js"></script>
   <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
@@ -110,7 +132,7 @@
   <script src="/public/js/shared/command-profiles.js?v=3"></script>
 
   <script src="/public/js/pages/project/shell.js?v=1"></script>
-  <script src="/public/js/pages/project/members.js?v=1"></script>
+  <script src="/public/js/pages/project/members.js?v=2"></script>
   <script src="/public/js/pages/project/activity.js?v=1"></script>
 </body>
 </html>

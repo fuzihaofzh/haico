@@ -121,6 +121,39 @@
   </div>
 
 
+  <template id="tmpl-workflow-graph-summary">
+    <div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-top:8px"></div>
+  </template>
+
+  <template id="tmpl-workflow-activity-item">
+    <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+      <span data-slot="icon"></span>
+      <div>
+        <span data-slot="actor-prefix"><strong data-slot="actor"></strong> <span data-slot="action"></span> </span>
+        <span data-slot="agent-prefix">Agent <strong data-slot="agent-name"></strong> <span data-slot="agent-status"></span> </span>
+        <a data-slot="issue-link" href="#" style="color:var(--link)"></a>
+        <span data-slot="title"></span>
+        <span data-slot="time" style="color:var(--text-secondary)"></span>
+      </div>
+    </div>
+  </template>
+
+  <template id="tmpl-workflow-approval-card">
+    <div class="approval-card" style="border:1px solid;border-left:3px solid;border-radius:6px;padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+        <div>
+          <strong data-slot="title" style="font-size:13px"></strong>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">Agent: <span data-slot="agent-name"></span> · Risk: <span data-slot="risk" style="font-weight:600"></span> · <span data-slot="time"></span></div>
+        </div>
+      </div>
+      <div data-slot="description" style="font-size:12px;color:var(--fg);margin-bottom:8px"></div>
+      <div style="display:flex;gap:6px">
+        <button type="button" class="btn btn-sm btn-primary" data-action="approve">Approve</button>
+        <button type="button" class="btn btn-sm btn-danger" data-action="reject">Reject</button>
+      </div>
+    </div>
+  </template>
+
 
   <script src="/public/vendor/marked.js"></script>
   <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
@@ -131,7 +164,7 @@
   <script src="/public/js/components/treasury-workflow.js?v=1"></script>
 
   <script src="/public/js/pages/project/shell.js?v=1"></script>
-  <script src="/public/js/pages/project/members.js?v=1"></script>
+  <script src="/public/js/pages/project/members.js?v=2"></script>
   <script src="/public/js/pages/project/workflow.js?v=1"></script>
 </body>
 </html>

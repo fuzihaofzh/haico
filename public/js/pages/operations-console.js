@@ -205,6 +205,24 @@
     return OPS_STATE.lanes.find((lane) => lane.id === OPS_STATE.selectedLaneId) || OPS_STATE.lanes[0] || null;
   }
 
+  function cloneTemplateRoot(id) {
+    const template = document.getElementById(id);
+    return template.content.firstElementChild.cloneNode(true);
+  }
+
+  function cloneTemplateFragment(id) {
+    return document.getElementById(id).content.cloneNode(true);
+  }
+
+  function slot(root, name) {
+    return root.querySelector(`[data-slot="${name}"]`);
+  }
+
+  function setText(root, name, value) {
+    const node = slot(root, name);
+    if (node) node.textContent = value == null ? '' : String(value);
+  }
+
   function riskToneClass(level) {
     return level === 'critical' ? 'critical' : level === 'high' ? 'high' : level === 'watch' ? 'watch' : 'stable';
   }
@@ -240,13 +258,13 @@
       { label: 'Live weather mesh', value: `${Math.round(metrics.reduce((sum, entry) => sum + entry.lane.weather.severity, 0) / metrics.length)} / 100`, footnote: 'Automatic weather pulses refresh every 9 seconds' },
     ];
 
-    document.getElementById('ops-summary-grid').innerHTML = items.map((item) => `
-      <div class="summary-card">
-        <div class="metric-label">${item.label}</div>
-        <div class="summary-value">${item.value}</div>
-        <div class="summary-footnote">${item.footnote}</div>
-      </div>
-    `).join('');
+    document.getElementById('ops-summary-grid').replaceChildren(...items.map((item) => {
+      const card = cloneTemplateRoot('tmpl-ops-summary-card');
+      setText(card, 'label', item.label);
+      setText(card, 'value', item.value);
+      setText(card, 'footnote', item.footnote);
+      return card;
+    }));
   }
 
   function renderLaneList() {
@@ -258,41 +276,27 @@
       return true;
     });
 
-    list.innerHTML = filtered.map((lane) => {
+    list.replaceChildren(...filtered.map((lane) => {
       const risk = computeRisk(lane);
       const customerLive = lane.customerUpdates.some((entry) => entry.status === 'live');
-      return `
-        <article class="lane-card ${lane.id === OPS_STATE.selectedLaneId ? 'active' : ''}" data-lane-id="${lane.id}">
-          <div class="lane-topline">
-            <span class="lane-id">${lane.id}</span>
-            <span class="risk-pill ${riskToneClass(risk.level)}">${riskLabel(risk.level)} risk</span>
-          </div>
-          <div class="lane-route">${lane.route}</div>
-          <div class="lane-subcopy">${lane.planner} · ${lane.dispatcher} · ${lane.mode}</div>
-          <div class="lane-score-row">
-            <div class="score-bubble ${riskToneClass(risk.level)}">${risk.score}</div>
-            <div class="lane-metrics">
-              <div class="metric-card">
-                <div class="metric-label">Weather</div>
-                <div class="metric-value">${lane.weather.severity}</div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-label">ETA drift</div>
-                <div class="metric-value">+${lane.eta.baseDelayMinutes}m</div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-label">Customer</div>
-                <div class="metric-value">${customerLive ? 'Live' : 'Internal'}</div>
-              </div>
-            </div>
-          </div>
-          <div class="lane-meta">
-            <span class="lane-footnote">${lane.weather.system}</span>
-            <span class="severity-pill ${riskToneClass(risk.level)}">${risk.rerouteReady ? 'Reroute ready' : 'Hold primary'}</span>
-          </div>
-        </article>
-      `;
-    }).join('');
+      const card = cloneTemplateRoot('tmpl-ops-lane-card');
+      card.dataset.laneId = lane.id;
+      card.classList.toggle('active', lane.id === OPS_STATE.selectedLaneId);
+      setText(card, 'id', lane.id);
+      setText(card, 'risk-label', `${riskLabel(risk.level)} risk`);
+      slot(card, 'risk-label').className = `risk-pill ${riskToneClass(risk.level)}`;
+      setText(card, 'route', lane.route);
+      setText(card, 'subcopy', `${lane.planner} · ${lane.dispatcher} · ${lane.mode}`);
+      setText(card, 'score', risk.score);
+      slot(card, 'score').className = `score-bubble ${riskToneClass(risk.level)}`;
+      setText(card, 'weather', lane.weather.severity);
+      setText(card, 'eta-drift', `+${lane.eta.baseDelayMinutes}m`);
+      setText(card, 'customer-state', customerLive ? 'Live' : 'Internal');
+      setText(card, 'weather-system', lane.weather.system);
+      setText(card, 'reroute-state', risk.rerouteReady ? 'Reroute ready' : 'Hold primary');
+      slot(card, 'reroute-state').className = `severity-pill ${riskToneClass(risk.level)}`;
+      return card;
+    }));
 
     Array.from(list.querySelectorAll('.lane-card')).forEach((card) => {
       card.addEventListener('click', () => {
@@ -316,103 +320,47 @@
     empty.style.display = 'none';
     detail.style.display = 'block';
 
-    detail.innerHTML = `
-      <div class="detail-header">
-        <div>
-          <div class="panel-eyebrow">Selected lane</div>
-          <h3 class="detail-title">${lane.route}</h3>
-          <div class="detail-subcopy">${lane.id} · ${lane.planner} planning · ${lane.dispatcher} dispatch · customer ${lane.customer}</div>
-        </div>
-        <div class="score-bubble ${riskToneClass(risk.level)}">${risk.score}</div>
-      </div>
+    const fragment = cloneTemplateFragment('tmpl-ops-detail');
+    setText(fragment, 'route', lane.route);
+    setText(fragment, 'subcopy', `${lane.id} · ${lane.planner} planning · ${lane.dispatcher} dispatch · customer ${lane.customer}`);
+    setText(fragment, 'score', risk.score);
+    slot(fragment, 'score').className = `score-bubble ${riskToneClass(risk.level)}`;
+    setText(fragment, 'committed-eta', `${String(lane.eta.committedHour).padStart(2, '0')}:${String(lane.eta.committedMinute).padStart(2, '0')}`);
+    setText(fragment, 'predicted-eta', risk.predictedArrival.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
+    setText(fragment, 'alternate-capacity', `${lane.ops.altCapacityPct}%`);
+    setText(fragment, 'fallback-lane', lane.fallbackLane);
+    setText(fragment, 'operational-pressure', `${lane.ops.hubLoadPct}% hub load`);
+    setText(fragment, 'operational-note', `${lane.ops.dwellMinutes} min dwell · ${lane.ops.driverHoursPct}% driver hours used`);
+    slot(fragment, 'breakdown-list').replaceChildren(...risk.breakdown.map(renderBreakdownItem));
+    setText(fragment, 'recommendation', risk.recommendation);
 
-      <div class="detail-grid">
-        <div class="detail-card">
-          <div class="detail-subheading">Committed ETA</div>
-          <strong>${String(lane.eta.committedHour).padStart(2, '0')}:${String(lane.eta.committedMinute).padStart(2, '0')}</strong>
-          <div class="detail-note">Carrier commitment before risk adjustments</div>
-        </div>
-        <div class="detail-card">
-          <div class="detail-subheading">Predicted ETA</div>
-          <strong>${risk.predictedArrival.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</strong>
-          <div class="detail-note">Live prediction after synced ETA notes</div>
-        </div>
-        <div class="detail-card">
-          <div class="detail-subheading">Alternate capacity</div>
-          <strong>${lane.ops.altCapacityPct}%</strong>
-          <div class="detail-note">${lane.fallbackLane}</div>
-        </div>
-        <div class="detail-card">
-          <div class="detail-subheading">Operational pressure</div>
-          <strong>${lane.ops.hubLoadPct}% hub load</strong>
-          <div class="detail-note">${lane.ops.dwellMinutes} min dwell · ${lane.ops.driverHoursPct}% driver hours used</div>
-        </div>
-      </div>
+    const rerouteButton = slot(fragment, 'reroute-button');
+    rerouteButton.disabled = !risk.rerouteReady;
+    rerouteButton.textContent = risk.rerouteReady ? 'Stage reroute plan' : 'Recovery buffers healthy';
 
-      <div class="breakdown-list">
-        ${risk.breakdown.map((entry) => `
-          <div class="breakdown-item">
-            <div class="detail-meta">
-              <strong style="font-size:15px">${entry.label}</strong>
-              <span class="panel-meta">${entry.value} pts</span>
-            </div>
-            <div class="breakdown-caption">${entry.caption}</div>
-            <div class="breakdown-bar">
-              <div class="breakdown-fill ${entry.key}" style="width:${clamp(entry.value, 8, 100)}%"></div>
-            </div>
-          </div>
-        `).join('')}
-      </div>
+    const customerFeedPill = slot(fragment, 'customer-feed-pill');
+    customerFeedPill.className = `sync-pill ${lane.carrierNote.customerVisible ? 'live' : 'watch'}`;
+    customerFeedPill.textContent = lane.carrierNote.customerVisible ? 'Customer feed live' : 'Customer feed internal';
+    setText(fragment, 'carrier-note', lane.carrierNote.text);
+    setText(fragment, 'carrier-meta', `From ${lane.carrierNote.author} · ${formatRelativeTime(lane.carrierNote.createdAt)} · currently +${lane.carrierNote.delayMinutes}m`);
 
-      <div class="recommendation-list">
-        <div class="recommendation-item">
-          <div class="detail-subheading">Reroute recommendation</div>
-          <strong style="font-size:16px">${risk.recommendation}</strong>
-          <div class="detail-note">The score combines weather pressure, ETA drift, dispatch friction, and recovery credit so route planners can explain every threshold crossing.</div>
-        </div>
-      </div>
-
-      <button type="button" class="reroute-button" id="reroute-button" ${risk.rerouteReady ? '' : 'disabled'}>${risk.rerouteReady ? 'Stage reroute plan' : 'Recovery buffers healthy'}</button>
-
-      <div class="composer-card">
-        <div class="sync-strip">
-          <span class="sync-pill live">Dispatch timeline</span>
-          <span class="sync-pill live">Route planning desk</span>
-          <span class="sync-pill ${lane.carrierNote.customerVisible ? 'live' : 'watch'}">${lane.carrierNote.customerVisible ? 'Customer feed live' : 'Customer feed internal'}</span>
-        </div>
-        <div class="detail-subheading">Latest carrier ETA note</div>
-        <p class="detail-subcopy" style="margin:8px 0 14px">${lane.carrierNote.text}</p>
-        <div class="detail-note">From ${lane.carrierNote.author} · ${formatRelativeTime(lane.carrierNote.createdAt)} · currently +${lane.carrierNote.delayMinutes}m</div>
-
-        <div class="note-form-grid" style="margin-top:14px">
-          <div class="note-input-group">
-            <label class="detail-subheading" for="eta-note-input">Add carrier ETA note</label>
-            <textarea id="eta-note-input" class="note-input" placeholder="Example: Carrier reports bridge icing east of Toledo and expects another 25 minute slip."></textarea>
-          </div>
-          <div class="note-input-group" style="flex:0 0 140px">
-            <label class="detail-subheading" for="eta-delay-input">Delay minutes</label>
-            <input id="eta-delay-input" class="delay-input" type="number" min="-30" max="240" step="5" value="${lane.eta.baseDelayMinutes}">
-          </div>
-          <div class="note-form-actions">
-            <label class="customer-toggle">
-              <input id="customer-visible-toggle" type="checkbox" ${lane.carrierNote.customerVisible ? 'checked' : ''}>
-              <span>Publish to customer feed</span>
-            </label>
-            <button type="button" class="sync-button" id="sync-note-button">Sync ETA note</button>
-          </div>
-        </div>
-
-        <div class="note-history-list">
-          <div class="note-history-item">
-            <div class="detail-subheading">Sync behavior</div>
-            <div class="detail-note">Each note updates dispatch timing, risk scoring, and customer visibility from the same action. No duplicate handoffs between teams.</div>
-          </div>
-        </div>
-      </div>
-    `;
+    fragment.getElementById('eta-delay-input').value = lane.eta.baseDelayMinutes;
+    fragment.getElementById('customer-visible-toggle').checked = lane.carrierNote.customerVisible;
+    detail.replaceChildren(fragment);
 
     document.getElementById('sync-note-button').addEventListener('click', syncSelectedLaneNote);
     document.getElementById('reroute-button').addEventListener('click', stageReroute);
+  }
+
+  function renderBreakdownItem(entry) {
+    const item = cloneTemplateRoot('tmpl-ops-breakdown-item');
+    setText(item, 'label', entry.label);
+    setText(item, 'value', `${entry.value} pts`);
+    setText(item, 'caption', entry.caption);
+    const fill = slot(item, 'fill');
+    fill.className = `breakdown-fill ${entry.key}`;
+    fill.style.width = `${clamp(entry.value, 8, 100)}%`;
+    return item;
   }
 
   function renderTimeline() {
@@ -425,19 +373,22 @@
       return;
     }
     status.textContent = `Last sync ${formatRelativeTime(lane.timeline[0]?.createdAt || Date.now())}`;
-    container.innerHTML = lane.timeline
+    container.replaceChildren(...lane.timeline
       .slice()
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map((entry) => `
-        <article class="timeline-item ${entry.flash ? 'flash' : ''}">
-          <div class="timeline-stamp">${formatShortTime(entry.createdAt)}<br>${formatRelativeTime(entry.createdAt)}</div>
-          <div class="timeline-body">
-            <div class="timeline-title">${entry.title}</div>
-            <div class="timeline-copy">${entry.body}</div>
-            <div class="alert-pill ${riskToneClass(entry.tone)}">${entry.actor}</div>
-          </div>
-        </article>
-      `).join('');
+      .map(renderTimelineItem));
+  }
+
+  function renderTimelineItem(entry) {
+    const item = cloneTemplateRoot('tmpl-ops-timeline-item');
+    item.classList.toggle('flash', entry.flash);
+    setText(item, 'short-time', formatShortTime(entry.createdAt));
+    setText(item, 'relative-time', formatRelativeTime(entry.createdAt));
+    setText(item, 'title', entry.title);
+    setText(item, 'body', entry.body);
+    setText(item, 'actor', entry.actor);
+    slot(item, 'actor').className = `alert-pill ${riskToneClass(entry.tone)}`;
+    return item;
   }
 
   function renderCustomerFeed() {
@@ -450,19 +401,22 @@
       return;
     }
     status.textContent = lane.carrierNote.customerVisible ? 'Customer sync is live' : 'Internal-only until published';
-    container.innerHTML = lane.customerUpdates
+    container.replaceChildren(...lane.customerUpdates
       .slice()
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map((entry) => `
-        <article class="customer-item ${entry.flash ? 'flash' : ''}">
-          <div class="customer-stamp">${formatShortTime(entry.createdAt)}<br>${formatRelativeTime(entry.createdAt)}</div>
-          <div class="customer-body">
-            <div class="customer-title">${entry.title}</div>
-            <div class="customer-copy">${entry.body}</div>
-            <div class="alert-pill ${entry.status === 'live' ? 'stable' : 'watch'}">${entry.status}</div>
-          </div>
-        </article>
-      `).join('');
+      .map(renderCustomerItem));
+  }
+
+  function renderCustomerItem(entry) {
+    const item = cloneTemplateRoot('tmpl-ops-customer-item');
+    item.classList.toggle('flash', entry.flash);
+    setText(item, 'short-time', formatShortTime(entry.createdAt));
+    setText(item, 'relative-time', formatRelativeTime(entry.createdAt));
+    setText(item, 'title', entry.title);
+    setText(item, 'body', entry.body);
+    setText(item, 'status', entry.status);
+    slot(item, 'status').className = `alert-pill ${entry.status === 'live' ? 'stable' : 'watch'}`;
+    return item;
   }
 
   function syncSelectedLaneNote() {

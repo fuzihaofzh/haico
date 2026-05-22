@@ -103,6 +103,60 @@
   </div>
 
 
+  <template id="tmpl-git-status-summary">
+    <div class="card" style="padding:14px 18px">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:10px">Repository Status</div>
+      <div data-slot="rows"></div>
+    </div>
+  </template>
+
+  <template id="tmpl-git-status-row">
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;flex-wrap:wrap">
+      <div data-slot="avatar" style="flex-shrink:0"></div>
+      <strong data-slot="agent-name"></strong>
+      <span data-slot="branch" style="background:var(--bg);padding:2px 8px;border-radius:10px;border:1px solid var(--border);font-family:monospace;font-size:11px"></span>
+      <div data-slot="last-commit" style="flex:1">
+        <code data-slot="commit-hash" style="color:var(--accent)"></code>
+        <span data-slot="commit-message"></span>
+        <span data-slot="commit-time" style="color:var(--text-secondary)"></span>
+        <span data-slot="no-commits" style="color:var(--text-secondary)">no commits</span>
+      </div>
+      <span data-slot="uncommitted" style="color:var(--warning);margin-left:12px"></span>
+    </div>
+  </template>
+
+  <template id="tmpl-git-commit-list">
+    <div>
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:10px;padding:0 4px">Recent Commits</div>
+      <div data-slot="rows"></div>
+    </div>
+  </template>
+
+  <template id="tmpl-git-commit-row">
+    <div style="display:flex;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border);font-size:13px;align-items:flex-start">
+      <span style="color:var(--success);flex-shrink:0;margin-top:2px">●</span>
+      <code data-slot="short-hash" style="color:var(--accent);flex-shrink:0;font-size:12px"></code>
+      <div style="flex:1;min-width:0">
+        <div data-slot="message" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px"><span data-slot="author"></span> <span data-slot="time" style="color:var(--text-secondary)"></span></div>
+      </div>
+    </div>
+  </template>
+
+  <template id="tmpl-git-uncommitted">
+    <div class="card" style="padding:14px 18px">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:10px">Uncommitted Changes</div>
+      <div data-slot="rows"></div>
+    </div>
+  </template>
+
+  <template id="tmpl-git-uncommitted-row">
+    <div style="display:flex;gap:8px;padding:4px 0;font-size:12px;font-family:monospace;border-bottom:1px solid var(--border)">
+      <span data-slot="status" style="width:20px;text-align:center;flex-shrink:0"></span>
+      <span data-slot="file"></span>
+    </div>
+  </template>
+
 
   <script src="/public/vendor/marked.js"></script>
   <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
@@ -112,7 +166,7 @@
   <script src="/public/js/shared/command-profiles.js?v=3"></script>
 
   <script src="/public/js/pages/project/shell.js?v=1"></script>
-  <script src="/public/js/pages/project/members.js?v=1"></script>
+  <script src="/public/js/pages/project/members.js?v=2"></script>
   <script src="/public/js/pages/project/git.js?v=1"></script>
 </body>
 </html>

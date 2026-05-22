@@ -7,31 +7,55 @@ async function loadActivity() {
 
     if (!events.length) { container.innerHTML = '<div class="empty-state">No activity yet.</div>'; return; }
 
-    container.innerHTML = events.map(e => {
-      const time = timeAgo(e.time);
-      if (e.event_type === 'issue') {
-        const icon = e.status === 'open' ? '●' : '✓';
-        const color = e.status === 'open' ? 'var(--success)' : (e.status === 'closed' ? 'var(--text-secondary)' : 'var(--accent)');
-        return `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
-          <span style="color:${color};flex-shrink:0">${icon}</span>
-          <div><strong>${esc(nameOf(e.actor))}</strong> ${e.status === 'open' ? 'opened' : 'updated'} issue <strong>#${e.number}</strong> ${esc(e.title)} <span style="color:var(--text-secondary)">${time}</span></div>
-        </div>`;
-      } else if (e.event_type === 'comment') {
-        return `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
-          <span style="color:var(--text-secondary);flex-shrink:0">💬</span>
-          <div><strong>${esc(nameOf(e.actor))}</strong> commented on <strong>#${e.issue_number}</strong> ${esc(e.issue_title)} <span style="color:var(--text-secondary)">${time}</span>
-          <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${esc((e.body || '').slice(0, 150))}</div></div>
-        </div>`;
-      } else if (e.event_type === 'agent_run') {
-        const color = e.agent_status === 'running' ? 'var(--success)' : (e.agent_status === 'error' ? 'var(--error)' : 'var(--text-secondary)');
-        return `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
-          <span style="color:${color};flex-shrink:0">⚡</span>
-          <div>Agent <strong>${esc(e.name)}</strong> [${e.agent_status}] <span style="color:var(--text-secondary)">${time}</span></div>
-        </div>`;
-      }
-      return '';
-    }).join('');
+    container.replaceChildren(...events.map(renderActivityEvent).filter(Boolean));
   } catch (e) { container.innerHTML = renderError(e, 'loadActivity()'); }
+}
+
+function cloneActivityTemplate(id) {
+  return document.getElementById(id).content.cloneNode(true).firstElementChild;
+}
+
+function safeText(value) {
+  return value || '';
+}
+
+function renderActivityEvent(e) {
+  const time = timeAgo(e.time);
+  if (e.event_type === 'issue') {
+    const icon = e.status === 'open' ? '●' : '✓';
+    const color = e.status === 'open' ? 'var(--success)' : (e.status === 'closed' ? 'var(--text-secondary)' : 'var(--accent)');
+    const row = cloneActivityTemplate('tmpl-activity-issue');
+    row.querySelector('[data-slot="icon"]').textContent = icon;
+    row.querySelector('[data-slot="icon"]').style.color = color;
+    row.querySelector('[data-slot="actor"]').textContent = nameOf(e.actor);
+    row.querySelector('[data-slot="action"]').textContent = e.status === 'open' ? 'opened' : 'updated';
+    row.querySelector('[data-slot="number"]').textContent = `#${e.number}`;
+    row.querySelector('[data-slot="title"]').textContent = safeText(e.title);
+    row.querySelector('[data-slot="time"]').textContent = time;
+    return row;
+  }
+
+  if (e.event_type === 'comment') {
+    const row = cloneActivityTemplate('tmpl-activity-comment');
+    row.querySelector('[data-slot="actor"]').textContent = nameOf(e.actor);
+    row.querySelector('[data-slot="number"]').textContent = `#${e.issue_number}`;
+    row.querySelector('[data-slot="title"]').textContent = safeText(e.issue_title);
+    row.querySelector('[data-slot="time"]').textContent = time;
+    row.querySelector('[data-slot="preview"]').textContent = safeText(e.body).slice(0, 150);
+    return row;
+  }
+
+  if (e.event_type === 'agent_run') {
+    const color = e.agent_status === 'running' ? 'var(--success)' : (e.agent_status === 'error' ? 'var(--error)' : 'var(--text-secondary)');
+    const row = cloneActivityTemplate('tmpl-activity-agent-run');
+    row.querySelector('[data-slot="icon"]').style.color = color;
+    row.querySelector('[data-slot="name"]').textContent = safeText(e.name);
+    row.querySelector('[data-slot="status-text"]').textContent = `[${e.agent_status}]`;
+    row.querySelector('[data-slot="time"]').textContent = time;
+    return row;
+  }
+
+  return null;
 }
 
 // ─── Git Tab ───
