@@ -93,6 +93,9 @@ describe('Frontend UI English copy (#540)', () => {
 
     assert.ok(dashboardHtml.includes('Search issues...'));
     assert.ok(dashboardHtml.includes('Create New Project'));
+    assert.ok(dashboardHtml.includes('Browser Notifications'));
+    assert.ok(dashboardHtml.includes('Sound Alerts'));
+    assert.equal(dashboardHtml.includes('Notification Sound'), false);
     assert.ok(projectHtml.includes('Sharing'));
     assert.ok(projectHtml.includes('Project Members &amp; Sharing'));
     assert.equal(projectHtml.includes('Share Settings'), false);
@@ -106,6 +109,31 @@ describe('Frontend UI English copy (#540)', () => {
     assert.ok(dashboardProjectStoreJs.includes('haico.dashboard.projects.v1'));
     assert.ok(projectJs.includes('No knowledge entries yet.'));
     assert.ok(projectNewJs.includes('No Agent Tool is configured yet.'));
+  });
+
+  it('notification permission and sound controls stay decoupled', () => {
+    const commonJs = fs.readFileSync(
+      path.join(jsDir, 'shared', 'common.js'),
+      'utf-8'
+    );
+    const dashboardInboxJs = fs.readFileSync(
+      path.join(jsDir, 'pages', 'dashboard-inbox.js'),
+      'utf-8'
+    );
+    const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings.html']
+      .map((name) => fs.readFileSync(path.join(publicDir, name), 'utf-8'))
+      .join('\n');
+    const agentHtml = fs.readFileSync(path.join(publicDir, 'agent.html'), 'utf-8');
+    const issueHtml = fs.readFileSync(path.join(publicDir, 'issue.html'), 'utf-8');
+
+    assert.equal(commonJs.includes("Notification.permission === 'default') {\n  Notification.requestPermission();"), false);
+    assert.equal(dashboardInboxJs.includes('notif-permission-btn'), false);
+    assert.equal(dashboardHtml.includes('id="browser-notification-request-btn"'), true);
+    assert.equal(dashboardHtml.includes('settings-sound-toggle'), true);
+    assert.equal(dashboardHtml.includes('Notification Sound'), false);
+    assert.equal(agentHtml.includes('Notification Sound'), false);
+    assert.equal(issueHtml.includes('Notification Sound'), false);
+    assert.equal(commonJs.includes('topbar-sound-toggle'), true);
   });
 
   it('dashboard pages avoid page-specific inline event handlers', () => {

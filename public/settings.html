@@ -59,18 +59,34 @@
           <div class="settings-card-header">
             <div>
               <h3>Notifications And Account</h3>
-              <p>Control alerts and access common account actions.</p>
+              <p>Control browser alerts and access common account actions.</p>
             </div>
           </div>
           <div class="settings-section settings-section-page">
             <div class="setting-group">
-              <label class="toggle-label">
-                Notification Sound
-                <button type="button" class="toggle-switch notif-sound-toggle" onclick="toggleNotificationSound()">
-                  <span class="toggle-knob"></span>
+              <label>Browser Notifications</label>
+              <div class="browser-notification-control">
+                <div>
+                  <div class="browser-notification-status" id="browser-notification-status">Not requested</div>
+                  <div class="settings-help" id="browser-notification-detail">Allow HAICO to show system notifications for new actionable work.</div>
+                </div>
+                <button type="button" class="btn btn-sm" id="browser-notification-request-btn">Enable Browser Notifications</button>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <label>Sound Alerts</label>
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-copy">
+                  <div class="settings-toggle-title">Play notification sound</div>
+                  <div class="settings-help">Play a short sound when new actionable work arrives. This is independent of browser notification permission.</div>
+                </div>
+                <button type="button" class="notif-sound-toggle settings-sound-toggle" onclick="toggleNotificationSound()">
+                  <span class="settings-sound-toggle-track" aria-hidden="true">
+                    <span class="settings-sound-toggle-knob"></span>
+                  </span>
                 </button>
-              </label>
-              <div class="settings-help">Play a short alert when new actionable work arrives.</div>
+              </div>
             </div>
 
             <div class="setting-group">

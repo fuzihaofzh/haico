@@ -1472,51 +1472,6 @@ function showBrowserNotification(newItems) {
   } catch (_) { /* silent */ }
 }
 
-function requestNotificationPermission() {
-  if (!('Notification' in window)) return;
-  Notification.requestPermission().then(function () {
-    updateNotifPermissionBtn();
-  });
-}
-
-function updateNotifPermissionBtn() {
-  const btn = document.getElementById('notif-permission-btn');
-  if (!btn) return;
-  if (!('Notification' in window)) {
-    btn.style.display = 'none';
-    return;
-  }
-  if (Notification.permission === 'granted') {
-    btn.textContent = '🔔 Notifications On';
-    btn.disabled = true;
-    btn.title = 'Browser notifications enabled';
-    btn.classList.add('notif-perm-granted');
-  } else if (Notification.permission === 'denied') {
-    btn.textContent = '🔕 Blocked';
-    btn.disabled = true;
-    btn.title = 'Browser notifications blocked — enable in browser settings';
-    btn.classList.add('notif-perm-denied');
-  } else {
-    btn.textContent = '🔔 Enable Notifications';
-    btn.disabled = false;
-    btn.title = 'Click to enable browser notifications';
-    btn.classList.remove('notif-perm-granted', 'notif-perm-denied');
-  }
-}
-
-function initNotifPermissionBtn() {
-  if (!('Notification' in window)) return;
-  const toolbarRight = document.querySelector('#notifications-panel .mail-toolbar-right');
-  if (!toolbarRight) return;
-  const btn = document.createElement('button');
-  btn.id = 'notif-permission-btn';
-  btn.className = 'btn btn-sm';
-  btn.style.marginRight = '4px';
-  btn.addEventListener('click', requestNotificationPermission);
-  toolbarRight.insertBefore(btn, toolbarRight.firstChild);
-  updateNotifPermissionBtn();
-}
-
 function syncInboxMobilePane() {
   const panel = getInboxNotificationsPanel();
   if (!panel) return;
@@ -1583,7 +1538,6 @@ async function initInboxPage() {
   await initDashboardPage('inbox');
   await refreshInboxPage();
   initMailResizer();
-  initNotifPermissionBtn();
   startInboxPolling();
   setupDashboardWS(refreshInboxPage);
 }

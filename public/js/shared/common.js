@@ -20,6 +20,10 @@ async function initUserMenu() {
   const headerRight = document.querySelector('.header-right') || document.querySelector('header');
   if (!headerRight) return;
 
+  const soundToggle = createNotificationSoundToggle();
+  headerRight.appendChild(soundToggle);
+  syncNotificationSoundToggles();
+
   const menu = document.createElement('div');
   menu.className = 'user-menu';
   const initials = (_currentUser.display_name || _currentUser.username || '?').charAt(0).toUpperCase();
@@ -636,12 +640,72 @@ async function logout() {
   window.location.href = '/login';
 }
 
-// Request notification permission
-if ('Notification' in window && Notification.permission === 'default') {
-  Notification.requestPermission();
+// ─── Browser Notifications ───
+
+function getBrowserNotificationPermission() {
+  if (!('Notification' in window)) return 'unsupported';
+  return Notification.permission || 'default';
 }
 
-// ─── Notification Sound ───
+function updateBrowserNotificationPermissionControls() {
+  const statusEl = document.getElementById('browser-notification-status');
+  const detailEl = document.getElementById('browser-notification-detail');
+  const btn = document.getElementById('browser-notification-request-btn');
+  if (!statusEl || !detailEl || !btn) return;
+
+  const state = getBrowserNotificationPermission();
+  const configs = {
+    unsupported: {
+      label: 'Unsupported',
+      detail: 'This browser does not support system notifications.',
+      button: 'Unavailable',
+      disabled: true,
+    },
+    default: {
+      label: 'Not requested',
+      detail: 'Allow HAICO to show system notifications for new actionable work.',
+      button: 'Enable Browser Notifications',
+      disabled: false,
+    },
+    granted: {
+      label: 'Allowed',
+      detail: 'Browser notifications are enabled for this site.',
+      button: 'Enabled',
+      disabled: true,
+    },
+    denied: {
+      label: 'Blocked',
+      detail: 'Notifications are blocked. Enable them in your browser site settings.',
+      button: 'Blocked',
+      disabled: true,
+    },
+  };
+  const config = configs[state] || configs.default;
+  statusEl.textContent = config.label;
+  statusEl.dataset.state = state;
+  detailEl.textContent = config.detail;
+  btn.textContent = config.button;
+  btn.disabled = config.disabled;
+  btn.dataset.state = state;
+}
+
+function requestBrowserNotificationPermission() {
+  if (!('Notification' in window) || Notification.permission !== 'default') {
+    updateBrowserNotificationPermissionControls();
+    return;
+  }
+  Notification.requestPermission().then(function() {
+    updateBrowserNotificationPermissionControls();
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const btn = document.getElementById('browser-notification-request-btn');
+  if (btn) btn.addEventListener('click', requestBrowserNotificationPermission);
+  updateBrowserNotificationPermissionControls();
+});
+
+// ─── Sound Alerts ───
 
 // Web Audio API notification sound (short "ding")
 let _notifAudioCtx = null;
@@ -686,8 +750,7 @@ function _playDingSound(ctx) {
 }
 
 function playNotificationSound() {
-  // Check setting
-  if (localStorage.getItem('haico-notification-sound') === 'off') return;
+  if (!isNotificationSoundEnabled()) return;
 
   // Throttle: no more than once per 5 seconds
   var now = Date.now();
@@ -713,22 +776,57 @@ function playNotificationSound() {
   }
 }
 
+function isNotificationSoundEnabled() {
+  return localStorage.getItem('haico-notification-sound') !== 'off';
+}
+
+function setNotificationSoundEnabled(enabled) {
+  localStorage.setItem('haico-notification-sound', enabled ? 'on' : 'off');
+  syncNotificationSoundToggles();
+}
+
 function toggleNotificationSound() {
-  const current = localStorage.getItem('haico-notification-sound') !== 'off';
-  const newVal = current ? 'off' : 'on';
-  localStorage.setItem('haico-notification-sound', newVal);
-  // Update all toggles on the page
+  const nextEnabled = !isNotificationSoundEnabled();
+  setNotificationSoundEnabled(nextEnabled);
+  if (nextEnabled) _unlockAudioCtx();
+}
+
+function syncNotificationSoundToggles() {
+  const isOn = isNotificationSoundEnabled();
   document.querySelectorAll('.notif-sound-toggle').forEach(function(el) {
-    el.classList.toggle('on', newVal === 'on');
+    el.classList.toggle('on', isOn);
+    el.classList.toggle('muted', !isOn);
+    el.setAttribute('aria-pressed', String(!isOn));
+    el.setAttribute('aria-label', isOn ? 'Mute notification sound' : 'Unmute notification sound');
+    el.title = isOn ? 'Mute notification sound' : 'Unmute notification sound';
   });
 }
 
-// Init notification sound toggles on page load
+function createNotificationSoundToggle() {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'notif-sound-toggle topbar-sound-toggle';
+  btn.innerHTML = `
+    <span class="sound-toggle-track" aria-hidden="true">
+      <svg class="sound-icon sound-icon-on" viewBox="0 0 24 24">
+        <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
+        <path d="M16 8.5a5 5 0 0 1 0 7"></path>
+        <path d="M18.5 6a8 8 0 0 1 0 12"></path>
+      </svg>
+      <svg class="sound-icon sound-icon-off" viewBox="0 0 24 24">
+        <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
+        <path d="M17 9l4 4"></path>
+        <path d="M21 9l-4 4"></path>
+      </svg>
+      <span class="sound-toggle-knob"></span>
+    </span>
+  `;
+  btn.addEventListener('click', toggleNotificationSound);
+  return btn;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
-  const isOn = localStorage.getItem('haico-notification-sound') !== 'off';
-  document.querySelectorAll('.notif-sound-toggle').forEach(function(el) {
-    el.classList.toggle('on', isOn);
-  });
+  syncNotificationSoundToggles();
 });
 
 // Init theme
