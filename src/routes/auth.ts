@@ -1,6 +1,8 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest } from 'fastify';
 import { getDatabase } from '../db/database';
 import { buildAuthCookie, buildClearAuthCookie, COOKIE_NAME, parseCookies } from '../services/auth/cookies';
+import { createDefaultAdminLogin } from '../services/auth/default-admin';
+import { DefaultAdminLoginLocalhostOnlyError } from '../services/auth/errors';
 import { createSession, deleteSessionByToken } from '../services/auth/sessions';
 import {
   authenticateUser,
@@ -13,6 +15,17 @@ import {
   updateUserRole,
   validateRegistrationInput,
 } from '../services/auth/users';
+
+function isLocalhostAddress(address: string | undefined): boolean {
+  return address === '127.0.0.1'
+    || address === '::1'
+    || address === '::ffff:127.0.0.1';
+}
+
+function ensureLocalhostRequest(request: FastifyRequest): void {
+  if (isLocalhostAddress(request.ip) || isLocalhostAddress(request.socket.remoteAddress)) return;
+  throw new DefaultAdminLoginLocalhostOnlyError();
+}
 
 export function registerAuthRoutes(app: FastifyInstance): void {
   app.post('/auth/change-password', async (request, reply) => {
@@ -81,6 +94,24 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     if (!user) return reply.status(401).send({ error: 'Invalid username or password' });
 
     const session = createSession(db, user.id);
+    reply.header('Set-Cookie', buildAuthCookie(session.token));
+    return {
+      ok: true,
+      token: session.token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        display_name: user.display_name,
+        role: user.role,
+      },
+    };
+  });
+
+  app.post('/auth/default-admin-login', async (request, reply) => {
+    ensureLocalhostRequest(request);
+
+    const { session, user } = createDefaultAdminLogin(getDatabase());
     reply.header('Set-Cookie', buildAuthCookie(session.token));
     return {
       ok: true,

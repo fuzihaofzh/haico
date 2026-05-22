@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../db/database';
+import { isDefaultAdminEnabled } from '../services/auth/default-admin';
 import { hasAnyUsers } from '../services/auth/users';
 import {
   authenticateRemoteInstance,
@@ -333,13 +334,21 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return sendRemoteInstancesPartial(reply, { isAdmin: true, notice: 'Remote instance deleted' });
   });
 
-  fastify.get('/login', async (_request, reply) => {
+  fastify.get('/login', async (request, reply) => {
     let usersConfigured = false;
     try {
       usersConfigured = hasAnyUsers(getDatabase());
     } catch {}
     if (!usersConfigured) return reply.redirect('/register');
+    const manual = (request.query as { manual?: string | string[] } | null)?.manual;
+    const manualLogin = Array.isArray(manual) ? manual[0] === '1' : manual === '1';
+    if (isDefaultAdminEnabled() && !manualLogin) return reply.redirect('/auto-login');
     return reply.type('text/html').send(serveHtml('login.html'));
+  });
+
+  fastify.get('/auto-login', async (_request, reply) => {
+    if (!isDefaultAdminEnabled()) return reply.redirect('/login');
+    return reply.type('text/html').send(serveHtml('auto-login.html'));
   });
 
   fastify.get('/register', async (_request, reply) => {

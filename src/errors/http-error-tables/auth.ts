@@ -1,5 +1,7 @@
 import {
   AuthenticationRequiredError,
+  DefaultAdminLoginDisabledError,
+  DefaultAdminLoginLocalhostOnlyError,
   NoAuthenticationConfiguredError,
 } from '../../services/auth/errors';
 import type { ErrorHttpEntry } from '../http-error-types';
@@ -12,5 +14,13 @@ export const authErrorHttpEntries = [
   [
     NoAuthenticationConfiguredError,
     (error) => ({ statusCode: 401, message: error.message, redirect: '/register' }),
+  ],
+  [
+    DefaultAdminLoginDisabledError,
+    (error) => ({ statusCode: 403, message: error.message }),
+  ],
+  [
+    DefaultAdminLoginLocalhostOnlyError,
+    (error) => ({ statusCode: 403, message: error.message }),
   ],
 ] satisfies readonly ErrorHttpEntry[];

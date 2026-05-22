@@ -51,15 +51,25 @@ function getUserForToken(token: string): User | null {
   }
 }
 
+function getPathname(url: string): string {
+  try {
+    return new URL(url, 'http://haico.local').pathname;
+  } catch {
+    return url.split('?')[0] || '/';
+  }
+}
+
 function isPublicAuthRoute(url: string): boolean {
-  return url === '/login'
-    || url === '/register'
-    || url.startsWith('/api/auth')
-    || url === '/favicon.ico'
-    || url.startsWith('/public/')
-    || url.startsWith('/css/')
-    || url.startsWith('/js/')
-    || url.startsWith('/vendor/');
+  const pathname = getPathname(url);
+  return pathname === '/login'
+    || pathname === '/auto-login'
+    || pathname === '/register'
+    || pathname.startsWith('/api/auth')
+    || pathname === '/favicon.ico'
+    || pathname.startsWith('/public/')
+    || pathname.startsWith('/css/')
+    || pathname.startsWith('/js/')
+    || pathname.startsWith('/vendor/');
 }
 
 export function setupAuth(app: FastifyInstance): void {

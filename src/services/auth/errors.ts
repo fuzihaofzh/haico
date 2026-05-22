@@ -11,3 +11,17 @@ export class NoAuthenticationConfiguredError extends Error {
     this.name = 'NoAuthenticationConfiguredError';
   }
 }
+
+export class DefaultAdminLoginDisabledError extends Error {
+  constructor() {
+    super('Default admin login is not enabled');
+    this.name = 'DefaultAdminLoginDisabledError';
+  }
+}
+
+export class DefaultAdminLoginLocalhostOnlyError extends Error {
+  constructor() {
+    super('Default admin login is only available from localhost');
+    this.name = 'DefaultAdminLoginLocalhostOnlyError';
+  }
+}

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HAICO - Auto Login</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="stylesheet" href="/public/css/auth.css">
+  <script defer src="/public/vendor/htmx.min.js"></script>
+  <script type="module" src="/public/js/pages/auth-pages.js"></script>
+</head>
+<body>
+  <div class="card">
+    <h1><span>HAICO</span></h1>
+    <p class="subtitle">Default admin login is enabled.</p>
+    <form id="auto-login-form" class="auth-form" data-auth-action="login" hx-post="/api/auth/default-admin-login" hx-swap="none">
+      <button type="submit" autofocus>Login as Default Admin</button>
+      <div class="error" id="error"></div>
+      <div class="success" id="success"></div>
+      <p class="auth-link"><a href="/login?manual=1">Password login</a></p>
+    </form>
+  </div>
+</body>
+</html>
