@@ -14,7 +14,10 @@ async function loadKnowledge() {
       return;
     }
     const list = cloneKnowledgeTemplate('tmpl-knowledge-list');
-    list.querySelector('[data-slot="entries"]').replaceChildren(...entries.map((entry) => renderKnowledgeEntry(entry, canManage)));
+    const entriesSlot = list.matches('[data-slot="entries"]')
+      ? list
+      : list.querySelector('[data-slot="entries"]');
+    entriesSlot.replaceChildren(...entries.map((entry) => renderKnowledgeEntry(entry, canManage)));
     el.replaceChildren(list);
   } catch (e) { el.innerHTML = renderError(e, 'loadKnowledge()'); }
 }
