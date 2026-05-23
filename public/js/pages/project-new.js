@@ -209,7 +209,7 @@ function renderMissingProfileState() {
       tone: 'error',
       title: 'Agent Tool',
       detail: 'No Agent Tool is configured yet. Open <strong>Settings</strong>, add one, then come back here.',
-      action: '<a class="btn btn-sm" href="/settings">Open Settings</a>',
+      action: '<a class="btn btn-sm" href="/settings/agent-tools">Open Settings</a>',
     }),
     renderCheck({
       tone: 'warn',
@@ -250,7 +250,7 @@ function renderReadiness(profile, readiness) {
     title: issue.title,
     detail: `${esc(issue.detail)}${issue.action_command ? ` Suggested command: <span class="create-project-inline-code">${esc(issue.action_command)}</span>` : ''}`,
     action: issue.action_label === 'Open Settings'
-      ? '<a class="btn btn-sm" href="/settings">Open Settings</a>'
+      ? '<a class="btn btn-sm" href="/settings/agent-tools">Open Settings</a>'
       : '',
   }));
 

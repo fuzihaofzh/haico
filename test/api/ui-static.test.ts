@@ -56,7 +56,7 @@ describe('Frontend UI English copy (#540)', () => {
   });
 
   it('representative UI strings are translated to English', () => {
-    const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings.html', 'projects-new.html']
+    const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings/general.html', 'settings/agent-tools.html', 'projects-new.html']
       .map((name) => fs.readFileSync(path.join(publicDir, name), 'utf-8'))
       .join('\n');
     const projectHtml = ['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow', 'sharing']
@@ -124,7 +124,7 @@ describe('Frontend UI English copy (#540)', () => {
       path.join(jsDir, 'pages', 'dashboard-inbox.js'),
       'utf-8'
     );
-    const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings.html']
+    const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings/general.html']
       .map((name) => fs.readFileSync(path.join(publicDir, name), 'utf-8'))
       .join('\n');
     const agentHtml = fs.readFileSync(path.join(publicDir, 'agent.html'), 'utf-8');

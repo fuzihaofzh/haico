@@ -1,4 +1,4 @@
-import { initDashboardPage, invalidateDashboardProjects } from './dashboard-core.js';
+import { initDashboardPage, invalidateDashboardProjects } from '../dashboard-core.js';
 
 let accountSummaryRendered = false;
 
@@ -81,15 +81,12 @@ function bindSettingsEvents() {
   });
 }
 
-async function initSettingsPage() {
+async function initSettingsGeneralPage() {
   bindSettingsEvents();
   await initDashboardPage('settings');
   await loadAccountSummary();
-  if (window.HAICOCommandProfiles && typeof window.HAICOCommandProfiles.ensureLoaded === 'function') {
-    await window.HAICOCommandProfiles.ensureLoaded();
-  }
 }
 
-initSettingsPage().catch((error) => {
+initSettingsGeneralPage().catch((error) => {
   console.error('Failed to initialize settings dashboard', error);
 });

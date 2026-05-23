@@ -622,6 +622,30 @@ header h1 span { color: var(--accent); }
   font-size: 13px;
 }
 
+.settings-section-nav {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.settings-section-nav a {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.settings-section-nav a.active,
+.settings-section-nav a[aria-current="page"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--selected-bg);
+}
+
 .settings-page-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

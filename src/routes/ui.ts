@@ -172,7 +172,11 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
   });
 
   fastify.get('/settings', async (_request, reply) => {
-    return reply.type('text/html').send(serveHtml('settings.html'));
+    return reply.type('text/html').send(serveHtml('settings/general.html'));
+  });
+
+  fastify.get('/settings/agent-tools', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('settings/agent-tools.html'));
   });
 
   function sendRemoteInstancesPartial(reply: any, options: {

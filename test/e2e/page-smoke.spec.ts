@@ -33,8 +33,16 @@ test.describe('page smoke checks', () => {
 
     await page.goto('/settings');
     await expect(page.locator('#settings-view-panel')).toBeVisible();
-    await expect(page.locator('[data-command-profiles-root]').first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'General' })).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('#remote-instances-settings')).toBeVisible();
+    await expect(page.getByText('Browser Notifications')).toBeVisible();
     await expect(page.getByRole('link', { name: '+ New Project' })).toHaveAttribute('href', '/projects/new');
+    await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'settings');
+
+    await page.goto('/settings/agent-tools');
+    await expect(page.locator('#settings-view-panel')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Agent Tools' })).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('[data-command-profiles-root]').first()).toBeVisible();
     await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'settings');
 
     await page.goto('/projects/new');

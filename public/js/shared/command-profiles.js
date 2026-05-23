@@ -1,13 +1,9 @@
 (function() {
   const CUSTOM_PROFILE_VALUE = '__custom__';
-  const PROFILE_TYPE_OPTIONS = [
-    { value: 'claude', label: 'Claude' },
-    { value: 'codex', label: 'Codex' },
-    { value: 'gemini', label: 'Gemini' },
-  ];
   let commandProfiles = [];
   let profilesLoaded = false;
   let profilesLoading = false;
+  let loadingPromise = null;
   let loadError = '';
 
   function ready(fn) {
@@ -18,116 +14,6 @@
     fn();
   }
 
-  function renderDrawerManagers() {
-    const roots = document.querySelectorAll('[data-command-profiles-root]');
-    if (!roots.length) return;
-
-    roots.forEach((root) => {
-      root.innerHTML = buildDrawerManagerHtml();
-    });
-  }
-
-  function buildDrawerManagerHtml() {
-    const rowsHtml = commandProfiles.length
-      ? commandProfiles.map((profile) => renderProfileRow(profile)).join('')
-      : '<tr><td colspan="4" class="command-profiles-empty">No Agent Tools yet.</td></tr>';
-
-    const loadingHtml = profilesLoading
-      ? '<div class="command-profiles-status">Loading Agent Tools...</div>'
-      : '';
-    const errorHtml = loadError
-      ? `<div class="command-profiles-status command-profiles-status-error">${esc(loadError)}</div>`
-      : '';
-
-    return `
-      <div class="setting-group command-profiles-group">
-        <label>Agent Tools</label>
-        <div class="command-profiles-note">Each Agent Tool maps a user-facing tool name to the command HAICO agents should run.</div>
-        ${loadingHtml}
-        ${errorHtml}
-        <div class="command-profiles-table-wrap">
-          <table class="command-profiles-table">
-            <thead>
-              <tr>
-                <th>Agent Tool</th>
-                <th>Command</th>
-                <th>Type</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-              ${renderNewProfileRow()}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderProfileRow(profile) {
-    const typeOptions = PROFILE_TYPE_OPTIONS.map((option) =>
-      `<option value="${option.value}"${profile.type === option.value ? ' selected' : ''}>${option.label}</option>`
-    ).join('');
-
-    return `
-      <tr data-command-profile-row="${profile.id}">
-        <td>
-          <input
-            type="text"
-            class="command-profile-input"
-            data-field="name"
-            value="${esc(profile.name)}"
-            placeholder="Name"
-          >
-        </td>
-        <td>
-          <input
-            type="text"
-            class="command-profile-input command-profile-command"
-            data-field="command"
-            value="${esc(profile.command)}"
-            placeholder="Command"
-          >
-        </td>
-        <td>
-          <select class="command-profile-select" data-field="type">${typeOptions}</select>
-        </td>
-        <td>
-          <div class="command-profile-actions">
-            <button type="button" class="btn btn-sm" data-command-profile-action="save">Save</button>
-            <button type="button" class="btn btn-sm" data-command-profile-action="delete">Delete</button>
-          </div>
-        </td>
-      </tr>
-    `;
-  }
-
-  function renderNewProfileRow() {
-    const typeOptions = PROFILE_TYPE_OPTIONS.map((option) =>
-      `<option value="${option.value}"${option.value === 'claude' ? ' selected' : ''}>${option.label}</option>`
-    ).join('');
-
-    return `
-      <tr data-command-profile-row="__new__">
-        <td>
-          <input type="text" class="command-profile-input" data-field="name" value="" placeholder="New profile">
-        </td>
-        <td>
-          <input type="text" class="command-profile-input command-profile-command" data-field="command" value="" placeholder="cld --model claude-sonnet-4-6">
-        </td>
-        <td>
-          <select class="command-profile-select" data-field="type">${typeOptions}</select>
-        </td>
-        <td>
-          <div class="command-profile-actions">
-            <button type="button" class="btn btn-sm btn-primary" data-command-profile-action="create">Add</button>
-          </div>
-        </td>
-      </tr>
-    `;
-  }
-
   function dispatchProfilesChanged() {
     window.dispatchEvent(new CustomEvent('haico:command-profiles-changed', {
       detail: commandProfiles.slice(),
@@ -135,9 +21,7 @@
   }
 
   async function ensureLoaded(force) {
-    if (profilesLoading) {
-      return commandProfiles;
-    }
+    if (profilesLoading && loadingPromise) return loadingPromise;
 
     if (profilesLoaded && !force) {
       return commandProfiles;
@@ -145,26 +29,29 @@
 
     profilesLoading = true;
     loadError = '';
-    renderDrawerManagers();
 
-    try {
-      const res = await fetch('/api/command-profiles', { headers: apiHeaders() });
-      const data = res.ok ? await res.json() : null;
-      if (!res.ok) {
-        throw new Error(data?.error || 'Failed to load Agent Tools');
+    loadingPromise = (async () => {
+      try {
+        const res = await fetch('/api/command-profiles', { headers: apiHeaders() });
+        const data = res.ok ? await res.json() : null;
+        if (!res.ok) {
+          throw new Error(data?.error || 'Failed to load Agent Tools');
+        }
+        commandProfiles = Array.isArray(data?.profiles) ? data.profiles : [];
+        profilesLoaded = true;
+        dispatchProfilesChanged();
+      } catch (error) {
+        console.error('Failed to load Agent Tools', error);
+        loadError = error?.message || 'Failed to load Agent Tools';
+      } finally {
+        profilesLoading = false;
+        loadingPromise = null;
       }
-      commandProfiles = Array.isArray(data?.profiles) ? data.profiles : [];
-      profilesLoaded = true;
-      dispatchProfilesChanged();
-    } catch (error) {
-      console.error('Failed to load Agent Tools', error);
-      loadError = error?.message || 'Failed to load Agent Tools';
-    } finally {
-      profilesLoading = false;
-      renderDrawerManagers();
-    }
 
-    return commandProfiles;
+      return commandProfiles;
+    })();
+
+    return loadingPromise;
   }
 
   function getProfileById(profileId) {
@@ -216,87 +103,6 @@
     select.innerHTML = items.join('');
   }
 
-  function getRowPayload(row) {
-    return {
-      name: row.querySelector('[data-field="name"]')?.value?.trim() || '',
-      command: row.querySelector('[data-field="command"]')?.value?.trim() || '',
-      type: row.querySelector('[data-field="type"]')?.value || '',
-    };
-  }
-
-  async function submitProfile(action, row, button) {
-    const payload = getRowPayload(row);
-    if (!payload.name) {
-      showToast('Agent Tool name is required', 'error');
-      return;
-    }
-    if (!payload.command) {
-      showToast('Agent command is required', 'error');
-      return;
-    }
-
-    const rowId = row.getAttribute('data-command-profile-row');
-    const endpoint = action === 'create' ? '/api/command-profiles' : `/api/command-profiles/${rowId}`;
-    const method = action === 'create' ? 'POST' : 'PUT';
-
-    await withLoading(button, async () => {
-      const res = await fetch(endpoint, {
-        method,
-        headers: apiHeaders(),
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showToast(data.error || 'Failed to save Agent Tool', 'error');
-        return;
-      }
-      showToast(action === 'create' ? 'Agent Tool added' : 'Agent Tool saved', 'success');
-      await ensureLoaded(true);
-    });
-  }
-
-  async function deleteProfile(rowId, button) {
-    const profile = getProfileById(rowId);
-    const label = profile?.name || 'this Agent Tool';
-    const confirmed = await showConfirm(`Delete ${label}? Existing agents keep their stored command.`, {
-      title: 'Delete Agent Tool?',
-      confirmLabel: 'Delete',
-      tone: 'danger',
-    });
-    if (!confirmed) return;
-
-    await withLoading(button, async () => {
-      const res = await fetch(`/api/command-profiles/${rowId}`, {
-        method: 'DELETE',
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showToast(data.error || 'Failed to delete Agent Tool', 'error');
-        return;
-      }
-      showToast('Agent Tool deleted', 'success');
-      await ensureLoaded(true);
-    });
-  }
-
-  document.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-command-profile-action]');
-    if (!button) return;
-
-    const row = button.closest('[data-command-profile-row]');
-    if (!row) return;
-
-    const action = button.getAttribute('data-command-profile-action');
-    if (action === 'save' || action === 'create') {
-      await submitProfile(action, row, button);
-      return;
-    }
-
-    if (action === 'delete') {
-      await deleteProfile(row.getAttribute('data-command-profile-row'), button);
-    }
-  });
-
   window.HAICOCommandProfiles = {
     CUSTOM_PROFILE_VALUE,
     ensureLoaded,
@@ -304,10 +110,11 @@
     getById: getProfileById,
     findMatch: findMatchingProfile,
     populateSelect,
+    isLoading: () => profilesLoading,
+    getLoadError: () => loadError,
   };
 
   ready(() => {
-    renderDrawerManagers();
     ensureLoaded();
   });
 })();

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Tools - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js?v=1"></script>
+  <link rel="stylesheet" href="/public/css/style.css?v=8">
+</head>
+<body class="dashboard-shell" data-dashboard-page="settings">
+  <div data-dashboard-sidebar>
+    <nav class="vertical-sidebar dashboard-sidebar-skeleton" aria-hidden="true">
+      <span class="sidebar-logo sidebar-skeleton-logo"></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-nav-settings sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+    </nav>
+  </div>
+
+  <header>
+    <div class="header-right">
+      <a class="btn btn-primary btn-sm" href="/projects/new">+ New Project</a>
+      <span class="header-user-skeleton" aria-hidden="true">
+        <span class="header-skeleton-sound"></span>
+        <span class="header-skeleton-avatar"></span>
+      </span>
+    </div>
+  </header>
+
+  <main id="main-content" class="container">
+    <div id="settings-view-panel" class="dashboard-view dashboard-view-settings">
+      <div class="settings-page-header">
+        <div>
+          <div class="settings-page-eyebrow">Workspace</div>
+          <h2>Agent Tools</h2>
+          <p>Configure the commands HAICO agents use when they run.</p>
+        </div>
+      </div>
+
+      <nav class="settings-section-nav" aria-label="Settings sections">
+        <a href="/settings">General</a>
+        <a class="active" href="/settings/agent-tools" aria-current="page">Agent Tools</a>
+      </nav>
+
+      <section class="card settings-card settings-card-wide">
+        <div class="settings-card-header">
+          <div>
+            <h3>Agent Tools</h3>
+            <p>Configure the commands HAICO agents use when they run.</p>
+          </div>
+        </div>
+        <div class="settings-section settings-section-page">
+          <div data-command-profiles-root>
+            <div class="setting-group command-profiles-group">
+              <label>Agent Tools</label>
+              <div class="command-profiles-note">Each Agent Tool maps a user-facing tool name to the command HAICO agents should run.</div>
+              <div class="command-profiles-status" data-command-profiles-loading>Loading Agent Tools...</div>
+              <div class="command-profiles-status command-profiles-status-error" data-command-profiles-error hidden></div>
+              <div class="command-profiles-table-wrap">
+                <table class="command-profiles-table">
+                  <thead>
+                    <tr>
+                      <th>Agent Tool</th>
+                      <th>Command</th>
+                      <th>Type</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody data-command-profiles-list>
+                    <tr><td colspan="4" class="command-profiles-empty">Loading Agent Tools...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <template id="command-profile-row-template">
+    <tr data-command-profile-row="">
+      <td>
+        <input type="text" class="command-profile-input" data-field="name" placeholder="Name">
+      </td>
+      <td>
+        <input type="text" class="command-profile-input command-profile-command" data-field="command" placeholder="Command">
+      </td>
+      <td>
+        <select class="command-profile-select" data-field="type"></select>
+      </td>
+      <td>
+        <div class="command-profile-actions">
+          <button type="button" class="btn btn-sm" data-command-profile-action="save">Save</button>
+          <button type="button" class="btn btn-sm" data-command-profile-action="delete">Delete</button>
+        </div>
+      </td>
+    </tr>
+  </template>
+  <template id="command-profile-new-row-template">
+    <tr data-command-profile-row="__new__">
+      <td>
+        <input type="text" class="command-profile-input" data-field="name" placeholder="New profile">
+      </td>
+      <td>
+        <input type="text" class="command-profile-input command-profile-command" data-field="command" placeholder="cld --model claude-sonnet-4-6">
+      </td>
+      <td>
+        <select class="command-profile-select" data-field="type"></select>
+      </td>
+      <td>
+        <div class="command-profile-actions">
+          <button type="button" class="btn btn-sm btn-primary" data-command-profile-action="create">Add</button>
+        </div>
+      </td>
+    </tr>
+  </template>
+  <template id="command-profile-empty-row-template">
+    <tr>
+      <td colspan="4" class="command-profiles-empty">No Agent Tools yet.</td>
+    </tr>
+  </template>
+  <script src="/public/js/components/dashboard-sidebar.js?v=1"></script>
+  <script src="/public/js/shared/common.js?v=3"></script>
+  <script src="/public/js/shared/command-profiles.js?v=3"></script>
+  <script type="module" src="/public/js/pages/settings/agent-tools.js?v=1"></script>
+</body>
+</html>
