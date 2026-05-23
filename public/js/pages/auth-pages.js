@@ -1,7 +1,3 @@
-import { applySavedTheme } from '/public/js/shared/theme.js';
-
-applySavedTheme();
-
 function showAuthError(message, form) {
   const errEl = (form || document).querySelector('#error');
   if (!errEl) return;

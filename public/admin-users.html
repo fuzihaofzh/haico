@@ -8,6 +8,7 @@
   <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
   <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js?v=1"></script>
   <link rel="stylesheet" href="/public/css/style.css">
 </head>
 <body>
@@ -61,7 +62,12 @@
     <div class="breadcrumb" style="margin-left:12px">
       <a href="/">Home</a> / <span>User Management</span>
     </div>
-    <div class="header-right"></div>
+    <div class="header-right">
+      <span class="header-user-skeleton" aria-hidden="true">
+        <span class="header-skeleton-sound"></span>
+        <span class="header-skeleton-avatar"></span>
+      </span>
+    </div>
   </header>
 
   <div class="container" style="max-width:800px;margin:0 auto;padding:24px 16px">

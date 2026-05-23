@@ -2,23 +2,35 @@
 
 let _currentUser = null;
 
+function clearHeaderUserSkeleton(root) {
+  (root || document).querySelectorAll('.header-user-skeleton').forEach(function(el) {
+    el.remove();
+  });
+}
+
 async function initUserMenu() {
+  const headerRight = document.querySelector('.header-right') || document.querySelector('header');
   try {
     const res = await fetch('/api/auth/me', { cache: 'no-cache' });
     if (!res.ok) {
       console.warn('[HAICO] initUserMenu: /api/auth/me returned', res.status, '— avatar will not show');
+      clearHeaderUserSkeleton(headerRight || document);
       return;
     }
     _currentUser = await res.json();
     window.dispatchEvent(new CustomEvent('haico:user-ready', { detail: _currentUser }));
   } catch (e) {
     console.warn('[HAICO] initUserMenu: fetch failed —', e.message || e);
+    clearHeaderUserSkeleton(headerRight || document);
     return;
   }
 
   // Append user menu to .header-right if it exists, otherwise to header
-  const headerRight = document.querySelector('.header-right') || document.querySelector('header');
-  if (!headerRight) return;
+  if (!headerRight) {
+    clearHeaderUserSkeleton();
+    return;
+  }
+  clearHeaderUserSkeleton(headerRight);
 
   const soundToggle = createNotificationSoundToggle();
   headerRight.appendChild(soundToggle);
@@ -563,40 +575,6 @@ function avatarSvg(name, size) {
   return `<svg width="${size}" height="${size}" viewBox="-0.5 -0.5 6 6"><rect x="-0.5" y="-0.5" width="6" height="6" rx="0.8" fill="var(--selected-bg, #eee)"/>${cells}</svg>`;
 }
 
-// Themes
-const themes = {
-  'github-dark':     { bg:'#0d1117', fg:'#e6edf3', headerBg:'#161b22', drawerBg:'#161b22', border:'#30363d', textSecondary:'#8b949e', accent:'#58a6ff', success:'#3fb950', warning:'#d29922', error:'#f85149', selectedBg:'#21262d' },
-  'dracula':         { bg:'#282a36', fg:'#f8f8f2', headerBg:'#21222c', drawerBg:'#21222c', border:'#44475a', textSecondary:'#6272a4', accent:'#8be9fd', success:'#50fa7b', warning:'#f1fa8c', error:'#ff5555', selectedBg:'#282a36' },
-  'nord-dark':       { bg:'#2e3440', fg:'#d8dee9', headerBg:'#3b4252', drawerBg:'#3b4252', border:'#4c566a', textSecondary:'#81a1c1', accent:'#88c0d0', success:'#a3be8c', warning:'#ebcb8b', error:'#bf616a', selectedBg:'#2e3440' },
-  'nord-light':      { bg:'#ECEFF4', fg:'#2E3440', headerBg:'#E5E9F0', drawerBg:'#E5E9F0', border:'#D8DEE9', textSecondary:'#4C566A', accent:'#5E81AC', success:'#A3BE8C', warning:'#EBCB8B', error:'#BF616A', selectedBg:'#D8DEE9' },
-  'monokai':         { bg:'#272822', fg:'#f8f8f2', headerBg:'#1e1f1c', drawerBg:'#1e1f1c', border:'#3e3d32', textSecondary:'#75715e', accent:'#66d9ef', success:'#a6e22e', warning:'#e6db74', error:'#f92672', selectedBg:'#272822' },
-  'solarized-dark':  { bg:'#002b36', fg:'#839496', headerBg:'#073642', drawerBg:'#073642', border:'#586e75', textSecondary:'#657b83', accent:'#268bd2', success:'#859900', warning:'#b58900', error:'#dc322f', selectedBg:'#002b36' },
-  'solarized-light': { bg:'#fdf6e3', fg:'#073642', headerBg:'#eee8d5', drawerBg:'#eee8d5', border:'#c9bba3', textSecondary:'#586e75', accent:'#268bd2', success:'#859900', warning:'#b58900', error:'#dc322f', selectedBg:'#e8dcc8' },
-};
-
-function applyTheme(name) {
-  // Backward compat: 'nord' was renamed to 'nord-dark'
-  if (name === 'nord') { name = 'nord-dark'; localStorage.setItem('haico-theme', name); }
-  const t = themes[name] || themes['github-dark'];
-  const r = document.documentElement;
-  r.style.setProperty('--bg', t.bg);
-  r.style.setProperty('--fg', t.fg);
-  r.style.setProperty('--header-bg', t.headerBg);
-  r.style.setProperty('--drawer-bg', t.drawerBg);
-  r.style.setProperty('--border', t.border);
-  r.style.setProperty('--text-secondary', t.textSecondary);
-  r.style.setProperty('--accent', t.accent);
-  r.style.setProperty('--success', t.success);
-  r.style.setProperty('--warning', t.warning);
-  r.style.setProperty('--error', t.error);
-  r.style.setProperty('--selected-bg', t.selectedBg);
-}
-
-function changeTheme(name) {
-  localStorage.setItem('haico-theme', name);
-  applyTheme(name);
-}
-
 // Drawer
 function toggleDrawer() {
   const drawer = document.getElementById('drawer');
@@ -828,14 +806,6 @@ function createNotificationSoundToggle() {
 document.addEventListener('DOMContentLoaded', function() {
   syncNotificationSoundToggles();
 });
-
-// Init theme
-(function() {
-  const saved = localStorage.getItem('haico-theme') || 'solarized-light';
-  applyTheme(saved);
-  const sel = document.getElementById('theme-select');
-  if (sel) sel.value = saved;
-})();
 
 // ─── Project-level WebSocket for real-time updates ───
 

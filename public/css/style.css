@@ -220,6 +220,35 @@ a:hover { opacity: 0.8; }
   margin-bottom: 4px;
 }
 
+.dashboard-sidebar-skeleton {
+  pointer-events: none;
+}
+
+.sidebar-skeleton-logo,
+.sidebar-skeleton-icon,
+.sidebar-skeleton-label,
+.header-skeleton-sound,
+.header-skeleton-avatar {
+  background: color-mix(in srgb, var(--selected-bg) 72%, var(--bg));
+  animation: skeleton-opacity-pulse 1.4s ease-in-out infinite;
+}
+
+.sidebar-skeleton-logo {
+  border-radius: 6px;
+}
+
+.sidebar-skeleton-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+}
+
+.sidebar-skeleton-label {
+  width: 32px;
+  height: 6px;
+  border-radius: 999px;
+}
+
 .dashboard-shell .menu-btn,
 .project-shell .menu-btn {
   display: none;
@@ -338,6 +367,41 @@ header h1 span { color: var(--accent); }
 }
 
 .header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+.header-user-skeleton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.header-skeleton-sound {
+  width: 46px;
+  height: 24px;
+  border-radius: 999px;
+}
+
+.header-skeleton-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+
+@keyframes skeleton-opacity-pulse {
+  0%, 100% { opacity: 0.48; }
+  50% { opacity: 0.9; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-skeleton-logo,
+  .sidebar-skeleton-icon,
+  .sidebar-skeleton-label,
+  .header-skeleton-sound,
+  .header-skeleton-avatar {
+    animation: none;
+    opacity: 0.65;
+  }
+}
 
 /* User Menu */
 .topbar-sound-toggle {
@@ -3711,6 +3775,9 @@ header h1 span { color: var(--accent); }
   .header-right { gap: 4px; flex-shrink: 0; }
   .header-right .btn { display: none; }
   .user-menu { flex-shrink: 0; }
+  .header-user-skeleton { gap: 4px; }
+  .header-skeleton-sound { width: 42px; height: 22px; }
+  .header-skeleton-avatar { width: 28px; height: 28px; }
   .topbar-sound-toggle { width: 42px; height: 22px; }
   .topbar-sound-toggle .sound-toggle-knob { width: 16px; height: 16px; }
   .topbar-sound-toggle.on .sound-toggle-knob { transform: translateX(20px); }

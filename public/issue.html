@@ -8,6 +8,7 @@
   <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
   <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js?v=1"></script>
   <link rel="stylesheet" href="/public/css/style.css">
   <link rel="stylesheet" href="/public/css/issues.css">
   <link rel="stylesheet" href="/public/vendor/katex/katex.min.css?v=0.16.11">
@@ -67,7 +68,12 @@
     <div class="breadcrumb" style="margin-left:12px">
       <a href="/">Projects</a> / <a id="project-link" href="#">Project</a> / <a id="issues-link" href="#">Issues</a> / <span id="issue-title-breadcrumb">Issue</span>
     </div>
-    <div class="header-right"></div>
+    <div class="header-right">
+      <span class="header-user-skeleton" aria-hidden="true">
+        <span class="header-skeleton-sound"></span>
+        <span class="header-skeleton-avatar"></span>
+      </span>
+    </div>
   </header>
 
   <div class="container" id="issue-page">

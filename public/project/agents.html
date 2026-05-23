@@ -8,12 +8,21 @@
   <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
   <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js?v=1"></script>
   <link rel="stylesheet" href="/public/css/style.css?v=9">
   <link rel="stylesheet" href="/public/css/issues.css">
   <link rel="stylesheet" href="/public/css/codicon.css">
 </head>
 <body class="project-shell" data-dashboard-page="projects" data-project-view="agents">
-  <div data-dashboard-sidebar></div>
+  <div data-dashboard-sidebar>
+    <nav class="vertical-sidebar dashboard-sidebar-skeleton" aria-hidden="true">
+      <span class="sidebar-logo sidebar-skeleton-logo"></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-nav-settings sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+    </nav>
+  </div>
 
   <header>
     <div class="breadcrumb" style="margin-left:12px">
@@ -21,6 +30,10 @@
     </div>
     <div class="header-right">
       <div id="ws-status-indicator" style="display:flex;align-items:center;padding-right:12px"></div>
+      <span class="header-user-skeleton" aria-hidden="true">
+        <span class="header-skeleton-sound"></span>
+        <span class="header-skeleton-avatar"></span>
+      </span>
     </div>
   </header>
 
