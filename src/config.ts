@@ -5,6 +5,8 @@ function normalizeOrchestratorEngine(value: string | undefined): 'native' | 'lan
 }
 
 export const config = {
+  nodeEnv: process.env.NODE_ENV || 'development',
+  isProduction: process.env.NODE_ENV === 'production',
   port: parseInt(process.env.HAICO_PORT || '4567', 10),
   host: process.env.HAICO_HOST || '0.0.0.0',
   dbPath: process.env.HAICO_DB_PATH || path.join(process.cwd(), 'haico.db'),

@@ -53,7 +53,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   await fastify.register(fastifyStatic, {
     root: path.join(__dirname, '..', 'public'),
     prefix: '/public/',
-    maxAge: '1h',
+    maxAge: config.isProduction ? '1h' : 0,
   });
 
   const db = getDatabase();

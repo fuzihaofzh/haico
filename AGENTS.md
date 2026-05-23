@@ -66,6 +66,7 @@ src/
 - **基础形态**: `public/*.html` + `public/css/` + `public/js/`，无前端构建工具；页面资源通过 `/public/...` 本地路径引用。
 - **JS 模块化**: 新增或重写前端脚本时优先使用 ES Module（`<script type="module">` + `import/export`），便于按页面、共享工具、组件拆分与复用；仅在兼容既有非模块脚本时保留普通 script。
 - **第三方库**: 浏览器端依赖 vendored 到 `public/vendor/`，禁止直接引用外部 CDN；新增/升级库时记录版本并确保静态文件可离线加载。
+- **缓存失效**: 自研静态资源 URL 禁止使用 `?v=` / `?ver=` 等手动版本号做 cache-bust；缓存失效由服务端 ETag 协商机制自动处理。
 - **htmx**: 本地文件 `public/vendor/htmx.min.js`；适合轻量表单/局部交互。htmx 表单默认 `application/x-www-form-urlencoded`，服务端需保持对应 parser；复杂业务逻辑仍放在 `public/js/pages/` 或 service/API 层。
 
 ## Route / Service / Error Boundary
