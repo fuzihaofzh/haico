@@ -2631,52 +2631,60 @@ header h1 span { color: var(--accent); }
   justify-content: flex-end;
   gap: 4px;
 }
-.notif-filter-group {
-  display: flex;
-  gap: 2px;
-  min-width: 0;
-}
-.notif-filter-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  font-size: 11px;
-  padding: 2px 10px;
-  cursor: pointer;
-  border-radius: 10px;
-  font-weight: 500;
-  transition: all 0.15s;
-}
-.notif-filter-btn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
-.notif-filter-btn.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-}
+.notif-filter-group,
 .inbox-scope-group {
   display: flex;
-  gap: 2px;
-  border-left: 1px solid var(--border);
-  margin-left: 4px;
-  padding-left: 12px;
+  align-items: center;
+  gap: 0;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 64%, var(--header-bg));
   min-width: 0;
+  overflow: hidden;
 }
+.inbox-scope-group {
+  margin-left: 4px;
+}
+.notif-filter-btn,
 .inbox-scope-btn {
   background: transparent;
-  border: 1px solid var(--border);
+  border: 0;
   color: var(--text-secondary);
-  padding: 3px 10px;
-  border-radius: 12px;
+  min-height: 28px;
   font-size: 11px;
+  line-height: 1;
+  padding: 0 11px;
   cursor: pointer;
+  border-radius: 0;
+  font-weight: 600;
   white-space: nowrap;
-  transition: all 0.15s;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
-.inbox-scope-btn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+.notif-filter-btn + .notif-filter-btn,
+.inbox-scope-btn + .inbox-scope-btn {
+  border-left: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+}
+.notif-filter-btn:hover,
+.inbox-scope-btn:hover {
+  background: color-mix(in srgb, var(--selected-bg) 66%, transparent);
+  color: var(--fg);
+}
+.notif-filter-btn:focus-visible,
+.inbox-scope-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, white);
+  outline-offset: -2px;
+}
+.notif-filter-btn.active,
 .inbox-scope-btn.active {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
+  background: var(--accent);
+  color: #fff;
+  border-left-color: transparent;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+.notif-filter-btn.active + .notif-filter-btn,
+.inbox-scope-btn.active + .inbox-scope-btn {
+  border-left-color: transparent;
 }
 #inbox-project-filter {
   flex: 0 1 220px;
@@ -3702,8 +3710,8 @@ header h1 span { color: var(--accent); }
   }
   .notif-filter-group,
   .inbox-scope-group {
-    flex: 1 1 auto;
-    flex-wrap: wrap;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
   }
   .mail-container { flex-direction: column; height: 100%; }
   .mail-list-pane { width: 100% !important; border-right: none; border-bottom: 1px solid var(--border); max-height: min(240px, 35vh); }
