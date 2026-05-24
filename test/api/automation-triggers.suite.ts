@@ -30,7 +30,9 @@ export function registerAutomationTriggerSuites(
   describe("@Mention in Issues", () => {
     let mentionIssueId: string;
 
-    it("creating issue with @worker-1 triggers agent start", async () => {
+    it("creating issue with @worker-1 queues an issue-work Task", async () => {
+      const { getDatabase } = await import("../../src/db/database");
+      const db = getDatabase();
       // Ensure agent is idle first
       const { body: agentBefore } = await ctx.api(
         `/api/agents/${getWorkerId()}`
@@ -46,6 +48,11 @@ export function registerAutomationTriggerSuites(
           if (st.status !== "running") break;
         }
       }
+      const beforeTaskCount = (
+        db
+          .prepare("SELECT COUNT(*) AS count FROM tasks WHERE target_agent_id = ?")
+          .get(getWorkerId()) as any
+      ).count;
 
       const { status, body } = await ctx.api(
         `/api/projects/${getProjectId()}/issues`,
@@ -61,30 +68,27 @@ export function registerAutomationTriggerSuites(
       assert.equal(status, 201);
       mentionIssueId = body.id;
 
-      // Agent should have been auto-started
       await new Promise((r) => setTimeout(r, 500));
       const { body: agentAfter } = await ctx.api(
         `/api/agents/${getWorkerId()}/status`
       );
-      // Agent may already finish (echo command is fast), check it was started
-      assert.ok(
-        agentAfter.status === "running" ||
-          agentAfter.status === "idle" ||
-          agentAfter.status === "error",
-        "Agent should have been triggered"
-      );
+      assert.notEqual(agentAfter.status, "running");
+      const afterTaskCount = (
+        db
+          .prepare("SELECT COUNT(*) AS count FROM tasks WHERE target_agent_id = ?")
+          .get(getWorkerId()) as any
+      ).count;
+      assert.equal(afterTaskCount, beforeTaskCount + 1);
+      const task = db
+        .prepare("SELECT * FROM tasks WHERE target_agent_id = ? ORDER BY created_at DESC LIMIT 1")
+        .get(getWorkerId()) as any;
+      assert.equal(task.source, "issue-mention");
+      assert.equal(task.source_ref, mentionIssueId);
+      assert.equal(task.task_type, "issue-work");
+      assert.match(task.prompt, /Mention test/);
     });
 
-    it("system event recorded for auto-started agent", async () => {
-      // Wait for process to finish
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        const { body: st } = await ctx.api(
-          `/api/agents/${getWorkerId()}/status`
-        );
-        if (st.status !== "running") break;
-      }
-
+    it("system event records queued Task for mentioned agent", async () => {
       const { body: issue } = await ctx.api(`/api/issues/${mentionIssueId}`);
       const systemEvents = issue.comments.filter(
         (c: any) => c.author_id === "system"
@@ -95,12 +99,15 @@ export function registerAutomationTriggerSuites(
       );
       const mentionEvent = systemEvents.find(
         (c: any) =>
-          c.body.includes("auto-started") && c.body.includes("worker-1")
+          c.body.includes("Task queued") &&
+          c.body.includes("worker-1")
       );
       assert.ok(
         mentionEvent,
-        "System event should mention auto-started worker-1"
+        "System event should mention queued Task for worker-1"
       );
+      const meta = JSON.parse(mentionEvent.meta || "{}");
+      assert.ok(meta.task_id, "System event should include task_id");
     });
 
     it("@mention of nonexistent agent does not cause error", async () => {
@@ -118,7 +125,9 @@ export function registerAutomationTriggerSuites(
       assert.equal(status, 201);
     });
 
-    it("comment with @worker-1 triggers agent start", async () => {
+    it("comment with @worker-1 queues an issue-work Task and does not direct-start", async () => {
+      const { getDatabase } = await import("../../src/db/database");
+      const db = getDatabase();
       // Stop agent if running
       const { body: st } = await ctx.api(`/api/agents/${getWorkerId()}/status`);
       if (st.status === "running") {
@@ -131,6 +140,11 @@ export function registerAutomationTriggerSuites(
           if (s.status !== "running") break;
         }
       }
+      const beforeTaskCount = (
+        db
+          .prepare("SELECT COUNT(*) AS count FROM tasks WHERE target_agent_id = ?")
+          .get(getWorkerId()) as any
+      ).count;
 
       const { status } = await ctx.api(
         `/api/issues/${mentionIssueId}/comments`,
@@ -141,26 +155,21 @@ export function registerAutomationTriggerSuites(
       );
       assert.equal(status, 201);
 
-      // Agent should have been triggered
       await new Promise((r) => setTimeout(r, 500));
       const { body: agentAfter } = await ctx.api(
         `/api/agents/${getWorkerId()}/status`
       );
-      assert.ok(
-        agentAfter.status === "running" ||
-          agentAfter.status === "idle" ||
-          agentAfter.status === "error",
-        "Agent should have been triggered by comment @mention"
+      assert.notEqual(
+        agentAfter.status,
+        "running",
+        "Agent should not be auto-started by comment @mention during task-runtime cutover"
       );
-
-      // Wait for agent to finish
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        const { body: s } = await ctx.api(
-          `/api/agents/${getWorkerId()}/status`
-        );
-        if (s.status !== "running") break;
-      }
+      const afterTaskCount = (
+        db
+          .prepare("SELECT COUNT(*) AS count FROM tasks WHERE target_agent_id = ?")
+          .get(getWorkerId()) as any
+      ).count;
+      assert.equal(afterTaskCount, beforeTaskCount + 1);
     });
 
     it("issue body without @mention does not trigger system event", async () => {
@@ -178,7 +187,7 @@ export function registerAutomationTriggerSuites(
       assert.equal(status, 201);
       const { body: issue } = await ctx.api(`/api/issues/${body.id}`);
       const systemEvents = issue.comments.filter(
-        (c: any) => c.author_id === "system" && c.body.includes("auto-started")
+        (c: any) => c.author_id === "system" && c.body.includes("Task queued")
       );
       assert.equal(
         systemEvents.length,
@@ -224,24 +233,15 @@ export function registerAutomationTriggerSuites(
       );
       assert.equal(status, 201);
 
-      // Wait for processes
       await new Promise((r) => setTimeout(r, 1000));
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        const { body: s1 } = await ctx.api(
-          `/api/agents/${getWorkerId()}/status`
-        );
-        const { body: s2 } = await ctx.api(`/api/agents/${worker2Id}/status`);
-        if (s1.status !== "running" && s2.status !== "running") break;
-      }
 
       const { body: issue } = await ctx.api(`/api/issues/${newIssue.id}`);
-      const autoStartEvents = issue.comments.filter(
-        (c: any) => c.author_id === "system" && c.body.includes("auto-started")
+      const mentionTaskEvents = issue.comments.filter(
+        (c: any) => c.author_id === "system" && c.body.includes("Task queued")
       );
       assert.ok(
-        autoStartEvents.length >= 2,
-        `Should have at least 2 auto-start events, got ${autoStartEvents.length}`
+        mentionTaskEvents.length >= 2,
+        `Should have at least 2 mention Task events, got ${mentionTaskEvents.length}`
       );
 
       // Cleanup worker-2

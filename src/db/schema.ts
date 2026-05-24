@@ -56,6 +56,10 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       session_id TEXT,
       working_directory TEXT,
       custom_instructions TEXT DEFAULT '',
+      constraints_json TEXT DEFAULT '{}',
+      context_json TEXT DEFAULT '{}',
+      capabilities_json TEXT DEFAULT '{}',
+      executor_preferences_json TEXT DEFAULT '{}',
       new_session_per_run BOOLEAN DEFAULT 0,
       session_run_count INTEGER DEFAULT 0,
       session_max_runs INTEGER DEFAULT 10,
@@ -127,6 +131,90 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       content TEXT NOT NULL,
       stream TEXT DEFAULT 'stdout' CHECK(stream IN ('stdin', 'stdout', 'stderr', 'cost')),
       created_at DATETIME DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS executor_profiles (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      executor_type TEXT NOT NULL DEFAULT 'claude' CHECK(executor_type IN ('claude', 'codex', 'gemini', 'shell')),
+      command_template TEXT NOT NULL,
+      command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
+      working_directory TEXT,
+      env_json TEXT DEFAULT '{}',
+      session_policy_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT (datetime('now')),
+      updated_at DATETIME DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      target_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+      source TEXT NOT NULL,
+      source_ref TEXT,
+      task_type TEXT NOT NULL,
+      reason TEXT DEFAULT '',
+      prompt TEXT NOT NULL,
+      system_prompt TEXT,
+      priority INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'blocked', 'running', 'completed', 'failed', 'cancelled', 'stale')),
+      scheduled_at DATETIME,
+      claimed_at DATETIME,
+      started_at DATETIME,
+      finished_at DATETIME,
+      executor_profile_id TEXT REFERENCES executor_profiles(id) ON DELETE SET NULL,
+      executor_snapshot_json TEXT DEFAULT '{}',
+      context_snapshot_json TEXT DEFAULT '{}',
+      metadata_json TEXT DEFAULT '{}',
+      dedupe_key TEXT,
+      current_task_run_id TEXT,
+      failure_kind TEXT,
+      failure_message TEXT,
+      created_at DATETIME DEFAULT (datetime('now')),
+      updated_at DATETIME DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS task_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      executor_profile_id TEXT REFERENCES executor_profiles(id) ON DELETE SET NULL,
+      run_id TEXT NOT NULL,
+      attempt INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'starting' CHECK(status IN ('starting', 'running', 'completed', 'failed', 'cancelled')),
+      pid INTEGER,
+      session_id TEXT,
+      prompt_snapshot TEXT NOT NULL,
+      command_snapshot TEXT NOT NULL,
+      exit_code INTEGER,
+      failure_kind TEXT,
+      failure_message TEXT,
+      started_at DATETIME,
+      finished_at DATETIME,
+      created_at DATETIME DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS task_dependencies (
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      depends_on_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK(dependency_type IN ('blocks')),
+      PRIMARY KEY (task_id, depends_on_task_id, dependency_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS executor_sessions (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      executor_profile_id TEXT NOT NULL REFERENCES executor_profiles(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL,
+      run_count INTEGER DEFAULT 0,
+      token_count INTEGER DEFAULT 0,
+      last_used_at DATETIME DEFAULT (datetime('now')),
+      reset_reason TEXT DEFAULT '',
+      created_at DATETIME DEFAULT (datetime('now')),
+      updated_at DATETIME DEFAULT (datetime('now')),
+      UNIQUE(agent_id, executor_profile_id)
     );
 
     CREATE TABLE IF NOT EXISTS orchestration_runs (
@@ -255,6 +343,14 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
     CREATE INDEX IF NOT EXISTS idx_logs_run ON conversation_logs(run_id);
     CREATE INDEX IF NOT EXISTS idx_logs_stream_run ON conversation_logs(stream, run_id, id);
     CREATE INDEX IF NOT EXISTS idx_orch_runs_project_created ON orchestration_runs(project_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_executor_profiles_project ON executor_profiles(project_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_project_status ON tasks(project_id, status, priority, created_at);
+    CREATE INDEX IF NOT EXISTS idx_tasks_agent_status ON tasks(target_agent_id, status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_dedupe_key ON tasks(dedupe_key);
+    CREATE INDEX IF NOT EXISTS idx_task_runs_task ON task_runs(task_id, attempt);
+    CREATE INDEX IF NOT EXISTS idx_task_runs_agent_status ON task_runs(agent_id, status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_runs_run ON task_runs(run_id);
+    CREATE INDEX IF NOT EXISTS idx_executor_sessions_agent ON executor_sessions(agent_id, executor_profile_id);
 
     CREATE TABLE IF NOT EXISTS approval_requests (
       id TEXT PRIMARY KEY,
@@ -334,6 +430,12 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
   if (!cols.find((c: any) => c.name === 'paused')) {
     db.exec("ALTER TABLE agents ADD COLUMN paused BOOLEAN DEFAULT 0");
     logger.info('Migration: added paused column to agents table');
+  }
+  for (const col of ['constraints_json', 'context_json', 'capabilities_json', 'executor_preferences_json']) {
+    if (!cols.find((c: any) => c.name === col)) {
+      db.exec(`ALTER TABLE agents ADD COLUMN ${col} TEXT DEFAULT '{}'`);
+      logger.info(`Migration: added ${col} column to agents table`);
+    }
   }
 
   if (!orchestrationRunCols.find((c: any) => c.name === 'backoff_ms')) {
@@ -666,6 +768,10 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
         session_id TEXT,
         working_directory TEXT,
         custom_instructions TEXT DEFAULT '',
+        constraints_json TEXT DEFAULT '{}',
+        context_json TEXT DEFAULT '{}',
+        capabilities_json TEXT DEFAULT '{}',
+        executor_preferences_json TEXT DEFAULT '{}',
         new_session_per_run BOOLEAN DEFAULT 0,
         session_run_count INTEGER DEFAULT 0,
         session_max_runs INTEGER DEFAULT 10,
@@ -684,13 +790,15 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       );
       INSERT INTO agents (
         id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
-        custom_instructions, new_session_per_run, session_run_count, session_max_runs,
+        custom_instructions, constraints_json, context_json, capabilities_json, executor_preferences_json,
+        new_session_per_run, session_run_count, session_max_runs,
         session_token_count, session_max_tokens, session_resume_timeout, command_template, command_type,
         status, paused, pid, last_prompt, started_at, finished_at, created_at
       )
       SELECT
         id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
-        custom_instructions, new_session_per_run, session_run_count, session_max_runs,
+        custom_instructions, '{}', '{}', '{}', '{}',
+        new_session_per_run, session_run_count, session_max_runs,
         session_token_count, session_max_tokens, session_resume_timeout, command_template, command_type,
         status, paused, pid, last_prompt, started_at, finished_at, created_at
       FROM agents_old;

@@ -22,6 +22,7 @@ import {
   getAgentTerminalText,
   listAgentFiles,
   listAgentRuns,
+  listAgentTaskRuns,
   listProjectAgents,
   pauseAgent,
   previewAgentSqliteFile,
@@ -67,16 +68,16 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     return deleteAgent(request.params.id);
   });
 
-  fastify.post<{ Params: { id: string }; Body: { prompt?: string; force_new_session?: boolean } }>('/agents/:id/start', async (request, reply) => {
+  fastify.post<{ Params: { id: string }; Body: { prompt?: string; force_new_session?: boolean; priority?: number; metadata?: Record<string, unknown> } }>('/agents/:id/start', async (request, reply) => {
     const db = getDatabase();
     requireAgentAccess(db, getProjectRequestContext(request), request.params.id, true);
     return startAgent(request.params.id, request.body || {});
   });
 
-  fastify.post<{ Params: { id: string } }>('/agents/:id/retry', async (request, reply) => {
+  fastify.post<{ Params: { id: string }; Body: { force_new_session?: boolean } }>('/agents/:id/retry', async (request, reply) => {
     const db = getDatabase();
     requireAgentAccess(db, getProjectRequestContext(request), request.params.id, true);
-    return retryAgent(request.params.id);
+    return retryAgent(request.params.id, request.body || {});
   });
 
   fastify.post<{ Params: { id: string } }>('/agents/:id/stop', async (request, reply) => {
@@ -213,6 +214,12 @@ export function registerAgentRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     requireAgentAccess(db, getProjectRequestContext(request), request.params.id);
     return listAgentRuns(request.params.id, request.query.limit);
+  });
+
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string; offset?: string } }>('/agents/:id/task-runs', async (request, reply) => {
+    const db = getDatabase();
+    requireAgentAccess(db, getProjectRequestContext(request), request.params.id);
+    return listAgentTaskRuns(request.params.id, request.query);
   });
 
   fastify.get<{ Params: { id: string } }>('/agents/:id/git-status', async (request, reply) => {

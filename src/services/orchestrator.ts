@@ -2,10 +2,9 @@ import { Agent, OrchestratorEngine, Project } from '../types';
 import { config } from '../config';
 import { getDatabase } from '../db/database';
 import logger from '../logger';
-import { startAgentProcess } from './process-manager';
-import { buildSystemPrompt } from './system-prompt';
 import { runControllerWithLangGraph } from './langgraph-runner';
 import { applyControllerBackoff, buildControllerActivitySnapshot } from './controller-backoff';
+import { createAgentTask } from './tasks';
 
 export interface ControllerOrchestrationInput {
   project: Project;
@@ -107,23 +106,39 @@ function recordOrchestrationRun(projectId: string, input: OrchestrationRunRecord
 
 function startNativeController(input: ControllerOrchestrationInput): void {
   const { project, controller, taskPrompt } = input;
-  const commandTemplate = controller.command_template || project.command_template || config.defaultCommandTemplate;
-  const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-  const systemPrompt = isRawShell ? undefined : buildSystemPrompt(controller, project);
-
-  const run = startAgentProcess(controller, taskPrompt, commandTemplate, systemPrompt);
+  const task = createAgentTask(controller.id, {
+    source: 'controller-orchestration',
+    source_ref: null,
+    task_type: 'controller',
+    reason: input.triggerIssueNumber
+      ? `Native controller orchestration for issue #${input.triggerIssueNumber}`
+      : 'Native controller orchestration',
+    prompt: taskPrompt,
+    priority: 20,
+    metadata: {
+      engine: 'native',
+      trigger_issue_number: input.triggerIssueNumber ?? null,
+      activity_snapshot: input.activitySnapshot || '',
+    },
+    dedupe_key: [
+      'controller',
+      project.id,
+      controller.id,
+      input.triggerIssueNumber ?? 'project',
+    ].join(':'),
+  });
   recordOrchestrationRun(project.id, {
     engine: 'native',
     decision: 'execute_controller',
     controllerAgentId: controller.id,
     controllerStarted: true,
-    controllerRunId: run.runId,
-    controllerPid: run.pid,
+    controllerRunId: undefined,
+    controllerPid: undefined,
     dispatchCount: 0,
-    dispatchSummary: 'native controller launch',
-    reasons: ['Native engine directly starts controller'],
+    dispatchSummary: `native controller task queued: ${task.id}`,
+    reasons: ['Native engine queued a controller Task'],
     actions: [],
-    dispatchResults: [],
+    dispatchResults: [{ agentId: controller.id, started: true, message: 'controller task queued', taskId: task.id }],
     backoffMs: 0,
     backoffReason: '',
     backoffLabel: '',
@@ -179,9 +194,10 @@ function startLangGraphController(input: ControllerOrchestrationInput): void {
           controllerAgentId: input.controller.id,
           runId: result.runId,
           pid: result.pid,
+          taskId: result.controllerTaskId,
           decision: result.decision,
           dispatchCount: result.dispatchCount,
-        }, 'langgraph.controller.started');
+        }, 'langgraph.controller.task_created');
         return;
       }
 

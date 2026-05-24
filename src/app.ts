@@ -9,14 +9,12 @@ import { config } from './config';
 import { getDatabase, closeDatabase } from './db/database';
 import { registerRoutes } from './routes/route';
 import { initializeScheduler, stopAllSchedulers } from './scheduler';
-import { setOnAgentFinish, stopAllProcesses } from './services/process-manager';
-import { autoStartAgentForDispatchableIssues } from './services/issue/agent-autostart';
-import { enqueueControllerTrigger, clearCoalescingTimers } from './services/controller';
+import { stopAllCliTaskRuns } from './services/executors/cli-executor';
+import { clearCoalescingTimers } from './services/controller';
 import { killAllPtySessions } from './services/terminal';
 import { clearAllPtyCleanupTimers, handleWebSocketError } from './realtime';
 import { setupErrorHandler } from './middleware/error-handler';
 import { bootstrapDefaultAdmin } from './services/auth/default-admin';
-import { Agent, Project } from './types';
 import { loggerOptions } from './logger';
 
 export interface AppOptions {
@@ -61,53 +59,6 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
 
   await registerRoutes(fastify);
 
-  setOnAgentFinish((agent: Agent, exitCode: number | null) => {
-    try {
-      const db = getDatabase();
-      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(agent.project_id) as Project | undefined;
-      if (!project || project.status !== 'active') return;
-
-      if (!agent.is_controller) {
-        if (!agent.paused && agent.status === 'idle') {
-          const restartResult = autoStartAgentForDispatchableIssues(db, project, agent, {
-            source: 'agent-finish',
-            allowStatuses: ['idle'],
-          });
-
-          if (restartResult.started) {
-            fastify.log.info({
-              projectId: project.id,
-              agentId: agent.id,
-              currentBatchCount: restartResult.currentBatchIssueNumbers.length,
-              activeIssueCount: restartResult.activeIssueCount,
-            }, 'agent.finish.immediate_restart');
-            return;
-          }
-
-          if (restartResult.activeIssueCount > 0) {
-            fastify.log.debug({
-              projectId: project.id,
-              agentId: agent.id,
-              activeIssueCount: restartResult.activeIssueCount,
-              reason: restartResult.reason,
-            }, 'agent.finish.restart_suppressed');
-            return;
-          }
-        }
-
-        // Worker finished — enqueue a normal-priority controller trigger.
-        // The coalescing system will batch this with other events and the
-        // necessity check in triggerControllerAgent will skip if there's nothing to do.
-        enqueueControllerTrigger(project, {
-          priority: 'normal',
-          reason: `worker-finished:${agent.name}`,
-        });
-      }
-    } catch (e) {
-      fastify.log.warn({ err: e }, 'agent.finish.handler_failed');
-    }
-  });
-
   if (!opts.skipScheduler) {
     initializeScheduler();
   }
@@ -127,13 +78,11 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
 }
 
 export async function destroyApp(fastify: FastifyInstance): Promise<void> {
-  // Clear onAgentFinish callback to prevent new async activity during shutdown
-  setOnAgentFinish(null);
   // Cancel any pending coalescing timers
   clearCoalescingTimers();
 
   stopAllSchedulers();
-  await stopAllProcesses();
+  await stopAllCliTaskRuns();
   clearAllPtyCleanupTimers();
   killAllPtySessions();
   await fastify.close();

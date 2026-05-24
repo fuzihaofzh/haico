@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { config } from '../../config';
-import { Agent, Project } from '../../types';
+import { Agent } from '../../types';
 import { canMessageDirectHierarchyOnly } from './hierarchy';
 import {
   AgentMessageNotFoundError,
@@ -15,9 +14,9 @@ import {
   MissingAgentMessageBodyError,
   MissingAgentMessageRecipientError,
 } from './message-errors';
-import { isAgentRunning, startAgentProcess } from '../process-manager';
-import { buildSystemPrompt } from '../system-prompt';
 import { broadcastToProject } from '../../realtime';
+import logger from '../../logger';
+import { createAgentTask } from '../tasks';
 
 export interface AgentMessage {
   id: string;
@@ -117,19 +116,50 @@ function maybeWakeRecipientAgent(
   db: Database.Database,
   fromAgent: Agent,
   toAgent: Agent,
+  message: AgentMessage,
   subject: string | undefined,
   body: string
 ): void {
-  if (toAgent.paused || toAgent.status === 'running' || isAgentRunning(toAgent.id)) return;
+  const prompt = [
+    `You received a direct message from ${fromAgent.name}.`,
+    '',
+    `Message ID: ${message.id}`,
+    `From agent ID: ${fromAgent.id}`,
+    `From agent name: ${fromAgent.name}`,
+    `Subject: ${subject || '(no subject)'}`,
+    '',
+    'Message body:',
+    body,
+    '',
+    'Review your inbox and respond or take action as appropriate. Use the HAICO agent message APIs if you need to reply.',
+  ].join('\n');
 
-  const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(toAgent.project_id) as Project | undefined;
-  if (!project || project.status !== 'active') return;
+  const task = createAgentTask(toAgent.id, {
+    source: 'agent-message',
+    source_ref: message.id,
+    task_type: 'message',
+    reason: `Direct message from ${fromAgent.name}`,
+    prompt,
+    priority: 5,
+    metadata: {
+      message_id: message.id,
+      from_agent_id: fromAgent.id,
+      from_agent_name: fromAgent.name,
+      subject: subject || '',
+      reply_to_id: message.reply_to_id,
+    },
+    dedupe_key: ['agent-message', toAgent.project_id, toAgent.id, message.id].join(':'),
+  });
 
-  const prompt = `You received a direct message from ${fromAgent.name}.\n\nSubject: ${subject || '(none)'}\nMessage: ${body.slice(0, 500)}`;
-  const commandTemplate = toAgent.command_template || project.command_template || config.defaultCommandTemplate;
-  const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-  const systemPrompt = isRaw ? undefined : buildSystemPrompt(toAgent, project);
-  startAgentProcess(toAgent, prompt, commandTemplate, systemPrompt);
+  logger.info({
+    projectId: toAgent.project_id,
+    fromAgentId: fromAgent.id,
+    toAgentId: toAgent.id,
+    messageId: message.id,
+    taskId: task.id,
+    subject,
+    bodyLength: body.length,
+  }, 'agent_message.task_created');
 }
 
 export function sendAgentMessage(db: Database.Database, input: SendAgentMessageInput): AgentMessage {
@@ -153,7 +183,7 @@ export function sendAgentMessage(db: Database.Database, input: SendAgentMessageI
   );
 
   broadcastAgentMessageCreated(message, fromAgent, toAgent);
-  maybeWakeRecipientAgent(db, fromAgent, toAgent, input.subject, input.body);
+  maybeWakeRecipientAgent(db, fromAgent, toAgent, message, input.subject, input.body);
 
   return message;
 }

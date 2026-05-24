@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { Project } from '../../types';
 import { listLatestProjectCostRows, sumCostRows } from './costs';
 import { ProjectNotFoundError } from './errors';
+import { deriveAgentRuntimeState } from '../tasks/runtime-state';
 
 export interface ProjectExportResult {
   fileName: string;
@@ -21,7 +22,22 @@ function getProjectOrThrow(db: Database.Database, projectId: string): Project {
 
 export function buildProjectExport(db: Database.Database, projectId: string): ProjectExportResult {
   const project = getProjectOrThrow(db, projectId);
-  const agents = db.prepare('SELECT id, name, role, is_controller, status, started_at, finished_at, created_at FROM agents WHERE project_id = ?').all(projectId);
+  const agents = (db.prepare(
+    'SELECT id, name, role, is_controller, paused, constraints_json, created_at FROM agents WHERE project_id = ?'
+  ).all(projectId) as any[]).map((agent) => {
+    const runtimeState = deriveAgentRuntimeState(db, agent);
+    return {
+      id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      is_controller: agent.is_controller,
+      status: runtimeState.status,
+      runtime_state: runtimeState,
+      started_at: null,
+      finished_at: null,
+      created_at: agent.created_at,
+    };
+  });
   const issues = db.prepare('SELECT * FROM issues WHERE project_id = ? ORDER BY number').all(projectId);
   const milestones = db.prepare('SELECT * FROM milestones WHERE project_id = ?').all(projectId);
   const totals = sumCostRows(listLatestProjectCostRows(db, projectId));

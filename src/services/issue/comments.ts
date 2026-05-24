@@ -39,7 +39,13 @@ function getCommentOrThrow(db: Database.Database, commentId: string): any {
   return comment;
 }
 
-function handleUserCommentReassignment(db: Database.Database, issue: any, body: string, issueId: string): void {
+function handleUserCommentReassignment(
+  db: Database.Database,
+  issue: any,
+  body: string,
+  issueId: string,
+  commentId: string
+): void {
   const agents = db.prepare('SELECT * FROM agents WHERE project_id = ?').all(issue.project_id) as Agent[];
   const targetAgent = findFirstMentionedAgent(body, agents);
   const controllerAgent = agents.find((agent) => agent.is_controller);
@@ -71,8 +77,14 @@ function handleUserCommentReassignment(db: Database.Database, issue: any, body: 
 
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(issue.project_id) as Project | undefined;
   if (!project || project.status === 'paused') return;
+  if (targetAgent) return;
 
-  autoStartAgentFromUserComment(db, project, issue.number, agentToStart);
+  autoStartAgentFromUserComment(db, project, issue.number, agentToStart, {
+    issueId,
+    issueTitle: issue.title,
+    commentId,
+    commentBody: body,
+  });
 }
 
 export function listIssueComments(db: Database.Database, issueId: string, sinceCreatedAt?: string): any[] {
@@ -113,7 +125,7 @@ export function addIssueComment(db: Database.Database, issueId: string, input: A
   });
 
   if (author_id === 'user') {
-    handleUserCommentReassignment(db, result.issue, body, issueId);
+    handleUserCommentReassignment(db, result.issue, body, issueId, result.comment.id);
   }
 
   return result.comment;

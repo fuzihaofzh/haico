@@ -22,7 +22,16 @@ export function getProjectActivity(
   ).all(projectId, limit) as any[];
 
   const agentRuns = db.prepare(
-    "SELECT 'agent_run' as event_type, a.id, a.name, a.status as agent_status, a.started_at as time FROM agents a WHERE a.project_id = ? AND a.started_at IS NOT NULL ORDER BY a.started_at DESC LIMIT ?"
+    `SELECT 'agent_run' as event_type,
+            tr.id,
+            a.name,
+            tr.status as agent_status,
+            COALESCE(tr.finished_at, tr.started_at, tr.created_at) as time
+     FROM task_runs tr
+     JOIN agents a ON a.id = tr.agent_id
+     WHERE tr.project_id = ?
+     ORDER BY COALESCE(tr.finished_at, tr.started_at, tr.created_at) DESC
+     LIMIT ?`
   ).all(projectId, limit) as any[];
 
   return [...issues, ...comments, ...agentRuns]

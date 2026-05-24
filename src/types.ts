@@ -1,5 +1,6 @@
 export type OrchestratorEngine = 'native' | 'langgraph';
 export type CommandProfileType = 'claude' | 'codex' | 'gemini';
+export type ExecutorType = CommandProfileType | 'shell';
 
 export interface Project {
   id: string;
@@ -34,20 +35,124 @@ export interface Agent {
   session_id: string | null;
   working_directory: string | null;
   custom_instructions: string;
+  constraints_json?: string;
+  context_json?: string;
+  capabilities_json?: string;
+  executor_preferences_json?: string;
+  /** @deprecated Runtime state is derived from task_runs. */
   session_run_count: number;
+  /** @deprecated Runtime state is derived from executor_sessions. */
   session_max_runs: number;
+  /** @deprecated Runtime state is derived from executor_sessions. */
   session_token_count: number;
+  /** @deprecated Runtime state is derived from executor_sessions. */
   session_max_tokens: number;
+  /** @deprecated Runtime state is derived from executor_sessions. */
   session_resume_timeout: number;
+  /** @deprecated Executor config is resolved from executor_profiles. */
   command_template: string | null;
+  /** @deprecated Executor config is resolved from executor_profiles. */
   command_type: CommandProfileType | null;
+  /** @deprecated Runtime state is derived from task_runs. */
   status: 'idle' | 'running' | 'waiting' | 'error';
   paused: boolean;
+  /** @deprecated Runtime state is derived from task_runs. */
   pid: number | null;
+  /** @deprecated Prompt snapshots live on tasks/task_runs. */
   last_prompt: string | null;
+  /** @deprecated Runtime state is derived from task_runs. */
+  started_at: string | null;
+  /** @deprecated Runtime state is derived from task_runs. */
+  finished_at: string | null;
+  created_at: string;
+}
+
+export type AgentRuntimeStatus = 'idle' | 'running' | 'waiting' | 'error' | 'paused';
+
+export interface AgentRuntimeState {
+  status: AgentRuntimeStatus;
+  active_task_id: string | null;
+  active_task_run_id: string | null;
+  last_task_run_id: string | null;
+}
+
+export type TaskStatus = 'pending' | 'blocked' | 'running' | 'completed' | 'failed' | 'cancelled' | 'stale';
+export type TaskRunStatus = 'starting' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface ExecutorProfile {
+  id: string;
+  project_id: string;
+  name: string;
+  executor_type: ExecutorType;
+  command_template: string;
+  command_type: CommandProfileType | null;
+  working_directory: string | null;
+  env_json: string;
+  session_policy_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Task {
+  id: string;
+  project_id: string;
+  target_agent_id: string | null;
+  source: string;
+  source_ref: string | null;
+  task_type: string;
+  reason: string;
+  prompt: string;
+  system_prompt: string | null;
+  priority: number;
+  status: TaskStatus;
+  scheduled_at: string | null;
+  claimed_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  executor_profile_id: string | null;
+  executor_snapshot_json: string;
+  context_snapshot_json: string;
+  metadata_json: string;
+  dedupe_key: string | null;
+  current_task_run_id: string | null;
+  failure_kind: string | null;
+  failure_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskRun {
+  id: string;
+  task_id: string;
+  project_id: string;
+  agent_id: string;
+  executor_profile_id: string | null;
+  run_id: string;
+  attempt: number;
+  status: TaskRunStatus;
+  pid: number | null;
+  session_id: string | null;
+  prompt_snapshot: string;
+  command_snapshot: string;
+  exit_code: number | null;
+  failure_kind: string | null;
+  failure_message: string | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
+}
+
+export interface ExecutorSession {
+  id: string;
+  agent_id: string;
+  executor_profile_id: string;
+  session_id: string;
+  run_count: number;
+  token_count: number;
+  last_used_at: string;
+  reset_reason: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Issue {
@@ -107,6 +212,10 @@ export interface CreateAgentInput {
   working_directory?: string;
   command_template?: string;
   command_type?: CommandProfileType | null;
+  constraints_json?: string;
+  context_json?: string;
+  capabilities_json?: string;
+  executor_preferences_json?: string;
 }
 
 export interface CommandProfile {

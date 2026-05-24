@@ -11,6 +11,8 @@ export interface UpdateAgentInput extends Partial<CreateAgentInput> {
 export interface StartAgentServiceInput {
   prompt?: string;
   force_new_session?: boolean;
+  priority?: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AgentStopLogger {

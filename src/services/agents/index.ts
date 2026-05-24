@@ -63,6 +63,7 @@ export {
   getAgentRunReport,
   getAgentTerminalText,
   listAgentRuns,
+  listAgentTaskRuns,
 } from './runs';
 export { getAgentGitStatus } from './git';
 export * from './errors';

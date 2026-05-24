@@ -1,14 +1,11 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { Agent, Issue, Project } from '../../types';
-import { config } from '../../config';
+import { Agent, Project } from '../../types';
 import logger from '../../logger';
-import { autoStartAgentForDispatchableIssues } from './agent-autostart';
 import { enqueueControllerTrigger } from '../controller';
-import { getAgentWakeupDecision, recordAgentWakeup } from '../agent-wakeup-guard';
 import { tryHandleWithoutLLM } from '../pre-controller';
-import { buildSystemPrompt } from '../system-prompt';
-import { isAgentRunning, startAgentProcess } from '../process-manager';
+import { createAgentTask } from '../tasks';
+import { autoStartAgentForDispatchableIssues } from './agent-autostart';
 
 export function parseMentionedAgentNames(text: string): string[] {
   if (!text) return [];
@@ -36,6 +33,28 @@ function nameOfAgent(agentId: string, agents: Agent[]): string {
   return agent ? agent.name : agentId;
 }
 
+function buildMentionTaskPrompt(input: {
+  issueId: string;
+  issueNumber: number;
+  issueTitle: string;
+  mentionText: string;
+  authorId: string;
+  agentName: string;
+}): string {
+  return [
+    `You were mentioned as @${input.agentName} on issue #${input.issueNumber}.`,
+    '',
+    `Issue ID: ${input.issueId}`,
+    `Issue title: ${input.issueTitle}`,
+    `Mentioned by: ${input.authorId}`,
+    '',
+    'Source text:',
+    input.mentionText,
+    '',
+    'Review the issue context through the HAICO issue APIs, then make progress on the requested work. Leave a substantive issue comment before finishing.',
+  ].join('\n');
+}
+
 export function parseMentionsAndStartAgents(
   db: Database.Database,
   text: string,
@@ -49,7 +68,6 @@ export function parseMentionsAndStartAgents(
   if (mentions.length === 0) return;
 
   const agents = db.prepare('SELECT * FROM agents WHERE project_id = ?').all(projectId) as Agent[];
-  const issue = db.prepare('SELECT * FROM issues WHERE id = ?').get(issueId) as Issue | undefined;
   const eventStmt = db.prepare(
     'INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)'
   );
@@ -58,48 +76,45 @@ export function parseMentionsAndStartAgents(
     const agent = agents.find((candidate) => candidate.name === agentName);
     if (!agent) continue;
 
-    if (!agent.paused && agent.status !== 'running' && !isAgentRunning(agent.id)) {
-      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
-      if (project && project.status !== 'paused') {
-        const wakeDecision = issue
-          ? getAgentWakeupDecision(agent, [issue], { source: 'issue-mention', allowStatuses: ['idle', 'error'] })
-          : { allowed: agent.status === 'idle', reason: 'issue-mention: no issue context', signature: '', activityKey: '', activeIssueCount: 0, currentBatchIssueNumbers: [] };
-        if (!wakeDecision.allowed) {
-          logger.debug({
-            projectId,
-            issueId,
-            issueNumber,
-            agentId: agent.id,
-            reason: wakeDecision.reason,
-          }, 'issue.mention_autostart_skipped');
-          continue;
-        }
+    const task = createAgentTask(agent.id, {
+      source: 'issue-mention',
+      source_ref: issueId,
+      task_type: 'issue-work',
+      reason: `@${agent.name} mentioned on issue #${issueNumber}`,
+      prompt: buildMentionTaskPrompt({
+        issueId,
+        issueNumber,
+        issueTitle,
+        mentionText: text,
+        authorId,
+        agentName: agent.name,
+      }),
+      priority: 10,
+      metadata: {
+        issue_id: issueId,
+        issue_number: issueNumber,
+        issue_title: issueTitle,
+        mentioned_agent_name: agent.name,
+        triggered_by: authorId,
+      },
+    });
 
-        const prompt = `You were mentioned (@${agentName}) in issue #${issueNumber} "${issueTitle}". Review the issue and take action.\n\nContext: ${text.slice(0, 500)}`;
-        const commandTemplate = agent.command_template || project.command_template || config.defaultCommandTemplate;
-        const isRaw = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-        const systemPrompt = isRaw ? undefined : buildSystemPrompt(agent, project);
-        const run = startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
-        recordAgentWakeup(agent.id, wakeDecision.signature, 'issue-mention', wakeDecision.activityKey);
-        logger.info({
-          projectId,
-          issueId,
-          issueNumber,
-          agentId: agent.id,
-          runId: run.runId,
-          triggeredBy: authorId,
-        }, 'issue.mention_autostarted');
-
-        eventStmt.run(
-          uuidv4(),
-          issueId,
-          'system',
-          `auto-started ${agent.name} (mentioned by ${authorId === 'user' ? 'user' : nameOfAgent(authorId, agents)})`,
-          'status_change',
-          JSON.stringify({ mention: agentName, agent_id: agent.id, triggered_by: authorId })
-        );
-      }
-    }
+    logger.info({
+      projectId,
+      issueId,
+      issueNumber,
+      agentId: agent.id,
+      taskId: task.id,
+      triggeredBy: authorId,
+    }, 'issue.mention_task_created');
+    eventStmt.run(
+      uuidv4(),
+      issueId,
+      'system',
+      `Task queued for @${agent.name} from mention on issue #${issueNumber}`,
+      'status_change',
+      JSON.stringify({ mention: agentName, agent_id: agent.id, task_id: task.id, triggered_by: authorId })
+    );
   }
 }
 
@@ -151,56 +166,74 @@ export function autoStartAssignedAgentForIssue(
 ): void {
   if (!assignedTo || assignedTo === 'user' || assignedTo === 'all') return;
 
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(assignedTo) as Agent | undefined;
-  if (!agent || agent.paused || agent.status === 'running' || isAgentRunning(agent.id)) return;
-
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
-  if (!project || project.status === 'paused') return;
+  if (!project) return;
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ? AND project_id = ?').get(assignedTo, projectId) as Agent | undefined;
+  if (!agent) return;
 
-  const result = autoStartAgentForDispatchableIssues(db, project, agent, {
+  const result = autoStartAgentForDispatchableIssues(db, project, agent, { source });
+  logger.debug({
+    projectId,
+    issueNumber,
+    assignedTo,
     source,
-    allowStatuses: ['idle', 'error'],
-  });
-  if (!result.started) {
-    logger.debug({
-      projectId,
-      issueNumber,
-      agentId: agent.id,
-      reason: result.reason,
-      activeIssueCount: result.activeIssueCount,
-    }, 'issue.assigned_autostart_skipped');
-  }
+    taskId: result.taskId,
+    reason: result.reason,
+    activeIssueCount: result.activeIssueCount,
+    currentBatchIssueNumbers: result.currentBatchIssueNumbers,
+  }, result.started ? 'issue.assigned_task_created' : 'issue.assigned_task_skipped');
 }
 
 export function autoStartAgentFromUserComment(
   db: Database.Database,
   project: Project,
   issueNumber: number,
-  agent: Agent
+  agent: Agent,
+  input: {
+    issueId: string;
+    issueTitle: string;
+    commentId: string;
+    commentBody: string;
+  }
 ): void {
-  if (agent.paused || agent.status === 'running' || isAgentRunning(agent.id)) return;
+  if (project.status === 'paused') return;
 
-  if (agent.is_controller) {
-    enqueueControllerTrigger(project, {
-      issueNumber,
-      priority: 'urgent',
-      reason: 'user-comment-to-controller',
-      skipActivityCheck: true,
-    });
-    return;
-  }
+  const prompt = [
+    `A user comment routed issue #${issueNumber} to you.`,
+    '',
+    `Issue ID: ${input.issueId}`,
+    `Issue title: ${input.issueTitle}`,
+    `Comment ID: ${input.commentId}`,
+    '',
+    'User comment:',
+    input.commentBody,
+    '',
+    'Inspect the issue through the HAICO issue APIs, respond to the user comment, and update issue state if needed.',
+  ].join('\n');
 
-  const result = autoStartAgentForDispatchableIssues(db, project, agent, {
-    source: 'user-comment-reassignment',
-    allowStatuses: ['idle', 'error'],
+  const task = createAgentTask(agent.id, {
+    source: 'user-comment',
+    source_ref: input.commentId,
+    task_type: 'issue-work',
+    reason: `User comment routed issue #${issueNumber} to ${agent.name}`,
+    prompt,
+    priority: 10,
+    metadata: {
+      issue_id: input.issueId,
+      issue_number: issueNumber,
+      issue_title: input.issueTitle,
+      comment_id: input.commentId,
+      routed_agent_id: agent.id,
+    },
+    dedupe_key: ['issue-user-comment', project.id, agent.id, input.commentId].join(':'),
   });
-  if (!result.started) {
-    logger.debug({
-      projectId: project.id,
-      issueNumber,
-      agentId: agent.id,
-      reason: result.reason,
-      activeIssueCount: result.activeIssueCount,
-    }, 'issue.user_comment_autostart_skipped');
-  }
+
+  logger.info({
+    projectId: project.id,
+    issueId: input.issueId,
+    issueNumber,
+    commentId: input.commentId,
+    agentId: agent.id,
+    taskId: task.id,
+  }, 'issue.user_comment_task_created');
 }

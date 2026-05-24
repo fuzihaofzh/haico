@@ -1,4 +1,5 @@
 import { getDatabase } from '../db/database';
+import { deriveAgentRuntimeStatus, summarizeAgentRuntimeStates } from './tasks/runtime-state';
 
 export type ControllerBackoffSource = 'waiting_user' | 'idle' | 'controller_error';
 
@@ -62,24 +63,23 @@ export function buildControllerActivitySnapshot(projectId: string): string {
      WHERE project_id = ? AND status IN ('done', 'closed')`
   ).get(projectId) as any;
 
-  const workerStats = db.prepare(
-    `SELECT
-      SUM(CASE WHEN status = 'idle' AND paused = 0 THEN 1 ELSE 0 END) AS idle_count,
-      SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running_count,
-      SUM(CASE WHEN status = 'error' AND paused = 0 THEN 1 ELSE 0 END) AS error_count,
-      SUM(CASE WHEN paused = 1 THEN 1 ELSE 0 END) AS paused_count
-    FROM agents
-    WHERE project_id = ? AND is_controller = 0`
-  ).get(projectId) as any;
+  const workerRows = db.prepare(
+    `SELECT id, paused, constraints_json
+     FROM agents
+     WHERE project_id = ? AND is_controller = 0`
+  ).all(projectId) as Array<{ id: string; paused: number | boolean | null; constraints_json?: string | null }>;
+  const workerStats = summarizeAgentRuntimeStates(db, workerRows);
 
   // Error workers WITH active issues (the ones controller can actually help with)
-  const errorWithIssues = db.prepare(
-    `SELECT COUNT(*) AS cnt FROM agents a
-     WHERE a.project_id = ? AND a.is_controller = 0 AND a.status = 'error' AND a.paused = 0
-     AND EXISTS (
-       SELECT 1 FROM issues i WHERE i.assigned_to = a.id AND i.project_id = ? AND i.status IN ('open', 'in_progress')
-     )`
-  ).get(projectId, projectId) as any;
+  const errorWithIssuesCount = workerRows.filter((agent) => {
+    if (deriveAgentRuntimeStatus(db, agent) !== 'error') return false;
+    return Boolean(db.prepare(`
+      SELECT 1
+      FROM issues
+      WHERE assigned_to = ? AND project_id = ? AND status IN ('open', 'in_progress')
+      LIMIT 1
+    `).get(agent.id, projectId));
+  }).length;
 
   return [
     issueStats?.active_count ?? 0,
@@ -89,11 +89,11 @@ export function buildControllerActivitySnapshot(projectId: string): string {
     issueStats?.in_progress_count ?? 0,
     stalePendingCount?.cnt ?? 0,
     doneCount?.cnt ?? 0,
-    workerStats?.idle_count ?? 0,
-    workerStats?.running_count ?? 0,
-    workerStats?.error_count ?? 0,
-    workerStats?.paused_count ?? 0,
-    errorWithIssues?.cnt ?? 0,
+    workerStats.idle_count,
+    workerStats.running,
+    workerStats.error_count,
+    workerStats.paused_count,
+    errorWithIssuesCount,
   ].join('|');
 }
 

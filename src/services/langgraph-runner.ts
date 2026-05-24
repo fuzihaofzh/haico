@@ -1,14 +1,12 @@
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { v4 as uuidv4 } from 'uuid';
 import { Agent, Issue, Project } from '../types';
-import { config } from '../config';
 import { getDatabase } from '../db/database';
 import logger from '../logger';
-import { startAgentProcess } from './process-manager';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './issue/batch';
 import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
-import { buildSystemPrompt } from './system-prompt';
 import { listDispatchableIssuesForAgent, listOrchestrationIssues } from './issue/dispatch';
+import { createAgentTask, getAgentRuntimeState } from './tasks';
 
 export interface LangGraphControllerInput {
   project: Project;
@@ -31,6 +29,7 @@ export interface OrchestrationDispatchResult {
   message: string;
   runId?: string;
   pid?: number;
+  taskId?: string;
 }
 
 export type ControllerDecision = 'execute_controller' | 'finish';
@@ -114,6 +113,7 @@ const ControllerGraphState = Annotation.Root({
   systemPrompt: Annotation<string | undefined>(),
   runId: Annotation<string | undefined>(),
   pid: Annotation<number | undefined>(),
+  controllerTaskId: Annotation<string | undefined>(),
 });
 
 function buildWorkerPrompt(project: Project, agent: Agent, assignedIssues: Issue[]): string {
@@ -217,6 +217,15 @@ function loadLatestRunExcerpt(db: ReturnType<typeof getDatabase>, agentId: strin
   if (!merged) return '';
   const compact = merged.replace(/\s+/g, ' ').trim();
   return compact.length > 1800 ? compact.slice(compact.length - 1800) : compact;
+}
+
+function hasActiveQueuedTask(db: ReturnType<typeof getDatabase>, agentId: string): boolean {
+  return Boolean(db.prepare(`
+    SELECT 1
+    FROM tasks
+    WHERE target_agent_id = ? AND status IN ('pending', 'blocked', 'running')
+    LIMIT 1
+  `).get(agentId));
 }
 
 function collectWorkerOutcomeHints(state: { agents: Agent[]; issues: Issue[] }): WorkerOutcomeHint[] {
@@ -528,9 +537,11 @@ const controllerGraph = new StateGraph(ControllerGraphState)
         reasons.push('agent ' + action.agentId + ' disappeared before dispatch');
         continue;
       }
+      const runtimeState = getAgentRuntimeState(agent.id);
       if (agent.is_controller) continue;
-      if (agent.paused) continue;
-      if (agent.status === 'running') continue;
+      if (runtimeState.status === 'paused') continue;
+      if (runtimeState.active_task_run_id) continue;
+      if (hasActiveQueuedTask(getDatabase(), agent.id)) continue;
 
       const validIssues = action.issueIds
         .map((id) => issuesById.get(id))
@@ -569,9 +580,14 @@ const controllerGraph = new StateGraph(ControllerGraphState)
         results.push({ agentId: action.agentId, started: false, message: 'agent not found at dispatch time' });
         continue;
       }
-      if (agent.is_controller || agent.paused || agent.status === 'running') {
+      const runtimeState = getAgentRuntimeState(agent.id);
+      if (agent.is_controller || runtimeState.status === 'paused' || runtimeState.active_task_run_id) {
         forceController = true;
-        results.push({ agentId: action.agentId, started: false, message: 'agent unavailable (status=' + agent.status + ', paused=' + agent.paused + ')' });
+        results.push({ agentId: action.agentId, started: false, message: 'agent unavailable (runtime_status=' + runtimeState.status + ', active_task_run_id=' + runtimeState.active_task_run_id + ')' });
+        continue;
+      }
+      if (hasActiveQueuedTask(db, agent.id)) {
+        results.push({ agentId: action.agentId, started: false, message: 'agent already has an active queued task' });
         continue;
       }
 
@@ -582,12 +598,9 @@ const controllerGraph = new StateGraph(ControllerGraphState)
       }
 
       const prompt = buildWorkerPrompt(state.project, agent, assignedIssues);
-      const commandTemplate = agent.command_template || state.project.command_template || config.defaultCommandTemplate;
-      const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-      const systemPrompt = isRawShell ? undefined : buildSystemPrompt(agent, state.project);
 
       try {
-        const wakeDecision = getAgentWakeupDecision(agent, assignedIssues, { source: 'langgraph' });
+        const wakeDecision = getAgentWakeupDecision({ ...agent, status: runtimeState.status as Agent['status'] }, assignedIssues, { source: 'langgraph' });
         if (!wakeDecision.allowed) {
           results.push({
             agentId: action.agentId,
@@ -597,8 +610,28 @@ const controllerGraph = new StateGraph(ControllerGraphState)
           continue;
         }
 
-        const process = startAgentProcess(agent, prompt, commandTemplate, systemPrompt);
         const issueBatch = getAgentIssueBatch(assignedIssues);
+        const task = createAgentTask(agent.id, {
+          source: 'langgraph-dispatch',
+          source_ref: issueBatch.currentBatch[0]?.id || assignedIssues[0]?.id || null,
+          task_type: 'issue-work',
+          reason: action.reason || 'LangGraph worker dispatch',
+          prompt,
+          priority: 15,
+          metadata: {
+            issue_ids: assignedIssues.map((issue) => issue.id),
+            issue_numbers: assignedIssues.map((issue) => issue.number),
+            current_batch_issue_ids: issueBatch.currentBatch.map((issue) => issue.id),
+            current_batch_issue_numbers: issueBatch.currentBatch.map((issue) => issue.number),
+            orchestration_engine: 'langgraph',
+          },
+          dedupe_key: [
+            'issue-work',
+            state.project.id,
+            agent.id,
+            issueBatch.activeIssues.map((issue) => issue.id).sort().join(','),
+          ].join(':'),
+        });
         markCurrentBatchInProgress(db, issueBatch);
         const recordedWakeup = buildAgentWakeupSignature(
           listDispatchableIssuesForAgent(db, state.project.id, agent.id)
@@ -610,14 +643,13 @@ const controllerGraph = new StateGraph(ControllerGraphState)
           agentId: agent.id,
           currentBatchCount: issueBatch.currentBatch.length,
           activeIssueCount: issueBatch.activeIssues.length,
-          runId: process.runId,
-        }, 'langgraph.worker_dispatched');
+          taskId: task.id,
+        }, 'langgraph.worker_task_created');
         results.push({
           agentId: action.agentId,
           started: true,
-          message: 'started for ' + issueBatch.currentBatch.length + '/' + issueBatch.activeIssues.length + ' assigned issue(s) in current batch',
-          runId: process.runId,
-          pid: process.pid,
+          message: 'queued task for ' + issueBatch.currentBatch.length + '/' + issueBatch.activeIssues.length + ' assigned issue(s) in current batch',
+          taskId: task.id,
         });
       } catch (err: any) {
         forceController = true;
@@ -648,10 +680,6 @@ const controllerGraph = new StateGraph(ControllerGraphState)
     };
   })
   .addNode('execute_controller', (state) => {
-    const commandTemplate =
-      state.controller.command_template || state.project.command_template || config.defaultCommandTemplate;
-    const isRawShell = /^\s*(bash|sh|zsh)\s+-c\b/.test(commandTemplate);
-    const systemPrompt = isRawShell ? undefined : buildSystemPrompt(state.controller, state.project);
     const agentNameById = new Map(state.agents.map((a) => [a.id, a.name]));
     const findings: string[] = [];
 
@@ -669,18 +697,30 @@ const controllerGraph = new StateGraph(ControllerGraphState)
       ? state.taskPrompt + '\n\n## Orchestration Findings\n' + findings.join('\n') + '\n\nPlease decide whether to re-dispatch workers, assign issue to user, close issue, or create follow-up issues.'
       : state.taskPrompt;
 
-    const result = startAgentProcess(
-      state.controller,
-      controllerPrompt,
-      commandTemplate,
-      systemPrompt
-    );
+    const task = createAgentTask(state.controller.id, {
+      source: 'langgraph-controller',
+      source_ref: null,
+      task_type: 'controller',
+      reason: 'LangGraph decided controller execution is required',
+      prompt: controllerPrompt,
+      priority: 20,
+      metadata: {
+        trigger_issue_number: state.triggerIssueNumber ?? null,
+        controller_reasons: state.controllerReasons,
+        worker_outcome_hints: state.workerOutcomeHints.slice(0, 8),
+        dispatch_results: state.dispatchResults,
+        orchestration_engine: 'langgraph',
+      },
+      dedupe_key: [
+        'controller',
+        state.project.id,
+        state.controller.id,
+        state.triggerIssueNumber ?? 'project',
+      ].join(':'),
+    });
 
     return {
-      commandTemplate,
-      systemPrompt,
-      runId: result.runId,
-      pid: result.pid,
+      controllerTaskId: task.id,
     };
   })
   .addNode('finish', (state) => {
@@ -723,6 +763,7 @@ export async function runControllerWithLangGraph(
   controllerStarted: boolean;
   runId?: string;
   pid?: number;
+  controllerTaskId?: string;
   decision: ControllerDecision;
   dispatchSummary: string;
   dispatchCount: number;
@@ -742,17 +783,18 @@ export async function runControllerWithLangGraph(
   });
 
   const decision = (result.controllerDecision || 'finish') as ControllerDecision;
-  const controllerStarted = !!result.runId && result.pid !== undefined;
+  const controllerStarted = !!result.controllerTaskId;
   const dispatchResults = result.dispatchResults || [];
 
   if (decision === 'execute_controller' && !controllerStarted) {
-    throw new Error('LangGraph decided to execute controller but did not return run metadata');
+    throw new Error('LangGraph decided to execute controller but did not create a controller Task');
   }
 
   return {
     controllerStarted,
     runId: result.runId,
     pid: result.pid,
+    controllerTaskId: result.controllerTaskId,
     decision,
     dispatchSummary: result.dispatchSummary || '',
     dispatchCount: dispatchResults.filter((r) => r.started).length,

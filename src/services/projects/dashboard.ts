@@ -3,6 +3,7 @@ import { fetchRemoteProjectAgents, fetchRemoteProjects, loadRemoteInstances, Rem
 import { listAccessibleProjectIds, ProjectRequestContext } from '../project-access';
 import { listLatestProjectSetCostRows, parseCostContent, sumCostRows } from './costs';
 import { buildSqlPlaceholders, buildTimeBucketKey, parseBoundedLimit, toFiniteNumber } from './utils';
+import { deriveAgentRuntimeState, summarizeAgentRuntimeStates } from '../tasks/runtime-state';
 
 interface RemoteDashboardProjectRef {
   instance: RemoteInstanceRecord;
@@ -91,13 +92,12 @@ export async function getDashboardSummary(
   if (projectIds.length > 0) {
     const placeholders = buildSqlPlaceholders(projectIds);
 
-    const agentStats = db.prepare(
-      `SELECT COUNT(*) as total,
-              SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
-              SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error_count
+    const agentRows = db.prepare(
+      `SELECT id, paused, constraints_json
        FROM agents
        WHERE project_id IN (${placeholders})`
-    ).get(...projectIds) as any;
+    ).all(...projectIds) as Array<{ id: string; paused: number | boolean | null; constraints_json?: string | null }>;
+    const agentStats = summarizeAgentRuntimeStates(db, agentRows);
     localAgentStats = {
       total: agentStats?.total || 0,
       running: agentStats?.running || 0,
@@ -117,10 +117,10 @@ export async function getDashboardSummary(
 
     const projectActivity = db.prepare(
       `SELECT p.id,
-              MAX(COALESCE(a.started_at, a.finished_at)) as last_agent_activity,
+              MAX(COALESCE(tr.finished_at, tr.started_at, tr.created_at)) as last_agent_activity,
               MAX(i.updated_at) as last_issue_activity
        FROM projects p
-       LEFT JOIN agents a ON a.project_id = p.id
+       LEFT JOIN task_runs tr ON tr.project_id = p.id
        LEFT JOIN issues i ON i.project_id = p.id
        WHERE p.id IN (${placeholders})
        GROUP BY p.id`
@@ -245,13 +245,15 @@ export function getDashboardActivityStream(
       ORDER BY c.created_at DESC LIMIT ?
     )
     UNION ALL SELECT * FROM (
-      SELECT CASE WHEN a.status = 'running' THEN 'agent_started' ELSE 'agent_stopped' END,
-             a.id, NULL, NULL, NULL,
-             NULL, COALESCE(a.started_at, a.finished_at), p.id, p.name,
-             NULL, NULL, NULL, NULL, a.name, a.status, NULL, NULL
-      FROM agents a JOIN projects p ON a.project_id = p.id
-      WHERE a.project_id IN (${placeholders}) AND (a.started_at IS NOT NULL OR a.finished_at IS NOT NULL)
-      ORDER BY COALESCE(a.started_at, a.finished_at) DESC LIMIT ?
+      SELECT CASE WHEN tr.status IN ('starting', 'running') THEN 'agent_started' ELSE 'agent_stopped' END,
+             tr.id, NULL, NULL, NULL,
+             NULL, COALESCE(tr.finished_at, tr.started_at, tr.created_at), p.id, p.name,
+             NULL, NULL, NULL, NULL, a.name, tr.status, NULL, NULL
+      FROM task_runs tr
+      JOIN agents a ON a.id = tr.agent_id
+      JOIN projects p ON tr.project_id = p.id
+      WHERE tr.project_id IN (${placeholders}) AND (tr.started_at IS NOT NULL OR tr.finished_at IS NOT NULL)
+      ORDER BY COALESCE(tr.finished_at, tr.started_at, tr.created_at) DESC LIMIT ?
     )
     UNION ALL SELECT * FROM (
       SELECT CASE WHEN ar.status = 'pending' THEN 'approval_created' ELSE 'approval_decided' END,
@@ -278,19 +280,38 @@ export async function listDashboardAgents(
 
   if (projectIds.length > 0) {
     const placeholders = buildSqlPlaceholders(projectIds);
-    let query = `SELECT a.id, a.name, a.role, a.status, a.is_controller, a.started_at, a.finished_at, a.paused,
+    const query = `SELECT a.id, a.name, a.role, a.is_controller, a.started_at, a.finished_at, a.paused,
+                        a.constraints_json,
                         p.id as project_id, p.name as project_name
                  FROM agents a JOIN projects p ON a.project_id = p.id
                  WHERE a.project_id IN (${placeholders})`;
     const params: any[] = [...projectIds];
 
-    if (statusFilter) {
-      query += ' AND a.status = ?';
-      params.push(statusFilter);
-    }
-
-    query += " ORDER BY CASE a.status WHEN 'running' THEN 0 WHEN 'error' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END, a.name";
-    agents = db.prepare(query).all(...params) as any[];
+    agents = (db.prepare(query).all(...params) as any[])
+      .map((agent) => {
+        const runtimeState = deriveAgentRuntimeState(db, agent);
+        return {
+          ...agent,
+          status: runtimeState.status,
+          started_at: null,
+          finished_at: null,
+          runtime_state: runtimeState,
+          active_task_id: runtimeState.active_task_id,
+          active_task_run_id: runtimeState.active_task_run_id,
+        };
+      })
+      .filter((agent) => !statusFilter || agent.status === statusFilter)
+      .sort((a, b) => {
+        const rank = (value: string) => {
+          if (value === 'running') return 0;
+          if (value === 'error') return 1;
+          if (value === 'waiting') return 2;
+          return 3;
+        };
+        const rankDelta = rank(String(a?.status || '')) - rank(String(b?.status || ''));
+        if (rankDelta !== 0) return rankDelta;
+        return String(a?.name || '').localeCompare(String(b?.name || ''));
+      });
 
     const agentIds = agents.map((agent) => agent.id);
     if (agentIds.length > 0) {

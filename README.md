@@ -135,7 +135,7 @@ HAICO creates a **shared workspace** where humans and AI agents collaborate as a
 **Orchestration**
 - Hierarchical agent teams with controller/worker roles and parent-child relationships
 - Two orchestration engines: **Native** (direct) and **LangGraph** (agentic reasoning with tool use)
-- Cron-based scheduling for recurring agent tasks
+- Task-based execution: manual starts, issue assignments, messages, and controller runs are queued as durable tasks
 
 **Collaboration**
 - Built-in issue tracker with priorities, labels, assignments, dependencies, and sub-issues
@@ -145,7 +145,7 @@ HAICO creates a **shared workspace** where humans and AI agents collaborate as a
 - Human approval gates for higher-risk agent actions
 
 **Operations**
-- Process lifecycle management with watchdog detection for stuck agents
+- Task runtime with scheduler, executor profiles, retryable TaskRuns, and watchdog detection for stuck runs
 - Token budgets with tail-request avoidance to prevent runaway costs
 - Session persistence with auto-resumption and cooldown
 
@@ -266,7 +266,7 @@ Start the controller. It will:
 1. Analyze the project task
 2. Decompose it into issues on the built-in tracker
 3. Assign issues to worker agents
-4. Start workers and monitor progress
+4. Queue Tasks for workers and let the scheduler execute TaskRuns
 5. Coordinate until the project is complete
 
 ### 4. Monitor Everything
@@ -290,14 +290,15 @@ The web dashboard gives you full visibility — real-time terminal output, issue
 │  Services                                        │
 │    ├── Orchestrator (Native / LangGraph)         │
 │    ├── Controller & Pre-Controller               │
-│    ├── ProcessManager (spawn, pty, lifecycle)     │
-│    ├── Scheduler (cron, watchdog)                │
+│    ├── Task Runtime (Task / TaskRun lifecycle)   │
+│    ├── Scheduler + Watchdog                      │
+│    ├── Executors (CLI spawn + session resume)    │
 │    ├── Terminal (xterm.js bridge)                │
 │    └── Agent Hierarchy                           │
 │    │                                             │
 │  SQLite (better-sqlite3)                         │
 │    projects · agents · issues · knowledge ·      │
-│    messages · users · sessions                   │
+│    tasks · task_runs · messages · users          │
 └──────────────────────────────────────────────────┘
 ```
 

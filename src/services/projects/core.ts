@@ -5,7 +5,6 @@ import { Agent, CreateProjectInput, OrchestratorEngine, Project } from '../../ty
 import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
 import { getProjectPermission, listAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-access';
-import { isAgentRunning, stopAgentProcess } from '../process-manager';
 import logger, { AppLogger } from '../../logger';
 import {
   InvalidProjectOrchestratorEngineError,
@@ -15,6 +14,8 @@ import {
   ProjectNotFoundError,
 } from './errors';
 import { buildSqlPlaceholders } from './utils';
+import { ensureProjectDefaultExecutorProfile, syncProjectDefaultExecutorProfile } from '../executors/profiles';
+import { cancelActiveTaskForAgent, summarizeAgentRuntimeStates } from '../tasks';
 
 export interface ProjectOwnerSummary {
   id: string;
@@ -114,12 +115,21 @@ function attachProjectStats(db: Database.Database, projects: SerializedProject[]
   const placeholders = buildSqlPlaceholders(projectIds);
 
   const agentRows = db.prepare(
-    `SELECT project_id, COUNT(*) as total,
-            SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) as running,
-            SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) as error_count
-     FROM agents WHERE project_id IN (${placeholders}) GROUP BY project_id`
-  ).all(...projectIds) as any[];
-  const agentMap = new Map(agentRows.map((row) => [row.project_id, row]));
+    `SELECT project_id, id, paused, constraints_json
+     FROM agents
+     WHERE project_id IN (${placeholders})`
+  ).all(...projectIds) as Array<{
+    project_id: string;
+    id: string;
+    paused: number | boolean | null;
+    constraints_json?: string | null;
+  }>;
+  const agentRowsByProject = new Map<string, typeof agentRows>();
+  for (const row of agentRows) {
+    const rows = agentRowsByProject.get(row.project_id) || [];
+    rows.push(row);
+    agentRowsByProject.set(row.project_id, rows);
+  }
 
   const issueRows = db.prepare(
     `SELECT project_id, COUNT(*) as total,
@@ -149,7 +159,7 @@ function attachProjectStats(db: Database.Database, projects: SerializedProject[]
   const controllerMap = new Map(controllerRows.map((row) => [row.project_id, row.id]));
 
   return projects.map((project) => {
-    const agentStats = agentMap.get(project.id);
+    const agentStats = summarizeAgentRuntimeStates(db, agentRowsByProject.get(project.id) || []);
     const issueStats = issueMap.get(project.id);
     return {
       ...project,
@@ -205,6 +215,16 @@ export function createProject(
       ownerId
     );
 
+    const projectForExecutor = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project;
+    const defaultExecutorProfile = ensureProjectDefaultExecutorProfile(db, projectForExecutor);
+    const baseConstraints = JSON.stringify({ paused: false, max_concurrent_tasks: 1 });
+    const controllerContext = JSON.stringify({
+      role: input.controller_role || 'Main controller agent that manages and coordinates other agents',
+      custom_instructions: '',
+      collaboration_rules: [],
+    });
+    const executorPreferences = JSON.stringify({ default_executor_profile_id: defaultExecutorProfile.id });
+
     if (ownerId) {
       db.prepare(`
         INSERT INTO project_members (id, project_id, user_id, role)
@@ -220,14 +240,22 @@ export function createProject(
       commandType: resolvedCommandType,
     });
     db.prepare(`
-      INSERT INTO agents (id, project_id, name, role, is_controller, working_directory, command_template, command_type, status)
-      VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'idle')
+      INSERT INTO agents (
+        id, project_id, name, role, is_controller, working_directory,
+        constraints_json, context_json, capabilities_json, executor_preferences_json,
+        command_template, command_type, status
+      )
+      VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 'idle')
     `).run(
       controllerId,
       id,
       `${input.name || 'project'}-controller`,
       controllerRole,
       input.working_directory || null,
+      baseConstraints,
+      controllerContext,
+      JSON.stringify(['coordination']),
+      executorPreferences,
       controllerCommandConfig.commandTemplate,
       controllerCommandConfig.commandType
     );
@@ -241,15 +269,29 @@ export function createProject(
 
     const assistantId = uuidv4();
     const assistantRole = 'Assistant to the controller. Handles analysis, code execution, data processing, and research tasks delegated by the controller.';
+    const assistantContext = JSON.stringify({
+      role: assistantRole,
+      custom_instructions: '',
+      collaboration_rules: [],
+    });
     db.prepare(`
-      INSERT INTO agents (id, project_id, name, role, is_controller, working_directory, status)
-      VALUES (?, ?, ?, ?, 0, ?, 'idle')
+      INSERT INTO agents (
+        id, project_id, name, role, is_controller, parent_agent_id, working_directory,
+        constraints_json, context_json, capabilities_json, executor_preferences_json, status
+      )
+      VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'idle')
     `).run(
       assistantId,
       id,
       `${input.name || 'project'}-assistant`,
       assistantRole,
+      controllerId,
       input.working_directory || null
+      ,
+      baseConstraints,
+      assistantContext,
+      JSON.stringify(['analysis', 'research', 'execution']),
+      executorPreferences
     );
     ensureAgentKnowledgeEntry(db, {
       id: assistantId,
@@ -345,6 +387,9 @@ export function updateProject(
   );
 
   const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project;
+  if (hasCommandTemplate || hasCommandType) {
+    syncProjectDefaultExecutorProfile(db, updated, updated.command_template, updated.command_type);
+  }
   if (Object.keys(changes).length > 0) {
     logger.info({ projectId, changes }, 'project.updated');
   }
@@ -367,10 +412,8 @@ export function deleteProject(
   const agents = db.prepare('SELECT * FROM agents WHERE project_id = ?').all(projectId) as Agent[];
   const stoppedAgentIds: string[] = [];
   for (const agent of agents) {
-    if (isAgentRunning(agent.id)) {
-      stopAgentProcess(agent.id);
-      stoppedAgentIds.push(agent.id);
-    }
+    cancelActiveTaskForAgent(agent.id);
+    stoppedAgentIds.push(agent.id);
   }
   if (stoppedAgentIds.length > 0) {
     logger.warn({ projectId, stoppedAgentIds }, 'project.delete.stopped_agents');

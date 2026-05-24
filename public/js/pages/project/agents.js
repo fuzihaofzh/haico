@@ -450,7 +450,8 @@ async function loadAgents(options) {
     const spinner = a.status === 'running' ? '<span class="thinking-spinner">✦</span> ' : '';
     const deleteBtn = canManage && !a.is_controller && a.status !== 'running'
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();deleteAgent('${a.id}')" style="color:var(--error);padding:3px 6px" title="Delete">✕</button>` : '';
-    const retryBtn = canManage && a.status === 'error' && a.has_last_prompt && !a.paused
+    const runtime = a.runtime_state || {};
+    const retryBtn = canManage && runtime.status === 'error' && runtime.last_task_run_id && !a.paused
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();retryAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Retry last prompt">Retry</button>` : '';
     const pauseBtn = canManage && !a.paused
       ? `<button class="btn btn-sm" onclick="event.stopPropagation();pauseAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Pause agent">⏸</button>`
@@ -527,6 +528,11 @@ async function loadAgents(options) {
 }
 
 let currentAgentId = null;
+const AGENT_OUTPUT_POLL_MS = 5000;
+let agentOutputPollTimer = null;
+let agentOutputPollingAgentId = null;
+let agentOutputRefreshInFlight = false;
+const agentOutputLogState = new Map();
 
 function startAgentOutputPolling(agentId) {
   stopAgentOutputPolling();
@@ -569,7 +575,7 @@ async function viewAgent(agentId) {
     const detailActions = canManage && !isRemoteProjectView
       ? `
               <button class="btn btn-sm" onclick="openTerminal('${agentId}')" title="Open terminal chat">Chat</button>
-              ${agent.status === 'error' && agent.last_prompt ? `<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>` : ''}
+              ${(agent.runtime_state || {}).status === 'error' && (agent.runtime_state || {}).last_task_run_id ? `<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>` : ''}
       `
       : '';
     const saveSettingsButton = canManage
@@ -919,37 +925,43 @@ async function loadRunHistory(agentId) {
   const container = document.getElementById('agent-runs-' + agentId);
   if (!container) return;
   try {
-    const res = await fetch(`${agentApiPath(agentId, '/runs')}?limit=10`, { headers: apiHeaders() });
+    const res = await fetch(`${agentApiPath(agentId, '/task-runs')}?limit=10`, { headers: apiHeaders() });
     if (!res.ok) { container.innerHTML = renderError({ status: res.status }, 'loadRunHistory(\'' + agentId + '\')'); return; }
     const data = await res.json();
-    const runs = data.runs || [];
+    const runs = data.task_runs || [];
     if (!runs.length) { container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">No runs yet.</span>'; return; }
 
-    const fmtCost = v => v > 0 ? (v < 0.01 ? '<$0.01' : '$' + v.toFixed(2)) : '';
-    const fmtTokens = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
     const fmtDur = ms => {
       if (!ms) return '-';
       if (ms < 60000) return Math.round(ms / 1000) + 's';
       return Math.round(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's';
     };
+    const runDuration = r => {
+      if (!r.task_run_started_at || !r.task_run_finished_at) return 0;
+      return Math.max(0, new Date(r.task_run_finished_at).getTime() - new Date(r.task_run_started_at).getTime());
+    };
 
-    container.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">${runs.map((r, idx) => {
-      const statusColor = r.status === 'error' ? 'var(--error)' : 'var(--success)';
-      const statusIcon = r.status === 'error' ? '✕' : '✓';
-      const costLabel = r.cost_usd > 0 ? fmtCost(r.cost_usd) : (r.input_tokens > 0 || r.output_tokens > 0 ? fmtTokens(r.input_tokens) + '↑' + fmtTokens(r.output_tokens) + '↓' : '-');
-      return `<div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer" onclick="viewRunReport('${agentId}','${r.run_id}')">
+    container.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">${runs.map((r) => {
+      const failed = r.task_run_status === 'failed';
+      const running = r.task_run_status === 'running' || r.task_run_status === 'starting';
+      const statusColor = failed ? 'var(--error)' : running ? 'var(--warning)' : 'var(--success)';
+      const statusIcon = failed ? '✕' : running ? '…' : '✓';
+      const failure = r.task_run_failure_message || r.task_failure_message || '';
+      return `<div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:${r.run_id ? 'pointer' : 'default'}" ${r.run_id ? `onclick="viewRunReport('${agentId}','${r.run_id}')"` : ''}>
         <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
           <div style="display:flex;align-items:center;gap:8px">
             <span style="color:${statusColor};font-weight:600">${statusIcon}</span>
-            <span style="color:var(--text-secondary)">${timeAgo(r.started_at)}</span>
+            <span style="color:var(--text-secondary)">${timeAgo(r.task_run_created_at)}</span>
+            <span style="font-family:monospace;color:var(--text-secondary)">attempt ${r.attempt}</span>
+            <span>${esc(r.task_type || 'task')}</span>
           </div>
           <div style="display:flex;gap:12px;color:var(--text-secondary);font-size:11px">
-            <span title="Tools">\u{1F527} ${r.tool_call_count}</span>
-            <span title="${r.cost_usd > 0 ? 'Cost' : 'Tokens'}">${costLabel}</span>
-            <span title="Duration">${fmtDur(r.duration_ms)}</span>
+            <span>${esc(r.task_run_status)}</span>
+            <span title="Duration">${fmtDur(runDuration(r))}</span>
           </div>
         </div>
-        ${r.result_snippet ? `<div style="margin-top:4px;color:var(--fg);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.result_snippet.slice(0, 120))}</div>` : ''}
+        <div style="margin-top:4px;color:var(--fg);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.reason || r.prompt_preview || '')}</div>
+        ${failure ? `<div style="margin-top:4px;color:var(--error);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(failure.slice(0, 180))}</div>` : ''}
       </div>`;
     }).join('')}</div>`;
   } catch {
@@ -1069,8 +1081,20 @@ async function retryAgent(id) {
   if (!requireProjectManageAccess('Insufficient permission to retry agent')) return;
   const btn = event ? event.target : null;
   await withLoading(btn, async () => {
-    const res = await fetch(agentApiPath(id, '/retry'), { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent retried', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to retry', 'error'); }
+    const res = await fetch(agentApiPath(id, '/retry'), {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify({}),
+    });
+    if (res.ok) {
+      invalidateProjectResources(['agents']);
+      loadAgents({ force: true });
+      if (currentAgentId === id) viewAgent(id);
+      showToast('Retry started', 'success');
+      return;
+    }
+    const err = await res.json().catch(() => ({}));
+    showToast(err.error || 'Failed to retry', 'error');
   });
 }
 
@@ -1084,12 +1108,7 @@ function openTerminal(agentId) {
 }
 
 async function quickStartAgent(id) {
-  if (!requireProjectManageAccess('Insufficient permission to start agent')) return;
-  const btn = event ? event.target : null;
-  await withLoading(btn, async () => {
-    const res = await fetch(agentApiPath(id, '/start'), { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) { invalidateProjectResources(['agents']); loadAgents({ force: true }); showToast('Agent started', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to start', 'error'); }
-  });
+  showToast('Open the agent and start with an explicit prompt.', 'error');
 }
 async function pauseAgent(id) {
   if (!requireProjectManageAccess('Insufficient permission to pause agent')) return;

@@ -14,7 +14,6 @@ interface HighPriorityIssueRow {
 interface AgentActivityRow {
   name: string;
   role: string;
-  status: string;
   completed_issues: number;
 }
 
@@ -73,7 +72,7 @@ export function buildGeneratedExecutiveSummaryContent(
   ).get(projectId, periodEnd) as CountRow;
 
   const agentActivity = db.prepare(
-    `SELECT a.name, a.role, a.status,
+    `SELECT a.name, a.role,
             (SELECT COUNT(*) FROM issues i WHERE i.assigned_to = a.id AND i.status IN ('done', 'closed')
              AND i.updated_at >= ? AND i.updated_at <= ?) as completed_issues
      FROM agents a WHERE a.project_id = ?`

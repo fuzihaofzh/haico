@@ -60,7 +60,7 @@ export function registerIssueSuites(
 
     it("GET filters by status", async () => {
       const { body } = await ctx.api(
-        `/api/projects/${getProjectId()}/issues?status=in_progress`
+        `/api/projects/${getProjectId()}/issues?status=open`
       );
       assert.ok(body.issues.some((i: any) => i.id === issueId));
     });

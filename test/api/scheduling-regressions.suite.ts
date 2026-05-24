@@ -564,7 +564,7 @@ JSON
       clearControllerBackoff(isolated.projectId);
     });
 
-    it('issue scan resumes idle worker for ready pending issue after blocker resolves', async () => {
+    it('issue scan queues worker task for ready pending issue after blocker resolves', async () => {
       const { getDatabase } = await import('../../src/db/database');
       const { runIssueRecoveryScan } = await import(
         '../../src/services/issue/recovery'
@@ -639,33 +639,28 @@ JSON
       runIssueRecoveryScan(db, silentLogger);
 
       const deadline = Date.now() + 3000;
-      let updatedIssue: any;
-      let updatedAgent: any;
+      let queuedTask: any;
       while (Date.now() < deadline) {
-        updatedIssue = db
-          .prepare('SELECT status FROM issues WHERE id = ?')
-          .get(blockedId) as any;
-        updatedAgent = db
-          .prepare('SELECT last_prompt FROM agents WHERE id = ?')
-          .get(worker.id) as any;
-        if (
-          updatedIssue?.status === 'in_progress' &&
-          String(updatedAgent?.last_prompt || '').includes(
-            'blocked pending recovery'
+        queuedTask = db
+          .prepare(
+            "SELECT prompt, task_type, source, status FROM tasks WHERE target_agent_id = ? AND task_type = 'issue-work' ORDER BY created_at DESC LIMIT 1"
           )
-        )
+          .get(worker.id) as any;
+        if (queuedTask?.prompt?.includes('blocked pending recovery'))
           break;
         await sleep(50);
       }
 
-      assert.equal(updatedIssue?.status, 'in_progress');
+      assert.equal(queuedTask?.task_type, 'issue-work');
+      assert.equal(queuedTask?.source, 'issue-assignment');
+      assert.equal(queuedTask?.status, 'pending');
       assert.match(
-        String(updatedAgent?.last_prompt || ''),
+        String(queuedTask?.prompt || ''),
         /blocked pending recovery/
       );
     });
 
-    it('issue scan does not repeatedly wake the same worker for the same unchanged issue batch', async () => {
+    it('issue scan does not repeatedly queue the same worker task for the same unchanged issue batch', async () => {
       const { getDatabase } = await import('../../src/db/database');
       const { runIssueRecoveryScan } = await import(
         '../../src/services/issue/recovery'
@@ -720,59 +715,44 @@ JSON
       runIssueRecoveryScan(db, silentLogger);
 
       const firstDeadline = Date.now() + 3000;
-      let firstPromptCount = 0;
+      let firstTaskCount = 0;
       while (Date.now() < firstDeadline) {
-        firstPromptCount =
+        firstTaskCount =
           (
             db
               .prepare(
-                "SELECT COUNT(*) as c FROM conversation_logs WHERE agent_id = ? AND stream = 'stdin'"
+                "SELECT COUNT(*) as c FROM tasks WHERE target_agent_id = ? AND task_type = 'issue-work'"
               )
               .get(worker.id) as any
           )?.c || 0;
-        if (firstPromptCount >= 1) break;
+        if (firstTaskCount >= 1) break;
         await sleep(50);
       }
       assert.equal(
-        firstPromptCount,
+        firstTaskCount,
         1,
-        'first scan should start the worker once'
-      );
-
-      const idleDeadline = Date.now() + 3000;
-      let workerState: any;
-      while (Date.now() < idleDeadline) {
-        workerState = db
-          .prepare('SELECT status FROM agents WHERE id = ?')
-          .get(worker.id) as any;
-        if (workerState?.status === 'idle') break;
-        await sleep(50);
-      }
-      assert.equal(
-        workerState?.status,
-        'idle',
-        'echo worker should have finished before second scan'
+        'first scan should queue one worker task'
       );
 
       runIssueRecoveryScan(db, silentLogger);
       await sleep(300);
 
-      const secondPromptCount =
+      const secondTaskCount =
         (
           db
             .prepare(
-              "SELECT COUNT(*) as c FROM conversation_logs WHERE agent_id = ? AND stream = 'stdin'"
+              "SELECT COUNT(*) as c FROM tasks WHERE target_agent_id = ? AND task_type = 'issue-work'"
             )
             .get(worker.id) as any
         )?.c || 0;
       assert.equal(
-        secondPromptCount,
+        secondTaskCount,
         1,
-        'second scan should not re-wake the same unchanged issue batch'
+        'second scan should not queue a duplicate task for the same unchanged issue batch'
       );
     });
 
-    it('issue assignment auto-start includes all dispatchable assigned issues, including ready pending ones', async () => {
+    it('issue assignment queues a task with all dispatchable assigned issues, including ready pending ones', async () => {
       const { getDatabase } = await import('../../src/db/database');
       const isolated = await createIsolatedOrchestrationProject(
         'issue-autostart-batch'
@@ -849,19 +829,19 @@ JSON
       );
       assert.equal(createRes.status, 201);
 
-      const idleState = await waitForAgentStatus(
-        worker.id,
-        (status) => status === 'idle',
-        3000
-      );
-      assert.equal(
-        idleState.status,
-        'idle',
-        'echo worker should finish quickly'
-      );
+      const deadline = Date.now() + 3000;
+      let task: any;
+      while (Date.now() < deadline) {
+        task = db
+          .prepare(
+            "SELECT prompt, metadata_json FROM tasks WHERE target_agent_id = ? AND task_type = 'issue-work' ORDER BY created_at DESC LIMIT 1"
+          )
+          .get(worker.id) as any;
+        if (String(task?.prompt || '').includes('trigger assigned issue')) break;
+        await sleep(50);
+      }
 
-      const { body: workerAfter } = await ctx.api(`/api/agents/${worker.id}`);
-      const prompt = String(workerAfter.last_prompt || '');
+      const prompt = String(task?.prompt || '');
       assert.match(prompt, /Current batch \(2\/3 assigned issue\(s\)\)/);
       assert.match(prompt, /ready pending issue/);
       assert.match(prompt, /existing open issue/);
@@ -869,13 +849,16 @@ JSON
       assert.match(prompt, /#\d+ \[pending\] \[p3\] ready pending issue/);
     });
 
-    it('worker finish immediately starts the next changed issue batch without waiting for scheduler', async () => {
+    it('worker finish queues the next changed issue batch through completion router', async () => {
       const { getDatabase } = await import('../../src/db/database');
       const { autoStartAgentForDispatchableIssues } = await import(
         '../../src/services/issue/agent-autostart'
       );
       const { resetAgentWakeupState } = await import(
         '../../src/services/agent-wakeup-guard'
+      );
+      const { runTaskImmediately } = await import(
+        '../../src/services/tasks'
       );
       const isolated = await createIsolatedOrchestrationProject(
         'issue-finish-next-batch'
@@ -959,56 +942,52 @@ JSON
         );
         assert.equal(startResult.started, true);
 
-        await waitForAgentStatus(
-          worker.id,
-          (status) => status === 'running',
-          3000
-        );
+        runTaskImmediately(startResult.taskId || '');
 
         db.prepare(
           "UPDATE issues SET status = 'done', updated_at = datetime('now') WHERE id = ?"
         ).run(firstIssueId);
 
         const secondPromptDeadline = Date.now() + 5000;
-        let stdinCount = 0;
-        let workerAfter: any;
+        let taskCount = 0;
+        let latestTask: any;
         while (Date.now() < secondPromptDeadline) {
-          stdinCount =
+          taskCount =
             (
               db
                 .prepare(
-                  "SELECT COUNT(*) as c FROM conversation_logs WHERE agent_id = ? AND stream = 'stdin'"
+                  "SELECT COUNT(*) as c FROM tasks WHERE target_agent_id = ? AND task_type = 'issue-work'"
                 )
                 .get(worker.id) as any
             )?.c || 0;
-          workerAfter = db
-            .prepare('SELECT last_prompt, status FROM agents WHERE id = ?')
+          latestTask = db
+            .prepare(
+              "SELECT prompt FROM tasks WHERE target_agent_id = ? AND task_type = 'issue-work' ORDER BY created_at DESC LIMIT 1"
+            )
             .get(worker.id) as any;
           if (
-            stdinCount >= 2 &&
-            String(workerAfter?.last_prompt || '').includes(
-              'finish batch issue 3'
-            )
+            taskCount >= 2 &&
+            String(latestTask?.prompt || '').includes('finish batch issue 3')
           )
             break;
           await sleep(50);
         }
 
         assert.equal(
-          stdinCount,
+          taskCount,
           2,
-          'worker should be restarted for the next batch immediately after finish'
+          'completion router should queue the next issue-work task after finish'
         );
         assert.match(
-          String(workerAfter?.last_prompt || ''),
+          String(latestTask?.prompt || ''),
           /Current batch \(2\/2 assigned issue\(s\)\)/
         );
         assert.match(
-          String(workerAfter?.last_prompt || ''),
+          String(latestTask?.prompt || ''),
           /finish batch issue 2/
         );
         assert.match(
-          String(workerAfter?.last_prompt || ''),
+          String(latestTask?.prompt || ''),
           /finish batch issue 3/
         );
       } finally {
@@ -1142,53 +1121,62 @@ JSON
       assert.equal(finalState.status, 'idle');
     });
 
-    it('API 连接连续失败两次后停止，并保持 5 分钟重试常量', async () => {
+    it('API 连接失败记录为 TaskRun error，并通过显式 retry 产生新 attempt', async () => {
       const agentId = await createMockWorker(`api-retry-worker-${Date.now()}`);
-      const originalSetTimeout = global.setTimeout;
-      const seenDelays: number[] = [];
+      const { getDatabase } = await import('../../src/db/database');
+      const db = getDatabase();
+      const agent = db
+        .prepare('SELECT executor_preferences_json FROM agents WHERE id = ?')
+        .get(agentId) as { executor_preferences_json: string } | undefined;
+      const profileId = JSON.parse(agent?.executor_preferences_json || '{}')
+        .default_executor_profile_id;
+      assert.ok(profileId, 'agent should have a default executor profile');
+      db.prepare(
+        'UPDATE executor_profiles SET command_template = ?, command_type = ?, executor_type = ? WHERE id = ?'
+      ).run(
+        "sh -c 'echo Unable to connect to API >&2; exit 1'",
+        null,
+        'shell',
+        profileId
+      );
 
-      (global as any).setTimeout = ((
-        handler: (...args: any[]) => void,
-        delay?: number,
-        ...args: any[]
-      ) => {
-        const ms = Number(delay ?? 0);
-        seenDelays.push(ms);
-        const actualDelay = ms === 5 * 60 * 1000 ? 10 : ms;
-        return originalSetTimeout(handler as any, actualDelay, ...args);
-      }) as typeof setTimeout;
+      const startRes = await ctx.api(`/api/agents/${agentId}/start`, {
+        method: 'POST',
+        body: { prompt: 'API_RETRY_FAIL should fail and wait for explicit retry' },
+      });
+      assert.equal(startRes.status, 200);
 
-      try {
-        const startRes = await ctx.api(`/api/agents/${agentId}/start`, {
-          method: 'POST',
-          body: { prompt: 'API_RETRY_FAIL should retry then stop' },
-        });
-        assert.equal(startRes.status, 200);
+      const failedState = await waitForAgentStatus(
+        agentId,
+        (status) => status === 'error',
+        5000
+      );
+      assert.equal(failedState.status, 'error');
 
-        const finalState = await waitForAgentStatus(
-          agentId,
-          (status) => status === 'error',
-          5000
-        );
-        assert.equal(finalState.status, 'error');
-      } finally {
-        (global as any).setTimeout = originalSetTimeout;
-      }
+      const retryRes = await ctx.api(`/api/agents/${agentId}/retry`, {
+        method: 'POST',
+        body: {},
+      });
+      assert.equal(retryRes.status, 200);
 
-      assert.ok(seenDelays.includes(5 * 60 * 1000), '应保留 5 分钟重试常量');
+      const retriedState = await waitForAgentStatus(
+        agentId,
+        (status) => status === 'error',
+        5000
+      );
+      assert.equal(retriedState.status, 'error');
 
-      const { body: logs } = await ctx.api(`/api/agents/${agentId}/logs`);
-      const joined = logs.map((entry: any) => entry.content).join('\n');
-      assert.match(joined, /5分钟后自动重试/);
-      assert.match(joined, /API连接持续失败/);
+      const attempts = db
+        .prepare(
+          'SELECT attempt FROM task_runs WHERE agent_id = ? ORDER BY attempt ASC'
+        )
+        .all(agentId) as Array<{ attempt: number }>;
+      assert.deepEqual(attempts.map((row) => row.attempt), [1, 2]);
     });
 
-    it('pre-controller 会直接启动 idle worker（cooldown 已移除，低产出不再阻塞重启）', async () => {
+    it('pre-controller is a no-op policy gate under TaskRuntime and does not directly start workers', async () => {
       const { tryHandleWithoutLLM } = await import(
         '../../src/services/pre-controller'
-      );
-      const { isAgentInCooldown } = await import(
-        '../../src/services/process-manager'
       );
 
       const directStartAgentId = await createMockWorker(
@@ -1203,52 +1191,17 @@ JSON
         mainProjectId,
         directStartIssueNumber
       );
-      assert.equal(handled, true);
+      assert.equal(handled, false);
 
-      const runningState = await waitForAgentStatus(
-        directStartAgentId,
-        (status) => status === 'running',
-        2000
-      );
-      assert.equal(runningState.status, 'running');
-
-      await ctx.api(`/api/agents/${directStartAgentId}/stop`, {
-        method: 'POST',
-      });
-      const stoppedState = await waitForAgentStatus(
-        directStartAgentId,
-        (status) => status !== 'running',
-        7000
-      );
-      assert.notEqual(stoppedState.status, 'running');
-
-      // Cooldown is disabled — isAgentInCooldown always returns false after refactor
-      const cooldownAgentId = await createMockWorker(
-        `prectrl-cooldown-${Date.now()}`
-      );
-      const lowOutputStart = await ctx.api(
-        `/api/agents/${cooldownAgentId}/start`,
-        {
-          method: 'POST',
-          body: { prompt: 'LOW_OUTPUT cooldown gate run' },
-        }
-      );
-      assert.equal(lowOutputStart.status, 200);
-      const cooldownState = await waitForAgentStatus(
-        cooldownAgentId,
-        (status) => status !== 'running' && status !== 'waiting'
-      );
-      assert.equal(cooldownState.status, 'idle');
-      // Cooldown always disabled
-      assert.equal(isAgentInCooldown(cooldownAgentId), false);
-
-      // Since no cooldown, pre-controller should still start agent directly
-      const cooldownIssueNumber = await insertAssignedIssue(
-        cooldownAgentId,
-        'PRECTRL_KEEPALIVE'
-      );
-      const handled2 = tryHandleWithoutLLM(mainProjectId, cooldownIssueNumber);
-      assert.equal(handled2, true);
+      const { getDatabase } = await import('../../src/db/database');
+      const db = getDatabase();
+      const directTaskCount =
+        (
+          db
+            .prepare('SELECT COUNT(*) as c FROM tasks WHERE target_agent_id = ?')
+            .get(directStartAgentId) as any
+        )?.c || 0;
+      assert.equal(directTaskCount, 0);
     });
   });
 }

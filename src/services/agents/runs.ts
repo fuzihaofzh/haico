@@ -2,6 +2,7 @@ import { getDatabase } from '../../db/database';
 import { AgentRunNotFoundError } from './errors';
 import { TOOL_CALL_REPORT_CHAR_LIMIT } from './policy';
 import { getAgentOrThrow } from './core';
+import { getAgentRuntimeState } from '../tasks';
 
 function parseBoundedInt(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value || '', 10);
@@ -18,7 +19,8 @@ export function getAgentTerminalText(agentId: string, limitValue?: string): stri
   ).all(agentId, limit) as any[];
   logs.reverse();
 
-  let text = `=== ${agent.name} [${agent.status}] ===\n\n`;
+  const runtimeState = getAgentRuntimeState(agent.id);
+  let text = `=== ${agent.name} [${runtimeState.status}] ===\n\n`;
   for (const log of logs) {
     if (log.stream === 'stdin') {
       text += `--- Input Prompt (${log.content.length} chars) ---\n`;
@@ -158,6 +160,64 @@ export function listAgentRuns(agentId: string, limitValue?: string): any {
   });
 
   return { runs: result };
+}
+
+export function listAgentTaskRuns(
+  agentId: string,
+  query: { limit?: string; offset?: string } = {}
+): any {
+  const db = getDatabase();
+  getAgentOrThrow(db, agentId);
+
+  const limit = parseBoundedInt(query.limit, 20, 1, 100);
+  const offset = parseBoundedInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
+  const rows = db.prepare(`
+    SELECT
+      tr.id AS task_run_id,
+      tr.task_id,
+      tr.project_id,
+      tr.agent_id,
+      tr.executor_profile_id,
+      tr.run_id,
+      tr.attempt,
+      tr.status AS task_run_status,
+      tr.pid,
+      tr.session_id,
+      tr.command_snapshot,
+      tr.exit_code,
+      tr.failure_kind AS task_run_failure_kind,
+      tr.failure_message AS task_run_failure_message,
+      tr.started_at AS task_run_started_at,
+      tr.finished_at AS task_run_finished_at,
+      tr.created_at AS task_run_created_at,
+      t.source,
+      t.source_ref,
+      t.task_type,
+      t.reason,
+      t.priority,
+      t.status AS task_status,
+      t.failure_kind AS task_failure_kind,
+      t.failure_message AS task_failure_message,
+      t.created_at AS task_created_at,
+      t.updated_at AS task_updated_at,
+      substr(t.prompt, 1, 400) AS prompt_preview
+    FROM task_runs tr
+    JOIN tasks t ON t.id = tr.task_id
+    WHERE tr.agent_id = ?
+    ORDER BY tr.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(agentId, limit, offset) as any[];
+
+  const total = db.prepare(
+    'SELECT COUNT(*) AS count FROM task_runs WHERE agent_id = ?'
+  ).get(agentId) as { count: number };
+
+  return {
+    task_runs: rows,
+    limit,
+    offset,
+    total: total.count,
+  };
 }
 
 export function getAgentRunReport(agentId: string, runId: string): any {

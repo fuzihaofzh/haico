@@ -33,6 +33,7 @@ import {
   generateRemoteProjectMetadata,
   isLocalTargetInstanceId,
 } from '../../services/remote-instances';
+import { triggerControllerOnDemand } from '../../services/issue/automation';
 
 export function registerProjectRoutes(fastify: FastifyInstance): void {
   fastify.get('/dashboard/summary', async (request) => {
@@ -120,6 +121,22 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
       const db = getDatabase();
       requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
       return listProjectOrchestrationRuns(db, request.params.id, request.query.limit);
+    }
+  );
+
+  fastify.post<{ Params: { id: string }; Body: { issue_number?: number } }>(
+    '/projects/:id/controller/trigger',
+    async (request, reply) => {
+      const db = getDatabase();
+      requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
+      const issueNumber = typeof request.body?.issue_number === 'number'
+        ? request.body.issue_number
+        : undefined;
+      triggerControllerOnDemand(db, request.params.id, issueNumber, 'user', {
+        reason: 'manual-controller-trigger',
+        forceUrgent: true,
+      });
+      return { success: true };
     }
   );
 

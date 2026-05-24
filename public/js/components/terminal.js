@@ -443,7 +443,8 @@ async function loadAgentInfo() {
     document.getElementById('thinking-indicator').style.display = agent.status === 'running' ? '' : 'none';
     const retryBtn = document.getElementById('btn-retry');
     if (retryBtn) {
-      retryBtn.style.display = (agent.status === 'error' && agent.last_prompt) ? '' : 'none';
+      const runtime = agent.runtime_state || {};
+      retryBtn.style.display = (runtime.status === 'error' && runtime.last_task_run_id) ? '' : 'none';
     }
 
     if (!window._instructionsLoaded) {
@@ -466,14 +467,7 @@ const refreshAgentInfo = loadAgentInfo;
 // ─── Actions ───
 
 async function quickStart() {
-  const btn = document.getElementById('btn-start');
-  await withLoading(btn, async () => {
-    const res = await fetch(`/api/agents/${agentId}/start`, {
-      method: 'POST', headers: apiHeaders(), body: JSON.stringify({}),
-    });
-    if (res.ok) { loadAgentInfo(); showToast('Agent started', 'success'); }
-    else { const err = await res.json(); showToast(err.error || 'Failed to start', 'error'); }
-  });
+  showToast('Quick start requires an explicit prompt.', 'error');
 }
 
 async function saveWorkdir() {
@@ -574,10 +568,17 @@ async function retryAgent() {
   const btn = document.getElementById('btn-retry');
   await withLoading(btn, async () => {
     const res = await fetch(`/api/agents/${agentId}/retry`, {
-      method: 'POST', headers: apiHeaders(), body: JSON.stringify({}),
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify({}),
     });
-    if (res.ok) { loadAgentInfo(); showToast('Agent retried', 'success'); }
-    else { const err = await res.json().catch(() => ({})); showToast(err.error || 'Failed to retry', 'error'); }
+    if (res.ok) {
+      showToast('Retry started', 'success');
+      loadAgentInfo();
+      return;
+    }
+    const err = await res.json().catch(() => ({}));
+    showToast(err.error || 'Failed to retry', 'error');
   });
 }
 

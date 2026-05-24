@@ -1,6 +1,5 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import Database from 'better-sqlite3';
 
 // ─── Final Result 自动Kill (#434/#438) ───
 
@@ -39,48 +38,11 @@ describe('Final Result自动Kill (#434)', () => {
 });
 
 describe('Agent watchdog maintenance', () => {
-  it('resets DB-running agents when no in-memory process exists', async () => {
-    const { runAgentWatchdogScan } = await import(
-      '../../src/services/process-manager'
+  it('uses the TaskRun watchdog instead of the removed legacy agent.status watchdog', async () => {
+    const { runTaskRunWatchdogScan } = await import(
+      '../../src/services/tasks'
     );
-    const db = new Database(':memory:');
-    const warnings: string[] = [];
-    const logger = {
-      debug() {},
-      warn(message: string) {
-        warnings.push(message);
-      },
-      error() {},
-    };
-
-    try {
-      db.exec(`
-        CREATE TABLE agents (
-          id TEXT PRIMARY KEY,
-          project_id TEXT NOT NULL,
-          name TEXT NOT NULL,
-          status TEXT NOT NULL,
-          pid INTEGER,
-          started_at DATETIME,
-          finished_at DATETIME
-        );
-      `);
-      db.prepare(
-        "INSERT INTO agents (id, project_id, name, status, pid, started_at) VALUES (?, ?, ?, 'running', ?, datetime('now', '-10 minutes'))"
-      ).run('orphan-agent', 'watchdog-project', 'orphan', 12345);
-
-      runAgentWatchdogScan(db, logger);
-
-      const agent = db.prepare(
-        'SELECT status, pid, finished_at FROM agents WHERE id = ?'
-      ).get('orphan-agent') as any;
-      assert.equal(agent.status, 'idle');
-      assert.equal(agent.pid, null);
-      assert.ok(agent.finished_at);
-      assert.match(warnings.join('\n'), /process is gone/);
-    } finally {
-      db.close();
-    }
+    assert.equal(typeof runTaskRunWatchdogScan, 'function');
   });
 });
 

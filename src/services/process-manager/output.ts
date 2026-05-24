@@ -35,6 +35,8 @@ export function createAgentOutputHandlers(input: {
   isCodex: boolean;
   resolvedCommandType: ReturnType<typeof resolveCommandType>;
   updateSessionId: (sessionId: string) => void;
+  persistSessionToAgent?: boolean;
+  activityKey?: string;
 }): {
   state: AgentOutputState;
   logAndBroadcast: (content: string, stream: ProcessOutputStream) => void;
@@ -56,7 +58,7 @@ export function createAgentOutputHandlers(input: {
     } else if (stream === 'stderr' && state.stderrSample.length < 2000) {
       state.stderrSample += content.slice(0, 2000 - state.stderrSample.length);
     }
-    lastActivityTime.set(input.agent.id, Date.now());
+    lastActivityTime.set(input.activityKey || input.agent.id, Date.now());
     try {
       input.logStmt.run(input.agent.id, input.runId, content, stream);
     } catch (e: any) {
@@ -75,7 +77,7 @@ export function createAgentOutputHandlers(input: {
         if (obj.type === 'thread.started' && obj.thread_id) {
           handled = true;
           input.updateSessionId(obj.thread_id);
-          if (isDatabaseOpen()) {
+          if (input.persistSessionToAgent !== false && isDatabaseOpen()) {
             input.db.prepare('UPDATE agents SET session_id = ? WHERE id = ?')
               .run(obj.thread_id, input.agent.id);
           }
@@ -208,4 +210,3 @@ export function createAgentOutputHandlers(input: {
 
   return { state, logAndBroadcast, handleData };
 }
-

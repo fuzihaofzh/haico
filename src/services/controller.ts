@@ -4,10 +4,10 @@ import { startControllerOrchestration } from './orchestrator';
 import {
   buildControllerActivitySnapshot,
   clearControllerBackoff,
-  formatBackoffDuration,
   getControllerBackoff,
-  getRemainingBackoffMs,
 } from './controller-backoff';
+import { deriveAgentRuntimeStatus } from './tasks/runtime-state';
+import { createAgentTask } from './tasks';
 import logger from '../logger';
 
 // --- Event Coalescing Architecture ---
@@ -46,83 +46,50 @@ export function enqueueControllerTrigger(
     skipActivityCheck?: boolean;
   }
 ): void {
-  const pid = project.id;
+  const existing = coalescedTriggers.get(project.id);
+  const trigger = existing || {
+    project,
+    issueNumbers: new Set<number>(),
+    highestPriority: opts.priority,
+    reasons: [],
+    skipActivityCheck: false,
+  };
+  trigger.project = project;
+  if (opts.issueNumber !== undefined) trigger.issueNumbers.add(opts.issueNumber);
+  if (opts.priority === 'urgent') trigger.highestPriority = 'urgent';
+  trigger.reasons.push(opts.reason);
+  trigger.skipActivityCheck = trigger.skipActivityCheck || Boolean(opts.skipActivityCheck);
+  coalescedTriggers.set(project.id, trigger);
 
-  // Accumulate into existing coalesced trigger or create new one
-  let coalesced = coalescedTriggers.get(pid);
-  if (!coalesced) {
-    coalesced = {
-      project,
-      issueNumbers: new Set(),
-      highestPriority: opts.priority,
-      reasons: [],
-      skipActivityCheck: false,
-    };
-    coalescedTriggers.set(pid, coalesced);
-  }
+  const windowMs = trigger.highestPriority === 'urgent' ? COALESCE_URGENT_MS : COALESCE_NORMAL_MS;
+  const lastRunMs = lastControllerRunMs.get(project.id) || 0;
+  const minIntervalDelay = Math.max(0, MIN_CONTROLLER_INTERVAL_MS - (Date.now() - lastRunMs));
+  const delayMs = Math.max(windowMs, minIntervalDelay);
 
-  if (opts.issueNumber) coalesced.issueNumbers.add(opts.issueNumber);
-  if (opts.priority === 'urgent') coalesced.highestPriority = 'urgent';
-  if (opts.skipActivityCheck) coalesced.skipActivityCheck = true;
-  coalesced.reasons.push(opts.reason);
+  const existingTimer = coalescingTimers.get(project.id);
+  if (existingTimer) clearTimeout(existingTimer);
+  const timer = setTimeout(() => flushControllerTrigger(project.id), delayMs);
+  timer.unref?.();
+  coalescingTimers.set(project.id, timer);
+  logger.debug({
+    projectId: project.id,
+    issueNumber: opts.issueNumber,
+    priority: opts.priority,
+    reason: opts.reason,
+    delayMs,
+  }, 'controller.trigger_enqueued_task_runtime');
+}
 
-  // Determine coalesce delay
-  const windowMs = coalesced.highestPriority === 'urgent'
-    ? COALESCE_URGENT_MS
-    : COALESCE_NORMAL_MS;
+function flushControllerTrigger(projectId: string): void {
+  const trigger = coalescedTriggers.get(projectId);
+  coalescingTimers.delete(projectId);
+  coalescedTriggers.delete(projectId);
+  if (!trigger) return;
 
-  // Check hard minimum interval
-  const lastRun = lastControllerRunMs.get(pid) || 0;
-  const sinceLast = Date.now() - lastRun;
-  const minDelay = Math.max(0, MIN_CONTROLLER_INTERVAL_MS - sinceLast);
-  const delay = Math.max(windowMs, minDelay);
-
-  // Reset timer if we upgraded to urgent (shorter window) and min interval allows it
-  const existingTimer = coalescingTimers.get(pid);
-  if (existingTimer && opts.priority === 'urgent' && minDelay <= COALESCE_URGENT_MS) {
-    clearTimeout(existingTimer);
-    coalescingTimers.delete(pid);
-  }
-
-  // Set coalescing timer if not already set
-  if (!coalescingTimers.has(pid)) {
-    const timer = setTimeout(() => {
-      coalescingTimers.delete(pid);
-      const trigger = coalescedTriggers.get(pid);
-      coalescedTriggers.delete(pid);
-      if (!trigger) return;
-      if (!isDatabaseOpen()) return;
-
-      // Pick the most relevant trigger issue (first one added)
-      const triggerIssueNumber = trigger.issueNumbers.size > 0
-        ? trigger.issueNumbers.values().next().value as number
-        : undefined;
-
-      logger.debug({
-        projectId: trigger.project.id,
-        eventCount: trigger.reasons.length,
-        priority: trigger.highestPriority,
-        issueNumbers: [...trigger.issueNumbers],
-        reasons: trigger.reasons.slice(0, 3),
-        truncatedReasons: trigger.reasons.length > 3,
-      }, 'controller.trigger.coalesced');
-
-      try {
-        triggerControllerAgent(trigger.project, trigger.skipActivityCheck, triggerIssueNumber);
-      } catch (e) {
-        logger.error({ err: e, projectId: trigger.project.id }, 'controller.trigger.failed');
-      }
-    }, delay);
-    coalescingTimers.set(pid, timer);
-
-    if (delay > windowMs) {
-      logger.info({
-        projectId: project.id,
-        delaySeconds: Math.round(delay / 1000),
-        reason: opts.reason,
-      }, 'controller.trigger.queued');
-    }
-  }
+  const issueNumbers = [...trigger.issueNumbers];
+  const triggerIssueNumber = issueNumbers.length === 1 ? issueNumbers[0] : undefined;
+  triggerControllerAgent(trigger.project, trigger.skipActivityCheck, triggerIssueNumber);
+  lastControllerRunMs.set(projectId, Date.now());
 }
 
 /** Cancel all pending coalescing timers (for shutdown). */
@@ -150,9 +117,12 @@ export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?:
         "SELECT * FROM issues WHERE project_id = ? AND status = 'pending' ORDER BY priority DESC, created_at"
       ).all(project.id) as Issue[];
 
-  const agents = db.prepare(
-    'SELECT id, name, role, status, paused, is_controller FROM agents WHERE project_id = ?'
-  ).all(project.id) as any[];
+  const agents = (db.prepare(
+    'SELECT id, name, role, paused, constraints_json, is_controller FROM agents WHERE project_id = ?'
+  ).all(project.id) as any[]).map((item) => ({
+    ...item,
+    runtime_status: deriveAgentRuntimeStatus(db, item),
+  }));
 
   const workers = agents.filter((a: any) => !a.is_controller);
   const priorityLabel = (p: number) => (p >= 10 ? '🔴 USER' : p >= 5 ? '🟡 CTRL' : '⚪ AGENT');
@@ -250,10 +220,10 @@ ${doneRecent.map((i) => `#${i.number} [${i.status}] ${i.title}`).join('\n') || '
 
 ## Existing Workers
 ${workers.map((a: any) => {
-    if (a.paused) {
+    if (a.runtime_status === 'paused') {
       return `- ⏸ ${a.name} PAUSED (ID: ${a.id}, Role: ${a.role}) — do NOT assign issues`;
     }
-    return `- ${a.name} (ID: ${a.id}, Role: ${a.role})`;
+    return `- ${a.name} (ID: ${a.id}, Role: ${a.role}, Runtime: ${a.runtime_status})`;
   }).join('\n') || '(none yet)'}
 
 ## ⚠️ 用户 Issue 处理标准流程（MUST FOLLOW）
@@ -296,176 +266,86 @@ Assignable targets: ${agents.map((a: any) => `"${a.id}" (${a.name})`).join(', ')
 const lastTriggerSnapshot = new Map<string, string>();
 
 export function triggerControllerAgent(project: Project, skipActivityCheck = false, triggerIssueNumber?: number): void {
+  if (project.status === 'paused') {
+    logger.debug({ projectId: project.id }, 'controller.trigger_skipped_project_paused');
+    return;
+  }
+
   const db = getDatabase();
   const controller = db.prepare(
-    'SELECT * FROM agents WHERE project_id = ? AND is_controller = 1'
+    'SELECT * FROM agents WHERE project_id = ? AND is_controller = 1 LIMIT 1'
   ).get(project.id) as Agent | undefined;
-
-  if (!controller) {
-    logger.warn({ projectId: project.id }, 'controller.missing');
-    return;
-  }
-
-  if (controller.status === 'running') {
-    logger.debug({ projectId: project.id, controllerAgentId: controller.id }, 'controller.trigger.skipped_running');
-    return;
-  }
-
-  if (controller.paused) {
-    logger.debug({ projectId: project.id, controllerAgentId: controller.id }, 'controller.trigger.skipped_paused');
+  if (!controller || controller.paused) {
+    logger.debug({ projectId: project.id, controllerAgentId: controller?.id }, 'controller.trigger_skipped_unavailable');
     return;
   }
 
   const snapshot = buildControllerActivitySnapshot(project.id);
-
-  if (!skipActivityCheck) {
-    // Backoff check: if controller set a backoff and snapshot is unchanged, respect it
-    const backoff = getControllerBackoff(project.id);
-    if (backoff) {
-      if (backoff.snapshot === snapshot) {
-        const remainingMs = getRemainingBackoffMs(project.id);
-        logger.debug({
-          projectId: project.id,
-          source: backoff.source,
-          remainingMs,
-          remaining: formatBackoffDuration(remainingMs),
-          reason: backoff.reason,
-        }, 'controller.trigger.skipped_backoff');
-        return;
-      }
-      clearControllerBackoff(project.id);
-      logger.debug({
-        projectId: project.id,
-        source: backoff.source,
-        previousLabel: backoff.label,
-      }, 'controller.backoff.cleared');
-    }
+  const backoff = getControllerBackoff(project.id);
+  if (!skipActivityCheck && backoff && backoff.snapshot === snapshot) {
+    logger.debug({
+      projectId: project.id,
+      triggerIssueNumber,
+      backoffLabel: backoff.label,
+      reason: backoff.reason,
+    }, 'controller.trigger_skipped_backoff');
+    return;
   }
 
-  // If triggered by a specific issue, check its status first.
-  // Pending issues with active children should NOT trigger the controller — they are
-  // waiting for child issues to complete and the system will auto-trigger when children finish.
-  if (triggerIssueNumber) {
-    const triggerIssue = db.prepare(
-      'SELECT id, status FROM issues WHERE project_id = ? AND number = ?'
-    ).get(project.id, triggerIssueNumber) as { id: string; status: string } | undefined;
-
-    if (triggerIssue && triggerIssue.status === 'pending') {
-      const depState = db.prepare(`
-        SELECT
-          (
-            SELECT COUNT(*) FROM issues child
-            WHERE child.project_id = ? AND child.parent_id = ? AND child.status NOT IN ('done', 'closed')
-          ) AS active_children,
-          (
-            SELECT COUNT(*)
-            FROM issue_relations r
-            JOIN issues blocker ON blocker.id = r.from_issue_id
-            JOIN issues blocked ON blocked.id = r.to_issue_id
-            WHERE blocked.project_id = ?
-              AND r.to_issue_id = ?
-              AND r.relation_type = 'blocks'
-              AND blocker.status NOT IN ('done', 'closed')
-          ) AS active_blockers
-      `).get(project.id, triggerIssue.id, project.id, triggerIssue.id) as {
-        active_children: number;
-        active_blockers: number;
-      };
-
-      if ((depState?.active_children ?? 0) > 0 || (depState?.active_blockers ?? 0) > 0) {
-        logger.debug({
-          projectId: project.id,
-          issueNumber: triggerIssueNumber,
-          activeChildren: depState?.active_children ?? 0,
-          activeBlockers: depState?.active_blockers ?? 0,
-        }, 'controller.trigger.skipped_pending_dependencies');
-        return;
-      }
-    }
+  if (!skipActivityCheck && lastTriggerSnapshot.get(project.id) === snapshot) {
+    logger.debug({ projectId: project.id, triggerIssueNumber }, 'controller.trigger_skipped_unchanged_snapshot');
+    return;
   }
 
-  // Necessity check: skip LLM call entirely when controller has nothing to do.
-  if (!triggerIssueNumber) {
-    // Check 1: any issues that need controller to assign or handle?
-    const needsControllerAction = db.prepare(
-      `SELECT 1 FROM issues WHERE project_id = ? AND status IN ('open', 'in_progress')
-       AND (assigned_to IS NULL OR assigned_to = 'all' OR assigned_to IN (
-         SELECT id FROM agents WHERE project_id = ? AND is_controller = 1
-       )) LIMIT 1`
-    ).get(project.id, project.id);
-
-    if (!needsControllerAction) {
-      // Check 2: error workers WITH active issues only (not bare error workers)
-      const errorWorkersWithIssues = db.prepare(
-        `SELECT 1 FROM agents a
-         WHERE a.project_id = ? AND a.is_controller = 0 AND a.status = 'error' AND a.paused = 0
-         AND EXISTS (
-           SELECT 1 FROM issues i
-           WHERE i.assigned_to = a.id AND i.project_id = ? AND i.status IN ('open', 'in_progress')
-         ) LIMIT 1`
-      ).get(project.id, project.id);
-
-      // Check 3: any pending issues whose dependencies are all cleared?
-      const stalePending = db.prepare(
-        `SELECT 1
-         FROM issues p
-         LEFT JOIN (
-           SELECT parent_id,
-                  SUM(CASE WHEN status NOT IN ('done', 'closed') THEN 1 ELSE 0 END) AS active_children
-           FROM issues
-           WHERE project_id = ? AND parent_id IS NOT NULL
-           GROUP BY parent_id
-         ) child_stats ON child_stats.parent_id = p.id
-         LEFT JOIN (
-           SELECT r.to_issue_id AS issue_id,
-                  SUM(CASE WHEN blocker.status NOT IN ('done', 'closed') THEN 1 ELSE 0 END) AS active_blockers
-           FROM issue_relations r
-           JOIN issues blocker ON blocker.id = r.from_issue_id
-           JOIN issues blocked ON blocked.id = r.to_issue_id
-           WHERE blocked.project_id = ? AND r.relation_type = 'blocks'
-           GROUP BY r.to_issue_id
-         ) blocker_stats ON blocker_stats.issue_id = p.id
-         WHERE p.project_id = ? AND p.status = 'pending'
-           AND COALESCE(p.assigned_to, '') <> 'user'
-           AND COALESCE(child_stats.active_children, 0) = 0
-           AND COALESCE(blocker_stats.active_blockers, 0) = 0
-         LIMIT 1`
-      ).get(project.id, project.id, project.id);
-
-      if (!errorWorkersWithIssues && !stalePending) {
-        logger.debug({ projectId: project.id }, 'controller.trigger.skipped_no_work');
-        return;
-      }
-      if (errorWorkersWithIssues) logger.info({ projectId: project.id }, 'controller.trigger.error_workers_detected');
-      if (stalePending) logger.info({ projectId: project.id }, 'controller.trigger.stale_pending_detected');
-    }
+  if (!backoff || backoff.snapshot !== snapshot) {
+    clearControllerBackoff(project.id);
   }
-
-  // Snapshot dedup: don't re-run controller if nothing structurally changed
-  if (!skipActivityCheck) {
-    const prevSnapshot = lastTriggerSnapshot.get(project.id);
-    if (prevSnapshot && prevSnapshot === snapshot) {
-      logger.debug({ projectId: project.id }, 'controller.trigger.skipped_snapshot_unchanged');
-      return;
-    }
-  }
+  lastTriggerSnapshot.set(project.id, snapshot);
 
   const taskPrompt = buildControllerTaskPrompt(project, triggerIssueNumber);
+  startControllerOrchestration({
+    project,
+    controller,
+    taskPrompt,
+    triggerIssueNumber,
+    activitySnapshot: snapshot,
+  });
+}
 
-  // Record that controller is running now (for MIN_CONTROLLER_INTERVAL_MS enforcement)
-  lastControllerRunMs.set(project.id, Date.now());
-
-  try {
-    logger.info({
-      projectId: project.id,
-      controllerAgentId: controller.id,
-      triggerIssueNumber,
-    }, 'controller.run.started');
-    startControllerOrchestration({ project, controller, taskPrompt, triggerIssueNumber, activitySnapshot: snapshot });
-
-    lastTriggerSnapshot.set(project.id, snapshot);
-  } catch (err) {
-    lastControllerRunMs.delete(project.id);
-    throw err;
+export function createControllerTask(
+  project: Project,
+  controller: Agent,
+  prompt: string,
+  input: {
+    source: string;
+    reason: string;
+    triggerIssueNumber?: number;
+    metadata?: Record<string, unknown>;
+    priority?: number;
   }
+): ReturnType<typeof createAgentTask> {
+  const db = getDatabase();
+  const triggerIssue = input.triggerIssueNumber
+    ? db.prepare('SELECT id FROM issues WHERE project_id = ? AND number = ?')
+        .get(project.id, input.triggerIssueNumber) as { id: string } | undefined
+    : undefined;
+  return createAgentTask(controller.id, {
+    source: input.source,
+    source_ref: triggerIssue?.id || null,
+    task_type: 'controller',
+    reason: input.reason,
+    prompt,
+    priority: input.priority ?? 20,
+    metadata: {
+      project_id: project.id,
+      trigger_issue_number: input.triggerIssueNumber ?? null,
+      ...(input.metadata || {}),
+    },
+    dedupe_key: [
+      'controller',
+      project.id,
+      controller.id,
+      input.triggerIssueNumber ?? 'project',
+    ].join(':'),
+  });
 }

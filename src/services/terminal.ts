@@ -127,8 +127,13 @@ export function getOrCreatePtySession(
   const baseCommand = parsed[0] || 'claude';
   const baseArgs = parsed.slice(1);
 
-  // Prefer explicit command_type when deciding terminal session behavior.
-  const sessionId = agent?.session_id || undefined;
+  // Task runtime stores CLI continuity in executor_sessions, not legacy agents.session_id.
+  const sessionRow = agent
+    ? db.prepare(
+        'SELECT session_id FROM executor_sessions WHERE agent_id = ? ORDER BY last_used_at DESC LIMIT 1'
+      ).get(agent.id) as { session_id: string } | undefined
+    : undefined;
+  const sessionId = sessionRow?.session_id || undefined;
   const resolvedCommandType = resolveCommandType(commandType, commandTemplate);
   const isClaudeFamily = resolvedCommandType === 'claude';
   const sessionArgs: string[] = [];

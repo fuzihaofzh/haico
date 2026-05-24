@@ -61,7 +61,7 @@ export function registerApiRetrySuites(
       }
     }
 
-    it("API连接错误时自动重试，两次失败后进入error状态", async () => {
+    it("API连接错误进入TaskRun error，可通过/manual retry重建 attempt", async () => {
       // 确保agent不在运行中
       await waitForNonRunning(getWorkerId());
 
@@ -83,22 +83,22 @@ export function registerApiRetrySuites(
           `start应返回200，实际: ${startRes.status}`
         );
 
-        // 等待第一次进程退出（is_running → false）
-        await waitForProcessExit(getWorkerId(), 3000);
-
-        // 若API错误被检测到，关闭处理器应进入'waiting'状态（5分钟重试等待中）
-        const { body: midState } = await ctx.api(
-          `/api/agents/${getWorkerId()}/status`
-        );
+        const finalStatus = await waitForNonRunning(getWorkerId(), 5000);
         assert.equal(
-          midState.status,
-          "waiting",
-          `第一次API错误后应为waiting（等待重试）。实际: ${midState.status}, pid: ${midState.pid}, is_running: ${midState.is_running}`
+          finalStatus,
+          "error",
+          `API连接错误应进入TaskRun error，等待显式retry。实际: ${finalStatus}`
         );
 
-        // 5分钟重试延迟太长，不等待完成。手动停止agent让状态恢复。
-        await ctx.api(`/api/agents/${getWorkerId()}/stop`, { method: "POST" });
-        await waitForNonRunning(getWorkerId(), 5000, true);
+        const retryRes = await ctx.api(`/api/agents/${getWorkerId()}/retry`, {
+          method: "POST",
+          body: {},
+        });
+        assert.equal(retryRes.status, 200);
+        assert.equal(retryRes.body.success, true);
+
+        const retryStatus = await waitForNonRunning(getWorkerId(), 5000);
+        assert.equal(retryStatus, "error");
       } finally {
         await ctx.api(`/api/projects/${getProjectId()}`, {
           method: "PUT",

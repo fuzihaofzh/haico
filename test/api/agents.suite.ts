@@ -77,10 +77,6 @@ export function registerAgentSuites(
         "list row should not include last_prompt"
       );
       assert.ok(
-        !("custom_instructions" in worker),
-        "list row should not include custom_instructions"
-      );
-      assert.ok(
         !("session_id" in worker),
         "list row should not include session_id"
       );
@@ -88,6 +84,8 @@ export function registerAgentSuites(
         "has_last_prompt" in worker,
         "list row should include has_last_prompt flag"
       );
+      assert.ok(worker.runtime_state, "list row should include runtime_state");
+      assert.equal(worker.runtime_state.status, "idle");
     });
 
     it("PUT updates agent", async () => {
@@ -99,7 +97,7 @@ export function registerAgentSuites(
       assert.equal(body.role, "Updated role");
     });
 
-    it("POST start works without explicit prompt (uses role + task)", async () => {
+    it("POST start requires an explicit prompt during task-runtime cutover", async () => {
       const { status, body } = await ctx.api(
         `/api/agents/${getWorkerId()}/start`,
         {
@@ -107,16 +105,8 @@ export function registerAgentSuites(
           body: {},
         }
       );
-      assert.equal(status, 200);
-      assert.equal(body.success, true);
-      // Wait for agent to finish (system prompt makes output longer)
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 1000));
-        const { body: st } = await ctx.api(
-          `/api/agents/${getWorkerId()}/status`
-        );
-        if (st.status !== "running") break;
-      }
+      assert.equal(status, 400);
+      assert.match(body.error, /prompt/i);
     });
 
     it("POST start launches process", async () => {
@@ -129,7 +119,9 @@ export function registerAgentSuites(
       );
       assert.equal(status, 200);
       assert.equal(body.success, true);
-      assert.ok(body.runId);
+      assert.ok(body.task_id);
+      assert.ok(body.task_run_id);
+      assert.ok(body.run_id);
       assert.ok(body.pid);
     });
 
@@ -297,7 +289,7 @@ export function registerAgentSuites(
       assert.equal(status, 404);
     });
 
-    it("retry agent with no previous prompt returns 400", async () => {
+    it("retry existing agent without a retryable TaskRun returns 400", async () => {
       // Create a fresh agent that has never been started
       const { body: freshAgent } = await ctx.api(
         `/api/projects/${getProjectId()}/agents`,
@@ -311,42 +303,42 @@ export function registerAgentSuites(
         { method: "POST" }
       );
       assert.equal(status, 400);
-      assert.ok(body.error.includes("No previous prompt"));
+      assert.match(body.error, /No previous prompt to retry/);
 
       // Cleanup
       await ctx.api(`/api/agents/${freshAgent.id}`, { method: "DELETE" });
     });
 
-    it("retry succeeds for agent with last_prompt", async () => {
-      // Worker was started earlier and has last_prompt
-      // First ensure worker is not running
-      const { body: st } = await ctx.api(`/api/agents/${getWorkerId()}/status`);
-      if (st.status === "running") {
-        await ctx.api(`/api/agents/${getWorkerId()}/stop`, { method: "POST" });
-        await new Promise((r) => setTimeout(r, 1000));
-      }
+    it("retry success creates a new TaskRun attempt", async () => {
+      await ctx.api(`/api/projects/${getProjectId()}`, {
+        method: "PUT",
+        body: { command_template: "sh -c \"cat >/dev/null; exit 7\"" },
+      });
+      const first = await ctx.api(`/api/agents/${getWorkerId()}/start`, {
+        method: "POST",
+        body: { prompt: "retry me" },
+      });
+      assert.equal(first.status, 200, first.raw);
+      await new Promise((r) => setTimeout(r, 500));
 
-      // Check if agent has last_prompt (it should from earlier start tests)
-      const { body: agent } = await ctx.api(`/api/agents/${getWorkerId()}`);
-      if (agent.last_prompt) {
-        const { status, body } = await ctx.api(
-          `/api/agents/${getWorkerId()}/retry`,
-          { method: "POST" }
-        );
-        assert.equal(status, 200);
-        assert.equal(body.success, true);
-        assert.ok(body.runId);
-        assert.ok(body.pid);
+      const retry = await ctx.api(`/api/agents/${getWorkerId()}/retry`, {
+        method: "POST",
+      });
+      assert.equal(retry.status, 200, retry.raw);
+      assert.equal(retry.body.task_id, first.body.task_id);
 
-        // Wait for it to finish
-        for (let i = 0; i < 10; i++) {
-          await new Promise((r) => setTimeout(r, 1000));
-          const { body: st2 } = await ctx.api(
-            `/api/agents/${getWorkerId()}/status`
-          );
-          if (st2.status !== "running") break;
-        }
-      }
+      const { getDatabase } = await import("../../src/db/database");
+      const db = getDatabase();
+      const attempts = db.prepare(
+        "SELECT attempt FROM task_runs WHERE task_id = ? ORDER BY attempt"
+      ).all(first.body.task_id) as Array<{ attempt: number }>;
+      assert.deepEqual(attempts.map((row) => row.attempt), [1, 2]);
+
+      await new Promise((r) => setTimeout(r, 500));
+      await ctx.api(`/api/projects/${getProjectId()}`, {
+        method: "PUT",
+        body: { command_template: "echo" },
+      });
     });
 
     it("retry returns 409 when agent is running", async () => {
@@ -454,7 +446,7 @@ export function registerAgentSuites(
         }
       );
       assert.equal(status, 409);
-      assert.ok(body.error.includes("paused"));
+      assert.match(body.error, /paused/i);
     });
 
     it("status endpoint shows paused=true", async () => {
@@ -549,10 +541,10 @@ export function registerAgentSuites(
     });
   });
 
-  // ─── Error Recovery (process-manager) ───
+  // ─── Error Recovery (Task runtime) ───
 
   describe("Error Recovery", () => {
-    it("single error preserves session_id (P1 session cache)", async () => {
+    it("single process error is reflected through derived runtime state", async () => {
       // Run agent with a command that fails
       await ctx.api(`/api/projects/${getProjectId()}`, {
         method: "PUT",
@@ -574,9 +566,8 @@ export function registerAgentSuites(
 
       const { body: agent } = await ctx.api(`/api/agents/${getWorkerId()}`);
       assert.equal(agent.status, "error");
-      // P1: session_id is preserved on first error (cleared only after 3 consecutive errors)
-      // session_id may or may not be set depending on whether the tool created one,
-      // but the key point is it should NOT be forcibly cleared on a single error
+      assert.equal(agent.runtime_state.status, "error");
+      assert.ok(agent.runtime_state.last_task_run_id);
 
       // Restore
       await ctx.api(`/api/projects/${getProjectId()}`, {

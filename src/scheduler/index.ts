@@ -3,10 +3,10 @@ import { config } from '../config';
 import { getDatabase, isDatabaseOpen } from '../db/database';
 import { cleanupConversationLogs } from '../db/maintenance';
 import logger from '../logger';
+import { runTaskRunWatchdogScan, runTaskSchedulerTick } from '../services/tasks';
 import { runIssueRecoveryScan } from '../services/issue/recovery';
-import { runAgentWatchdogScan, DEFAULT_IDLE_TIMEOUT_MS } from '../services/process-manager';
 
-type ScheduledTaskName = 'logCleanup' | 'issueRecovery' | 'watchdog';
+type ScheduledTaskName = 'logCleanup' | 'taskRuntime' | 'issueRecovery';
 
 const tasks: Partial<Record<ScheduledTaskName, cron.ScheduledTask>> = {};
 
@@ -38,24 +38,25 @@ function startLogCleanup(): void {
   logger.info(`Log cleanup scheduled: retain ${config.logRetentionDays} days`);
 }
 
-function startIssueRecovery(): void {
-  scheduleTask('issueRecovery', '*/3 * * * *', () => {
-    runIssueRecoveryScan(getDatabase(), logger);
-  });
-  logger.info('Worker scan scheduled: every 3 minutes');
-}
-
-function startWatchdog(): void {
-  scheduleTask('watchdog', '*/5 * * * *', () => {
-    runAgentWatchdogScan(getDatabase(), logger);
-  });
-  logger.info(`Watchdog scheduled: every 5 minutes, idle timeout ${DEFAULT_IDLE_TIMEOUT_MS / 60000} minutes`);
-}
-
 export function initializeScheduler(): void {
   startLogCleanup();
-  startIssueRecovery();
-  startWatchdog();
+  scheduleTask('taskRuntime', '*/1 * * * *', () => {
+    const watchdog = runTaskRunWatchdogScan(getDatabase(), logger);
+    const result = runTaskSchedulerTick(10);
+    if (
+      watchdog.failedMissingProcess > 0 ||
+      watchdog.failedIdle > 0 ||
+      watchdog.completedAfterFinalResult > 0 ||
+      result.started > 0 ||
+      result.blocked > 0 ||
+      result.failed > 0
+    ) {
+      logger.info({ watchdog, scheduler: result }, 'task.runtime.tick');
+    }
+  });
+  scheduleTask('issueRecovery', '*/2 * * * *', () => {
+    runIssueRecoveryScan(getDatabase(), logger);
+  });
 
   logger.info('Scheduler initialized');
 }

@@ -5,6 +5,7 @@ import { getDirectChildAgents, loadProjectHierarchyAgents } from './agents/hiera
 import { resolveCommandType } from './command-profiles';
 import { markExpiredKnowledgeEntries } from './knowledge/lifecycle';
 import { ensureAgentKnowledgeEntry } from './knowledge/agent-memory';
+import { deriveAgentRuntimeStatus } from './tasks/runtime-state';
 
 const BASE_URL = () => `http://localhost:${config.port}`;
 
@@ -30,14 +31,14 @@ This agent runs inside HAICO, the Human-Agent Interactive Collaboration Orchestr
   const hierarchyAgents = loadProjectHierarchyAgents(db, project.id);
   const hierarchyById = new Map(hierarchyAgents.map((item) => [item.id, item]));
   const agents = db.prepare(`
-    SELECT a.id, a.name, a.role, a.is_controller, a.status, a.parent_agent_id, parent.name as parent_name
+    SELECT a.id, a.name, a.role, a.is_controller, a.paused, a.constraints_json, a.parent_agent_id, parent.name as parent_name
     FROM agents a
     LEFT JOIN agents parent ON parent.id = a.parent_agent_id
     WHERE a.project_id = ?
     ORDER BY a.is_controller DESC, a.created_at
   `).all(project.id) as any[];
   const agentList = agents.map(a =>
-    `  - ${a.name} (ID: ${a.id}, Role: ${a.role || '-'}, Status: ${a.status}${a.is_controller ? ', Controller' : ''}${a.parent_name ? `, Parent: ${a.parent_name}` : ''})`
+    `  - ${a.name} (ID: ${a.id}, Role: ${a.role || '-'}, Status: ${deriveAgentRuntimeStatus(db, a)}${a.is_controller ? ', Controller' : ''}${a.parent_name ? `, Parent: ${a.parent_name}` : ''})`
   ).join('\n');
   const parentAgent = agent.parent_agent_id ? hierarchyById.get(agent.parent_agent_id) || null : null;
   const directChildren = getDirectChildAgents(hierarchyAgents, agent.id);

@@ -318,24 +318,23 @@ async function toggleProjectStatus() {
 }
 
 async function triggerController() {
-  if (!projectData?.can_manage) { showToast('Insufficient permission to trigger Controller', 'error'); return; }
-  const btn = event ? event.target : null;
-  const run = async () => {
-    if (!agentsData.length) agentsData = await getProjectAgents();
-    const controller = agentsData.find(a => a.is_controller);
-    if (!controller) { showToast('No controller agent found', 'error'); return; }
-    if (controller.status === 'running') { showToast('Controller is already running', 'error'); return; }
-    const res = await fetch(agentApiPath(controller.id, '/start'), { method: 'POST', headers: apiHeaders(), body: JSON.stringify({}) });
-    if (res.ok) {
-      agentsData = await getProjectAgents().catch(() => agentsData);
-      window.dispatchEvent(new CustomEvent('haico:project-agents-changed'));
-      showToast('Controller started', 'success');
-    } else {
-      const err = await res.json().catch(() => ({}));
-      showToast(err.error || 'Failed to start', 'error');
-    }
-  };
-  if (btn) await withLoading(btn, run); else await run();
+  if (!projectData) return;
+  if (!projectData.can_manage) {
+    showToast('Insufficient permission to trigger controller', 'error');
+    return;
+  }
+  const res = await fetch(projectApiPath('/controller/trigger'), {
+    method: 'POST',
+    headers: apiHeaders(),
+    body: '{}',
+  });
+  if (res.ok) {
+    showToast('Controller trigger queued', 'success');
+    refreshOperationsConsoleEntry();
+    return;
+  }
+  const data = await res.json().catch(() => ({}));
+  showToast(data.error || 'Failed to trigger controller', 'error');
 }
 
 async function deleteProject() {
