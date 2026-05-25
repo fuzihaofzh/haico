@@ -1,15 +1,8 @@
 (function(global) {
-  function escapeHtml(value) {
-    if (typeof global.esc === 'function') return global.esc(value);
-    return String(value == null ? '' : value).replace(/[&<>"']/g, function(char) {
-      return {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;',
-      }[char] || char;
-    });
+  var html = global.html;
+  var h = global.h;
+  if (typeof h !== 'function' || typeof html !== 'function') {
+    throw new Error('HAICO treasury workflow requires shared h/html helpers');
   }
 
   function clamp(value, min, max) {
@@ -270,130 +263,124 @@
 
   function renderStats(stats) {
     return stats.map(function(stat) {
-      return ''
-        + '<article class="treasury-stat-card">'
-        + '<div class="treasury-stat-value">' + escapeHtml(stat.value) + '</div>'
-        + '<div class="treasury-stat-label">' + escapeHtml(stat.label) + '</div>'
-        + '<p class="treasury-stat-hint">' + escapeHtml(stat.hint) + '</p>'
-        + '</article>';
+      return h`<article class="treasury-stat-card">
+        <div class="treasury-stat-value">${stat.value}</div>
+        <div class="treasury-stat-label">${stat.label}</div>
+        <p class="treasury-stat-hint">${stat.hint}</p>
+      </article>`;
     }).join('');
   }
 
   function renderRegions(regions) {
     return regions.map(function(region) {
-      return ''
-        + '<article class="treasury-region-card' + toneClass(region.tone) + '">'
-        + '<div class="treasury-region-header">'
-        + '<div>'
-        + '<div class="treasury-region-eyebrow">' + escapeHtml(region.owner) + ' · ' + region.entities + ' entities</div>'
-        + '<h3>' + escapeHtml(region.label) + '</h3>'
-        + '</div>'
-        + '<span class="treasury-badge' + toneClass(region.tone) + '">' + escapeHtml(region.status) + '</span>'
-        + '</div>'
-        + '<div class="treasury-threshold-grid">'
-        + '<div class="treasury-threshold-block">'
-        + '<span class="treasury-threshold-label">Warning band</span>'
-        + '<strong>' + region.proposed_warning + 'd</strong>'
-        + '<span>Current ' + region.current_warning + 'd · ' + formatDelta(region.warning_delta) + '</span>'
-        + '</div>'
-        + '<div class="treasury-threshold-block">'
-        + '<span class="treasury-threshold-label">Critical band</span>'
-        + '<strong>' + region.proposed_critical + 'd</strong>'
-        + '<span>Current ' + region.current_critical + 'd · ' + formatDelta(region.critical_delta) + '</span>'
-        + '</div>'
-        + '<div class="treasury-threshold-block">'
-        + '<span class="treasury-threshold-label">Forecast variance</span>'
-        + '<strong>' + region.forecast_variance.toFixed(1) + '%</strong>'
-        + '<span>' + region.escalation_count + ' live escalation ' + pluralize(region.escalation_count, 'signal', 'signals') + '</span>'
-        + '</div>'
-        + '</div>'
-        + '<p class="treasury-region-copy">' + escapeHtml(region.concentration) + '</p>'
-        + '<p class="treasury-region-copy">' + escapeHtml(region.rationale) + '</p>'
-        + '<div class="treasury-region-footer">'
-        + '<div>'
-        + '<span class="treasury-region-meta-label">Approval path</span>'
-        + '<strong>' + escapeHtml(region.approval_path) + '</strong>'
-        + '</div>'
-        + '<div>'
-        + '<span class="treasury-region-meta-label">Evidence tag</span>'
-        + '<strong>' + escapeHtml(region.evidence_tag) + '</strong>'
-        + '</div>'
-        + '</div>'
-        + '<div class="treasury-region-policy">' + escapeHtml(region.policy_basis) + '</div>'
-        + '</article>';
+      return h`<article class="treasury-region-card${toneClass(region.tone)}">
+        <div class="treasury-region-header">
+          <div>
+            <div class="treasury-region-eyebrow">${region.owner} · ${region.entities} entities</div>
+            <h3>${region.label}</h3>
+          </div>
+          <span class="treasury-badge${toneClass(region.tone)}">${region.status}</span>
+        </div>
+        <div class="treasury-threshold-grid">
+          <div class="treasury-threshold-block">
+            <span class="treasury-threshold-label">Warning band</span>
+            <strong>${region.proposed_warning}d</strong>
+            <span>Current ${region.current_warning}d · ${formatDelta(region.warning_delta)}</span>
+          </div>
+          <div class="treasury-threshold-block">
+            <span class="treasury-threshold-label">Critical band</span>
+            <strong>${region.proposed_critical}d</strong>
+            <span>Current ${region.current_critical}d · ${formatDelta(region.critical_delta)}</span>
+          </div>
+          <div class="treasury-threshold-block">
+            <span class="treasury-threshold-label">Forecast variance</span>
+            <strong>${region.forecast_variance.toFixed(1)}%</strong>
+            <span>${region.escalation_count} live escalation ${pluralize(region.escalation_count, 'signal', 'signals')}</span>
+          </div>
+        </div>
+        <p class="treasury-region-copy">${region.concentration}</p>
+        <p class="treasury-region-copy">${region.rationale}</p>
+        <div class="treasury-region-footer">
+          <div>
+            <span class="treasury-region-meta-label">Approval path</span>
+            <strong>${region.approval_path}</strong>
+          </div>
+          <div>
+            <span class="treasury-region-meta-label">Evidence tag</span>
+            <strong>${region.evidence_tag}</strong>
+          </div>
+        </div>
+        <div class="treasury-region-policy">${region.policy_basis}</div>
+      </article>`;
     }).join('');
   }
 
   function renderGuardrails(guardrails) {
     return guardrails.map(function(section) {
       var items = section.items.map(function(item) {
-        return '<li>' + escapeHtml(item) + '</li>';
+        return h`<li>${item}</li>`;
       }).join('');
-      return ''
-        + '<section class="treasury-side-card' + toneClass(section.tone) + '">'
-        + '<div class="treasury-side-title">' + escapeHtml(section.title) + '</div>'
-        + '<ul class="treasury-list">' + items + '</ul>'
-        + '</section>';
+      return h`<section class="treasury-side-card${toneClass(section.tone)}">
+        <div class="treasury-side-title">${section.title}</div>
+        <ul class="treasury-list">${html(items)}</ul>
+      </section>`;
     }).join('');
   }
 
   function renderRails(rails) {
     return rails.map(function(rail) {
-      return ''
-        + '<div class="treasury-rail' + toneClass(rail.tone) + '">'
-        + '<div class="treasury-rail-step">' + escapeHtml(rail.step) + '</div>'
-        + '<div>'
-        + '<div class="treasury-rail-title">' + escapeHtml(rail.title) + '</div>'
-        + '<p class="treasury-rail-detail">' + escapeHtml(rail.detail) + '</p>'
-        + '</div>'
-        + '</div>';
+      return h`<div class="treasury-rail${toneClass(rail.tone)}">
+        <div class="treasury-rail-step">${rail.step}</div>
+        <div>
+          <div class="treasury-rail-title">${rail.title}</div>
+          <p class="treasury-rail-detail">${rail.detail}</p>
+        </div>
+      </div>`;
     }).join('');
   }
 
   function renderEvidence(evidence) {
     return evidence.map(function(item) {
-      return ''
-        + '<div class="treasury-evidence-row">'
-        + '<div>'
-        + '<span class="treasury-evidence-label">' + escapeHtml(item.label) + '</span>'
-        + '<p>' + escapeHtml(item.hint) + '</p>'
-        + '</div>'
-        + '<strong>' + escapeHtml(item.value) + '</strong>'
-        + '</div>';
+      return h`<div class="treasury-evidence-row">
+        <div>
+          <span class="treasury-evidence-label">${item.label}</span>
+          <p>${item.hint}</p>
+        </div>
+        <strong>${item.value}</strong>
+      </div>`;
     }).join('');
   }
 
   function render(model) {
-    return ''
-      + '<section class="treasury-layer card">'
-      + '<div class="treasury-hero">'
-      + '<div>'
-      + '<div class="treasury-overline">Trusted Treasury Workflow</div>'
-      + '<h2>Treasury Control Layer</h2>'
-      + '<p>' + escapeHtml(model.summary) + '</p>'
-      + '</div>'
-      + '<div class="treasury-hero-panel">'
-      + '<span class="treasury-badge is-accent">' + escapeHtml(model.headline) + '</span>'
-      + '<strong>' + escapeHtml(model.approval_headline) + '</strong>'
-      + '<p>Regional threshold tuning stays fast because policy rails, approver paths, and evidence tags travel together.</p>'
-      + '</div>'
-      + '</div>'
-      + '<div class="treasury-stats">' + renderStats(model.stats) + '</div>'
-      + '<div class="treasury-main-grid">'
-      + '<div class="treasury-region-grid">' + renderRegions(model.regions) + '</div>'
-      + '<aside class="treasury-side-column">'
-      + renderGuardrails(model.guardrails)
-      + '<section class="treasury-side-card">'
-      + '<div class="treasury-side-title">Execution path</div>'
-      + '<div class="treasury-rails">' + renderRails(model.rails) + '</div>'
-      + '</section>'
-      + '<section class="treasury-side-card">'
-      + '<div class="treasury-side-title">Evidence ledger</div>'
-      + '<div class="treasury-evidence">' + renderEvidence(model.evidence) + '</div>'
-      + '</section>'
-      + '</aside>'
-      + '</div>'
-      + '</section>';
+    return h`<section class="treasury-layer card">
+      <div class="treasury-hero">
+        <div>
+          <div class="treasury-overline">Trusted Treasury Workflow</div>
+          <h2>Treasury Control Layer</h2>
+          <p>${model.summary}</p>
+        </div>
+        <div class="treasury-hero-panel">
+          <span class="treasury-badge is-accent">${model.headline}</span>
+          <strong>${model.approval_headline}</strong>
+          <p>Regional threshold tuning stays fast because policy rails, approver paths, and evidence tags travel together.</p>
+        </div>
+      </div>
+      <div class="treasury-stats">${html(renderStats(model.stats))}</div>
+      <div class="treasury-main-grid">
+        <div class="treasury-region-grid">${html(renderRegions(model.regions))}</div>
+        <aside class="treasury-side-column">
+          ${html(renderGuardrails(model.guardrails))}
+          <section class="treasury-side-card">
+            <div class="treasury-side-title">Execution path</div>
+            <div class="treasury-rails">${html(renderRails(model.rails))}</div>
+          </section>
+          <section class="treasury-side-card">
+            <div class="treasury-side-title">Evidence ledger</div>
+            <div class="treasury-evidence">${html(renderEvidence(model.evidence))}</div>
+          </section>
+        </aside>
+      </div>
+    </section>`;
   }
 
   var api = {

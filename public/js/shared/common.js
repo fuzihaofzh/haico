@@ -39,14 +39,15 @@ async function initUserMenu() {
   const menu = document.createElement('div');
   menu.className = 'user-menu';
   const initials = (_currentUser.display_name || _currentUser.username || '?').charAt(0).toUpperCase();
-  menu.innerHTML = `
-    <button class="user-menu-btn" title="${esc(_currentUser.display_name || _currentUser.username)}">${esc(initials)}</button>
+  const adminLink = _currentUser.role === 'admin' ? h`<a href="/admin/users">User Management</a>` : '';
+  menu.innerHTML = h`
+    <button class="user-menu-btn" title="${_currentUser.display_name || _currentUser.username}">${initials}</button>
     <div class="user-menu-dropdown" id="user-menu-dropdown">
       <div class="user-menu-info">
-        <div class="name">${esc(_currentUser.display_name || _currentUser.username)}</div>
-        <div class="role">${esc(_currentUser.role)}</div>
+        <div class="name">${_currentUser.display_name || _currentUser.username}</div>
+        <div class="role">${_currentUser.role}</div>
       </div>
-      ${_currentUser.role === 'admin' ? '<a href="/admin/users">User Management</a>' : ''}
+      ${html(adminLink)}
       <a href="/change-password">Change Password</a>
       <div class="divider"></div>
       <button class="menu-item" onclick="doLogout()">Logout</button>
@@ -76,6 +77,19 @@ function esc(s) {
   const d = document.createElement('div');
   d.textContent = s || '';
   return d.innerHTML;
+}
+
+function html(value) {
+  return { __html: String(value == null ? '' : value) };
+}
+
+function h(parts, ...vals) {
+  return parts.reduce((acc, part, i) => {
+    const value = vals[i];
+    if (value == null) return acc + part;
+    if (value && value.__html != null) return acc + part + value.__html;
+    return acc + part + esc(value);
+  }, '');
 }
 
 function apiHeaders() {
@@ -278,9 +292,9 @@ function timeAgo(dateStr) {
 }
 
 function priorityBadge(p) {
-  if (p >= 10) return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(220,50,47,0.15);color:var(--error)">USER</span>';
-  if (p >= 5) return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(181,137,0,0.15);color:var(--warning)">CTRL</span>';
-  return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(88,110,117,0.15);color:var(--text-secondary)">AGENT</span>';
+  if (p >= 10) return h`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(220,50,47,0.15);color:var(--error)">USER</span>`;
+  if (p >= 5) return h`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(181,137,0,0.15);color:var(--warning)">CTRL</span>`;
+  return h`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(88,110,117,0.15);color:var(--text-secondary)">AGENT</span>`;
 }
 
 // nameOf resolves agent IDs to names. Uses the global `agentsData` array if available.
@@ -298,7 +312,7 @@ function nameOf(id) {
 
 function renderLoading(text, small) {
   var cls = 'loading-spinner' + (small ? ' small' : '');
-  return '<div class="' + cls + '"><div class="spinner"></div>' + esc(text || 'Loading...') + '</div>';
+  return h`<div class="${cls}"><div class="spinner"></div>${text || 'Loading...'}</div>`;
 }
 
 function renderError(err, onRetryId) {
@@ -310,8 +324,8 @@ function renderError(err, onRetryId) {
     else if (err.status >= 400) msg = 'Request failed (resource not found or no permission)';
     else if (err.message) msg = err.message;
   }
-  var retryHtml = onRetryId ? '<button class="retry-btn" onclick="' + onRetryId + '">Retry</button>' : '';
-  return '<div class="error-retry"><div class="error-msg">' + esc(msg) + '</div>' + retryHtml + '</div>';
+  var retryHtml = onRetryId ? h`<button class="retry-btn" onclick="${onRetryId}">Retry</button>` : '';
+  return h`<div class="error-retry"><div class="error-msg">${msg}</div>${html(retryHtml)}</div>`;
 }
 
 function renderCollapsibleText(text, options) {
@@ -319,17 +333,17 @@ function renderCollapsibleText(text, options) {
   const opts = options || {};
   const previewChars = Number.isFinite(opts.previewChars) ? opts.previewChars : 120;
   const className = opts.className ? ' ' + opts.className : '';
-  const styleAttr = opts.style ? ` style="${opts.style}"` : '';
+  const styleAttr = opts.style ? h` style="${opts.style}"` : '';
   const expandLabel = opts.expandLabel || 'Expand';
   const collapseLabel = opts.collapseLabel || 'Collapse';
-  const contentHtml = `<span class="collapsible-text__content">${esc(value)}</span>`;
+  const contentHtml = h`<span class="collapsible-text__content">${value}</span>`;
   const needsCollapse = value.length > previewChars || /[\r\n]/.test(value);
 
   if (!needsCollapse) {
-    return `<span class="collapsible-text${className}"${styleAttr}>${contentHtml}</span>`;
+    return h`<span class="collapsible-text${className}"${html(styleAttr)}>${html(contentHtml)}</span>`;
   }
 
-  return `<button type="button" class="collapsible-text is-collapsible${className}" data-collapsible-text data-expanded="false" data-expand-label="${esc(expandLabel)}" data-collapse-label="${esc(collapseLabel)}" aria-expanded="false" title="Click to expand"${styleAttr}>${contentHtml}<span class="collapsible-text__hint" aria-hidden="true">${esc(expandLabel)}</span></button>`;
+  return h`<button type="button" class="collapsible-text is-collapsible${className}" data-collapsible-text data-expanded="false" data-expand-label="${expandLabel}" data-collapse-label="${collapseLabel}" aria-expanded="false" title="Click to expand"${html(styleAttr)}>${html(contentHtml)}<span class="collapsible-text__hint" aria-hidden="true">${expandLabel}</span></button>`;
 }
 
 document.addEventListener('click', function(e) {
@@ -412,17 +426,17 @@ function showConfirm(message, options) {
       }
     };
 
-    overlay.innerHTML = `<div class="modal confirm-modal confirm-modal-${tone}" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    overlay.innerHTML = h`<div class="modal confirm-modal confirm-modal-${tone}" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <div class="confirm-modal-header">
         <div class="confirm-modal-eyebrow">${tone === 'danger' ? 'Danger zone' : 'Confirmation'}</div>
-        <h3 id="confirm-title" class="confirm-modal-title">${esc(title)}</h3>
+        <h3 id="confirm-title" class="confirm-modal-title">${title}</h3>
       </div>
       <div class="confirm-modal-body">
-        <div class="confirm-modal-message">${messageHtml}</div>
+        <div class="confirm-modal-message">${html(messageHtml)}</div>
       </div>
       <div class="modal-actions confirm-modal-actions">
-        <button class="btn btn-sm" id="confirm-cancel" type="button">${esc(cancelLabel)}</button>
-        <button class="btn btn-sm ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}" id="confirm-ok" type="button">${esc(confirmLabel)}</button>
+        <button class="btn btn-sm" id="confirm-cancel" type="button">${cancelLabel}</button>
+        <button class="btn btn-sm ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}" id="confirm-ok" type="button">${confirmLabel}</button>
       </div>
     </div>`;
 
@@ -491,8 +505,8 @@ document.addEventListener('keydown', function(e) {
 // ─── Avatars — GitHub-style identicon based on name hash ───
 // Generate a unique color per agent name using HSL hue rotation (avoids hash collisions with fixed arrays)
 function agentHslColor(name) {
-  const h = hashCode(name || '?');
-  const hue = h % 360;
+  const hash = hashCode(name || '?');
+  const hue = hash % 360;
   return `hsl(${hue}, 55%, 45%)`;
 }
 
@@ -537,7 +551,7 @@ function roleAvatarHtml(name, size, bgColor) {
   const agentColor = agentHslColor(name);
   const initials = getNameInitials(name || '?');
   const fontSize = Math.round(size * 0.4);
-  return `<span class="role-avatar" style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${agentColor};color:#fff;font-size:${fontSize}px;font-weight:600;line-height:1;flex-shrink:0;text-transform:uppercase;letter-spacing:-0.5px">${initials}</span>`;
+  return h`<span class="role-avatar" style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${agentColor};color:#fff;font-size:${fontSize}px;font-weight:600;line-height:1;flex-shrink:0;text-transform:uppercase;letter-spacing:-0.5px">${initials}</span>`;
 }
 
 function getNameInitials(name) {
@@ -553,26 +567,26 @@ function avatarSvg(name, size) {
   size = size || 28;
   if (name === 'user' || name === 'User') {
     // User: fixed person silhouette
-    return `<svg width="${size}" height="${size}" viewBox="0 0 5 5"><rect width="5" height="5" rx="0.5" fill="#268bd2"/><circle cx="2.5" cy="1.8" r="0.9" fill="rgba(255,255,255,0.9)"/><ellipse cx="2.5" cy="4.2" rx="1.5" ry="1.2" fill="rgba(255,255,255,0.9)"/></svg>`;
+    return h`<svg width="${size}" height="${size}" viewBox="0 0 5 5"><rect width="5" height="5" rx="0.5" fill="#268bd2"/><circle cx="2.5" cy="1.8" r="0.9" fill="rgba(255,255,255,0.9)"/><ellipse cx="2.5" cy="4.2" rx="1.5" ry="1.2" fill="rgba(255,255,255,0.9)"/></svg>`;
   }
   if (name === 'all' || name === 'All') {
-    return `<svg width="${size}" height="${size}" viewBox="0 0 5 5"><rect width="5" height="5" rx="0.5" fill="#859900"/><circle cx="1.5" cy="1.8" r="0.7" fill="rgba(255,255,255,0.85)"/><circle cx="3.5" cy="1.8" r="0.7" fill="rgba(255,255,255,0.85)"/><ellipse cx="2.5" cy="4" rx="2" ry="1" fill="rgba(255,255,255,0.85)"/></svg>`;
+    return h`<svg width="${size}" height="${size}" viewBox="0 0 5 5"><rect width="5" height="5" rx="0.5" fill="#859900"/><circle cx="1.5" cy="1.8" r="0.7" fill="rgba(255,255,255,0.85)"/><circle cx="3.5" cy="1.8" r="0.7" fill="rgba(255,255,255,0.85)"/><ellipse cx="2.5" cy="4" rx="2" ry="1" fill="rgba(255,255,255,0.85)"/></svg>`;
   }
   // GitHub-style 5x5 symmetric identicon
-  const h = hashCode(name || '?');
+  const hash = hashCode(name || '?');
   const color = agentHslColor(name);
   // Generate 15 bits for the left half + center column of 5x5 grid (mirrored)
-  let bits = h;
+  let bits = hash;
   let cells = '';
   for (let y = 0; y < 5; y++) {
     for (let x = 0; x < 3; x++) {
       if ((bits >> (y * 3 + x)) & 1) {
-        cells += `<rect x="${x}" y="${y}" width="1" height="1" fill="${color}"/>`;
-        if (x < 2) cells += `<rect x="${4-x}" y="${y}" width="1" height="1" fill="${color}"/>`;
+        cells += h`<rect x="${x}" y="${y}" width="1" height="1" fill="${color}"/>`;
+        if (x < 2) cells += h`<rect x="${4-x}" y="${y}" width="1" height="1" fill="${color}"/>`;
       }
     }
   }
-  return `<svg width="${size}" height="${size}" viewBox="-0.5 -0.5 6 6"><rect x="-0.5" y="-0.5" width="6" height="6" rx="0.8" fill="var(--selected-bg, #eee)"/>${cells}</svg>`;
+  return h`<svg width="${size}" height="${size}" viewBox="-0.5 -0.5 6 6"><rect x="-0.5" y="-0.5" width="6" height="6" rx="0.8" fill="var(--selected-bg, #eee)"/>${html(cells)}</svg>`;
 }
 
 // Drawer
@@ -784,7 +798,7 @@ function createNotificationSoundToggle() {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'notif-sound-toggle topbar-sound-toggle';
-  btn.innerHTML = `
+  btn.innerHTML = h`
     <span class="sound-toggle-track" aria-hidden="true">
       <svg class="sound-icon sound-icon-on" viewBox="0 0 24 24">
         <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
@@ -814,7 +828,7 @@ function updateProjectEventsIndicator(state) {
   if (!el) return;
   const colors = { connected: '#3fb950', connecting: '#d29922', disconnected: '#8b949e', error: '#f85149' };
   const labels = { connected: 'Live updates connected', connecting: 'Connecting...', disconnected: 'Live updates disconnected', error: 'Live updates error' };
-  el.innerHTML = `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${colors[state] || colors.disconnected};margin-right:4px"></span><span style="font-size:11px;color:var(--text-secondary)">${labels[state] || ''}</span>`;
+  el.innerHTML = h`<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${colors[state] || colors.disconnected};margin-right:4px"></span><span style="font-size:11px;color:var(--text-secondary)">${labels[state] || ''}</span>`;
   el.title = labels[state] || '';
 }
 
@@ -894,7 +908,7 @@ function connectProjectEvents(projectId) {
   if (isRemoteProjectId(projectId)) {
     const el = document.getElementById('ws-status-indicator');
     if (el) {
-      el.innerHTML = '<span style="font-size:11px;color:var(--text-secondary)">Remote project polling mode</span>';
+      el.innerHTML = h`<span style="font-size:11px;color:var(--text-secondary)">Remote project polling mode</span>`;
       el.title = 'Remote project updates are loaded by polling';
     }
     return {
@@ -984,7 +998,7 @@ function setupMentionAutocomplete(textarea, agents) {
       item.style.cssText = 'padding:6px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;';
       if (i === selectedIdx) item.style.background = 'var(--selected-bg)';
       const roleText = (agent.role || '').slice(0, 30);
-      item.innerHTML = `${avatarSvg(agent.name, 18)}<span><strong>${esc(agent.name)}</strong> <span style="color:var(--text-secondary);font-size:11px">${esc(roleText)}</span></span>`;
+      item.innerHTML = h`${html(avatarSvg(agent.name, 18))}<span><strong>${agent.name}</strong> <span style="color:var(--text-secondary);font-size:11px">${roleText}</span></span>`;
       item.onmouseenter = () => { selectedIdx = i; updateSelection(); };
       item.onmousedown = (e) => { e.preventDefault(); selectItem(agent.name); };
       dropdown.appendChild(item);

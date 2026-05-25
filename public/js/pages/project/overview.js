@@ -85,7 +85,7 @@ function hydrateOverviewFields() {
     const currentColor = projectData.color || '#4A90E2';
     colorInput.value = currentColor;
     colorPicker.innerHTML = PROJECT_COLORS.map(c =>
-      `<span class="color-swatch${c === currentColor ? ' selected' : ''}" data-color="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;border:3px solid ${c === currentColor ? 'var(--fg)' : 'transparent'};display:inline-block" onclick="selectProjectColor('${c}')"></span>`
+      h`<span class="color-swatch${c === currentColor ? ' selected' : ''}" data-color="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;border:3px solid ${c === currentColor ? 'var(--fg)' : 'transparent'};display:inline-block" onclick="selectProjectColor('${c}')"></span>`
     ).join('');
   }
 
@@ -141,11 +141,11 @@ async function loadDashboard(options) {
     const totalIssues = issueCounts.total || 0;
     const fmtCostOverview = v => !v ? '$0' : v < 0.01 ? '<$0.01' : '$' + v.toFixed(2);
     const fmtTokensOverview = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
-    const card = (label, value, color, sub) => `
+    const card = (label, value, color, sub) => h`
       <div style="padding:12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
         <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:4px">${label}</div>
         <div style="font-size:22px;font-weight:700;color:${color || 'var(--fg)'}">${value}</div>
-        ${sub ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${sub}</div>` : ''}
+        ${sub ? html(h`<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${html(sub)}</div>`) : ''}
       </div>`;
 
     const costValue = cost?.total_cost_usd > 0 ? fmtCostOverview(cost.total_cost_usd) : (cost?.total_input_tokens > 0 ? fmtTokensOverview(cost.total_input_tokens) + '↑' + fmtTokensOverview(cost.total_output_tokens) + '↓' : '$0');
@@ -153,7 +153,7 @@ async function loadDashboard(options) {
 
     el.innerHTML =
       card('Agents', `${running}/${agents.length}`, running > 0 ? 'var(--success)' : 'var(--fg)',
-        `${errors > 0 ? `<span style="color:var(--error)">${errors} error</span>` : ''}${paused > 0 ? ` <span style="color:var(--warning)">${paused} paused</span>` : ''}`) +
+        h`${errors > 0 ? html(h`<span style="color:var(--error)">${errors} error</span>`) : ''}${paused > 0 ? html(h` <span style="color:var(--warning)">${paused} paused</span>`) : ''}`) +
       card('Open Issues', openIssues, openIssues > 0 ? 'var(--warning)' : 'var(--fg)', `${doneIssues} completed`) +
       card(costLabel, costValue, 'var(--accent)', cost ? `${cost.total_runs || 0} runs` : '') +
       card('Issues Progress', totalIssues > 0 ? Math.round(doneIssues / totalIssues * 100) + '%' : '-', 'var(--fg)', `${doneIssues}/${totalIssues} total`);
@@ -208,7 +208,7 @@ function renderAgentCostComparison(byAgent, colorMap) {
   const el = document.getElementById('cost-agent-comparison');
   if (!el) return;
   const entries = Object.entries(byAgent).filter(([, v]) => v.cost > 0 || v.input_tokens > 0 || v.output_tokens > 0).sort((a, b) => b[1].cost - a[1].cost);
-  if (entries.length === 0) { el.innerHTML = '<div style="font-size:12px;color:var(--text-secondary)">No data</div>'; return; }
+  if (entries.length === 0) { el.innerHTML = h`<div style="font-size:12px;color:var(--text-secondary)">No data</div>`; return; }
   const totalCost = entries.reduce((s, [, v]) => s + v.cost, 0);
   const hasCost = totalCost > 0;
   const totalTokens = entries.reduce((s, [, v]) => s + (v.input_tokens || 0) + (v.output_tokens || 0), 0);
@@ -223,8 +223,8 @@ function renderAgentCostComparison(byAgent, colorMap) {
     const barWidth = maxMetric > 0 ? (val / maxMetric * 100).toFixed(1) : '0';
     const color = (colorMap && colorMap[name]) || _agentColors[idx % _agentColors.length];
     const label = hasCost ? ('$' + (v.cost < 0.01 ? v.cost.toFixed(4) : v.cost.toFixed(2))) : (fmtTokensComp((v.input_tokens||0)+(v.output_tokens||0)) + ' tokens');
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <div style="width:120px;font-size:11px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(name)}">${esc(name)}</div>
+    return h`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="width:120px;font-size:11px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${name}">${name}</div>
       <div style="flex:1;height:18px;background:var(--bg);border:1px solid var(--border);border-radius:3px;overflow:hidden">
         <div style="height:100%;width:${barWidth}%;background:${color};opacity:0.8;border-radius:3px;transition:width 0.3s"></div>
       </div>
@@ -246,14 +246,14 @@ function renderStackedBarChart(agents, totalSeries, width, height, colorMap) {
   const gap = cw / n;
   const yLabels = [0, maxCost / 2, maxCost].map(v => {
     const y = PAD_T + ch - (v / maxCost) * ch;
-    return `<text x="${PAD_L - 6}" y="${y + 3}" text-anchor="end" fill="var(--text-secondary)" font-size="9">$${v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}</text>
+    return h`<text x="${PAD_L - 6}" y="${y + 3}" text-anchor="end" fill="var(--text-secondary)" font-size="9">$${v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}</text>
     <line x1="${PAD_L}" y1="${y}" x2="${W - PAD_R}" y2="${y}" stroke="var(--border)" stroke-width="0.5" opacity="0.5"/>`;
   }).join('');
   const step = Math.max(1, Math.floor(n / 6));
   const xLabels = allDates.map((d, i) => {
     if (i % step !== 0 && i !== n - 1) return '';
     const x = PAD_L + i * gap + gap / 2;
-    return `<text x="${x}" y="${H - 4}" text-anchor="middle" fill="var(--text-secondary)" font-size="8">${d.slice(5)}</text>`;
+    return h`<text x="${x}" y="${H - 4}" text-anchor="middle" fill="var(--text-secondary)" font-size="8">${d.slice(5)}</text>`;
   }).join('');
   const agentDateMaps = agents.map(([, series]) => {
     const m = {};
@@ -271,7 +271,7 @@ function renderStackedBarChart(agents, totalSeries, width, height, colorMap) {
       const y = PAD_T + ch - yOffset - barH;
       const color = (colorMap && colorMap[agentName]) || _agentColors[idx % _agentColors.length];
       const runs = agentDateMaps[idx][date]?.runs || 0;
-      bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color}" opacity="0.85" rx="1">
+      bars += h`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color}" opacity="0.85" rx="1">
         <title>${agentName} ${date}: $${cost.toFixed(4)} (${runs} runs)</title>
       </rect>`;
       yOffset += barH;
@@ -279,12 +279,12 @@ function renderStackedBarChart(agents, totalSeries, width, height, colorMap) {
   });
   const legend = agents.map(([name], idx) => {
     const color = (colorMap && colorMap[name]) || _agentColors[idx % _agentColors.length];
-    return `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11px;color:var(--text-secondary)">
+    return h`<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11px;color:var(--text-secondary)">
       <span style="width:10px;height:10px;background:${color};border-radius:2px;display:inline-block"></span>${name.length > 15 ? name.slice(0, 14) + '...' : name}
     </span>`;
   }).join('');
-  return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">${yLabels}${xLabels}${bars}</svg>
-  <div style="margin-top:6px;line-height:1.8">${legend}</div>`;
+  return h`<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">${html(yLabels)}${html(xLabels)}${html(bars)}</svg>
+  <div style="margin-top:6px;line-height:1.8">${html(legend)}</div>`;
 }
 
 (async function initOverviewPage() {

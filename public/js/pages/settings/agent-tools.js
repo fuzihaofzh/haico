@@ -91,7 +91,7 @@ function renderConfigFields(row, type, config) {
   if (!container) return;
   const cfg = config || {};
   if (type === 'codex') {
-    container.innerHTML = `
+    container.innerHTML = h`
       <div class="command-profile-config-summary" data-config-summary></div>
       <label class="command-profile-config-field">Sandbox
         <select class="command-profile-select" data-config-field="sandbox">
@@ -111,7 +111,7 @@ function renderConfigFields(row, type, config) {
     return;
   }
   if (type === 'gemini') {
-    container.innerHTML = `
+    container.innerHTML = h`
       <div class="command-profile-config-summary" data-config-summary></div>
       <label class="command-profile-config-field">Output
         <select class="command-profile-select" data-config-field="outputFormat">
@@ -132,7 +132,7 @@ function renderConfigFields(row, type, config) {
     syncConfigState(row);
     return;
   }
-  container.innerHTML = `
+  container.innerHTML = h`
     <div class="command-profile-config-summary" data-config-summary></div>
     <label class="command-profile-config-field">Model
       <input type="text" class="command-profile-input" data-config-field="model" placeholder="claude-sonnet-4-6">

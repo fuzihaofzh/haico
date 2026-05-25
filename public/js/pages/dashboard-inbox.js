@@ -399,13 +399,13 @@ function renderInboxItems(items) {
     }
   }
 
-  let html = '';
+  let markup = '';
   for (let i = 0; i < visibleItems.length; i++) {
     const item = visibleItems[i];
     const isSelected = _selectedMailIssueId ? (item.data && item.data.id === _selectedMailIssueId) : (i === _selectedMailIdx);
     const issue = item.data;
     const isUnread = item.actionRequired;
-    const project = esc(issue.project_name || '');
+    const project = issue.project_name || '';
     const previewText = (issue.latest_comment_body || item.latestPreview || issue.body || '').replace(/\n/g, ' ').slice(0, 100) + ((issue.latest_comment_body || item.latestPreview || issue.body || '').length > 100 ? '…' : '');
     const displayTime = item.time || issue.updated_at;
     // Avatar: show role-based avatar for latest comment author (sender), fallback to assigned agent
@@ -422,38 +422,43 @@ function renderInboxItems(items) {
     } else {
       avatarHtml = avatarSvg(senderAuthorId === 'user' || !senderAuthorId ? 'user' : (senderName || senderAuthorId || '?'), 32);
     }
-    html += `<div class="mail-item${isUnread ? ' mail-unread' : ''}${isSelected ? ' mail-selected' : ''}" data-action="select-mail-item" data-idx="${i}" data-issue-id="${issue.id}" data-idx="${i}">
+    const stateClass = (isUnread ? ' mail-unread' : '') + (isSelected ? ' mail-selected' : '');
+    const subjectBadge = isUnread
+      ? h`<span class="mail-item-badge action">!</span>`
+      : (!issue.is_actionable ? h`<span class="mail-item-badge sent">Sent</span>` : '');
+    markup += h`<div class="mail-item${stateClass}" data-action="select-mail-item" data-idx="${i}" data-issue-id="${issue.id}">
       <span class="mail-item-dot ${isUnread ? 'unread' : 'read'}"></span>
-      <div class="mail-item-avatar">${avatarHtml}</div>
+      <div class="mail-item-avatar">${html(avatarHtml)}</div>
       <div class="mail-item-content">
         <div class="mail-item-top">
           <span class="mail-item-from">${project} #${issue.number}</span>
           <span class="mail-item-time">${timeAgo(displayTime) || ''}</span>
         </div>
-        <div class="mail-item-subject">${isUnread ? '<span class="mail-item-badge action">!</span>' : (!issue.is_actionable ? '<span class="mail-item-badge sent">Sent</span>' : '')}${esc(issue.title)}</div>
-        <div class="mail-item-preview">${esc(previewText)}</div>
+        <div class="mail-item-subject">${html(subjectBadge)}${issue.title}</div>
+        <div class="mail-item-preview">${previewText}</div>
       </div>
     </div>`;
   }
 
-  if (!html && query) {
-    html = '<div style="padding:20px;color:var(--text-secondary);font-size:12px;text-align:center">No results</div>';
-  } else if (!html) {
-    html = '<div style="padding:20px;color:var(--text-secondary);font-size:12px;text-align:center">No notifications</div>';
+  if (!markup && query) {
+    markup = h`<div style="padding:20px;color:var(--text-secondary);font-size:12px;text-align:center">No results</div>`;
+  } else if (!markup) {
+    markup = h`<div style="padding:20px;color:var(--text-secondary);font-size:12px;text-align:center">No notifications</div>`;
   }
 
   if (!query && _notifFilter !== 'my' && (_inboxPagination.hasMore || _inboxPagination.loading)) {
     const loaded = Math.min(_inboxAllItems.length, _inboxPagination.total || _inboxAllItems.length);
     const total = _inboxPagination.total || loaded;
-    html += `<div class="mail-list-footer">
-      <button class="btn btn-sm" data-action="load-more-inbox" ${_inboxPagination.loading ? 'disabled' : ''}>
+    const disabledAttr = _inboxPagination.loading ? h` disabled` : '';
+    markup += h`<div class="mail-list-footer">
+      <button class="btn btn-sm" data-action="load-more-inbox"${html(disabledAttr)}>
         ${_inboxPagination.loading ? 'Loading...' : 'Load more'}
       </button>
       <span>${loaded} / ${total}</span>
     </div>`;
   }
 
-  body.innerHTML = html;
+  body.innerHTML = markup;
 
   // Collapse state
   const mailBody = document.getElementById('mail-body');
@@ -491,7 +496,7 @@ function selectMailItem(idx) {
     acknowledgeIssue(issue);
   }
   _currentReplyIssueId = issue.id;
-  detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary);font-size:12px;">Loading issue...</div>';
+  detail.innerHTML = h`<div style="padding:20px;color:var(--text-secondary);font-size:12px;">Loading issue...</div>`;
   setInboxMobilePane('detail');
   loadInboxIssueDetail(issue.id, idx);
 }
@@ -592,7 +597,7 @@ async function loadInboxIssueDetail(issueId, expectedIdx, forceRefresh) {
     });
   } catch (e) {
     if (isStale()) return;
-    detail.innerHTML = '<div style="padding:20px;color:var(--text-secondary)">Failed to load issue</div>';
+    detail.innerHTML = h`<div style="padding:20px;color:var(--text-secondary)">Failed to load issue</div>`;
   }
 }
 
@@ -790,7 +795,7 @@ function populateInboxProjectFilter() {
   const filter = document.getElementById('inbox-project-filter');
   if (!filter) return;
   const current = _inboxProject || filter.value;
-  let options = '<option value="">All Projects</option>';
+  let options = h`<option value="">All Projects</option>`;
   const projects = Object.values(_dashboardProjectsById || {})
     .filter((project) => project)
     .sort((a, b) => {
@@ -802,7 +807,8 @@ function populateInboxProjectFilter() {
     const label = isRemoteProject(p)
       ? `${p.name} · ${p.remote_instance_name || p.remote_base_url || 'Remote'}`
       : p.name;
-    options += '<option value="' + id + '"' + (id === current ? ' selected' : '') + '>' + esc(label) + '</option>';
+    const selectedAttr = id === current ? h` selected` : '';
+    options += h`<option value="${id}"${html(selectedAttr)}>${label}</option>`;
   }
   filter.innerHTML = options;
   syncInboxProjectFilterControl();
@@ -925,7 +931,7 @@ function formatDashboardChatMessage(content) {
 
 function renderDashboardChatEmptyState() {
   const projectCount = Object.keys(_dashboardProjectsById || {}).length;
-  return `<div class="dashboard-chat-empty">
+  return h`<div class="dashboard-chat-empty">
     <div class="dashboard-chat-empty-icon">&#128172;</div>
     <div class="dashboard-chat-empty-title">Ask HAICO</div>
     <div class="dashboard-chat-empty-copy">I can look up project progress, inspect issues, update records, and delegate longer work as a new issue.</div>
@@ -942,17 +948,17 @@ function renderDashboardChatTranscriptHtml() {
   const rows = messages.map((message) => {
     const role = message.role === 'user' ? 'user' : 'assistant';
     const label = role === 'user' ? 'You' : 'HAICO';
-    return `<div class="dashboard-chat-row dashboard-chat-row-${role}">
+    return h`<div class="dashboard-chat-row dashboard-chat-row-${role}">
       <div class="dashboard-chat-avatar">${label.slice(0, 1)}</div>
       <div class="dashboard-chat-bubble-wrap">
         <div class="dashboard-chat-label">${label}</div>
-        <div class="dashboard-chat-bubble dashboard-chat-bubble-${role}">${formatDashboardChatMessage(message.content)}</div>
+        <div class="dashboard-chat-bubble dashboard-chat-bubble-${role}">${html(formatDashboardChatMessage(message.content))}</div>
       </div>
     </div>`;
   });
 
   if (_dashboardChatPending) {
-    rows.push(`<div class="dashboard-chat-row dashboard-chat-row-assistant">
+    rows.push(h`<div class="dashboard-chat-row dashboard-chat-row-assistant">
       <div class="dashboard-chat-avatar">H</div>
       <div class="dashboard-chat-bubble-wrap">
         <div class="dashboard-chat-label">HAICO</div>
@@ -969,7 +975,7 @@ function renderDashboardChatTranscriptHtml() {
 }
 
 function renderDashboardChatPane() {
-  return `<div class="compose-pane dashboard-chat-pane">
+  return h`<div class="compose-pane dashboard-chat-pane">
     <div class="compose-header">
       <h3>Chat</h3>
       <button class="compose-close" type="button" data-action="close-inline-compose">&times;</button>
@@ -989,7 +995,7 @@ function renderDashboardChatPane() {
       </div>
     </div>
     <div class="compose-status dashboard-chat-status" id="dashboard-chat-status"></div>
-    <div class="dashboard-chat-transcript" id="dashboard-chat-transcript">${renderDashboardChatTranscriptHtml()}</div>
+    <div class="dashboard-chat-transcript" id="dashboard-chat-transcript">${html(renderDashboardChatTranscriptHtml())}</div>
     <div class="dashboard-chat-composer">
       <textarea id="dashboard-chat-input" rows="4" placeholder="Ask about progress, issues, or delegate work..." data-action="dashboard-chat-input"></textarea>
       <div class="dashboard-chat-actions">
@@ -1015,10 +1021,10 @@ function populateDashboardChatProjectOptions() {
     _dashboardChatProjectId = '';
     saveDashboardChatPreferences();
   }
-  select.innerHTML = '<option value="">All projects</option>' + projects.map((project) => {
+  select.innerHTML = h`<option value="">All projects</option>${html(projects.map((project) => {
     const remoteSuffix = project.is_remote ? ` · ${project.remote_instance_name || 'remote'}` : '';
-    return `<option value="${esc(project.id)}">${esc(project.name)}${esc(remoteSuffix)}</option>`;
-  }).join('');
+    return h`<option value="${project.id}">${project.name}${remoteSuffix}</option>`;
+  }).join(''))}`;
   select.value = _dashboardChatProjectId || '';
 }
 
@@ -1035,7 +1041,7 @@ async function populateDashboardChatProfileOptions() {
 
   if (profiles.length === 0) {
     _dashboardChatProfileId = '';
-    select.innerHTML = '<option value="">Default CLI</option>';
+    select.innerHTML = h`<option value="">Default CLI</option>`;
     select.value = '';
     saveDashboardChatPreferences();
     return;
@@ -1048,7 +1054,7 @@ async function populateDashboardChatProfileOptions() {
 
   select.innerHTML = profiles.map((profile) => {
     const label = manager?.formatLabel ? manager.formatLabel(profile) : `${profile.name} (${profile.type})`;
-    return `<option value="${esc(profile.id)}">${esc(label)}</option>`;
+    return h`<option value="${profile.id}">${label}</option>`;
   }).join('');
   select.value = _dashboardChatProfileId;
 }
@@ -1172,11 +1178,11 @@ async function sendDashboardChat() {
 }
 
 function renderMailDetailEmpty() {
-  return '<div class="mail-detail-empty"><div class="mail-detail-empty-icon">&#9993;</div><div>Select a message to read</div></div>';
+  return h`<div class="mail-detail-empty"><div class="mail-detail-empty-icon">&#9993;</div><div>Select a message to read</div></div>`;
 }
 
 function renderInlineComposePane() {
-  return `<div class="compose-pane">
+  return h`<div class="compose-pane">
     <div class="compose-header">
       <h3>Compose</h3>
       <button class="compose-close" type="button" data-action="close-inline-compose">&times;</button>
@@ -1248,9 +1254,9 @@ async function openGlobalCompose(defaults) {
 
   subjectInput.value = opts.subject || '';
   bodyInput.value = opts.body || '';
-  projectSelect.innerHTML = '<option value="">Loading projects...</option>';
+  projectSelect.innerHTML = h`<option value="">Loading projects...</option>`;
   projectSelect.disabled = true;
-  toSelect.innerHTML = '<option value="">Select a project first</option>';
+  toSelect.innerHTML = h`<option value="">Select a project first</option>`;
   toSelect.disabled = true;
   if (sendButton) sendButton.disabled = true;
   setGlobalComposeStatus('', '');
@@ -1258,7 +1264,7 @@ async function openGlobalCompose(defaults) {
   try {
     const projects = await ensureGlobalComposeProjects();
     if (!projects.length) {
-      projectSelect.innerHTML = '<option value="">No writable projects</option>';
+      projectSelect.innerHTML = h`<option value="">No writable projects</option>`;
       setGlobalComposeStatus('You need editor or owner access to a project before composing.', 'error');
       return;
     }
@@ -1267,9 +1273,9 @@ async function openGlobalCompose(defaults) {
     const selectedProject = preferredProjectId
       ? projects.find((project) => project.id === preferredProjectId) || null
       : null;
-    projectSelect.innerHTML = '<option value="">— Select a project —</option>' + projects.map((project) =>
-      `<option value="${esc(project.id)}">${esc(project.name)}</option>`
-    ).join('');
+    projectSelect.innerHTML = h`<option value="">— Select a project —</option>${html(projects.map((project) =>
+      h`<option value="${project.id}">${project.name}</option>`
+    ).join(''))}`;
     projectSelect.value = selectedProject?.id || '';
     projectSelect.disabled = false;
     const recipientsLoaded = await updateGlobalComposeRecipients(opts.assignedTo);
@@ -1277,7 +1283,7 @@ async function openGlobalCompose(defaults) {
     if (selectedProject) subjectInput.focus();
     else projectSelect.focus();
   } catch (e) {
-    projectSelect.innerHTML = '<option value="">Failed to load projects</option>';
+    projectSelect.innerHTML = h`<option value="">Failed to load projects</option>`;
     setGlobalComposeStatus(e.message || 'Failed to load compose data', 'error');
   }
 }
@@ -1290,13 +1296,13 @@ async function updateGlobalComposeRecipients(selectedTo) {
 
   const selectedProjectId = projectSelect.value;
   if (!selectedProjectId) {
-    toSelect.innerHTML = '<option value="">Select a project first</option>';
+    toSelect.innerHTML = h`<option value="">Select a project first</option>`;
     toSelect.disabled = true;
     if (sendButton) sendButton.disabled = true;
     return false;
   }
 
-  toSelect.innerHTML = '<option value="">Loading recipients...</option>';
+  toSelect.innerHTML = h`<option value="">Loading recipients...</option>`;
   toSelect.disabled = true;
   if (sendButton) sendButton.disabled = true;
   setGlobalComposeStatus('', '');
@@ -1314,16 +1320,17 @@ async function updateGlobalComposeRecipients(selectedTo) {
       || _dashboardProjectsById[selectedProjectId]?.stats?.controllerAgentId
       || '';
     const selectedValue = selectedTo !== undefined ? selectedTo : controllerId;
-    toSelect.innerHTML = '<option value="">Select a recipient</option><option value="all">All (broadcast)</option><option value="user">User (me)</option>' +
+    toSelect.innerHTML = h`<option value="">Select a recipient</option><option value="all">All (broadcast)</option><option value="user">User (me)</option>${html(
       agents.map((agent) =>
-        `<option value="${esc(agent.id)}">${esc(agent.name)}${agent.is_controller ? ' [controller]' : ''}</option>`
-      ).join('');
+        h`<option value="${agent.id}">${agent.name}${agent.is_controller ? ' [controller]' : ''}</option>`
+      ).join('')
+    )}`;
     toSelect.value = selectedValue || '';
     toSelect.disabled = false;
     if (sendButton) sendButton.disabled = false;
     return true;
   } catch (e) {
-    toSelect.innerHTML = '<option value="">Failed to load recipients</option>';
+    toSelect.innerHTML = h`<option value="">Failed to load recipients</option>`;
     setGlobalComposeStatus(e.message || 'Failed to load recipients', 'error');
     return false;
   }

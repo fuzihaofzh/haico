@@ -27,7 +27,7 @@ async function renderProjectMembers() {
 
   const members = mergeOwnerIntoMembers(projectMembersData);
   if (!members.length) {
-    list.innerHTML = '<div class="empty-state">No member information</div>';
+    list.innerHTML = h`<div class="empty-state">No member information</div>`;
     return;
   }
 

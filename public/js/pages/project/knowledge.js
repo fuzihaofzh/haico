@@ -10,7 +10,7 @@ async function loadKnowledge() {
     const data = await res.json();
     const entries = data.entries || [];
     if (entries.length === 0) {
-      el.innerHTML = `<div class="empty-state">No knowledge entries yet.${canManage ? ' Click "Add Knowledge" to start building the project knowledge base.' : ''}</div>`;
+      el.innerHTML = h`<div class="empty-state">No knowledge entries yet.${canManage ? ' Click "Add Knowledge" to start building the project knowledge base.' : ''}</div>`;
       return;
     }
     const list = cloneKnowledgeTemplate('tmpl-knowledge-list');

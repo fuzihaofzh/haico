@@ -20,40 +20,40 @@ function parseToolActivity(content) {
     const input = JSON.parse(m[2]);
     switch (tool) {
       case 'Read':
-        detail = 'Read file <code>' + escHtml(basename(input.file_path || '')) + '</code>';
+        detail = h`Read file <code>${basename(input.file_path || '')}</code>`;
         break;
       case 'Edit':
-        detail = 'Edit file <code>' + escHtml(basename(input.file_path || '')) + '</code>';
+        detail = h`Edit file <code>${basename(input.file_path || '')}</code>`;
         break;
       case 'Write':
-        detail = 'Write file <code>' + escHtml(basename(input.file_path || '')) + '</code>';
+        detail = h`Write file <code>${basename(input.file_path || '')}</code>`;
         break;
       case 'Bash':
-        detail = 'Run command <code>' + escHtml((input.command || '').slice(0, 60)) + '</code>';
+        detail = h`Run command <code>${(input.command || '').slice(0, 60)}</code>`;
         break;
       case 'Grep':
-        detail = 'Search <code>' + escHtml((input.pattern || '').slice(0, 40)) + '</code>';
+        detail = h`Search <code>${(input.pattern || '').slice(0, 40)}</code>`;
         break;
       case 'Glob':
-        detail = 'Find files <code>' + escHtml((input.pattern || '').slice(0, 40)) + '</code>';
+        detail = h`Find files <code>${(input.pattern || '').slice(0, 40)}</code>`;
         break;
       case 'Agent':
-        detail = 'Delegate subtask ' + escHtml((input.description || '').slice(0, 50));
+        detail = h`Delegate subtask ${(input.description || '').slice(0, 50)}`;
         break;
       case 'WebFetch':
-        detail = 'Fetch URL <code>' + escHtml((input.url || '').slice(0, 50)) + '</code>';
+        detail = h`Fetch URL <code>${(input.url || '').slice(0, 50)}</code>`;
         break;
       case 'WebSearch':
-        detail = 'Web search <code>' + escHtml((input.query || '').slice(0, 40)) + '</code>';
+        detail = h`Web search <code>${(input.query || '').slice(0, 40)}</code>`;
         break;
       case 'NotebookEdit':
-        detail = 'Edit notebook <code>' + escHtml(basename(input.notebook_path || '')) + '</code>';
+        detail = h`Edit notebook <code>${basename(input.notebook_path || '')}</code>`;
         break;
       default:
-        detail = 'Invoke tool ' + escHtml(tool);
+        detail = h`Invoke tool ${tool}`;
     }
   } catch {
-    detail = 'Invoke tool ' + escHtml(tool);
+    detail = h`Invoke tool ${tool}`;
   }
   return { tool, detail };
 }
@@ -100,14 +100,8 @@ function renderActivities() {
     const icon = TOOL_ICONS[a.tool] || '🔧';
     const cls = a.active ? 'activity-item active' : 'activity-item';
     const timeStr = a.time.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    return `<div class="${cls}"><span class="activity-icon">${icon}</span><span class="activity-text">${a.detail}</span><span class="activity-time">${timeStr}</span></div>`;
+    return h`<div class="${cls}"><span class="activity-icon">${icon}</span><span class="activity-text">${html(a.detail)}</span><span class="activity-time">${timeStr}</span></div>`;
   }).join('');
-}
-
-function escHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }
 
 function basename(p) {
@@ -124,7 +118,7 @@ async function populateTerminalCommandProfileSelect() {
 
   const manager = getCommandProfileManager();
   if (!manager) {
-    select.innerHTML = `
+    select.innerHTML = h`
       <option value="">Use project default</option>
       <option value="${CUSTOM_COMMAND_PROFILE_VALUE}">Custom command</option>
     `;
@@ -685,8 +679,7 @@ function mailRenderList() {
     });
   }
   if (filtered.length === 0) {
-    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary);font-size:13px">' +
-      (mailFilterText ? 'No matching messages' : 'No messages') + '</div>';
+    container.innerHTML = h`<div style="padding:24px;text-align:center;color:var(--text-secondary);font-size:13px">${mailFilterText ? 'No matching messages' : 'No messages'}</div>`;
     return;
   }
   container.innerHTML = filtered.map(function(m) {
@@ -696,16 +689,16 @@ function mailRenderList() {
     var personName = mailFolder === 'sent'
       ? (m.to_name || m.to_agent_id.slice(0,8))
       : (m.from_name || m.from_agent_id.slice(0,8));
-    var subject = m.subject ? esc(m.subject) : '<i style="opacity:.5">(no subject)</i>';
-    return '<div class="' + cls + '" data-mid="' + m.id + '" onclick="mailSelect(\'' + m.id + '\')">' +
-      '<div class="mail-item-content">' +
-        '<div class="mail-item-top">' +
-          '<span class="mail-item-sender">' + esc(personName) + '</span>' +
-          '<span class="mail-item-time">' + timeAgo(m.created_at) + '</span>' +
-        '</div>' +
-        '<div class="mail-item-subject">' + subject + '</div>' +
-      '</div>' +
-    '</div>';
+    var subject = m.subject ? h`${m.subject}` : h`<i style="opacity:.5">(no subject)</i>`;
+    return h`<div class="${cls}" data-mid="${m.id}" onclick="mailSelect('${m.id}')">
+      <div class="mail-item-content">
+        <div class="mail-item-top">
+          <span class="mail-item-sender">${personName}</span>
+          <span class="mail-item-time">${timeAgo(m.created_at)}</span>
+        </div>
+        <div class="mail-item-subject">${html(subject)}</div>
+      </div>
+    </div>`;
   }).join('');
 }
 
@@ -739,23 +732,22 @@ function mailShowDetail(msg, preserveReply) {
   var personLabel = isSent ? 'To' : 'From';
   var personName = isSent ? (msg.to_name || msg.to_agent_id.slice(0,8)) : (msg.from_name || msg.from_agent_id.slice(0,8));
   var dateStr = msg.created_at ? new Date(msg.created_at + (msg.created_at.includes('Z') ? '' : 'Z')).toLocaleString() : '';
+  var detailSubject = msg.subject ? h`${msg.subject}` : h`<i style="opacity:.5">(no subject)</i>`;
+  var replyAction = isSent ? '' : h`<div class="mail-detail-actions"><button class="btn btn-sm" onclick="mailShowReply()">Reply</button></div>`;
 
-  pane.innerHTML =
-    '<div class="mail-detail-content">' +
-      '<div class="mail-detail-head">' +
-        '<div class="mail-detail-subject">' + (msg.subject ? esc(msg.subject) : '<i style="opacity:.5">(no subject)</i>') + '</div>' +
-        '<div class="mail-detail-meta">' +
-          '<span>' + personLabel + ': <strong>' + esc(personName) + '</strong></span>' +
-          '<span>' + dateStr + '</span>' +
-        '</div>' +
-      '</div>' +
-      '<div class="mail-detail-body">' + esc(msg.body) + '</div>' +
-      (isSent ? '' :
-        '<div class="mail-detail-actions">' +
-          '<button class="btn btn-sm" onclick="mailShowReply()">Reply</button>' +
-        '</div>') +
-      '<div id="mail-reply-area"></div>' +
-    '</div>';
+  pane.innerHTML = h`
+    <div class="mail-detail-content">
+      <div class="mail-detail-head">
+        <div class="mail-detail-subject">${html(detailSubject)}</div>
+        <div class="mail-detail-meta">
+          <span>${personLabel}: <strong>${personName}</strong></span>
+          <span>${dateStr}</span>
+        </div>
+      </div>
+      <div class="mail-detail-body">${msg.body}</div>
+      ${html(replyAction)}
+      <div id="mail-reply-area"></div>
+    </div>`;
 }
 
 function mailShowReply() {
@@ -764,15 +756,15 @@ function mailShowReply() {
   var area = document.getElementById('mail-reply-area');
   if (area.innerHTML) { area.innerHTML = ''; return; }
   var reSubject = (msg.subject || '').startsWith('Re: ') ? msg.subject : 'Re: ' + (msg.subject || '');
-  area.innerHTML =
-    '<div class="mail-reply-box">' +
-      '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Reply to <strong>' + esc(msg.from_name || msg.from_agent_id.slice(0,8)) + '</strong> — ' + esc(reSubject) + '</div>' +
-      '<textarea id="mail-reply-body" placeholder="Write your reply…"></textarea>' +
-      '<div class="mail-reply-bar">' +
-        '<button class="btn btn-sm" onclick="document.getElementById(\'mail-reply-area\').innerHTML=\'\'">Cancel</button>' +
-        '<button class="btn btn-sm btn-primary" onclick="mailSendReply()">Send</button>' +
-      '</div>' +
-    '</div>';
+  area.innerHTML = h`
+    <div class="mail-reply-box">
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Reply to <strong>${msg.from_name || msg.from_agent_id.slice(0,8)}</strong> — ${reSubject}</div>
+      <textarea id="mail-reply-body" placeholder="Write your reply…"></textarea>
+      <div class="mail-reply-bar">
+        <button class="btn btn-sm" onclick="document.getElementById('mail-reply-area').innerHTML=''">Cancel</button>
+        <button class="btn btn-sm btn-primary" onclick="mailSendReply()">Send</button>
+      </div>
+    </div>`;
   document.getElementById('mail-reply-body').focus();
 }
 
@@ -807,7 +799,7 @@ function mailSwitchTab(folder) {
   document.querySelectorAll('.mail-tab').forEach(function(t) {
     t.classList.toggle('active', t.dataset.folder === folder);
   });
-  document.getElementById('mail-detail').innerHTML = '<div class="mail-detail-empty">← Select a message</div>';
+  document.getElementById('mail-detail').innerHTML = h`<div class="mail-detail-empty">← Select a message</div>`;
   loadMessages();
 }
 
@@ -836,28 +828,28 @@ async function mailCompose(prefillTo, prefillSubject, prefillReplyTo) {
   var existing = document.getElementById('send-msg-dialog');
   if (existing) { existing.remove(); return; }
   var opts = allAgents.filter(function(a) { return a.id !== agentId; }).map(function(a) {
-    var sel = prefillTo && a.id === prefillTo ? ' selected' : '';
-    return '<option value="' + a.id + '"' + sel + '>' + esc(a.name) + '</option>';
+    var sel = prefillTo && a.id === prefillTo ? h` selected` : '';
+    return h`<option value="${a.id}"${html(sel)}>${a.name}</option>`;
   }).join('');
 
   var overlay = document.createElement('div');
   overlay.id = 'send-msg-dialog';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:199;display:flex;align-items:center;justify-content:center';
-  overlay.innerHTML =
-    '<div style="background:var(--header-bg);border:1px solid var(--border);border-radius:8px;padding:20px;box-shadow:0 8px 24px rgba(0,0,0,0.4);min-width:380px;max-width:90vw">' +
-      '<div style="font-weight:600;margin-bottom:12px;font-size:15px">Compose Message</div>' +
-      '<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">To</label>' +
-        '<select id="msg-to" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px">' + opts + '</select></div>' +
-      '<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">Subject</label>' +
-        '<input type="text" id="msg-subject" value="' + esc(prefillSubject || '') + '" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px"></div>' +
-      '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--text-secondary)">Message</label>' +
-        '<textarea id="msg-body" rows="5" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px;font-family:inherit;resize:vertical"></textarea></div>' +
-      (prefillReplyTo ? '<input type="hidden" id="msg-reply-to" value="' + prefillReplyTo + '">' : '') +
-      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
-        '<button class="btn btn-sm" onclick="document.getElementById(\'send-msg-dialog\').remove()">Cancel</button>' +
-        '<button class="btn btn-sm btn-primary" onclick="mailSendCompose()">Send</button>' +
-      '</div>' +
-    '</div>';
+  overlay.innerHTML = h`
+    <div style="background:var(--header-bg);border:1px solid var(--border);border-radius:8px;padding:20px;box-shadow:0 8px 24px rgba(0,0,0,0.4);min-width:380px;max-width:90vw">
+      <div style="font-weight:600;margin-bottom:12px;font-size:15px">Compose Message</div>
+      <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">To</label>
+        <select id="msg-to" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px">${html(opts)}</select></div>
+      <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text-secondary)">Subject</label>
+        <input type="text" id="msg-subject" value="${prefillSubject || ''}" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px"></div>
+      <div style="margin-bottom:12px"><label style="font-size:12px;color:var(--text-secondary)">Message</label>
+        <textarea id="msg-body" rows="5" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:12px;margin-top:2px;font-family:inherit;resize:vertical"></textarea></div>
+      ${prefillReplyTo ? html(h`<input type="hidden" id="msg-reply-to" value="${prefillReplyTo}">`) : ''}
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-sm" onclick="document.getElementById('send-msg-dialog').remove()">Cancel</button>
+        <button class="btn btn-sm btn-primary" onclick="mailSendCompose()">Send</button>
+      </div>
+    </div>`;
   overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
 }

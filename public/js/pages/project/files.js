@@ -41,7 +41,7 @@ function syncProjectFilesAgents() {
   if (!select) return;
 
   if (!agentsData.length) {
-    select.innerHTML = '<option value="">No agents available</option>';
+    select.innerHTML = h`<option value="">No agents available</option>`;
     select.disabled = true;
     projectFilesAgentId = '';
     if (projectFilesPanel) projectFilesPanel.setAgent(null);
@@ -51,10 +51,10 @@ function syncProjectFilesAgents() {
   const previousAgentId = projectFilesAgentId;
   const options = agentsData.map((agent) => {
     const suffix = agent.is_controller ? ' [controller]' : '';
-    return `<option value="${agent.id}">${esc(agent.name)}${suffix}</option>`;
+    return h`<option value="${agent.id}">${agent.name}${suffix}</option>`;
   }).join('');
 
-  select.innerHTML = `<option value="">Select an agent</option>${options}`;
+  select.innerHTML = h`<option value="">Select an agent</option>${html(options)}`;
   select.disabled = false;
 
   let nextAgentId = normalizeProjectFilesAgentId(previousAgentId);

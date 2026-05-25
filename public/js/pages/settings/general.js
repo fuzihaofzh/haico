@@ -2,12 +2,6 @@ import { initDashboardPage, invalidateDashboardProjects } from '../dashboard-cor
 
 let accountSummaryRendered = false;
 
-function settingsEsc(value) {
-  const div = document.createElement('div');
-  div.textContent = value == null ? '' : String(value);
-  return div.innerHTML;
-}
-
 function formatAccountDate(value) {
   if (!value) return 'Not set';
   const date = new Date(value);
@@ -38,21 +32,21 @@ function renderAccountSummary(user) {
     ['Joined', formatAccountDate(user?.created_at)],
   ];
 
-  root.innerHTML = `
+  root.innerHTML = h`
     <div class="settings-account-identity">
-      <div class="settings-account-avatar" aria-hidden="true">${settingsEsc(displayName.charAt(0).toUpperCase() || '?')}</div>
+      <div class="settings-account-avatar" aria-hidden="true">${displayName.charAt(0).toUpperCase() || '?'}</div>
       <div class="settings-account-heading">
-        <div class="settings-account-name">${settingsEsc(displayName)}</div>
-        <div class="settings-account-meta">${settingsEsc(displayAccountValue(user?.role))}</div>
+        <div class="settings-account-name">${displayName}</div>
+        <div class="settings-account-meta">${displayAccountValue(user?.role)}</div>
       </div>
     </div>
     <dl class="settings-account-details">
-      ${fields.map(([label, value]) => `
+      ${html(fields.map(([label, value]) => h`
         <div class="settings-account-detail">
-          <dt>${settingsEsc(label)}</dt>
-          <dd>${settingsEsc(value)}</dd>
+          <dt>${label}</dt>
+          <dd>${value}</dd>
         </div>
-      `).join('')}
+      `).join(''))}
     </dl>
   `;
 }
@@ -66,7 +60,7 @@ async function loadAccountSummary() {
   } catch (error) {
     console.warn('Failed to load account summary', error);
     const root = document.getElementById('settings-account-summary');
-    if (root) root.innerHTML = '<div class="empty-state">Account details are unavailable.</div>';
+    if (root) root.innerHTML = h`<div class="empty-state">Account details are unavailable.</div>`;
   }
 }
 

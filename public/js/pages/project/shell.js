@@ -155,7 +155,7 @@ function requireProjectManageAccess(message) {
 }
 
 function renderPermissionBadge(meta) {
-  return `<span class="permission-badge permission-${meta.tone}" title="${esc(meta.summary)}">${meta.badge}</span>`;
+  return h`<span class="permission-badge permission-${meta.tone}" title="${meta.summary}">${meta.badge}</span>`;
 }
 
 function projectHasOperationsConsole(project) {
@@ -245,10 +245,10 @@ function renderProjectAccessSummary() {
   if (accessBadge) accessBadge.innerHTML = renderPermissionBadge(meta);
 
   const accessSummary = document.getElementById('project-access-summary');
-  if (accessSummary) accessSummary.innerHTML = `<span class="meta-chip-label">Access</span><span>${esc(meta.summary)}</span>`;
+  if (accessSummary) accessSummary.innerHTML = h`<span class="meta-chip-label">Access</span><span>${meta.summary}</span>`;
 
   const ownerSummary = document.getElementById('project-owner-summary');
-  if (ownerSummary) ownerSummary.innerHTML = `<span class="meta-chip-label">Owner</span><span>${esc(ownerName)}</span><span class="meta-chip-secondary">${esc(ownerRole)}</span>`;
+  if (ownerSummary) ownerSummary.innerHTML = h`<span class="meta-chip-label">Owner</span><span>${ownerName}</span><span class="meta-chip-secondary">${ownerRole}</span>`;
 
   const remoteSummary = document.getElementById('project-remote-summary');
   if (remoteSummary) {
@@ -258,7 +258,7 @@ function renderProjectAccessSummary() {
     remoteSummary.style.display = isRemote ? '' : 'none';
     if (isRemote) {
       remoteSummary.title = remoteName ? `${remoteName} · ${remoteAddress}` : remoteAddress;
-      remoteSummary.innerHTML = `<span class="meta-chip-label">Remote</span><span>${esc(remoteAddress)}</span>${remoteName ? `<span class="meta-chip-secondary">${esc(remoteName)}</span>` : ''}`;
+      remoteSummary.innerHTML = h`<span class="meta-chip-label">Remote</span><span>${remoteAddress}</span>${remoteName ? html(h`<span class="meta-chip-secondary">${remoteName}</span>`) : ''}`;
     } else {
       remoteSummary.innerHTML = '';
       remoteSummary.removeAttribute('title');
@@ -360,7 +360,7 @@ async function populateCommandProfileSelect(select, options) {
   if (!select) return [];
   const manager = getCommandProfileManager();
   if (!manager) {
-    select.innerHTML = `
+    select.innerHTML = h`
       <option value="">Use project default</option>
       <option value="${CUSTOM_COMMAND_PROFILE_VALUE}">Custom command</option>
     `;

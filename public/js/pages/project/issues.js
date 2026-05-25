@@ -30,13 +30,13 @@ function renderActiveFilters() {
   const q = document.getElementById('issue-search')?.value?.trim() || '';
   const chips = [];
   if (currentIssueFilter) {
-    chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--selected-bg);border-radius:4px;font-size:11px">Status: ${currentIssueFilter} <span onclick="clearIssueFilter()" style="cursor:pointer;opacity:0.6;font-weight:bold" title="Clear">&times;</span></span>`);
+    chips.push(h`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--selected-bg);border-radius:4px;font-size:11px">Status: ${currentIssueFilter} <span onclick="clearIssueFilter()" style="cursor:pointer;opacity:0.6;font-weight:bold" title="Clear">&times;</span></span>`);
   }
   if (q) {
-    chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--selected-bg);border-radius:4px;font-size:11px">Search: "${esc(q)}" <span onclick="clearIssueSearch()" style="cursor:pointer;opacity:0.6;font-weight:bold" title="Clear">&times;</span></span>`);
+    chips.push(h`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--selected-bg);border-radius:4px;font-size:11px">Search: "${q}" <span onclick="clearIssueSearch()" style="cursor:pointer;opacity:0.6;font-weight:bold" title="Clear">&times;</span></span>`);
   }
   if (chips.length > 1) {
-    chips.push(`<span onclick="clearAllIssueFilters()" style="cursor:pointer;color:var(--accent);font-size:11px;text-decoration:underline">Clear all filters</span>`);
+    chips.push(h`<span onclick="clearAllIssueFilters()" style="cursor:pointer;color:var(--accent);font-size:11px;text-decoration:underline">Clear all filters</span>`);
   }
   el.style.display = chips.length ? 'flex' : 'none';
   el.innerHTML = chips.join('');
@@ -59,9 +59,9 @@ function clearAllIssueFilters() {
 
 const LABEL_COLORS = ['#e06c75','#98c379','#e5c07b','#61afef','#c678dd','#56b6c2','#d19a66','#b5bd68','#cc6666','#8abeb7'];
 function issueLabelHtml(text) {
-  const h = hashCode(text.trim());
-  const bg = LABEL_COLORS[h % LABEL_COLORS.length];
-  return `<span style="font-size:10px;padding:1px 6px;border-radius:12px;background:${bg}22;color:${bg};border:1px solid ${bg}44">${esc(text.trim())}</span>`;
+  const hash = hashCode(text.trim());
+  const bg = LABEL_COLORS[hash % LABEL_COLORS.length];
+  return h`<span style="font-size:10px;padding:1px 6px;border-radius:12px;background:${bg}22;color:${bg};border:1px solid ${bg}44">${text.trim()}</span>`;
 }
 
 async function loadIssues() {
@@ -86,8 +86,8 @@ async function loadIssues() {
       { key: '', label: 'All', count: counts.total || 0 },
     ];
     tabs.innerHTML = filters.map(f =>
-      `<span onclick="setIssueFilter('${f.key}')" style="cursor:pointer;padding:4px 10px;border-radius:6px;${currentIssueFilter===f.key?'background:var(--selected-bg);font-weight:600':'color:var(--text-secondary)'}">
-        ${f.icon ? `<svg width="14" height="14" viewBox="0 0 16 16" style="vertical-align:-2px">${f.icon}</svg>` : ''}
+      h`<span onclick="setIssueFilter('${f.key}')" style="cursor:pointer;padding:4px 10px;border-radius:6px;${currentIssueFilter===f.key?'background:var(--selected-bg);font-weight:600':'color:var(--text-secondary)'}">
+        ${f.icon ? html(h`<svg width="14" height="14" viewBox="0 0 16 16" style="vertical-align:-2px">${html(f.icon)}</svg>`) : ''}
         ${f.count} ${f.label}
       </span>`
     ).join('');
@@ -102,25 +102,31 @@ async function loadIssues() {
   const issues = data.issues || [];
 
   const container = document.getElementById('issue-list');
-  if (!issues.length) { container.innerHTML = '<div class="card"><div class="empty-state">No issues.</div></div>'; renderPagination(0, 0); return; }
+  if (!issues.length) { container.innerHTML = h`<div class="card"><div class="empty-state">No issues.</div></div>`; renderPagination(0, 0); return; }
 
-  container.innerHTML = `<div class="card" style="padding:0">${issues.map(i => {
+  container.innerHTML = h`<div class="card" style="padding:0">${html(issues.map(i => {
     const labels = i.labels ? i.labels.split(',').filter(l=>l.trim()).map(l => issueLabelHtml(l)).join(' ') : '';
     const icon = i.status === 'pending'
       ? '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="4 2"/><circle cx="8" cy="8" r="2" fill="#d29922"/></svg>'
       : (i.status === 'open' || i.status === 'in_progress')
         ? `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="${i.status==='in_progress'?'#d29922':'#3fb950'}" stroke-width="2"/><circle cx="8" cy="8" r="2" fill="${i.status==='in_progress'?'#d29922':'#3fb950'}"/></svg>`
         : '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="#8b6fcf" stroke-width="2"/><path d="M5.5 8l2 2 3.5-3.5" fill="none" stroke="#8b6fcf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    return `<a href="${issuePageHref(i)}" class="issue-list-item" style="text-decoration:none;color:inherit">
-      <div style="flex-shrink:0;margin-top:2px">${icon}</div>
+    const commentCount = i.comment_count
+      ? h`<div style="flex-shrink:0;display:flex;align-items:center;gap:4px;color:var(--text-secondary);font-size:12px" title="${i.comment_count} comments"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0113.25 12H9.06l-2.573 2.573A1.458 1.458 0 014 13.543V12H2.75A1.75 1.75 0 011 10.25zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 01.75.75v2.19l2.72-2.72a.749.749 0 01.53-.22h4.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25z"/></svg>${i.comment_count}</div>`
+      : '';
+    const assigneeAvatar = i.assigned_to
+      ? h`<div style="flex-shrink:0">${html((() => { const _ag = agentsData.find(_a => _a.id === i.assigned_to); return _ag ? roleAvatarHtml(_ag.name, 22, projectData?.color) : avatarSvg(nameOf(i.assigned_to), 22); })())}</div>`
+      : '';
+    return h`<a href="${issuePageHref(i)}" class="issue-list-item" style="text-decoration:none;color:inherit">
+      <div style="flex-shrink:0;margin-top:2px">${html(icon)}</div>
       <div class="issue-main">
-        <div class="issue-title-row"><span class="issue-title">${esc(i.title)}</span> ${labels}</div>
+        <div class="issue-title-row"><span class="issue-title">${i.title}</span> ${html(labels)}</div>
         <div class="issue-meta">#${i.number} by ${nameOf(i.created_by)} · ${i.assigned_to ? nameOf(i.assigned_to) : 'unassigned'} · ${timeAgo(i.created_at)}</div>
       </div>
-      ${i.comment_count ? `<div style="flex-shrink:0;display:flex;align-items:center;gap:4px;color:var(--text-secondary);font-size:12px" title="${i.comment_count} comments"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0113.25 12H9.06l-2.573 2.573A1.458 1.458 0 014 13.543V12H2.75A1.75 1.75 0 011 10.25zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 01.75.75v2.19l2.72-2.72a.749.749 0 01.53-.22h4.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25z"/></svg>${i.comment_count}</div>` : ''}
-      ${i.assigned_to ? `<div style="flex-shrink:0">${(() => { const _ag = agentsData.find(_a => _a.id === i.assigned_to); return _ag ? roleAvatarHtml(_ag.name, 22, projectData?.color) : avatarSvg(nameOf(i.assigned_to), 22); })()}</div>` : ''}
+      ${html(commentCount)}
+      ${html(assigneeAvatar)}
     </a>`;
-  }).join('')}</div>`;
+  }).join(''))}</div>`;
 
   renderPagination(data.total_pages || 1, data.page || 1);
   renderActiveFilters();
@@ -133,11 +139,11 @@ function renderPagination(totalPages, currentPage) {
   const btnStyle = 'padding:4px 8px;min-width:28px;';
   const activeStyle = 'background:var(--accent);color:#fff;';
   const disabledStyle = 'opacity:0.4;pointer-events:none;';
-  const pageBtn = (p, label) => `<button onclick="goToIssuePage(${p})" class="btn btn-sm" style="${btnStyle}${p===currentPage?activeStyle:''}">${label||p}</button>`;
-  let html = '';
+  const pageBtn = (p, label) => h`<button onclick="goToIssuePage(${p})" class="btn btn-sm" style="${btnStyle}${p===currentPage?activeStyle:''}">${label||p}</button>`;
+  let markup = '';
   // First + Prev
-  html += `<button onclick="goToIssuePage(1)" class="btn btn-sm" style="${btnStyle}${currentPage===1?disabledStyle:''}" title="First page">«</button>`;
-  html += `<button onclick="goToIssuePage(${currentPage-1})" class="btn btn-sm" style="${btnStyle}${currentPage===1?disabledStyle:''}" title="Previous page">‹</button>`;
+  markup += h`<button onclick="goToIssuePage(1)" class="btn btn-sm" style="${btnStyle}${currentPage===1?disabledStyle:''}" title="First page">«</button>`;
+  markup += h`<button onclick="goToIssuePage(${currentPage-1})" class="btn btn-sm" style="${btnStyle}${currentPage===1?disabledStyle:''}" title="Previous page">‹</button>`;
   // Page numbers with ellipsis
   const pages = [];
   if (totalPages <= 9) {
@@ -154,15 +160,15 @@ function renderPagination(totalPages, currentPage) {
     pages.push(totalPages);
   }
   for (const p of pages) {
-    if (p === '...') { html += `<span style="padding:4px 2px;opacity:0.5">…</span>`; }
-    else html += pageBtn(p);
+    if (p === '...') { markup += h`<span style="padding:4px 2px;opacity:0.5">…</span>`; }
+    else markup += pageBtn(p);
   }
   // Next + Last
-  html += `<button onclick="goToIssuePage(${currentPage+1})" class="btn btn-sm" style="${btnStyle}${currentPage===totalPages?disabledStyle:''}" title="Next page">›</button>`;
-  html += `<button onclick="goToIssuePage(${totalPages})" class="btn btn-sm" style="${btnStyle}${currentPage===totalPages?disabledStyle:''}" title="Last page">»</button>`;
+  markup += h`<button onclick="goToIssuePage(${currentPage+1})" class="btn btn-sm" style="${btnStyle}${currentPage===totalPages?disabledStyle:''}" title="Next page">›</button>`;
+  markup += h`<button onclick="goToIssuePage(${totalPages})" class="btn btn-sm" style="${btnStyle}${currentPage===totalPages?disabledStyle:''}" title="Last page">»</button>`;
   // Page info
-  html += `<span style="margin-left:8px;font-size:11px;color:var(--text-secondary)">Page ${currentPage} of ${totalPages}</span>`;
-  el.innerHTML = html;
+  markup += h`<span style="margin-left:8px;font-size:11px;color:var(--text-secondary)">Page ${currentPage} of ${totalPages}</span>`;
+  el.innerHTML = markup;
 }
 
 function goToIssuePage(p) { currentIssuePage = p; loadIssues(); }
@@ -200,7 +206,7 @@ function showCreateIssueModal() {
   document.getElementById('issue-labels').value = '';
   const projectSel = document.getElementById('issue-project');
   if (projectSel && projectData) {
-    projectSel.innerHTML = `<option value="${esc(projectId)}">${esc(projectData.name)}</option>`;
+    projectSel.innerHTML = h`<option value="${projectId}">${projectData.name}</option>`;
     projectSel.value = projectId;
   }
   const tplSel = document.getElementById('issue-template');
@@ -243,8 +249,9 @@ async function hydrateIssueAgents(){
   const sel = document.getElementById("issue-assign");
   if (!sel) return;
   const controllerId = agentsData.find(a => a.is_controller)?.id || "";
-  sel.innerHTML = "<option value=\"\">Select a recipient</option><option value=\"all\">All (broadcast)</option><option value=\"user\">User (me)</option>";
-  agentsData.forEach(a => { sel.innerHTML += `<option value="${a.id}">${esc(a.name)}${a.is_controller ? " [controller]" : ""}</option>`; });
+  sel.innerHTML = h`<option value="">Select a recipient</option><option value="all">All (broadcast)</option><option value="user">User (me)</option>${html(
+    agentsData.map(a => h`<option value="${a.id}">${a.name}${a.is_controller ? " [controller]" : ""}</option>`).join('')
+  )}`;
   if (controllerId) sel.value = controllerId;
 }
 let issueCount = 0;

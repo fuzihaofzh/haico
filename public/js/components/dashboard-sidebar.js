@@ -1,4 +1,10 @@
 (function initDashboardSidebar() {
+  const { h, html } = window;
+  if (typeof h !== 'function' || typeof html !== 'function') {
+    console.error('[HAICO] dashboard sidebar requires shared h/html helpers');
+    return;
+  }
+
   const host = document.querySelector('[data-dashboard-sidebar]');
   if (!host) return;
 
@@ -34,14 +40,14 @@
   const links = items.map((item) => {
     const active = item.page === currentPage ? ' active' : '';
     const extra = item.extraClass ? ' ' + item.extraClass : '';
-    return '<a href="' + item.href + '" class="sidebar-nav-item' + extra + active + '" data-sidebar-view="' + item.page + '" aria-label="' + item.label + '">' +
-      '<span class="sidebar-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none">' + item.icon + '</svg></span>' +
-      '<span class="sidebar-nav-label">' + item.label + '</span>' +
-    '</a>';
+    return h`<a href="${item.href}" class="sidebar-nav-item${extra}${active}" data-sidebar-view="${item.page}" aria-label="${item.label}">
+      <span class="sidebar-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none">${html(item.icon)}</svg></span>
+      <span class="sidebar-nav-label">${item.label}</span>
+    </a>`;
   }).join('');
 
-  host.outerHTML = '<nav class="vertical-sidebar" aria-label="Dashboard navigation">' +
-    '<a href="/inbox" class="sidebar-logo" aria-label="HAICO Dashboard"><img src="/public/brand/haico-mark.svg" alt=""></a>' +
-    links +
-  '</nav>';
+  host.outerHTML = h`<nav class="vertical-sidebar" aria-label="Dashboard navigation">
+    <a href="/inbox" class="sidebar-logo" aria-label="HAICO Dashboard"><img src="/public/brand/haico-mark.svg" alt=""></a>
+    ${html(links)}
+  </nav>`;
 })();

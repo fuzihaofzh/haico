@@ -91,13 +91,13 @@ function renderTargetOptions(selectedTargetId) {
   const desiredTargetId = String(selectedTargetId || select.value || 'localhost').trim() || 'localhost';
 
   select.innerHTML = [
-    '<option value="localhost">localhost</option>',
+    h`<option value="localhost">localhost</option>`,
     ...remoteOptions.map((instance) => {
       const statusSuffix = !instance.available
         ? ' - setup required'
         : (instance.last_status === 'error' ? ' - connection issue' : '');
       const label = `${instance.name} - ${instance.base_url}${statusSuffix}`;
-      return `<option value="${esc(instance.id)}">${esc(label)}</option>`;
+      return h`<option value="${instance.id}">${label}</option>`;
     }),
   ].join('');
 
@@ -167,13 +167,14 @@ function renderCheck(input) {
   const tone = input.tone || 'warn';
   const detail = input.detail || '';
   const action = input.action || '';
-  return `
+  const actionHtml = action ? h`<div class="create-project-check-actions">${html(action)}</div>` : '';
+  return h`
     <div class="create-project-check create-project-check-${tone}">
       <div class="create-project-check-icon" aria-hidden="true"></div>
       <div class="create-project-check-copy">
-        <div class="create-project-check-title">${esc(input.title || '')}</div>
-        <div class="create-project-check-detail">${detail}</div>
-        ${action ? `<div class="create-project-check-actions">${action}</div>` : ''}
+        <div class="create-project-check-title">${input.title || ''}</div>
+        <div class="create-project-check-detail">${html(detail)}</div>
+        ${html(actionHtml)}
       </div>
     </div>
   `;
@@ -185,7 +186,7 @@ function getAccountDetail() {
     return {
       tone: 'ok',
       title: 'Account',
-      detail: `Signed in as <strong>${esc(name)}</strong> (${esc(currentUser.role || 'member')}).`,
+      detail: h`Signed in as <strong>${name}</strong> (${currentUser.role || 'member'}).`,
     };
   }
 
@@ -209,14 +210,14 @@ function renderMissingProfileState() {
       tone: 'error',
       title: 'Agent Tool',
       detail: 'No Agent Tool is configured yet. Open <strong>Settings</strong>, add one, then come back here.',
-      action: '<a class="btn btn-sm" href="/settings/agent-tools">Open Settings</a>',
+      action: h`<a class="btn btn-sm" href="/settings/agent-tools">Open Settings</a>`,
     }),
     renderCheck({
       tone: 'warn',
       title: 'First-time setup',
       detail: target.isLocal
         ? 'After adding the Agent Tool, make sure the CLI is installed locally and logged in. HAICO will re-check that here before project creation.'
-        : `After adding the Agent Tool, make sure the CLI is installed and logged in on <strong>${esc(target.label)}</strong>. HAICO will re-check that here before project creation.`,
+        : h`After adding the Agent Tool, make sure the CLI is installed and logged in on <strong>${target.label}</strong>. HAICO will re-check that here before project creation.`,
     }),
   ].join(''));
 }
@@ -230,27 +231,27 @@ function renderReadiness(profile, readiness) {
     ? {
         tone: 'ok',
         title: 'CLI availability',
-        detail: `${esc(binaryLabel)} is available on <strong>${esc(target.label)}</strong> at <span class="create-project-inline-code">${esc(readiness.binary_path || '')}</span>.`,
+        detail: h`${binaryLabel} is available on <strong>${target.label}</strong> at <span class="create-project-inline-code">${readiness.binary_path || ''}</span>.`,
       }
     : {
         tone: 'error',
         title: 'CLI availability',
-        detail: `HAICO could not find <span class="create-project-inline-code">${esc(binaryLabel)}</span> on <strong>${esc(target.label)}</strong>. Install it there and make sure the shell can run it.`,
+        detail: h`HAICO could not find <span class="create-project-inline-code">${binaryLabel}</span> on <strong>${target.label}</strong>. Install it there and make sure the shell can run it.`,
       };
   const authTone = readiness?.auth?.status === 'configured'
     ? 'ok'
     : (readiness?.auth?.status === 'missing' ? 'warn' : 'warn');
-  const authDetailParts = [esc(readiness?.auth?.message || 'HAICO cannot verify login state for this tool automatically.')];
+  const authDetailParts = [h`${readiness?.auth?.message || 'HAICO cannot verify login state for this tool automatically.'}`];
   if (readiness?.auth?.action_command) {
-    authDetailParts.push(`Suggested command: <span class="create-project-inline-code">${esc(readiness.auth.action_command)}</span>`);
+    authDetailParts.push(h`Suggested command: <span class="create-project-inline-code">${readiness.auth.action_command}</span>`);
   }
 
   const issueCards = (readiness?.issues || []).filter((issue) => issue.code !== 'auth_missing').map((issue) => renderCheck({
     tone: issue.severity === 'blocking' ? 'error' : 'warn',
     title: issue.title,
-    detail: `${esc(issue.detail)}${issue.action_command ? ` Suggested command: <span class="create-project-inline-code">${esc(issue.action_command)}</span>` : ''}`,
+    detail: h`${issue.detail}${issue.action_command ? html(h` Suggested command: <span class="create-project-inline-code">${issue.action_command}</span>`) : ''}`,
     action: issue.action_label === 'Open Settings'
-      ? '<a class="btn btn-sm" href="/settings/agent-tools">Open Settings</a>'
+      ? h`<a class="btn btn-sm" href="/settings/agent-tools">Open Settings</a>`
       : '',
   }));
 
@@ -259,7 +260,7 @@ function renderReadiness(profile, readiness) {
     renderCheck({
       tone: 'ok',
       title: 'Agent Tool',
-      detail: `Using <strong>${esc(profileName)}</strong> on <strong>${esc(target.label)}</strong> (${esc(commandType)}): <span class="create-project-inline-code">${esc(profile?.command || '')}</span>`,
+      detail: h`Using <strong>${profileName}</strong> on <strong>${target.label}</strong> (${commandType}): <span class="create-project-inline-code">${profile?.command || ''}</span>`,
     }),
     renderCheck(binaryStatus),
     renderCheck({
@@ -281,7 +282,7 @@ async function refreshReadiness() {
 
   const requestId = ++createProjectReadinessRequestId;
   const target = getTargetMeta();
-  renderReadinessBody(`<div class="create-project-readiness-empty">Checking CLI setup on ${esc(target.label)}...</div>`);
+  renderReadinessBody(h`<div class="create-project-readiness-empty">Checking CLI setup on ${target.label}...</div>`);
 
   try {
     const res = await fetch('/api/command-profiles/check', {
@@ -301,8 +302,8 @@ async function refreshReadiness() {
         tone: 'warn',
         title: 'Setup check unavailable',
         detail: readiness?.error
-          ? `HAICO could not inspect the CLI on <strong>${esc(target.label)}</strong>: ${esc(readiness.error)}`
-          : `HAICO could not inspect the CLI on <strong>${esc(target.label)}</strong> right now.`,
+          ? h`HAICO could not inspect the CLI on <strong>${target.label}</strong>: ${readiness.error}`
+          : h`HAICO could not inspect the CLI on <strong>${target.label}</strong> right now.`,
       }));
       return null;
     }
@@ -315,7 +316,7 @@ async function refreshReadiness() {
     renderReadinessBody(renderCheck({
       tone: 'warn',
       title: 'Setup check unavailable',
-      detail: `HAICO could not inspect your CLI right now${error?.message ? `: ${esc(error.message)}` : '.'}`,
+      detail: h`HAICO could not inspect your CLI right now${error?.message ? `: ${error.message}` : '.'}`,
     }));
     return null;
   }
@@ -331,7 +332,7 @@ function populateCommandProfileOptions(selectedProfileId) {
   const profiles = manager?.getProfiles() || [];
 
   if (!profiles.length) {
-    select.innerHTML = '<option value="">No Agent Tools configured</option>';
+    select.innerHTML = h`<option value="">No Agent Tools configured</option>`;
     select.disabled = true;
     hiddenInput.value = '';
     if (preview) preview.innerHTML = 'No Agent Tool is configured yet. Open Settings and add one.';
@@ -345,7 +346,7 @@ function populateCommandProfileOptions(selectedProfileId) {
   select.disabled = false;
   select.innerHTML = profiles.map((profile) => {
     const label = manager?.formatLabel ? manager.formatLabel(profile) : `${profile.name} (${profile.type})`;
-    return `<option value="${profile.id}">${esc(label)}</option>`;
+    return h`<option value="${profile.id}">${label}</option>`;
   }).join('');
   select.value = nextProfileId;
   handleCommandProfileChange();
@@ -359,7 +360,7 @@ async function hydrateCommandProfileControls() {
 
   const manager = getCommandProfileManager();
   if (!manager) {
-    select.innerHTML = '<option value="">Agent Tools unavailable</option>';
+    select.innerHTML = h`<option value="">Agent Tools unavailable</option>`;
     select.disabled = true;
     hiddenInput.value = '';
     if (preview) preview.textContent = 'Open Settings and configure an Agent Tool first.';
@@ -421,14 +422,14 @@ function renderPathPicker(entries, currentPath) {
   if (current) current.textContent = currentPath || '/';
   if (!list) return;
   if (!entries.length) {
-    list.innerHTML = '<div class="create-project-readiness-empty">No subdirectories here.</div>';
+    list.innerHTML = h`<div class="create-project-readiness-empty">No subdirectories here.</div>`;
     return;
   }
-  list.innerHTML = entries.map((entry) => `
-    <button type="button" class="path-picker-entry" data-path="${esc(entry.relative_path || '')}">
+  list.innerHTML = entries.map((entry) => h`
+    <button type="button" class="path-picker-entry" data-path="${entry.relative_path || ''}">
       <div>
-        <div class="path-picker-entry-name">${esc(entry.name)}</div>
-        <div class="path-picker-entry-path">${esc(entry.absolute_path || '')}</div>
+        <div class="path-picker-entry-name">${entry.name}</div>
+        <div class="path-picker-entry-path">${entry.absolute_path || ''}</div>
       </div>
       <div class="create-project-inline-code">dir</div>
     </button>
@@ -453,7 +454,7 @@ async function loadPathPicker(pathValue) {
   }
 
   rootSelect.innerHTML = roots.map((root) =>
-    `<option value="${esc(root.id)}">${esc(root.label)} - ${esc(root.path)}</option>`
+    h`<option value="${root.id}">${root.label} - ${root.path}</option>`
   ).join('');
   rootSelect.value = createProjectDirectoryRootId;
 
@@ -470,7 +471,7 @@ async function loadPathPicker(pathValue) {
 
 function setPathPickerLoading(message) {
   const list = document.getElementById('path-picker-list');
-  if (list) list.innerHTML = `<div class="create-project-readiness-empty">${esc(message)}</div>`;
+  if (list) list.innerHTML = h`<div class="create-project-readiness-empty">${message}</div>`;
 }
 
 function openPathPicker() {
@@ -649,7 +650,7 @@ function bindEvents() {
 
 async function initProjectNewPage() {
   bindEvents();
-  renderReadinessBody('<div class="create-project-readiness-empty">Loading setup checks...</div>');
+  renderReadinessBody(h`<div class="create-project-readiness-empty">Loading setup checks...</div>`);
   await hydrateTargetOptions();
   await hydrateCommandProfileControls();
 }
@@ -673,6 +674,6 @@ initProjectNewPage().catch((error) => {
   renderReadinessBody(renderCheck({
     tone: 'error',
     title: 'Initialization failed',
-    detail: esc(error?.message || 'Failed to initialize project creation.'),
+    detail: h`${error?.message || 'Failed to initialize project creation.'}`,
   }));
 });

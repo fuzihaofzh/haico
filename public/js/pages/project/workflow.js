@@ -24,7 +24,7 @@ async function loadWorkflowGraph() {
     _workflowData = await res.json();
     renderWorkflowGraph(container, _workflowData);
   } catch (e) {
-    container.innerHTML = '<div class="empty-state">Failed to load workflow status.</div>';
+    container.innerHTML = h`<div class="empty-state">Failed to load workflow status.</div>`;
   }
 }
 
@@ -32,7 +32,7 @@ async function loadTreasuryWorkflowLayer() {
   var container = document.getElementById('treasury-workflow-layer');
   if (!container) return;
   if (!window.HAICOTreasuryWorkflow || typeof window.HAICOTreasuryWorkflow.render !== 'function') {
-    container.innerHTML = '<div class="empty-state">Treasury workflow layer unavailable.</div>';
+    container.innerHTML = h`<div class="empty-state">Treasury workflow layer unavailable.</div>`;
     return;
   }
 
@@ -49,13 +49,13 @@ async function loadTreasuryWorkflowLayer() {
     });
     container.innerHTML = window.HAICOTreasuryWorkflow.render(model);
   } catch (e) {
-    container.innerHTML = '<div class="empty-state">Failed to load treasury workflow layer.</div>';
+    container.innerHTML = h`<div class="empty-state">Failed to load treasury workflow layer.</div>`;
   }
 }
 
 function renderWorkflowGraph(container, data) {
   if (!data || !data.agents || data.agents.length === 0) {
-    container.innerHTML = '<div class="empty-state">No agents configured.</div>';
+    container.innerHTML = h`<div class="empty-state">No agents configured.</div>`;
     return;
   }
 
@@ -308,11 +308,11 @@ async function loadWorkflowActivity() {
     var res = await fetch(projectApiPath('/activity') + '?limit=30', { headers: apiHeaders() });
     if (!res.ok) throw new Error('failed');
     var events = await res.json();
-    if (!events.length) { container.innerHTML = '<div class="empty-state">No activity yet.</div>'; return; }
+    if (!events.length) { container.innerHTML = h`<div class="empty-state">No activity yet.</div>`; return; }
 
     container.replaceChildren(...events.map(renderWorkflowActivityEvent).filter(Boolean));
   } catch (e) {
-    container.innerHTML = '<div class="empty-state">Failed to load activity.</div>';
+    container.innerHTML = h`<div class="empty-state">Failed to load activity.</div>`;
   }
 }
 

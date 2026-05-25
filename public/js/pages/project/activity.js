@@ -5,7 +5,7 @@ async function loadActivity() {
     if (!res.ok) return;
     const events = await res.json();
 
-    if (!events.length) { container.innerHTML = '<div class="empty-state">No activity yet.</div>'; return; }
+    if (!events.length) { container.innerHTML = h`<div class="empty-state">No activity yet.</div>`; return; }
 
     container.replaceChildren(...events.map(renderActivityEvent).filter(Boolean));
   } catch (e) { container.innerHTML = renderError(e, 'loadActivity()'); }

@@ -32,8 +32,8 @@ async function loadUsageByProject() {
 
     if (!data.time_buckets || !data.time_buckets.length || !data.projects || !data.projects.length) {
       panel.style.display = '';
-      container.innerHTML = `<div class="empty-state" style="padding:32px 12px;text-align:center">
-        <div style="font-size:14px;font-weight:600;margin-bottom:6px">No usage data for ${esc(emptyPeriodLabel)}.</div>
+      container.innerHTML = h`<div class="empty-state" style="padding:32px 12px;text-align:center">
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">No usage data for ${emptyPeriodLabel}.</div>
         <div style="font-size:12px;color:var(--text-secondary)">Usage and cost metrics will appear here after agents record activity. Try a broader period if you expected older data.</div>
       </div>`;
       return;
@@ -64,7 +64,7 @@ async function loadUsageByProject() {
     // Y-axis
     const yLabels = [0, maxCost / 2, maxCost].map(v => {
       const y = PAD_T + ch - (v / maxCost) * ch;
-      return `<text x="${PAD_L - 6}" y="${y + 3}" text-anchor="end" fill="var(--text-secondary)" font-size="9">$${v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}</text>
+      return h`<text x="${PAD_L - 6}" y="${y + 3}" text-anchor="end" fill="var(--text-secondary)" font-size="9">$${v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}</text>
       <line x1="${PAD_L}" y1="${y}" x2="${W - PAD_R}" y2="${y}" stroke="var(--border)" stroke-width="0.5" opacity="0.5"/>`;
     }).join('');
 
@@ -74,7 +74,7 @@ async function loadUsageByProject() {
       if (i % step !== 0 && i !== n - 1) return '';
       const x = PAD_L + i * gap + gap / 2;
       const label = d.length > 10 ? d.slice(5) : d.slice(5);
-      return `<text x="${x}" y="${H - 4}" text-anchor="middle" fill="var(--text-secondary)" font-size="8">${label}</text>`;
+      return h`<text x="${x}" y="${H - 4}" text-anchor="middle" fill="var(--text-secondary)" font-size="8">${label}</text>`;
     }).join('');
 
     // Stacked bars
@@ -91,8 +91,8 @@ async function loadUsageByProject() {
         const barH = (cost / maxCost) * ch;
         const y = PAD_T + ch - yOffset - barH;
         const color = _projectColors[j % _projectColors.length];
-        bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color}" opacity="0.85" rx="1">
-          <title>${esc(p.name)} ${t}: $${cost.toFixed(4)}</title>
+        bars += h`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color}" opacity="0.85" rx="1">
+          <title>${p.name} ${t}: $${cost.toFixed(4)}</title>
         </rect>`;
         yOffset += barH;
       }
@@ -102,15 +102,15 @@ async function loadUsageByProject() {
     const legend = projects.map((p, i) => {
       const color = _projectColors[i % _projectColors.length];
       const name = p.name.length > 20 ? p.name.slice(0, 19) + '…' : p.name;
-      return `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11px;color:var(--text-secondary)">
-        <span style="width:10px;height:10px;background:${color};border-radius:2px;display:inline-block"></span>${esc(name)}
+      return h`<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11px;color:var(--text-secondary)">
+        <span style="width:10px;height:10px;background:${color};border-radius:2px;display:inline-block"></span>${name}
       </span>`;
     }).join('');
 
-    container.innerHTML = `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
-      ${yLabels}${xLabels}${bars}
+    container.innerHTML = h`<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
+      ${html(yLabels)}${html(xLabels)}${html(bars)}
     </svg>
-    <div style="margin-top:6px;line-height:1.8">${legend}</div>`;
+    <div style="margin-top:6px;line-height:1.8">${html(legend)}</div>`;
   } catch (e) {
     console.error('Failed to load usage by project', e);
     panel.style.display = '';

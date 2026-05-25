@@ -27,7 +27,7 @@ async function loadGitTab() {
     const commits = await logRes.json();
 
     if (!commits.length) {
-      commitContainer.innerHTML = '<div class="empty-state">No git commits found. Ensure agents have a working directory that is a git repository.</div>';
+      commitContainer.innerHTML = h`<div class="empty-state">No git commits found. Ensure agents have a working directory that is a git repository.</div>`;
       uncommittedContainer.innerHTML = '';
       return;
     }

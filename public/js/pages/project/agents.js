@@ -35,12 +35,12 @@ function buildParentAgentOptions(currentAgentId, selectedParentId) {
     getDescendantAgentIds(currentAgentId).forEach((id) => excludedIds.add(id));
   }
 
-  const options = ['<option value="">No parent (top-level agent)</option>'];
+  const options = [h`<option value="">No parent (top-level agent)</option>`];
   agentsData.forEach((agent) => {
     if (excludedIds.has(agent.id)) return;
     const suffix = agent.is_controller ? ' [controller]' : '';
-    const selected = selectedParentId && selectedParentId === agent.id ? ' selected' : '';
-    options.push(`<option value="${agent.id}"${selected}>${esc(agent.name)}${suffix}</option>`);
+    const selected = selectedParentId && selectedParentId === agent.id ? h` selected` : '';
+    options.push(h`<option value="${agent.id}"${html(selected)}>${agent.name}${suffix}</option>`);
   });
   return options.join('');
 }
@@ -82,7 +82,7 @@ async function populateCommandProfileSelect(select, options) {
   if (!select) return [];
   const manager = getCommandProfileManager();
   if (!manager) {
-    select.innerHTML = `
+    select.innerHTML = h`
       <option value="">Use project default</option>
       <option value="${CUSTOM_COMMAND_PROFILE_VALUE}">Custom command</option>
     `;
@@ -347,11 +347,11 @@ function getGraphParentId(agent) {
 
 function statusBadge(s) {
   const map = {
-    'open':        '<span class="status-badge status-active">open</span>',
-    'in_progress': '<span class="status-badge status-running">in progress</span>',
-    'pending':     '<span class="status-badge status-warning">pending</span>',
-    'done':        '<span class="status-badge status-completed">done</span>',
-    'closed':      '<span class="status-badge status-idle">closed</span>',
+    'open':        h`<span class="status-badge status-active">open</span>`,
+    'in_progress': h`<span class="status-badge status-running">in progress</span>`,
+    'pending':     h`<span class="status-badge status-warning">pending</span>`,
+    'done':        h`<span class="status-badge status-completed">done</span>`,
+    'closed':      h`<span class="status-badge status-idle">closed</span>`,
   };
   return map[s] || s;
 }
@@ -382,15 +382,16 @@ async function loadAgents(options) {
   // Update tab count
   updateTabCounts();
 
-  if (!agentsData.length) { list.innerHTML = '<li class="empty-state">No agents yet.</li>'; return; }
+  if (!agentsData.length) { list.innerHTML = h`<li class="empty-state">No agents yet.</li>`; return; }
 
   // Update issue assign dropdown (preserve current selection, default to controller)
   const assignSel = document.getElementById('issue-assign');
   if (assignSel) {
     const prev = assignSel.value;
     const controllerId = agentsData.find(a => a.is_controller)?.id || '';
-    assignSel.innerHTML = '<option value="">Select a recipient</option><option value="all">All (broadcast)</option><option value="user">User (me)</option>';
-    agentsData.forEach(a => { assignSel.innerHTML += `<option value="${a.id}">${esc(a.name)}${a.is_controller ? ' [controller]' : ''}</option>`; });
+    assignSel.innerHTML = h`<option value="">Select a recipient</option><option value="all">All (broadcast)</option><option value="user">User (me)</option>${html(
+      agentsData.map(a => h`<option value="${a.id}">${a.name}${a.is_controller ? ' [controller]' : ''}</option>`).join('')
+    )}`;
     if (prev) assignSel.value = prev;
     else if (controllerId) assignSel.value = controllerId;
   }
@@ -421,11 +422,11 @@ async function loadAgents(options) {
     if (errorAgents.length > 0) {
       bannerEl.style.display = '';
       bannerEl.innerHTML = errorAgents.map(a => {
-        const errMsg = errorLogs[a.id] ? esc(errorLogs[a.id].slice(0, 300)) : 'Unknown error';
+        const errMsg = errorLogs[a.id] ? errorLogs[a.id].slice(0, 300) : 'Unknown error';
         const retryAction = canManage
-          ? `<button class="btn btn-sm" onclick="retryAgent('${a.id}')" style="margin-left:8px;color:var(--warning);padding:2px 8px">Retry</button>`
+          ? h`<button class="btn btn-sm" onclick="retryAgent('${a.id}')" style="margin-left:8px;color:var(--warning);padding:2px 8px">Retry</button>`
           : '';
-        return `<div style="margin-bottom:4px"><strong>${esc(a.name)}</strong> failed: <span style="font-family:monospace;font-size:11px">${errMsg}</span>${retryAction}</div>`;
+        return h`<div style="margin-bottom:4px"><strong>${a.name}</strong> failed: <span style="font-family:monospace;font-size:11px">${errMsg}</span>${html(retryAction)}</div>`;
       }).join('');
     } else {
       bannerEl.style.display = 'none';
@@ -448,63 +449,64 @@ async function loadAgents(options) {
   // Render a single agent list item
   function renderAgentItem(a, depth) {
     const indent = depth * 20;
-    const tag = a.is_controller ? ' <span style="color:var(--accent);font-size:11px">[controller]</span>' : '';
+    const tag = a.is_controller ? h` <span style="color:var(--accent);font-size:11px">[controller]</span>` : '';
     const parentAgent = getDisplayParentAgent(a);
     const childAgents = getDirectChildAgents(a.id);
     const hierarchyMeta = depth > 0 ? '' : [
-      parentAgent ? `Parent ${esc(parentAgent.name)}` : null,
+      parentAgent ? h`Parent ${parentAgent.name}` : null,
       childAgents.length > 0 ? `${childAgents.length} direct reports` : null,
     ].filter(Boolean).join(' · ');
     const errBox = a.status === 'error' && errorLogs[a.id]
-      ? `<div style="margin-top:4px;padding:6px 8px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:4px;font-size:11px;color:var(--error);font-family:monospace;max-height:60px;overflow:auto;white-space:pre-wrap">${esc(errorLogs[a.id].slice(0, 500))}</div>` : '';
-    const spinner = a.status === 'running' ? '<span class="thinking-spinner">✦</span> ' : '';
+      ? h`<div style="margin-top:4px;padding:6px 8px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:4px;font-size:11px;color:var(--error);font-family:monospace;max-height:60px;overflow:auto;white-space:pre-wrap">${errorLogs[a.id].slice(0, 500)}</div>` : '';
+    const spinner = a.status === 'running' ? h`<span class="thinking-spinner">✦</span> ` : '';
     const deleteBtn = canManage && !a.is_controller && a.status !== 'running'
-      ? `<button class="btn btn-sm" onclick="event.stopPropagation();deleteAgent('${a.id}')" style="color:var(--error);padding:3px 6px" title="Delete">✕</button>` : '';
+      ? h`<button class="btn btn-sm" onclick="event.stopPropagation();deleteAgent('${a.id}')" style="color:var(--error);padding:3px 6px" title="Delete">✕</button>` : '';
     const runtime = a.runtime_state || {};
     const retryBtn = canManage && runtime.status === 'error' && runtime.last_task_run_id && !a.paused
-      ? `<button class="btn btn-sm" onclick="event.stopPropagation();retryAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Retry last prompt">Retry</button>` : '';
+      ? h`<button class="btn btn-sm" onclick="event.stopPropagation();retryAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Retry last prompt">Retry</button>` : '';
     const pauseBtn = canManage && !a.paused
-      ? `<button class="btn btn-sm" onclick="event.stopPropagation();pauseAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Pause agent">⏸</button>`
+      ? h`<button class="btn btn-sm" onclick="event.stopPropagation();pauseAgent('${a.id}')" style="color:var(--warning);padding:3px 6px" title="Pause agent">⏸</button>`
       : canManage
-        ? `<button class="btn btn-sm" onclick="event.stopPropagation();unpauseAgent('${a.id}')" style="color:var(--success);padding:3px 6px" title="Resume agent">▶</button>`
+        ? h`<button class="btn btn-sm" onclick="event.stopPropagation();unpauseAgent('${a.id}')" style="color:var(--success);padding:3px 6px" title="Resume agent">▶</button>`
         : '';
     const chatBtn = canManage && !isRemoteProjectView
-      ? `<button class="btn btn-sm" onclick="event.stopPropagation();openTerminal('${a.id}')" style="padding:3px 6px" title="Open terminal chat">Chat</button>`
+      ? h`<button class="btn btn-sm" onclick="event.stopPropagation();openTerminal('${a.id}')" style="padding:3px 6px" title="Open terminal chat">Chat</button>`
       : '';
     let actions;
     if (!canManage) {
       actions = '';
     } else if (a.paused) {
-      actions = `${chatBtn}${pauseBtn}${deleteBtn}`;
+      actions = h`${html(chatBtn)}${html(pauseBtn)}${html(deleteBtn)}`;
     } else if (a.status === 'running') {
-      actions = `${chatBtn}${pauseBtn}<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();stopAgentById('${a.id}')">Stop</button>`;
+      actions = h`${html(chatBtn)}${html(pauseBtn)}<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();stopAgentById('${a.id}')">Stop</button>`;
     } else {
-      actions = `${chatBtn}${pauseBtn}${retryBtn}<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();quickStartAgent('${a.id}')">Start</button>${deleteBtn}`;
+      actions = h`${html(chatBtn)}${html(pauseBtn)}${html(retryBtn)}<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();quickStartAgent('${a.id}')">Start</button>${html(deleteBtn)}`;
     }
     const selected = currentAgentId === a.id ? 'background:var(--selected-bg);' : '';
     const pausedStyle = a.paused ? 'opacity:0.55;' : '';
-    return `
+    const issuePills = (agentIssues[a.id] || []).length > 0
+      ? h`<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${html((agentIssues[a.id] || []).map(iss => {
+          const isActive = iss.status === 'in_progress';
+          const bg = isActive ? 'rgba(63,185,80,0.15)' : 'rgba(88,166,255,0.1)';
+          const border = isActive ? 'rgba(63,185,80,0.4)' : 'rgba(88,166,255,0.3)';
+          const color = isActive ? 'var(--success, #3fb950)' : 'var(--accent)';
+          const dot = isActive ? h`<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--success, #3fb950);margin-right:3px;animation:pulse 1.5s infinite"></span>` : '';
+          return h`<a href="${issuePageHref(iss)}" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;padding:2px 6px;background:${bg};border:1px solid ${border};border-radius:3px;font-size:10px;color:${color};text-decoration:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="#${iss.number} ${iss.title} [${iss.status}]">${html(dot)}#${iss.number} ${iss.title}</a>`;
+        }).join(''))}</div>`
+      : (a.status !== 'error' ? h`<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);opacity:0.5">Idle - no active tasks</div>` : '');
+    return h`
     <li class="agent-item" style="cursor:pointer;padding-left:${indent}px;${selected}${pausedStyle}" onclick="viewAgent('${a.id}')">
-      <div style="flex-shrink:0;margin-right:8px">${roleAvatarHtml(a.name, 32, projectData?.color)}</div>
+      <div style="flex-shrink:0;margin-right:8px">${html(roleAvatarHtml(a.name, 32, projectData?.color))}</div>
       <div class="agent-info">
-        <div class="agent-name">${spinner}${esc(a.name)}${tag}</div>
-        <div class="agent-role">${esc(a.role)}</div>
-        ${hierarchyMeta ? `<div style="margin-top:3px;font-size:10px;color:var(--text-secondary)">${hierarchyMeta}</div>` : ''}
-        ${(agentIssues[a.id] || []).length > 0
-          ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${(agentIssues[a.id] || []).map(iss => {
-              const isActive = iss.status === 'in_progress';
-              const bg = isActive ? 'rgba(63,185,80,0.15)' : 'rgba(88,166,255,0.1)';
-              const border = isActive ? 'rgba(63,185,80,0.4)' : 'rgba(88,166,255,0.3)';
-              const color = isActive ? 'var(--success, #3fb950)' : 'var(--accent)';
-              const dot = isActive ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--success, #3fb950);margin-right:3px;animation:pulse 1.5s infinite"></span>' : '';
-              return `<a href="${issuePageHref(iss)}" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;padding:2px 6px;background:${bg};border:1px solid ${border};border-radius:3px;font-size:10px;color:${color};text-decoration:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="#${iss.number} ${esc(iss.title)} [${iss.status}]">${dot}#${iss.number} ${esc(iss.title)}</a>`;
-            }).join('')}</div>`
-          : (a.status !== 'error' ? '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);opacity:0.5">Idle - no active tasks</div>' : '')}
-        ${errBox}
+        <div class="agent-name">${html(spinner)}${a.name}${html(tag)}</div>
+        <div class="agent-role">${a.role}</div>
+        ${hierarchyMeta ? html(h`<div style="margin-top:3px;font-size:10px;color:var(--text-secondary)">${html(hierarchyMeta)}</div>`) : ''}
+        ${html(issuePills)}
+        ${html(errBox)}
       </div>
       <div class="flex" style="gap:8px">
         <span class="status-badge status-${a.paused ? 'paused' : a.status}">${a.paused ? 'paused' : a.status}</span>
-        ${actions}
+        ${html(actions)}
       </div>
     </li>`;
   }
@@ -570,7 +572,7 @@ async function viewAgent(agentId) {
 
   const el = document.getElementById('agent-detail');
   el.style.display = '';
-  el.innerHTML = '<div class="card">' + renderLoading('Loading agent details...') + '</div>';
+  el.innerHTML = h`<div class="card">${html(renderLoading('Loading agent details...'))}</div>`;
 
   try {
     const agentRes = await fetch(agentApiPath(agentId, ''), { headers: apiHeaders() });
@@ -581,51 +583,60 @@ async function viewAgent(agentId) {
     const readOnlyAttr = canManage ? '' : 'disabled';
     const readonlyNote = canManage
       ? ''
-      : `<div class="project-readonly-banner" style="display:block;margin-bottom:16px">This is a shared read-only view. You cannot start, pause, retry, delete, chat with, or edit this agent.</div>`;
+      : h`<div class="project-readonly-banner" style="display:block;margin-bottom:16px">This is a shared read-only view. You cannot start, pause, retry, delete, chat with, or edit this agent.</div>`;
     const detailActions = canManage && !isRemoteProjectView
-      ? `
+      ? h`
               <button class="btn btn-sm" onclick="openTerminal('${agentId}')" title="Open terminal chat">Chat</button>
-              ${(agent.runtime_state || {}).status === 'error' && (agent.runtime_state || {}).last_task_run_id ? `<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>` : ''}
+              ${(agent.runtime_state || {}).status === 'error' && (agent.runtime_state || {}).last_task_run_id ? html(h`<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>`) : ''}
       `
       : '';
     const saveSettingsButton = canManage
-      ? '<button class="btn btn-primary" onclick="saveAllAgentFields(\'' + agentId + '\')">Save Settings</button>'
+      ? h`<button class="btn btn-primary" onclick="saveAllAgentFields('${agentId}')">Save Settings</button>`
       : '';
+    const controllerTag = agent.is_controller
+      ? h`<span style="color:var(--accent);font-size:12px">[controller]</span>`
+      : '';
+    const statusPid = agent.pid ? ` (PID:${agent.pid})` : '';
+    const sessionPreview = agent.session_id ? agent.session_id.slice(0, 8) + '...' : 'none';
+    const directReports = childAgents.length > 0
+      ? childAgents.map((child) => h`${child.name}`).join(', ')
+      : 'None';
+    const parentDisabledAttr = !canManage || agent.is_controller ? 'disabled' : '';
 
     const L = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:4px';
     const B = 'padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px';
 
     // Step 1: Render config immediately (no logs yet)
-    el.innerHTML = `
+    el.innerHTML = h`
       <div class="card" style="padding:0">
         <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
           <div class="flex-between">
-            <h3 style="display:flex;align-items:center;gap:8px">${roleAvatarHtml(agent.name, 28, projectData?.color)} ${esc(agent.name)} ${agent.is_controller ? '<span style="color:var(--accent);font-size:12px">[controller]</span>' : ''}</h3>
+            <h3 style="display:flex;align-items:center;gap:8px">${html(roleAvatarHtml(agent.name, 28, projectData?.color))} ${agent.name} ${html(controllerTag)}</h3>
             <div class="flex" style="gap:6px">
-              ${detailActions}
-              <span class="status-badge status-${agent.status}">${agent.status}${agent.pid ? ' (PID:' + agent.pid + ')' : ''}</span>
+              ${html(detailActions)}
+              <span class="status-badge status-${agent.status}">${agent.status}${statusPid}</span>
             </div>
           </div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${esc(agent.role)}</div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${agent.role}</div>
         </div>
 
         <div id="agent-detail-scroll" style="padding:16px 20px">
-          ${readonlyNote}
+          ${html(readonlyNote)}
           <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));gap:8px 16px;font-size:12px;color:var(--text-secondary);margin-bottom:16px">
             <div>Started: <span style="color:var(--fg)">${formatLocalDateTime(agent.started_at)}</span></div>
             <div>Finished: <span style="color:var(--fg)">${formatLocalDateTime(agent.finished_at)}</span></div>
-            <div>Session: <code style="color:var(--fg);font-size:10px">${agent.session_id ? agent.session_id.slice(0, 8) + '...' : 'none'}</code></div>
+            <div>Session: <code style="color:var(--fg);font-size:10px">${sessionPreview}</code></div>
           </div>
 
           <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:12px;margin-bottom:16px">
             <div style="padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
               <div style="${L}">Direct Parent</div>
-              <div style="font-size:13px;color:var(--fg)">${parentAgent ? esc(parentAgent.name) : 'None'}</div>
+              <div style="font-size:13px;color:var(--fg)">${parentAgent ? parentAgent.name : 'None'}</div>
               <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${parentAgent ? 'Messages are limited to this parent and direct reports.' : 'Without a parent, this agent is not restricted by hierarchy messaging rules.'}</div>
             </div>
             <div style="padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
               <div style="${L}">Direct Reports</div>
-              <div style="font-size:13px;color:var(--fg)">${childAgents.length > 0 ? childAgents.map((child) => esc(child.name)).join(', ') : 'None'}</div>
+              <div style="font-size:13px;color:var(--fg)">${html(directReports)}</div>
               <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${childAgents.length > 0 ? `${childAgents.length} direct reports total.` : 'This agent has no direct reports.'}</div>
             </div>
           </div>
@@ -637,14 +648,14 @@ async function viewAgent(agentId) {
           <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
               <div style="${L}">Working Directory</div>
-              <input type="text" id="ad-workdir-${agentId}" value="${esc(agent.working_directory || '')}" placeholder="(default)" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
+              <input type="text" id="ad-workdir-${agentId}" value="${agent.working_directory || ''}" placeholder="(default)" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:monospace;color:var(--fg)">
             </div>
             <div style="flex:1;min-width:200px">
               <div style="${L}">Agent Tool</div>
               <select id="ad-cmdprof-${agentId}" onchange="handleAgentCommandProfileChange('${agentId}')" ${readOnlyAttr} style="${B};width:100%;font-size:12px;color:var(--fg)">
                 <option value="">Loading...</option>
               </select>
-              <input type="hidden" id="ad-cmdtpl-${agentId}" value="${esc(agent.command_template || '')}">
+              <input type="hidden" id="ad-cmdtpl-${agentId}" value="${agent.command_template || ''}">
               <div id="ad-cmdtpl-preview-${agentId}" style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">Saved profiles populate both command and command type.</div>
             </div>
             <div style="width:140px">
@@ -663,8 +674,8 @@ async function viewAgent(agentId) {
             </div>
             <div style="min-width:220px;flex:1">
               <div style="${L}">Parent Agent</div>
-              <select id="ad-parent-${agentId}" ${!canManage || agent.is_controller ? 'disabled' : ''} style="${B};width:100%;font-size:12px;color:var(--fg)">
-                ${buildParentAgentOptions(agentId, agent.parent_agent_id)}
+              <select id="ad-parent-${agentId}" ${parentDisabledAttr} style="${B};width:100%;font-size:12px;color:var(--fg)">
+                ${html(buildParentAgentOptions(agentId, agent.parent_agent_id))}
               </select>
               <div style="font-size:10px;color:var(--text-secondary);opacity:0.6;margin-top:2px">${agent.is_controller ? 'The controller stays at the root by default.' : 'You cannot choose this agent or its descendants as the parent.'}</div>
             </div>
@@ -672,11 +683,11 @@ async function viewAgent(agentId) {
 
           <div style="margin-bottom:16px">
             <div style="${L}">Custom Instructions</div>
-            <textarea id="ad-instructions-${agentId}" rows="3" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:inherit;color:var(--fg);resize:vertical" placeholder="Extra instructions appended to system prompt...">${esc(agent.custom_instructions || '')}</textarea>
+            <textarea id="ad-instructions-${agentId}" rows="3" ${readOnlyAttr} style="${B};width:100%;font-size:12px;font-family:inherit;color:var(--fg);resize:vertical" placeholder="Extra instructions appended to system prompt...">${agent.custom_instructions || ''}</textarea>
           </div>
 
           <div style="margin-bottom:16px;text-align:right">
-            ${saveSettingsButton}
+            ${html(saveSettingsButton)}
           </div>
 
           <div style="margin-bottom:16px">
@@ -710,7 +721,7 @@ async function viewAgent(agentId) {
 
   } catch (e) {
     stopAgentOutputPolling();
-    el.innerHTML = '<div class="card">' + renderError(e, 'viewAgent(\'' + agentId + '\')') + '</div>';
+    el.innerHTML = h`<div class="card">${html(renderError(e, `viewAgent('${agentId}')`))}</div>`;
   }
 }
 
@@ -727,7 +738,7 @@ async function loadAgentCost(agentId) {
     const fmtTokens = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
     const avgCost = data.total_runs > 0 ? data.total_cost_usd / data.total_runs : 0;
 
-    container.innerHTML = `
+    container.innerHTML = h`
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:12px">
         <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
           <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;opacity:0.6;margin-bottom:2px">Total Cost</div>
@@ -761,15 +772,15 @@ async function loadAgentGitStatus(agentId) {
     if (!data.branch) { container.innerHTML = ''; return; }
 
     const lastCommit = data.recent_commits && data.recent_commits[0]
-      ? `<code style="color:var(--accent)">${esc(data.recent_commits[0].hash)}</code> ${esc(data.recent_commits[0].message.slice(0, 50))} <span style="color:var(--text-secondary)">${timeAgo(data.recent_commits[0].date)}</span>`
-      : '<span style="color:var(--text-secondary)">no commits</span>';
+      ? h`<code style="color:var(--accent)">${data.recent_commits[0].hash}</code> ${data.recent_commits[0].message.slice(0, 50)} <span style="color:var(--text-secondary)">${timeAgo(data.recent_commits[0].date)}</span>`
+      : h`<span style="color:var(--text-secondary)">no commits</span>`;
     const uncommitted = data.has_uncommitted
-      ? `<span style="color:var(--warning)"> | ${(data.uncommitted_files || []).length} uncommitted files</span>` : '';
+      ? h`<span style="color:var(--warning)"> | ${(data.uncommitted_files || []).length} uncommitted files</span>` : '';
 
-    container.innerHTML = `
+    container.innerHTML = h`
       <div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;word-break:break-word;overflow-wrap:break-word">
-        <span style="font-family:monospace;background:var(--card);padding:2px 8px;border-radius:10px;border:1px solid var(--border)">${esc(data.branch)}</span>
-        <span style="margin-left:8px">Last commit: ${lastCommit}</span>${uncommitted}
+        <span style="font-family:monospace;background:var(--card);padding:2px 8px;border-radius:10px;border:1px solid var(--border)">${data.branch}</span>
+        <span style="margin-left:8px">Last commit: ${html(lastCommit)}</span>${html(uncommitted)}
       </div>`;
   } catch {
     container.innerHTML = '';
@@ -810,29 +821,29 @@ async function loadAgentOutput(agentId, options) {
     // Show last 5 runs, oldest first (newest at bottom)
     const recentRuns = runs.slice(-5);
 
-    const html = recentRuns.map((run, idx) => {
+    const markup = recentRuns.map((run, idx) => {
       const filtered = run.logs.filter(l =>
         l.stream !== 'cost' && !l.content.includes('proxychains') &&
         !l.content.includes('Executing through proxy') && !l.content.includes('Port 7897')
       );
       if (!filtered.length) return '';
       const content = filtered.map(l => {
-        const ts = l.created_at ? `<span style="color:var(--text-secondary);opacity:0.7;cursor:default" title="${esc(formatLocalDateTime(l.created_at))}">[${esc(formatLocalTime(l.created_at))}]</span> ` : '';
+        const ts = l.created_at ? h`<span style="color:var(--text-secondary);opacity:0.7;cursor:default" title="${formatLocalDateTime(l.created_at)}">[${formatLocalTime(l.created_at)}]</span> ` : '';
         if (l.stream === 'stdin') {
           const inputHtml = renderCollapsibleText(l.content, { previewChars: 240, style: 'display:flex;width:100%;margin-top:4px' });
-          return `<div style="background:var(--accent-bg, rgba(59,130,246,0.08));border-left:3px solid var(--accent);padding:4px 8px;margin:4px 0;border-radius:0 4px 4px 0">${ts}<span style="color:var(--accent);font-weight:600">▶ INPUT</span><div>${inputHtml}</div></div>`;
+          return h`<div style="background:var(--accent-bg, rgba(59,130,246,0.08));border-left:3px solid var(--accent);padding:4px 8px;margin:4px 0;border-radius:0 4px 4px 0">${html(ts)}<span style="color:var(--accent);font-weight:600">▶ INPUT</span><div>${html(inputHtml)}</div></div>`;
         }
         const text = l.content.length > 1500 ? l.content.slice(0, 1500) + '\n... (truncated)' : l.content;
-        const msg = l.stream === 'stderr' ? `<span style="color:var(--error)">${esc(text)}</span>` : esc(text);
-        return ts + msg;
+        const msg = l.stream === 'stderr' ? h`<span style="color:var(--error)">${text}</span>` : h`${text}`;
+        return h`${html(ts)}${html(msg)}`;
       }).join('');
       const label = idx === recentRuns.length - 1 ? 'Latest Run' : `${recentRuns.length - idx} runs ago`;
-      return `<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:600;color:var(--text-secondary);margin-bottom:2px">${label}</div><div>${content}</div></div>`;
-    }).filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--border);margin:8px 0">');
+      return h`<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:600;color:var(--text-secondary);margin-bottom:2px">${label}</div><div>${html(content)}</div></div>`;
+    }).filter(Boolean).join(h`<hr style="border:none;border-top:1px solid var(--border);margin:8px 0">`);
 
-    const nextHtml = html
-      ? `<div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:monospace;white-space:pre-wrap;word-break:break-word;margin:0;line-height:1.5;overflow-x:hidden;max-height:400px;overflow-y:auto">${html}</div>`
-      : '<span style="color:var(--text-secondary)">No history yet.</span>';
+    const nextHtml = markup
+      ? h`<div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:monospace;white-space:pre-wrap;word-break:break-word;margin:0;line-height:1.5;overflow-x:hidden;max-height:400px;overflow-y:auto">${html(markup)}</div>`
+      : h`<span style="color:var(--text-secondary)">No history yet.</span>`;
 
     const prevScroller = container.firstElementChild;
     const prevScrollTop = prevScroller ? prevScroller.scrollTop : 0;
@@ -939,7 +950,7 @@ async function loadRunHistory(agentId) {
     if (!res.ok) { container.innerHTML = renderError({ status: res.status }, 'loadRunHistory(\'' + agentId + '\')'); return; }
     const data = await res.json();
     const runs = data.task_runs || [];
-    if (!runs.length) { container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">No runs yet.</span>'; return; }
+    if (!runs.length) { container.innerHTML = h`<span style="color:var(--text-secondary);font-size:12px">No runs yet.</span>`; return; }
 
     const fmtDur = ms => {
       if (!ms) return '-';
@@ -951,29 +962,33 @@ async function loadRunHistory(agentId) {
       return Math.max(0, new Date(r.task_run_finished_at).getTime() - new Date(r.task_run_started_at).getTime());
     };
 
-    container.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">${runs.map((r) => {
+    container.innerHTML = h`<div style="display:flex;flex-direction:column;gap:6px">${html(runs.map((r) => {
       const failed = r.task_run_status === 'failed';
       const running = r.task_run_status === 'running' || r.task_run_status === 'starting';
       const statusColor = failed ? 'var(--error)' : running ? 'var(--warning)' : 'var(--success)';
       const statusIcon = failed ? '✕' : running ? '…' : '✓';
       const failure = r.task_run_failure_message || r.task_failure_message || '';
-      return `<div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:${r.run_id ? 'pointer' : 'default'}" ${r.run_id ? `onclick="viewRunReport('${agentId}','${r.run_id}')"` : ''}>
+      const clickAttr = r.run_id ? h`onclick="viewRunReport('${agentId}','${r.run_id}')"` : '';
+      const failureHtml = failure
+        ? h`<div style="margin-top:4px;color:var(--error);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${failure.slice(0, 180)}</div>`
+        : '';
+      return h`<div style="padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:${r.run_id ? 'pointer' : 'default'}" ${html(clickAttr)}>
         <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
           <div style="display:flex;align-items:center;gap:8px">
             <span style="color:${statusColor};font-weight:600">${statusIcon}</span>
             <span style="color:var(--text-secondary)">${timeAgo(r.task_run_created_at)}</span>
             <span style="font-family:monospace;color:var(--text-secondary)">attempt ${r.attempt}</span>
-            <span>${esc(r.task_type || 'task')}</span>
+            <span>${r.task_type || 'task'}</span>
           </div>
           <div style="display:flex;gap:12px;color:var(--text-secondary);font-size:11px">
-            <span>${esc(r.task_run_status)}</span>
+            <span>${r.task_run_status}</span>
             <span title="Duration">${fmtDur(runDuration(r))}</span>
           </div>
         </div>
-        <div style="margin-top:4px;color:var(--fg);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.reason || r.prompt_preview || '')}</div>
-        ${failure ? `<div style="margin-top:4px;color:var(--error);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(failure.slice(0, 180))}</div>` : ''}
+        <div style="margin-top:4px;color:var(--fg);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.reason || r.prompt_preview || ''}</div>
+        ${html(failureHtml)}
       </div>`;
-    }).join('')}</div>`;
+    }).join(''))}</div>`;
   } catch {
     container.innerHTML = renderError(null, 'loadRunHistory(\'' + agentId + '\')');
   }
@@ -1000,28 +1015,47 @@ async function viewRunReport(agentId, runId) {
     // Tool frequency
     const toolFreqHtml = Object.entries(r.summary.tool_frequency || {})
       .sort((a, b) => (b[1]) - (a[1]))
-      .map(([name, count]) => `<span style="padding:2px 8px;background:rgba(88,166,255,0.1);border:1px solid rgba(88,166,255,0.3);border-radius:12px;font-size:10px">${esc(name)} ×${count}</span>`)
+      .map(([name, count]) => h`<span style="padding:2px 8px;background:rgba(88,166,255,0.1);border:1px solid rgba(88,166,255,0.3);border-radius:12px;font-size:10px">${name} ×${count}</span>`)
       .join(' ');
 
     // File changes
     const filesHtml = (r.summary.files_changed || []).map(f =>
-      `<div style="font-family:monospace;font-size:11px;padding:2px 0">${esc(f)}</div>`
-    ).join('') || '<span style="color:var(--text-secondary)">None</span>';
+      h`<div style="font-family:monospace;font-size:11px;padding:2px 0">${f}</div>`
+    ).join('') || h`<span style="color:var(--text-secondary)">None</span>`;
 
     // Tool call timeline
     const toolsHtml = (r.tool_calls || []).map((tc, i) => {
       const inputHtml = renderCollapsibleText(tc.input, { previewChars: 100, style: 'width:100%' });
-      return `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">
+      const result = tc.result
+        ? h`<div style="margin-left:26px;color:var(--text-secondary);font-family:monospace;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px">${tc.result.slice(0, 150)}</div>`
+        : '';
+      return h`<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">
         <div style="display:flex;gap:6px;align-items:flex-start">
           <span style="color:var(--accent);font-weight:600;min-width:20px">${i + 1}.</span>
-          <span style="color:var(--accent);font-weight:500">${esc(tc.name)}</span>
-          <div style="min-width:0;flex:1;color:var(--text-secondary);font-family:monospace">${inputHtml}</div>
+          <span style="color:var(--accent);font-weight:500">${tc.name}</span>
+          <div style="min-width:0;flex:1;color:var(--text-secondary);font-family:monospace">${html(inputHtml)}</div>
         </div>
-        ${tc.result ? `<div style="margin-left:26px;color:var(--text-secondary);font-family:monospace;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px">${esc(tc.result.slice(0, 150))}</div>` : ''}
+        ${html(result)}
       </div>`;
     }).join('');
 
-    container.innerHTML = `
+    const errorMessage = r.error_message
+      ? h`<div style="margin-bottom:12px;padding:8px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:4px;font-size:11px;color:var(--error);font-family:monospace;white-space:pre-wrap">${r.error_message.slice(0, 500)}</div>`
+      : '';
+    const toolFrequency = toolFreqHtml
+      ? h`<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Tool Usage</div><div style="display:flex;gap:6px;flex-wrap:wrap">${html(toolFreqHtml)}</div></div>`
+      : '';
+    const changedFiles = r.summary.files_changed.length > 0
+      ? h`<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Files Changed (${r.summary.files_changed.length})</div>${html(filesHtml)}</div>`
+      : '';
+    const finalResult = r.final_result
+      ? h`<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Final Result</div><pre style="padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0;max-height:200px;overflow-y:auto">${r.final_result.slice(0, 1000)}</pre></div>`
+      : '';
+    const toolTimeline = toolsHtml
+      ? h`<div><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Tool Call Timeline (${r.tool_calls.length})</div><div style="max-height:300px;overflow-y:auto">${html(toolsHtml)}</div></div>`
+      : '';
+
+    container.innerHTML = h`
       <div style="padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <button class="btn btn-sm" onclick="loadRunHistory('${agentId}')" style="font-size:11px">← Back to runs</button>
@@ -1047,15 +1081,11 @@ async function viewRunReport(agentId, runId) {
           </div>
         </div>
 
-        ${r.error_message ? `<div style="margin-bottom:12px;padding:8px;background:rgba(220,50,47,0.1);border:1px solid rgba(220,50,47,0.3);border-radius:4px;font-size:11px;color:var(--error);font-family:monospace;white-space:pre-wrap">${esc(r.error_message.slice(0, 500))}</div>` : ''}
-
-        ${toolFreqHtml ? `<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Tool Usage</div><div style="display:flex;gap:6px;flex-wrap:wrap">${toolFreqHtml}</div></div>` : ''}
-
-        ${r.summary.files_changed.length > 0 ? `<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Files Changed (${r.summary.files_changed.length})</div>${filesHtml}</div>` : ''}
-
-        ${r.final_result ? `<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Final Result</div><pre style="padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0;max-height:200px;overflow-y:auto">${esc(r.final_result.slice(0, 1000))}</pre></div>` : ''}
-
-        ${toolsHtml ? `<div><div style="font-size:10px;font-weight:600;text-transform:uppercase;opacity:0.6;margin-bottom:4px">Tool Call Timeline (${r.tool_calls.length})</div><div style="max-height:300px;overflow-y:auto">${toolsHtml}</div></div>` : ''}
+        ${html(errorMessage)}
+        ${html(toolFrequency)}
+        ${html(changedFiles)}
+        ${html(finalResult)}
+        ${html(toolTimeline)}
       </div>`;
   } catch (e) {
     container.innerHTML = renderError(e, 'viewRunReport(\'' + agentId + '\',\'' + runId + '\')');
@@ -1297,7 +1327,7 @@ function renderHierarchyAgentGraph(container, graphContext) {
   }
   roots.forEach((root) => positionSubtree(root, 0));
 
-  let svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;margin:0 auto">';
+  let svg = h`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;margin:0 auto">`;
 
   // Draw edges using only explicit parent_agent_id
   agentsData.forEach((agent) => {
@@ -1308,13 +1338,12 @@ function renderHierarchyAgentGraph(container, graphContext) {
     if (!parentPos || !childPos) return;
 
     const dispatched = graphContext.dispatchedAgents.has(agent.id);
-    svg += '<line x1="' + (parentPos.x + nodeW / 2) + '" y1="' + parentPos.y + '" x2="' + (childPos.x - nodeW / 2) + '" y2="' + childPos.y + '" stroke="' + (dispatched ? 'var(--accent)' : 'var(--border)') + '" stroke-width="' + (dispatched ? 2.2 : 1.2) + '"' +
-      ' opacity="' + (dispatched ? 0.95 : 0.7) + '"/>';
+    svg += h`<line x1="${parentPos.x + nodeW / 2}" y1="${parentPos.y}" x2="${childPos.x - nodeW / 2}" y2="${childPos.y}" stroke="${dispatched ? 'var(--accent)' : 'var(--border)'}" stroke-width="${dispatched ? 2.2 : 1.2}" opacity="${dispatched ? 0.95 : 0.7}"/>`;
 
     if (dispatched) {
       const mx = (parentPos.x + childPos.x) / 2;
       const my = (parentPos.y + childPos.y) / 2;
-      svg += '<text x="' + mx + '" y="' + (my - 8) + '" text-anchor="middle" fill="var(--accent)" font-size="8">dispatch</text>';
+      svg += h`<text x="${mx}" y="${my - 8}" text-anchor="middle" fill="var(--accent)" font-size="8">dispatch</text>`;
     }
   });
 
@@ -1324,7 +1353,7 @@ function renderHierarchyAgentGraph(container, graphContext) {
     if (!position) return;
     const color = getAgentGraphStatusColor(agent);
     const pulse = agent.status === 'running'
-      ? '<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/>'
+      ? h`<animate attributeName="opacity" values="1;0.6;1" dur="2s" repeatCount="indefinite"/>`
       : '';
     const assignedCount = (window._dashboardIssues || []).filter((issue) => issue.assigned_to === agent.id && ['open', 'in_progress', 'pending'].includes(issue.status)).length;
     const childCount = (childrenMap.get(agent.id) || []).length;
@@ -1332,16 +1361,17 @@ function renderHierarchyAgentGraph(container, graphContext) {
     const reason = graphContext.actionReasonByAgent.get(agent.id);
     const statusLabel = agent.paused ? 'paused' : agent.status;
     const metaParts = [statusLabel, assignedCount > 0 ? assignedCount + ' tasks' : null, childCount > 0 ? childCount + ' child' : null].filter(Boolean).join(' · ');
+    const pausedAttr = agent.paused ? h` stroke-dasharray="4,4"` : '';
 
-    svg += '<g style="cursor:pointer" onclick="viewAgent(\"' + agent.id + '\")">' +
-      '<rect x="' + (position.x - nodeW / 2) + '" y="' + (position.y - nodeH / 2) + '" width="' + nodeW + '" height="' + nodeH + '" rx="8" fill="' + color + '22" stroke="' + color + '" stroke-width="' + (dispatched ? '2.8' : '2') + '"' + (agent.paused ? ' stroke-dasharray="4,4"' : '') + '>' + pulse + '</rect>' +
-      '<text x="' + position.x + '" y="' + (position.y - 2) + '" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">' + esc(agent.name) + '</text>' +
-      '<text x="' + position.x + '" y="' + (position.y + 12) + '" text-anchor="middle" fill="' + (dispatched ? 'var(--accent)' : color) + '" font-size="8.5">' + esc(metaParts || statusLabel) + '</text>' +
-      '<title>' + esc([agent.name, reason].filter(Boolean).join(' · ')) + '</title>' +
-    '</g>';
+    svg += h`<g style="cursor:pointer" onclick="viewAgent('${agent.id}')">
+      <rect x="${position.x - nodeW / 2}" y="${position.y - nodeH / 2}" width="${nodeW}" height="${nodeH}" rx="8" fill="${color}22" stroke="${color}" stroke-width="${dispatched ? '2.8' : '2'}"${html(pausedAttr)}>${html(pulse)}</rect>
+      <text x="${position.x}" y="${position.y - 2}" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">${agent.name}</text>
+      <text x="${position.x}" y="${position.y + 12}" text-anchor="middle" fill="${dispatched ? 'var(--accent)' : color}" font-size="8.5">${metaParts || statusLabel}</text>
+      <title>${[agent.name, reason].filter(Boolean).join(' · ')}</title>
+    </g>`;
   });
 
-  svg += '</svg>';
+  svg += h`</svg>`;
 
   const hasOrphans = roots.some((r) => !r.is_controller);
   const note = hasOrphans
@@ -1366,15 +1396,15 @@ function renderAgentGraph() {
   const graph = renderHierarchyAgentGraph(container, graphContext);
 
   const runInfo = graphContext.latestRun
-    ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Latest decision: <span style="color:var(--fg)">' + esc(graphContext.latestRun.decision || '-') + '</span> · ' + esc(timeAgo(graphContext.latestRun.created_at)) + '</div>'
-    : '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">No orchestration decision records yet.</div>';
+    ? h`<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Latest decision: <span style="color:var(--fg)">${graphContext.latestRun.decision || '-'}</span> · ${timeAgo(graphContext.latestRun.created_at)}</div>`
+    : h`<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">No orchestration decision records yet.</div>`;
 
-  container.innerHTML = '<div class="card" style="padding:12px;text-align:center">' +
-    '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">' + graph.title + '</div>' +
-    '<div style="max-height:420px;overflow-y:auto;overflow-x:auto;padding:4px 0">' + graph.svg + '</div>' +
-    '<div style="font-size:11px;color:var(--text-secondary);margin-top:8px">' + graph.note + '</div>' +
-    runInfo +
-  '</div>';
+  container.innerHTML = h`<div class="card" style="padding:12px;text-align:center">
+    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">${graph.title}</div>
+    <div style="max-height:420px;overflow-y:auto;overflow-x:auto;padding:4px 0">${html(graph.svg)}</div>
+    <div style="font-size:11px;color:var(--text-secondary);margin-top:8px">${graph.note}</div>
+    ${html(runInfo)}
+  </div>`;
 }
 
 function getLatestOrchestrationRun() {
@@ -1403,10 +1433,10 @@ function renderOrchestrationDecisionPanel() {
 
   const latest = getLatestOrchestrationRun();
   if (!latest) {
-    container.innerHTML = '<div class="card" style="padding:12px">' +
-      '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">Orchestration Decisions</div>' +
-      '<div class="empty-state" style="padding:8px 0">No orchestration runs yet.</div>' +
-    '</div>';
+    container.innerHTML = h`<div class="card" style="padding:12px">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:8px">Orchestration Decisions</div>
+      <div class="empty-state" style="padding:8px 0">No orchestration runs yet.</div>
+    </div>`;
     return;
   }
 
@@ -1424,15 +1454,15 @@ function renderOrchestrationDecisionPanel() {
   const backoffMinutes = latest.backoff_ms ? Math.round(Number(latest.backoff_ms) / 60000) : 0;
   const backoffReason = latest.backoff_reason || '';
   const backoffHtml = backoffLabel
-    ? '<div style="margin-bottom:8px;padding:8px;border:1px solid var(--warning);border-radius:8px;background:rgba(210,153,34,0.08)">' +
-        '<div style="font-size:11px;font-weight:600;color:var(--warning)">Backoff active: ' + esc(backoffLabel) + (backoffMinutes ? ' (' + esc(String(backoffMinutes)) + 'm)' : '') + '</div>' +
-        '<div style="font-size:11px;color:var(--text-secondary);margin-top:4px">' + esc(backoffReason || 'No additional details') + '</div>' +
-      '</div>'
+    ? h`<div style="margin-bottom:8px;padding:8px;border:1px solid var(--warning);border-radius:8px;background:rgba(210,153,34,0.08)">
+        <div style="font-size:11px;font-weight:600;color:var(--warning)">Backoff active: ${backoffLabel}${backoffMinutes ? ` (${String(backoffMinutes)}m)` : ''}</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${backoffReason || 'No additional details'}</div>
+      </div>`
     : '';
 
   const reasonsHtml = reasons.length
-    ? reasons.slice(0, 5).map((r) => '<li style="margin:2px 0">' + esc(r) + '</li>').join('')
-    : '<li style="margin:2px 0;color:var(--text-secondary)">none</li>';
+    ? reasons.slice(0, 5).map((r) => h`<li style="margin:2px 0">${r}</li>`).join('')
+    : h`<li style="margin:2px 0;color:var(--text-secondary)">none</li>`;
 
   const dispatchHtml = dispatchResults.length
     ? dispatchResults.slice(0, 10).map((r) => {
@@ -1440,48 +1470,48 @@ function renderOrchestrationDecisionPanel() {
       const name = agent ? agent.name : r.agentId;
       const status = r.started ? 'started' : 'skipped';
       const color = r.started ? 'var(--success)' : 'var(--warning)';
-      return '<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--border);font-size:12px">' +
-        '<div style="min-width:0"><strong>' + esc(name) + '</strong><div style="color:var(--text-secondary);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px">' + esc(r.message || '') + '</div></div>' +
-        '<span style="color:' + color + ';font-weight:600;flex-shrink:0">' + status + '</span>' +
-      '</div>';
+      return h`<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--border);font-size:12px">
+        <div style="min-width:0"><strong>${name}</strong><div style="color:var(--text-secondary);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px">${r.message || ''}</div></div>
+        <span style="color:${color};font-weight:600;flex-shrink:0">${status}</span>
+      </div>`;
     }).join('')
-    : '<div style="color:var(--text-secondary);font-size:12px">No worker dispatch this run.</div>';
+    : h`<div style="color:var(--text-secondary);font-size:12px">No worker dispatch this run.</div>`;
 
   const history = orchestrationRunsData.slice(0, 8).map((r) => {
     const c = decisionColors[r.decision] || 'var(--text-secondary)';
-    const backoffNote = r.backoff_label ? ' · backoff ' + esc(r.backoff_label) : '';
-    return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px dashed var(--border)">' +
-      '<span><span style="color:' + c + ';font-weight:600">' + esc(r.decision || '-') + '</span> · ' + esc(r.engine || '-') + backoffNote + '</span>' +
-      '<span style="color:var(--text-secondary)">' + esc(timeAgo(r.created_at)) + '</span>' +
-    '</div>';
+    const backoffNote = r.backoff_label ? h` · backoff ${r.backoff_label}` : '';
+    return h`<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px dashed var(--border)">
+      <span><span style="color:${c};font-weight:600">${r.decision || '-'}</span> · ${r.engine || '-'}${html(backoffNote)}</span>
+      <span style="color:var(--text-secondary)">${timeAgo(r.created_at)}</span>
+    </div>`;
   }).join('');
 
-  container.innerHTML = '<div class="card" style="padding:12px">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">' +
-      '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6">Orchestration Decisions</div>' +
-      '<button class="btn btn-sm" onclick="loadOrchestrationRuns()">Refresh</button>' +
-    '</div>' +
+  container.innerHTML = h`<div class="card" style="padding:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6">Orchestration Decisions</div>
+      <button class="btn btn-sm" onclick="loadOrchestrationRuns()">Refresh</button>
+    </div>
 
-    '<div style="display:grid;grid-template-columns:1.2fr 1.8fr;gap:12px">' +
-      '<div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">' +
-        '<div style="font-size:12px;margin-bottom:4px">Latest: <strong style="color:' + decisionColor + '">' + esc(latest.decision || '-') + '</strong></div>' +
-        '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">engine=' + esc(latest.engine || '-') + ' · ' + esc(timeAgo(latest.created_at)) + '</div>' +
-        '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">dispatch=' + esc(String(latest.dispatch_count || 0)) + ' · controller=' + (latest.controller_started ? 'started' : 'not started') + '</div>' +
-        backoffHtml +
-        '<div style="font-size:11px;font-weight:600;margin-bottom:4px">Reasons</div>' +
-        '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px">' + reasonsHtml + '</ul>' +
-        '<div style="font-size:11px;font-weight:600;margin-bottom:4px">Planned actions</div>' +
-        '<div style="font-size:11px;color:var(--text-secondary)">' + esc(String(actions.length)) + ' action(s)</div>' +
-      '</div>' +
+    <div style="display:grid;grid-template-columns:1.2fr 1.8fr;gap:12px">
+      <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+        <div style="font-size:12px;margin-bottom:4px">Latest: <strong style="color:${decisionColor}">${latest.decision || '-'}</strong></div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">engine=${latest.engine || '-'} · ${timeAgo(latest.created_at)}</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">dispatch=${String(latest.dispatch_count || 0)} · controller=${latest.controller_started ? 'started' : 'not started'}</div>
+        ${html(backoffHtml)}
+        <div style="font-size:11px;font-weight:600;margin-bottom:4px">Reasons</div>
+        <ul style="margin:0 0 8px 16px;padding:0;font-size:11px">${html(reasonsHtml)}</ul>
+        <div style="font-size:11px;font-weight:600;margin-bottom:4px">Planned actions</div>
+        <div style="font-size:11px;color:var(--text-secondary)">${String(actions.length)} action(s)</div>
+      </div>
 
-      '<div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">' +
-        '<div style="font-size:11px;font-weight:600;margin-bottom:6px">Dispatch Results</div>' +
-        '<div style="max-height:165px;overflow:auto">' + dispatchHtml + '</div>' +
-        '<div style="font-size:11px;font-weight:600;margin-top:10px;margin-bottom:4px">Recent Runs</div>' +
-        '<div style="max-height:120px;overflow:auto">' + history + '</div>' +
-      '</div>' +
-    '</div>' +
-  '</div>';
+      <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+        <div style="font-size:11px;font-weight:600;margin-bottom:6px">Dispatch Results</div>
+        <div style="max-height:165px;overflow:auto">${html(dispatchHtml)}</div>
+        <div style="font-size:11px;font-weight:600;margin-top:10px;margin-bottom:4px">Recent Runs</div>
+        <div style="max-height:120px;overflow:auto">${html(history)}</div>
+      </div>
+    </div>
+  </div>`;
 }
 
 // ─── Cost Time-Series Chart ───

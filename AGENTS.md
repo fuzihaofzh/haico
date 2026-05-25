@@ -68,6 +68,7 @@ src/
 - **第三方库**: 浏览器端依赖 vendored 到 `public/vendor/`，禁止直接引用外部 CDN；新增/升级库时记录版本并确保静态文件可离线加载。
 - **缓存失效**: 自研静态资源 URL 禁止使用 `?v=` / `?ver=` 等手动版本号做 cache-bust；缓存失效由服务端 ETag 协商机制自动处理。
 - **htmx**: 本地文件 `public/vendor/htmx.min.js`；适合轻量表单/局部交互。htmx 表单默认 `application/x-www-form-urlencoded`，服务端需保持对应 parser；复杂业务逻辑仍放在 `public/js/pages/` 或 service/API 层。
+- **HTML 字符串 helper**: `public/js/shared/common.js` 暴露全局 `h` tagged template 与 `html(value)` 片段标记。新增/迁移前端 HTML 字符串时优先用 `h\`...\``；普通数据直接 `${value}` 自动转义；仅对已由 `h` 生成、静态 SVG/icon、或明确可信的内部 HTML 片段使用 `${html(fragment)}`，不要对用户输入使用 `html(...)`。
 
 ## Route / Service / Error Boundary
 

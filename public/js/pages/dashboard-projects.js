@@ -116,7 +116,7 @@ async function loadProjects(options = {}) {
       _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
       populateActivityProjectFilter();
       if (!projects.length) {
-        if (container) container.innerHTML = '<div class="empty-state">No projects yet. Create one to get started.</div>';
+        if (container) container.innerHTML = h`<div class="empty-state">No projects yet. Create one to get started.</div>`;
         return projects;
       }
 
@@ -134,10 +134,9 @@ async function loadProjects(options = {}) {
       const focusedId = (focusedEl?.classList.contains('quick-cmd-input') || focusedEl?.classList.contains('quick-cmd-body')) ? focusedEl.id : null;
 
       container.innerHTML = projects.map(p => {
-      const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
-      const remote = isRemoteProject(p);
-      const link = buildProjectPageHref(p.id);
-      const openAction = '';
+        const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
+        const remote = isRemoteProject(p);
+        const link = buildProjectPageHref(p.id);
         const access = remote
           ? { badge: 'REMOTE', tone: 'remote', summary: 'Remote instance', detail: `Connected via ${p.remote_instance_name || p.remote_base_url || 'remote instance'}` }
           : getProjectAccessMeta(p);
@@ -145,21 +144,27 @@ async function loadProjects(options = {}) {
         const ownerRole = remote ? 'Remote HAICO' : (p.owner?.role === 'admin' ? 'Global Admin' : 'Project Member');
         const memberCount = Number.isFinite(p.member_count) ? p.member_count : 0;
         const toggleButton = !remote && p.can_manage
-          ? `<button data-action="toggle-project-status" data-project-id="${p.id}" data-project-status="${p.status}" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>`
+          ? h`<button data-action="toggle-project-status" data-project-id="${p.id}" data-project-status="${p.status}" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>`
           : '';
         const userCount = remote ? 0 : (s.userIssues?.length || 0);
         const notifBadge = userCount > 0
-          ? `<a href="${link}/issues" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</a>`
+          ? h`<a href="${link}/issues" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</a>`
           : '';
         const lastAct = remote ? p.updated_at : _lastActivityMap[p.id];
         const activityText = lastAct ? timeAgo(lastAct) : null;
         const activityLine = activityText
-          ? `<div class="last-activity">Last activity: ${activityText}</div>`
+          ? h`<div class="last-activity">Last activity: ${activityText}</div>`
           : '';
         const remoteSource = remote
-          ? `<div class="project-card-source">Source: ${esc(p.remote_instance_name || p.remote_base_url || 'Remote instance')}</div>`
+          ? h`<div class="project-card-source">Source: ${p.remote_instance_name || p.remote_base_url || 'Remote instance'}</div>`
           : '';
-        const quickCmdBar = !remote && p.can_manage ? `
+        const remoteChip = remote
+          ? h`<span class="meta-chip meta-chip-remote" title="Remote instance URL">${p.remote_base_url || ''}</span>`
+          : '';
+        const agentError = s.agentError > 0
+          ? h`<span style="color:var(--error)">${s.agentError} error</span>`
+          : '';
+        const quickCmdBar = !remote && p.can_manage ? h`
           <div class="quick-cmd-bar" data-action="stop-card-open">
             <div class="quick-cmd-row">
               <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." data-action="quick-cmd-input" data-project-id="${p.id}">
@@ -168,19 +173,19 @@ async function loadProjects(options = {}) {
             <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="Details (optional)..." rows="3" data-collapsed></textarea>
           </div>
         ` : '';
-        return `
+        return h`
         <div class="card project-card" style="cursor:pointer" data-action="open-project-card" data-project-id="${p.id}">
           <div class="project-card-head">
             <div class="project-card-main">
-              <strong class="project-card-title">${esc(p.name)}${notifBadge}</strong>
-              ${remoteSource}
+              <strong class="project-card-title">${p.name}${html(notifBadge)}</strong>
+              ${html(remoteSource)}
               <div class="project-card-tags">
-                <span class="permission-badge permission-${access.tone}" title="${esc(access.summary)}">${access.badge}</span>
+                <span class="permission-badge permission-${access.tone}" title="${access.summary}">${access.badge}</span>
                 <span class="meta-chip" title="Project owner">
                   <span class="meta-chip-label">Owner</span>
-                  <span>${esc(ownerName)}</span>
+                  <span>${ownerName}</span>
                 </span>
-                ${remote ? `<span class="meta-chip meta-chip-remote" title="Remote instance URL">${esc(p.remote_base_url || '')}</span>` : ''}
+                ${html(remoteChip)}
                 <span class="meta-chip" title="Project member count">
                   <span class="meta-chip-label">Members</span>
                   <span>${memberCount}</span>
@@ -189,21 +194,21 @@ async function loadProjects(options = {}) {
             </div>
             <div style="display:flex;align-items:center;gap:6px">
               <span class="status-badge status-${p.status}">${p.status}</span>
-              ${toggleButton}
+              ${html(toggleButton)}
             </div>
           </div>
           <div class="project-card-note">
-            <span>${esc(access.detail)}</span>
+            <span>${access.detail}</span>
             <span>·</span>
-            <span>${esc(ownerRole)}</span>
+            <span>${ownerRole}</span>
           </div>
-          <p class="project-card-desc">${esc(p.description || '')}</p>
+          <p class="project-card-desc">${p.description || ''}</p>
           <div class="project-card-stats">
             <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm5 7c0-2.8-2.2-5-5-5s-5 2.2-5 5h10z"/></svg>
               <span>${s.running} running</span>
               <span style="opacity:0.5">/ ${s.agents}</span>
-              ${s.agentError > 0 ? `<span style="color:var(--error)">${s.agentError} error</span>` : ''}
+              ${html(agentError)}
             </div>
             <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -211,8 +216,8 @@ async function loadProjects(options = {}) {
               <span style="opacity:0.5">/ ${s.issues}</span>
             </div>
           </div>
-          ${activityLine}
-          ${quickCmdBar}
+          ${html(activityLine)}
+          ${html(quickCmdBar)}
         </div>
       `}).join('');
 
@@ -238,7 +243,7 @@ async function loadProjects(options = {}) {
       return projects;
     } catch (e) {
       if (container) {
-        container.innerHTML = '<div class="empty-state"></div>';
+        container.innerHTML = h`<div class="empty-state"></div>`;
         container.querySelector('.empty-state').textContent = 'Error loading projects: ' + e.message;
       }
       return [];
@@ -368,21 +373,21 @@ async function loadDashboardApprovals() {
     listEl.innerHTML = allApprovals.map(function(a) {
       const riskColors = { low: 'var(--success)', medium: 'var(--warning)', high: 'var(--error)', critical: 'var(--error)' };
       const riskColor = riskColors[a.risk_level] || 'var(--warning)';
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">' +
-        '<div>' +
-          '<strong>' + esc(a.title) + '</strong>' +
-          '<div style="font-size:11px;color:var(--text-secondary)">' +
-            '<a href="' + buildProjectPageHref(a._project_id) + '/workflow" style="color:var(--link)">' + esc(a._project_name) + '</a>' +
-            ' \u00b7 Agent: ' + esc(a.agent_name || 'unknown') +
-            ' \u00b7 Risk: <span style="color:' + riskColor + '">' + a.risk_level + '</span>' +
-            ' \u00b7 ' + timeAgo(a.created_at) +
-          '</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:4px;flex-shrink:0">' +
-          '<button class="btn btn-sm btn-primary" data-action="decide-approval" data-approval-id="' + esc(a.id) + '" data-decision="approved">Approve</button>' +
-          '<button class="btn btn-sm" data-action="decide-approval" data-approval-id="' + esc(a.id) + '" data-decision="rejected" style="color:var(--error)">Reject</button>' +
-        '</div>' +
-      '</div>';
+      return h`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <strong>${a.title}</strong>
+          <div style="font-size:11px;color:var(--text-secondary)">
+            <a href="${buildProjectPageHref(a._project_id)}/workflow" style="color:var(--link)">${a._project_name}</a>
+            · Agent: ${a.agent_name || 'unknown'}
+            · Risk: <span style="color:${riskColor}">${a.risk_level}</span>
+            · ${timeAgo(a.created_at)}
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="btn btn-sm btn-primary" data-action="decide-approval" data-approval-id="${a.id}" data-decision="approved">Approve</button>
+          <button class="btn btn-sm" data-action="decide-approval" data-approval-id="${a.id}" data-decision="rejected" style="color:var(--error)">Reject</button>
+        </div>
+      </div>`;
     }).join('');
   } catch (e) {
     console.error('Failed to load approvals', e);
@@ -441,57 +446,58 @@ async function loadActivityStream() {
 
       switch (ev.event_type) {
         case 'issue_created':
-          icon = '<span style="color:var(--success)">&#9679;</span>';
+          icon = h`<span style="color:var(--success)">&#9679;</span>`;
           label = 'New Issue';
-          detail = '<a href="' + buildIssuePageHref({ issueId: ev.id, projectId: ev.project_id, issueNumber: ev.number }) + '">#' + ev.number + '</a> ' + esc(ev.title);
+          detail = h`<a href="${buildIssuePageHref({ issueId: ev.id, projectId: ev.project_id, issueNumber: ev.number })}">#${ev.number}</a> ${ev.title}`;
           break;
         case 'issue_status_change':
-          icon = '<span style="color:var(--accent)">&#8635;</span>';
+          icon = h`<span style="color:var(--accent)">&#8635;</span>`;
           label = ev.status;
-          detail = '<a href="' + buildIssuePageHref({ issueId: ev.id, projectId: ev.project_id, issueNumber: ev.number }) + '">#' + ev.number + '</a> ' + esc(ev.title);
+          detail = h`<a href="${buildIssuePageHref({ issueId: ev.id, projectId: ev.project_id, issueNumber: ev.number })}">#${ev.number}</a> ${ev.title}`;
           break;
         case 'comment':
-          icon = '<span style="color:var(--text-secondary)">&#9998;</span>';
+          icon = h`<span style="color:var(--text-secondary)">&#9998;</span>`;
           label = 'Comment';
           var preview = (ev.body || '').slice(0, 50) + ((ev.body || '').length > 50 ? '...' : '');
-          detail = '<a href="' + buildIssuePageHref({ issueId: ev.id, projectId: ev.project_id, issueNumber: ev.issue_number }) + '">#' + ev.issue_number + '</a> ' + esc(preview);
+          detail = h`<a href="${buildIssuePageHref({ issueId: ev.id, projectId: ev.project_id, issueNumber: ev.issue_number })}">#${ev.issue_number}</a> ${preview}`;
           break;
         case 'agent_started':
-          icon = '<span style="color:var(--success)">&#9654;</span>';
+          icon = h`<span style="color:var(--success)">&#9654;</span>`;
           label = 'Agent Started';
-          detail = '<a href="' + buildProjectPageHref(ev.project_id) + '/agents">' + esc(ev.agent_name) + '</a>';
+          detail = h`<a href="${buildProjectPageHref(ev.project_id)}/agents">${ev.agent_name}</a>`;
           break;
         case 'agent_stopped':
-          icon = '<span style="color:var(--text-secondary)">&#9632;</span>';
+          icon = h`<span style="color:var(--text-secondary)">&#9632;</span>`;
           label = 'Agent Stopped';
-          detail = '<a href="' + buildProjectPageHref(ev.project_id) + '/agents">' + esc(ev.agent_name) + '</a>';
+          detail = h`<a href="${buildProjectPageHref(ev.project_id)}/agents">${ev.agent_name}</a>`;
           break;
         case 'approval_created':
-          icon = '<span style="color:var(--warning)">&#9888;</span>';
+          icon = h`<span style="color:var(--warning)">&#9888;</span>`;
           label = 'Approval Needed';
-          detail = esc(ev.title);
+          detail = h`${ev.title}`;
           break;
         case 'approval_decided':
-          icon = '<span style="color:var(--success)">&#10003;</span>';
+          icon = h`<span style="color:var(--success)">&#10003;</span>`;
           label = 'Approval ' + (ev.approval_status || '');
-          detail = esc(ev.title);
+          detail = h`${ev.title}`;
           break;
         default:
-          icon = '<span style="color:var(--text-secondary)">&#183;</span>';
+          icon = h`<span style="color:var(--text-secondary)">&#183;</span>`;
           label = ev.event_type;
           detail = '';
       }
+      const statusClass = label.toLowerCase().replace(/\s+/g,'-');
 
-      return '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:flex-start">' +
-        '<div style="flex-shrink:0;width:16px;text-align:center;line-height:18px">' + icon + '</div>' +
-        '<div style="flex:1;min-width:0">' +
-          '<div style="display:flex;justify-content:space-between;gap:8px">' +
-            '<span style="color:var(--text-secondary);font-size:10px;white-space:nowrap">[' + esc(ev.project_name || '') + ']</span>' +
-            '<span style="color:var(--text-secondary);font-size:10px;white-space:nowrap">' + timeAgo(ev.time) + '</span>' +
-          '</div>' +
-          '<div><span class="status-badge status-' + (label.toLowerCase().replace(/\s+/g,'-')) + '" style="font-size:10px;padding:1px 4px;margin-right:4px">' + esc(label) + '</span>' + detail + '</div>' +
-        '</div>' +
-      '</div>';
+      return h`<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:flex-start">
+        <div style="flex-shrink:0;width:16px;text-align:center;line-height:18px">${html(icon)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;justify-content:space-between;gap:8px">
+            <span style="color:var(--text-secondary);font-size:10px;white-space:nowrap">[${ev.project_name || ''}]</span>
+            <span style="color:var(--text-secondary);font-size:10px;white-space:nowrap">${timeAgo(ev.time)}</span>
+          </div>
+          <div><span class="status-badge status-${statusClass}" style="font-size:10px;padding:1px 4px;margin-right:4px">${label}</span>${html(detail)}</div>
+        </div>
+      </div>`;
     }).join('');
   } catch (e) {
     console.error('Failed to load activity stream', e);
@@ -502,10 +508,11 @@ function populateActivityProjectFilter() {
   var filter = document.getElementById('activity-project-filter');
   if (!filter) return;
   var current = filter.value;
-  var options = '<option value="">All Projects</option>';
+  var options = h`<option value="">All Projects</option>`;
   for (var p of getLocalDashboardProjects()) {
     var id = p.id;
-    options += '<option value="' + id + '"' + (id === current ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+    var selectedAttr = id === current ? h` selected` : '';
+    options += h`<option value="${id}"${html(selectedAttr)}>${p.name}</option>`;
   }
   filter.innerHTML = options;
 }
@@ -539,39 +546,39 @@ async function loadAgentBoard() {
     panel.style.display = '';
 
     if (agents.length === 0) {
-      list.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:12px">No agents with status: ' + esc(_agentBoardFilter) + '</div>';
+      list.innerHTML = h`<div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:12px">No agents with status: ${_agentBoardFilter}</div>`;
       return;
     }
 
-    list.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px">' +
-      agents.map(function(agent) {
+    list.innerHTML = h`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px">
+      ${html(agents.map(function(agent) {
         var statusColors = { running: 'var(--success)', error: 'var(--error)', waiting: 'var(--warning)', idle: 'var(--text-secondary)' };
         var statusIcons = { running: '&#9654;', error: '&#9888;', waiting: '&#8987;', idle: '&#9679;' };
         var color = statusColors[agent.status] || 'var(--text-secondary)';
         var icon = statusIcons[agent.status] || '&#9679;';
         var issueInfo = agent.current_issue
-          ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#' + agent.current_issue.number + ' ' + esc(agent.current_issue.title) + '</div>'
+          ? h`<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#${agent.current_issue.number} ${agent.current_issue.title}</div>`
           : '';
-        var controllerBadge = agent.is_controller ? '<span style="font-size:9px;background:var(--accent);color:#fff;padding:0 4px;border-radius:3px;margin-left:4px">CTRL</span>' : '';
-        var pausedBadge = agent.paused ? '<span style="font-size:9px;background:var(--warning);color:#000;padding:0 4px;border-radius:3px;margin-left:4px">PAUSED</span>' : '';
-        var remoteBadge = agent.is_remote ? '<span style="font-size:9px;background:var(--selected-bg);color:var(--accent);padding:0 4px;border-radius:3px;margin-left:4px">REMOTE</span>' : '';
+        var controllerBadge = agent.is_controller ? h`<span style="font-size:9px;background:var(--accent);color:#fff;padding:0 4px;border-radius:3px;margin-left:4px">CTRL</span>` : '';
+        var pausedBadge = agent.paused ? h`<span style="font-size:9px;background:var(--warning);color:#000;padding:0 4px;border-radius:3px;margin-left:4px">PAUSED</span>` : '';
+        var remoteBadge = agent.is_remote ? h`<span style="font-size:9px;background:var(--selected-bg);color:var(--accent);padding:0 4px;border-radius:3px;margin-left:4px">REMOTE</span>` : '';
 
-        return '<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:10px 12px;display:flex;align-items:flex-start;gap:8px">' +
-          '<div style="color:' + color + ';font-size:14px;flex-shrink:0;line-height:18px">' + icon + '</div>' +
-          '<div style="flex:1;min-width:0">' +
-            '<div style="display:flex;align-items:center;gap:4px">' +
-              '<a href="' + buildProjectPageHref(agent.project_id) + '/agents" style="font-weight:600;font-size:13px;color:var(--fg);text-decoration:none">' + esc(agent.name) + '</a>' +
-              controllerBadge + pausedBadge + remoteBadge +
-            '</div>' +
-            '<div style="font-size:11px;color:var(--text-secondary)">' +
-              '<a href="' + buildProjectPageHref(agent.project_id) + '" style="color:var(--link)">' + esc(agent.project_name) + '</a>' +
-              ' · <span style="color:' + color + '">' + agent.status + '</span>' +
-            '</div>' +
-            issueInfo +
-          '</div>' +
-        '</div>';
-      }).join('') +
-    '</div>';
+        return h`<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:10px 12px;display:flex;align-items:flex-start;gap:8px">
+          <div style="color:${color};font-size:14px;flex-shrink:0;line-height:18px">${html(icon)}</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:4px">
+              <a href="${buildProjectPageHref(agent.project_id)}/agents" style="font-weight:600;font-size:13px;color:var(--fg);text-decoration:none">${agent.name}</a>
+              ${html(controllerBadge)}${html(pausedBadge)}${html(remoteBadge)}
+            </div>
+            <div style="font-size:11px;color:var(--text-secondary)">
+              <a href="${buildProjectPageHref(agent.project_id)}" style="color:var(--link)">${agent.project_name}</a>
+              · <span style="color:${color}">${agent.status}</span>
+            </div>
+            ${html(issueInfo)}
+          </div>
+        </div>`;
+      }).join(''))}
+    </div>`;
   } catch (e) {
     console.error('Failed to load agent board', e);
   }

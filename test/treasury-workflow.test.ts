@@ -7,7 +7,7 @@ type TreasuryApi = {
   render: (model: any) => string;
 };
 
-function esc(value: string): string {
+function escapeValue(value: string): string {
   return String(value).replace(/[&<>"']/g, (char) => {
     const map: Record<string, string> = {
       '&': '&amp;',
@@ -20,14 +20,28 @@ function esc(value: string): string {
   });
 }
 
+function html(value: unknown): { __html: string } {
+  return { __html: String(value == null ? '' : value) };
+}
+
+function h(parts: TemplateStringsArray, ...vals: unknown[]): string {
+  return parts.reduce((acc, part, i) => {
+    const value = vals[i] as { __html?: string } | null | undefined;
+    if (value == null) return acc + part;
+    if (typeof value === 'object' && value.__html != null) return acc + part + value.__html;
+    return acc + part + escapeValue(String(value));
+  }, '');
+}
+
 function loadTreasuryWorkflow(): TreasuryApi {
-  const source = fs.readFileSync('public/js/treasury-workflow.js', 'utf8');
+  const source = fs.readFileSync('public/js/components/treasury-workflow.js', 'utf8');
   const sandbox = {
     module: { exports: {} },
     exports: {},
     console,
-    esc,
-    window: {},
+    html,
+    h,
+    window: { html, h },
   };
 
   vm.createContext(sandbox);
@@ -73,11 +87,11 @@ assert.ok(
   '决策护栏应包含自动应用规则',
 );
 
-const html = api.render(model);
-assert.ok(html.includes('Treasury Control Layer'), '页面应渲染资金控制层标题');
-assert.ok(html.includes('Meridian Treasury Copilot'), '页面应渲染项目名称徽标');
-assert.ok(html.includes('Dual approval'), '页面应展示双人审批路径');
-assert.ok(html.includes('Awaiting approval'), '页面应展示待审批状态');
-assert.ok(!html.includes('[object Object]'), '渲染结果不应泄漏对象字符串');
+const rendered = api.render(model);
+assert.ok(rendered.includes('Treasury Control Layer'), '页面应渲染资金控制层标题');
+assert.ok(rendered.includes('Meridian Treasury Copilot'), '页面应渲染项目名称徽标');
+assert.ok(rendered.includes('Dual approval'), '页面应展示双人审批路径');
+assert.ok(rendered.includes('Awaiting approval'), '页面应展示待审批状态');
+assert.ok(!rendered.includes('[object Object]'), '渲染结果不应泄漏对象字符串');
 
 console.log('treasury workflow layer checks passed');

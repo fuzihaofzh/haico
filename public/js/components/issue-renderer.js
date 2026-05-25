@@ -201,46 +201,47 @@ var IssueRenderer = (function() {
       return issue && issue.project_id ? '[#' + n + '](' + buildIssuePageHref({ issueId: '', projectId: issue.project_id, issueNumber: n }) + ')' : m;
     });
 
-    var html = '';
+    var renderedHtml = '';
     if (typeof marked !== 'undefined') {
-      try { html = marked.parse(processed, { gfm: true }); } catch(e) { html = '<pre style="white-space:pre-wrap">' + esc(normalizedText) + '</pre>'; }
+      try { renderedHtml = marked.parse(processed, { gfm: true }); } catch(e) { renderedHtml = h`<pre style="white-space:pre-wrap">${normalizedText}</pre>`; }
     } else {
-      html = '<pre style="white-space:pre-wrap">' + esc(normalizedText) + '</pre>';
+      renderedHtml = h`<pre style="white-space:pre-wrap">${normalizedText}</pre>`;
     }
 
     // Highlight @mentions
     var agentNames = agents.map(function(a) { return a.name; });
-    html = highlightMentionsInHtml(html, agentNames);
+    renderedHtml = highlightMentionsInHtml(renderedHtml, agentNames);
 
     // Make file paths in <code> clickable — link to Files tab preview
     // Matches paths like src/foo/bar.ts, public/js/app.js, etc.
-    html = html.replace(/<code>([^<]+?)<\/code>/g, function(m, path) {
+    renderedHtml = renderedHtml.replace(/<code>([^<]+?)<\/code>/g, function(m, path) {
       // Match file paths: start with a known dir or contain / with a file extension
       if (/^(?:src|public|dist|test|tests|lib|config|scripts|docs|\.github)\/[\w./-]+\.\w+$/.test(path) ||
           /^[\w.-]+\/[\w./-]+\.\w+$/.test(path)) {
         var fileAgentId = getFileLinkAgentId(authorId);
-        return '<code class="file-link" data-file-path="' + esc(path) + '"' + (fileAgentId ? ' data-agent-id="' + esc(fileAgentId) + '"' : '') + ' title="Click to preview in Files tab" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted;color:#61afef">' + esc(path) + '</code>';
+        var agentAttr = fileAgentId ? h` data-agent-id="${fileAgentId}"` : '';
+        return h`<code class="file-link" data-file-path="${path}"${html(agentAttr)} title="Click to preview in Files tab" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted;color:#61afef">${path}</code>`;
       }
       return m;
     });
 
     // Restore LaTeX blocks with KaTeX rendering
-    html = html.replace(/%%LATEX_BLOCK_(\d+)%%/g, function(_, idx) {
+    renderedHtml = renderedHtml.replace(/%%LATEX_BLOCK_(\d+)%%/g, function(_, idx) {
       var block = latexBlocks[parseInt(idx)];
       if (typeof katex !== 'undefined') {
         try { return katex.renderToString(block.tex, { displayMode: block.display, throwOnError: false }); }
-        catch(e) { return '<code style="color:var(--error)">' + block.tex + '</code>'; }
+        catch(e) { return h`<code style="color:var(--error)">${block.tex}</code>`; }
       }
-      return '<code>' + esc(block.tex) + '</code>';
+      return h`<code>${block.tex}</code>`;
     });
 
-    return html;
+    return renderedHtml;
   }
 
   function labelHtml(text) {
     var colors = ['#e06c75','#98c379','#e5c07b','#61afef','#c678dd','#56b6c2','#d19a66','#b5bd68','#cc6666','#8abeb7'];
     var bg = colors[hashCode(text.trim()) % colors.length];
-    return '<span style="font-size:11px;padding:1px 8px;border-radius:12px;background:' + bg + '22;color:' + bg + ';border:1px solid ' + bg + '44;font-weight:500">' + esc(text.trim()) + '</span>';
+    return h`<span style="font-size:11px;padding:1px 8px;border-radius:12px;background:${bg}22;color:${bg};border:1px solid ${bg}44;font-weight:500">${text.trim()}</span>`;
   }
 
   function statusIcon(s) {
