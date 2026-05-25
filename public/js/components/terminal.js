@@ -139,11 +139,15 @@ async function populateTerminalCommandProfileSelect() {
   });
 }
 
-function setTerminalCommandProfileSelection(commandTemplate, commandType) {
+function setTerminalCommandProfileSelection(commandTemplate, commandType, commandProfileId) {
   const select = document.getElementById('agent-command-profile');
   if (!select) return;
 
   const manager = getCommandProfileManager();
+  if (commandProfileId && manager?.getById(commandProfileId)) {
+    select.value = commandProfileId;
+    return;
+  }
   const normalizedCommand = String(commandTemplate || '').trim();
   if (!normalizedCommand) {
     select.value = '';
@@ -163,12 +167,16 @@ function setTerminalCommandProfileSelection(commandTemplate, commandType) {
   select.value = CUSTOM_COMMAND_PROFILE_VALUE;
 }
 
-function updateTerminalCommandPreview(commandTemplate, commandType, fallbackText) {
+function updateTerminalCommandPreview(commandTemplate, commandType, fallbackText, commandProfileId) {
   const preview = document.getElementById('agent-command-template-preview');
   if (!preview) return;
+  const manager = getCommandProfileManager();
+  const selectedProfile = manager?.getById(commandProfileId || '') || manager?.findMatch(commandTemplate, commandType) || null;
   const command = String(commandTemplate || '').trim();
   preview.textContent = command
-    ? `Command: ${command}${commandType ? ` (${commandType})` : ''}`
+    ? selectedProfile
+      ? `Agent Tool: ${manager?.formatLabel ? manager.formatLabel(selectedProfile) : `${selectedProfile.name} (${selectedProfile.type})`} · Command: ${command}`
+      : `Command: ${command}${commandType ? ` (${commandType})` : ''}`
     : fallbackText;
 }
 
@@ -178,11 +186,11 @@ async function hydrateTerminalCommandProfileControls(agent) {
 
   await populateTerminalCommandProfileSelect();
   input.value = agent?.command_template || '';
-  setTerminalCommandProfileSelection(agent?.command_template, agent?.command_type);
+  setTerminalCommandProfileSelection(agent?.command_template, agent?.command_type, agent?.command_profile_id);
   const manager = getCommandProfileManager();
   const selectedProfile = manager?.getById(document.getElementById('agent-command-profile')?.value || '') || null;
   input.dataset.commandType = selectedProfile?.type || agent?.command_type || '';
-  updateTerminalCommandPreview(input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
+  updateTerminalCommandPreview(input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.', document.getElementById('agent-command-profile')?.value || '');
 }
 
 function handleTerminalCommandProfileChange() {
@@ -195,7 +203,7 @@ function handleTerminalCommandProfileChange() {
   if (selectedProfile) {
     input.value = selectedProfile.command || '';
     input.dataset.commandType = selectedProfile.type || '';
-    updateTerminalCommandPreview(input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
+    updateTerminalCommandPreview(input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.', select.value);
     return;
   }
 
@@ -244,16 +252,18 @@ function buildTerminalCommandConfigPayload() {
 
   if (selectedProfile) {
     return {
+      command_profile_id: selectedProfile.id,
       command_template: selectedProfile.command,
       command_type: selectedProfile.type,
     };
   }
 
   if (!commandTemplate) {
-    return { command_template: null, command_type: null };
+    return { command_profile_id: null, command_template: null, command_type: null };
   }
 
   return {
+    command_profile_id: null,
     command_template: commandTemplate,
     command_type: input?.dataset.commandType || undefined,
   };
@@ -267,10 +277,10 @@ async function refreshTerminalCommandProfileControls() {
   const manager = getCommandProfileManager();
   const selectedType = manager?.getById(select.value)?.type || window.currentAgentState?.command_type || null;
   await populateTerminalCommandProfileSelect();
-  setTerminalCommandProfileSelection(input.value, selectedType);
+  setTerminalCommandProfileSelection(input.value, selectedType, window.currentAgentState?.command_profile_id);
   const selectedProfile = manager?.getById(select.value) || null;
   input.dataset.commandType = selectedProfile?.type || selectedType || '';
-  updateTerminalCommandPreview(input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
+  updateTerminalCommandPreview(input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.', select.value);
 }
 
 window.addEventListener('haico:command-profiles-changed', () => {

@@ -1,12 +1,18 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../../db/database';
-import { Agent, CreateAgentInput, Project } from '../../types';
+import { Agent, CommandProfile, CreateAgentInput, Project } from '../../types';
 import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
 import { validateParentAgentAssignment } from './hierarchy';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
 import logger from '../../logger';
-import { AgentInvalidParentAssignmentError, AgentNameRequiredError, AgentNotFoundError, AgentProjectNotFoundError } from './errors';
+import {
+  AgentCommandProfileNotFoundError,
+  AgentInvalidParentAssignmentError,
+  AgentNameRequiredError,
+  AgentNotFoundError,
+  AgentProjectNotFoundError,
+} from './errors';
 import { UpdateAgentInput } from './types';
 import { ensureProjectDefaultExecutorProfile } from '../executors/profiles';
 import { stopCliTaskRun } from '../executors/cli-executor';
@@ -36,6 +42,14 @@ function safeJson(value: unknown): string {
   } catch {
     return '{}';
   }
+}
+
+function resolveCommandProfile(db: Database.Database, profileId: string | null | undefined): CommandProfile | null {
+  const normalized = String(profileId || '').trim();
+  if (!normalized) return null;
+  const profile = db.prepare('SELECT * FROM command_profiles WHERE id = ?').get(normalized) as CommandProfile | undefined;
+  if (!profile) throw new AgentCommandProfileNotFoundError();
+  return profile;
 }
 
 function serializeAgent(db: Database.Database, agent: Agent): any {
@@ -74,6 +88,7 @@ export function listProjectAgents(projectId: string): any[] {
       session_token_count,
       session_max_tokens,
       session_resume_timeout,
+      command_profile_id,
       command_template,
       command_type,
       status,
@@ -92,11 +107,14 @@ export function listProjectAgents(projectId: string): any[] {
 
 export function createAgent(projectId: string, input: CreateAgentInput): Agent {
   const body = (input || {}) as CreateAgentInput;
-  const { name, role, is_controller, session_id, working_directory, command_template, command_type, parent_agent_id } = body;
+  const { name, role, is_controller, session_id, working_directory, command_profile_id, command_template, command_type, parent_agent_id } = body;
   if (!name) throw new AgentNameRequiredError();
 
   const db = getDatabase();
   const project = getProjectOrThrow(db, projectId);
+  const commandProfile = resolveCommandProfile(db, command_profile_id);
+  const inheritedProjectCommandProfile = commandProfile ? null : resolveCommandProfile(db, project.command_profile_id);
+  const finalCommandProfileId = commandProfile?.id || null;
 
   const hasExplicitParent = Object.prototype.hasOwnProperty.call(body, 'parent_agent_id');
   let resolvedParentAgentId = parent_agent_id;
@@ -117,14 +135,18 @@ export function createAgent(projectId: string, input: CreateAgentInput): Agent {
   }
 
   const id = uuidv4();
-  let finalCommandTemplate = typeof command_template === 'string' ? command_template.trim() || null : null;
-  let finalCommandType = resolveCommandType(command_type, finalCommandTemplate);
+  let finalCommandTemplate = commandProfile?.command || (typeof command_template === 'string' ? command_template.trim() || null : null);
+  let finalCommandType = commandProfile
+    ? resolveCommandType(commandProfile.type, finalCommandTemplate)
+    : resolveCommandType(command_type, finalCommandTemplate);
   if (is_controller) {
     const controllerCommandConfig = buildControllerCommandConfig({
       commandTemplate: finalCommandTemplate,
-      commandType: command_type,
+      commandType: commandProfile ? commandProfile.type : command_type,
+      commandProfileConfigJson: commandProfile?.config_json,
       fallbackCommandTemplate: project.command_template,
       fallbackCommandType: project.command_type,
+      fallbackCommandProfileConfigJson: inheritedProjectCommandProfile?.config_json,
     });
     finalCommandTemplate = controllerCommandConfig.commandTemplate;
     finalCommandType = controllerCommandConfig.commandType;
@@ -146,9 +168,9 @@ export function createAgent(projectId: string, input: CreateAgentInput): Agent {
     INSERT INTO agents (
       id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
       custom_instructions, constraints_json, context_json, capabilities_json, executor_preferences_json,
-      command_template, command_type, status
+      command_profile_id, command_template, command_type, status
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, 'idle')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, 'idle')
   `).run(
     id,
     projectId,
@@ -162,6 +184,7 @@ export function createAgent(projectId: string, input: CreateAgentInput): Agent {
     contextJson,
     capabilitiesJson,
     executorPreferencesJson,
+    finalCommandProfileId,
     finalCommandTemplate,
     finalCommandType
   );
@@ -196,6 +219,7 @@ export function updateAgent(agentId: string, input: UpdateAgentInput): Agent {
     session_max_runs,
     session_max_tokens,
     session_resume_timeout,
+    command_profile_id,
     command_template,
     command_type,
     parent_agent_id,
@@ -236,30 +260,49 @@ export function updateAgent(agentId: string, input: UpdateAgentInput): Agent {
 
   const hasCommandTemplate = Object.prototype.hasOwnProperty.call(body, 'command_template');
   const hasCommandType = Object.prototype.hasOwnProperty.call(body, 'command_type');
-  let nextCommandTemplate = hasCommandTemplate
+  const hasCommandProfileId = Object.prototype.hasOwnProperty.call(body, 'command_profile_id');
+  const nextCommandProfile = hasCommandProfileId
+    ? resolveCommandProfile(db, command_profile_id)
+    : null;
+  const inheritedProjectCommandProfile = nextCommandProfile ? null : resolveCommandProfile(db, getProjectOrThrow(db, existing.project_id).command_profile_id);
+  const nextCommandProfileId = hasCommandProfileId
+    ? nextCommandProfile?.id || null
+    : existing.command_profile_id || null;
+  let nextCommandTemplate = nextCommandProfile
+    ? nextCommandProfile.command
+    : hasCommandTemplate
     ? (typeof command_template === 'string' ? command_template.trim() || null : null)
     : existing.command_template;
-  let nextCommandType = hasCommandType
+  let nextCommandType = nextCommandProfile
+    ? resolveCommandType(nextCommandProfile.type, nextCommandTemplate)
+    : hasCommandType
     ? resolveCommandType(command_type, nextCommandTemplate)
     : hasCommandTemplate
       ? resolveCommandType(null, nextCommandTemplate)
       : existing.command_type;
 
-  if (existing.is_controller && hasCommandTemplate && nextCommandTemplate) {
+  if (existing.is_controller && (hasCommandProfileId || hasCommandTemplate) && nextCommandTemplate) {
     const controllerCommandConfig = buildControllerCommandConfig({
       commandTemplate: nextCommandTemplate,
-      commandType: hasCommandType ? command_type : undefined,
+      commandType: nextCommandProfile ? nextCommandProfile.type : (hasCommandType ? command_type : undefined),
+      commandProfileConfigJson: nextCommandProfile?.config_json,
+      fallbackCommandProfileConfigJson: inheritedProjectCommandProfile?.config_json,
     });
     nextCommandTemplate = controllerCommandConfig.commandTemplate;
     nextCommandType = controllerCommandConfig.commandType;
   }
 
-  if (hasCommandTemplate) {
+  if (hasCommandProfileId) {
+    fields.push('command_profile_id = ?');
+    params.push(nextCommandProfileId);
+  }
+
+  if (hasCommandProfileId || hasCommandTemplate) {
     fields.push('command_template = ?');
     params.push(nextCommandTemplate);
   }
 
-  if (hasCommandType || hasCommandTemplate) {
+  if (hasCommandProfileId || hasCommandType || hasCommandTemplate) {
     fields.push('command_type = ?');
     params.push(nextCommandType);
   }

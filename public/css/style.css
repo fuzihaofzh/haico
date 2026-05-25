@@ -1064,6 +1064,21 @@ header h1 span { color: var(--accent); }
   margin-bottom: 10px;
 }
 
+.command-profile-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.command-profile-section-heading h4 {
+  margin: 0;
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
 .command-profiles-status {
   font-size: 11px;
   color: var(--text-secondary);
@@ -1083,7 +1098,7 @@ header h1 span { color: var(--accent); }
 
 .command-profiles-table {
   width: 100%;
-  min-width: 520px;
+  min-width: 980px;
   border-collapse: collapse;
 }
 
@@ -1097,6 +1112,10 @@ header h1 span { color: var(--accent); }
 
 .command-profiles-table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.command-profiles-table tbody tr.is-dirty td {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .command-profiles-table th {
@@ -1125,16 +1144,120 @@ header h1 span { color: var(--accent); }
   font-family: monospace;
 }
 
+.command-profile-config {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 88%, var(--header-bg));
+}
+
+.command-profile-config[data-config-state="configured"] {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+}
+
+.command-profile-config-summary {
+  justify-self: start;
+  min-height: 18px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(125, 133, 144, 0.16);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.command-profile-config[data-config-state="configured"] .command-profile-config-summary {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.command-profile-config-field {
+  display: grid;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--fg);
+}
+
+.command-profile-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--fg);
+}
+
+.setting-group .command-profile-config-field,
+.setting-group .command-profile-check,
+.setting-group .command-profile-form-field {
+  opacity: 1;
+}
+
+.command-profile-tools {
+  min-height: 54px;
+  resize: vertical;
+}
+
 .command-profile-actions {
   display: flex;
   gap: 6px;
   align-items: center;
 }
 
+.command-profile-actions .btn[disabled],
+.command-profile-form-actions .btn[disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .command-profiles-empty {
   font-size: 12px;
   color: var(--text-secondary);
   text-align: center;
+}
+
+.command-profile-create-panel {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.command-profile-form-grid {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(150px, 0.8fr) minmax(260px, 1.4fr) minmax(120px, 0.6fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.command-profile-form-field {
+  display: grid;
+  gap: 6px;
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.command-profile-form-command,
+.command-profile-form-config {
+  grid-column: span 2;
+}
+
+.command-profile-form-field > span {
+  display: block;
+}
+
+.command-profile-form-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  min-height: 55px;
 }
 
 /* Toggle switch */
@@ -3766,6 +3889,16 @@ header h1 span { color: var(--accent); }
   .settings-page-grid { grid-template-columns: 1fr; }
   .settings-page-header { align-items: flex-start; }
   .remote-inline-form { grid-template-columns: 1fr; }
+  .command-profile-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .command-profile-form-command,
+  .command-profile-form-config {
+    grid-column: auto;
+  }
+  .command-profile-form-actions {
+    min-height: 0;
+  }
   .project-new-grid,
   .create-project-path-row {
     grid-template-columns: 1fr;

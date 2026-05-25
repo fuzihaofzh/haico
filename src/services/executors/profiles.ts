@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../../config';
-import { Agent, ExecutorProfile, Project } from '../../types';
+import { Agent, CommandProfile, ExecutorProfile, Project } from '../../types';
 import { detectCommandTypeFromCommand, resolveCommandType } from '../command-profiles';
 import { ExecutorSnapshot } from './types';
 
@@ -16,6 +16,17 @@ function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
 
 function normalizeExecutorType(commandType: ReturnType<typeof resolveCommandType> | null): ExecutorProfile['executor_type'] {
   return commandType || 'shell';
+}
+
+function resolveLatestCommandProfile(
+  db: Database.Database,
+  agent: Agent,
+  project: Project
+): CommandProfile | null {
+  const profileId = String(agent.command_profile_id || project.command_profile_id || '').trim();
+  if (!profileId) return null;
+  const profile = db.prepare('SELECT * FROM command_profiles WHERE id = ?').get(profileId) as CommandProfile | undefined;
+  return profile || null;
 }
 
 export function defaultSessionPolicy(agent?: Partial<Agent>): ExecutorSnapshot['session_policy'] {
@@ -114,18 +125,31 @@ export function resolveExecutorProfile(
   return fallback;
 }
 
-export function snapshotExecutorConfig(profile: ExecutorProfile, agent: Agent): ExecutorSnapshot {
+export function snapshotExecutorConfig(
+  db: Database.Database,
+  profile: ExecutorProfile,
+  agent: Agent,
+  project: Project
+): ExecutorSnapshot {
   const sessionPolicy = {
     ...defaultSessionPolicy(agent),
     ...safeJsonParse<Partial<ExecutorSnapshot['session_policy']>>(profile.session_policy_json, {}),
   };
+  const latestCommandProfile = resolveLatestCommandProfile(db, agent, project);
+  const commandTemplate = latestCommandProfile?.command || profile.command_template;
+  const commandType = latestCommandProfile
+    ? resolveCommandType(latestCommandProfile.type, commandTemplate)
+    : profile.command_type;
 
   return {
     id: profile.id,
     name: profile.name,
-    executor_type: profile.executor_type,
-    command_template: profile.command_template,
-    command_type: profile.command_type,
+    executor_type: normalizeExecutorType(commandType),
+    command_template: commandTemplate,
+    command_type: commandType,
+    command_profile_id: latestCommandProfile?.id || null,
+    command_profile_name: latestCommandProfile?.name || null,
+    command_profile_config_json: latestCommandProfile?.config_json || '{}',
     working_directory: profile.working_directory || agent.working_directory || null,
     env: safeJsonParse<Record<string, string>>(profile.env_json, {}),
     session_policy: {

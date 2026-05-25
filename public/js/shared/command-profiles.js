@@ -37,7 +37,7 @@
         if (!res.ok) {
           throw new Error(data?.error || 'Failed to load Agent Tools');
         }
-        commandProfiles = Array.isArray(data?.profiles) ? data.profiles : [];
+        commandProfiles = Array.isArray(data?.profiles) ? data.profiles.map(normalizeProfile) : [];
         profilesLoaded = true;
         dispatchProfilesChanged();
       } catch (error) {
@@ -60,6 +60,33 @@
 
   function normalizeValue(value) {
     return String(value || '').trim();
+  }
+
+  function normalizeConfigJson(value) {
+    if (!value) return {};
+    if (typeof value === 'object' && !Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  }
+
+  function normalizeProfile(profile) {
+    return {
+      ...profile,
+      scenario: normalizeValue(profile?.scenario) || null,
+      config_json: normalizeConfigJson(profile?.config_json),
+    };
+  }
+
+  function formatProfileLabel(profile) {
+    const scenario = normalizeValue(profile?.scenario);
+    return `${profile?.name || 'Agent Tool'}${scenario ? ` · ${scenario}` : ''} (${profile?.type || 'unknown'})`;
   }
 
   function findMatchingProfile(command, type) {
@@ -94,7 +121,7 @@
     }
     commandProfiles.forEach((profile) => {
       items.push(
-        `<option value="${profile.id}">${esc(profile.name)} (${esc(profile.type)})</option>`
+        `<option value="${profile.id}">${esc(formatProfileLabel(profile))}</option>`
       );
     });
     if (commandProfiles.length === 0 && !includeProjectDefault && !includeCustom) {
@@ -109,6 +136,7 @@
     getProfiles: () => commandProfiles.slice(),
     getById: getProfileById,
     findMatch: findMatchingProfile,
+    formatLabel: formatProfileLabel,
     populateSelect,
     isLoading: () => profilesLoading,
     getLoadError: () => loadError,

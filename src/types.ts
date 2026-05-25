@@ -7,6 +7,7 @@ export interface Project {
   name: string;
   description: string;
   task_description: string;
+  command_profile_id: string | null;
   command_template: string;
   command_type: CommandProfileType | null;
   orchestrator_engine: OrchestratorEngine;
@@ -53,6 +54,7 @@ export interface Agent {
   command_template: string | null;
   /** @deprecated Executor config is resolved from executor_profiles. */
   command_type: CommandProfileType | null;
+  command_profile_id: string | null;
   /** @deprecated Runtime state is derived from task_runs. */
   status: 'idle' | 'running' | 'waiting' | 'error';
   paused: boolean;
@@ -195,6 +197,7 @@ export interface CreateProjectInput {
   name: string;
   description?: string;
   task_description: string;
+  command_profile_id?: string | null;
   command_template?: string;
   command_type?: CommandProfileType | null;
   orchestrator_engine?: OrchestratorEngine;
@@ -210,6 +213,7 @@ export interface CreateAgentInput {
   parent_agent_id?: string | null;
   session_id?: string;
   working_directory?: string;
+  command_profile_id?: string | null;
   command_template?: string;
   command_type?: CommandProfileType | null;
   constraints_json?: string;
@@ -223,6 +227,8 @@ export interface CommandProfile {
   name: string;
   command: string;
   type: CommandProfileType;
+  scenario: string | null;
+  config_json: string;
   created_at: string;
   updated_at: string;
 }

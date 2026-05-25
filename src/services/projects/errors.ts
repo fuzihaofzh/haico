@@ -14,6 +14,13 @@ export class InvalidProjectOrchestratorEngineError extends Error {
   }
 }
 
+export class ProjectCommandProfileNotFoundError extends Error {
+  constructor() {
+    super('Command profile not found');
+    this.name = 'ProjectCommandProfileNotFoundError';
+  }
+}
+
 export class ProjectNotFoundError extends Error {
   constructor() {
     super('Project not found');

@@ -118,6 +118,7 @@ export function startCliTaskRun(input: StartCliTaskRunInput): StartCliTaskRunRes
     resolvedCommandType,
     sessionId,
     existingSessionId: existingSession.sessionId,
+    commandProfileConfigJson: input.executor.command_profile_config_json,
   });
   const fullPrompt = (existingSession.sessionId || !input.systemPrompt)
     ? input.prompt

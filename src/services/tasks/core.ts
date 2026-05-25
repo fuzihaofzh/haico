@@ -93,7 +93,7 @@ export function createAgentTask(agentId: string, input: CreateAgentTaskInput): T
   }
 
   const executorProfile = resolveExecutorProfile(db, project, agent);
-  const executorSnapshot = snapshotExecutorConfig(executorProfile, agent);
+  const executorSnapshot = snapshotExecutorConfig(db, executorProfile, agent, project);
   if (input.force_new_session || input.metadata?.force_new_session) {
     executorSnapshot.session_policy.new_session_per_run = true;
   }

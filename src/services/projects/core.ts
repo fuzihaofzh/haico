@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../../config';
-import { Agent, CreateProjectInput, OrchestratorEngine, Project } from '../../types';
+import { Agent, CommandProfile, CreateProjectInput, OrchestratorEngine, Project } from '../../types';
 import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
 import { getProjectPermission, listAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-access';
@@ -11,6 +11,7 @@ import {
   MissingProjectTaskDescriptionError,
   ProjectDeleteBlockedError,
   ProjectDeleteForbiddenError,
+  ProjectCommandProfileNotFoundError,
   ProjectNotFoundError,
 } from './errors';
 import { buildSqlPlaceholders } from './utils';
@@ -80,6 +81,14 @@ function getProjectMemberCount(db: Database.Database, projectId: string): number
      ) members`
   ).get(projectId, projectId) as { count: number } | undefined;
   return row?.count || 0;
+}
+
+function resolveCommandProfile(db: Database.Database, profileId: string | null | undefined): CommandProfile | null {
+  const normalized = String(profileId || '').trim();
+  if (!normalized) return null;
+  const profile = db.prepare('SELECT * FROM command_profiles WHERE id = ?').get(normalized) as CommandProfile | undefined;
+  if (!profile) throw new ProjectCommandProfileNotFoundError();
+  return profile;
 }
 
 export function serializeProject(
@@ -196,19 +205,24 @@ export function createProject(
 
   const result = db.transaction(() => {
     const id = uuidv4();
-    const tmpl = input.command_template || config.defaultCommandTemplate;
-    const resolvedCommandType = resolveCommandType(input.command_type, tmpl);
+    const commandProfile = resolveCommandProfile(db, input.command_profile_id);
+    const commandProfileId = commandProfile?.id || null;
+    const tmpl = commandProfile?.command || input.command_template || config.defaultCommandTemplate;
+    const resolvedCommandType = commandProfile
+      ? resolveCommandType(commandProfile.type, tmpl)
+      : resolveCommandType(input.command_type, tmpl);
     const resolvedEngine = orchestratorEngine || config.defaultOrchestratorEngine;
     const ownerId = context.user ? context.user.id : null;
 
     db.prepare(`
-      INSERT INTO projects (id, name, description, task_description, command_template, command_type, orchestrator_engine, owner_id, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+      INSERT INTO projects (id, name, description, task_description, command_profile_id, command_template, command_type, orchestrator_engine, owner_id, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
     `).run(
       id,
       input.name,
       input.description || '',
       input.task_description,
+      commandProfileId,
       tmpl,
       resolvedCommandType,
       resolvedEngine,
@@ -238,14 +252,15 @@ export function createProject(
     const controllerCommandConfig = buildControllerCommandConfig({
       commandTemplate: tmpl,
       commandType: resolvedCommandType,
+      commandProfileConfigJson: commandProfile?.config_json,
     });
     db.prepare(`
       INSERT INTO agents (
         id, project_id, name, role, is_controller, working_directory,
         constraints_json, context_json, capabilities_json, executor_preferences_json,
-        command_template, command_type, status
+        command_profile_id, command_template, command_type, status
       )
-      VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 'idle')
+      VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'idle')
     `).run(
       controllerId,
       id,
@@ -256,6 +271,7 @@ export function createProject(
       controllerContext,
       JSON.stringify(['coordination']),
       executorPreferences,
+      commandProfileId,
       controllerCommandConfig.commandTemplate,
       controllerCommandConfig.commandType
     );
@@ -337,12 +353,23 @@ export function updateProject(
   const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
   if (!existing) throw new ProjectNotFoundError();
 
+  const hasCommandProfileId = Object.prototype.hasOwnProperty.call(input || {}, 'command_profile_id');
+  const nextCommandProfile = hasCommandProfileId
+    ? resolveCommandProfile(db, input.command_profile_id)
+    : null;
   const hasCommandTemplate = Object.prototype.hasOwnProperty.call(input || {}, 'command_template');
   const hasCommandType = Object.prototype.hasOwnProperty.call(input || {}, 'command_type');
-  const nextCommandTemplate = hasCommandTemplate
+  const nextCommandProfileId = hasCommandProfileId
+    ? nextCommandProfile?.id || null
+    : existing.command_profile_id || null;
+  const nextCommandTemplate = nextCommandProfile
+    ? nextCommandProfile.command
+    : hasCommandTemplate
     ? (typeof input.command_template === 'string' ? input.command_template.trim() || config.defaultCommandTemplate : config.defaultCommandTemplate)
     : existing.command_template;
-  const nextCommandType = hasCommandType || hasCommandTemplate
+  const nextCommandType = nextCommandProfile
+    ? resolveCommandType(nextCommandProfile.type, nextCommandTemplate)
+    : hasCommandType || hasCommandTemplate
     ? resolveCommandType(hasCommandType ? input.command_type : existing.command_type, nextCommandTemplate)
     : existing.command_type;
 
@@ -358,8 +385,11 @@ export function updateProject(
   if (orchestratorEngine !== null && orchestratorEngine !== existing.orchestrator_engine) {
     changes.orchestratorEngine = { from: existing.orchestrator_engine, to: orchestratorEngine };
   }
-  if ((hasCommandType || hasCommandTemplate) && nextCommandType !== existing.command_type) {
+  if ((hasCommandProfileId || hasCommandType || hasCommandTemplate) && nextCommandType !== existing.command_type) {
     changes.commandType = { from: existing.command_type, to: nextCommandType };
+  }
+  if (hasCommandProfileId && nextCommandProfileId !== existing.command_profile_id) {
+    changes.commandProfileId = { from: existing.command_profile_id, to: nextCommandProfileId };
   }
 
   db.prepare(`
@@ -367,6 +397,7 @@ export function updateProject(
       name = COALESCE(?, name),
       description = COALESCE(?, description),
       task_description = COALESCE(?, task_description),
+      command_profile_id = ?,
       command_template = COALESCE(?, command_template),
       command_type = COALESCE(?, command_type),
       orchestrator_engine = COALESCE(?, orchestrator_engine),
@@ -378,8 +409,9 @@ export function updateProject(
     input.name ?? null,
     input.description ?? null,
     input.task_description ?? null,
-    hasCommandTemplate ? nextCommandTemplate : null,
-    (hasCommandType || hasCommandTemplate) ? nextCommandType : null,
+    nextCommandProfileId,
+    (hasCommandProfileId || hasCommandTemplate) ? nextCommandTemplate : null,
+    (hasCommandProfileId || hasCommandType || hasCommandTemplate) ? nextCommandType : null,
     orchestratorEngine ?? null,
     input.status ?? null,
     input.color ?? null,
@@ -387,7 +419,7 @@ export function updateProject(
   );
 
   const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project;
-  if (hasCommandTemplate || hasCommandType) {
+  if (hasCommandProfileId || hasCommandTemplate || hasCommandType) {
     syncProjectDefaultExecutorProfile(db, updated, updated.command_template, updated.command_type);
   }
   if (Object.keys(changes).length > 0) {

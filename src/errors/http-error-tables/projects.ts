@@ -5,6 +5,7 @@ import {
   MissingProjectTaskDescriptionError,
   ProjectDeleteBlockedError,
   ProjectDeleteForbiddenError,
+  ProjectCommandProfileNotFoundError,
   ProjectMemberIdentityRequiredError,
   ProjectMemberNotFoundError,
   ProjectMetadataInvalidResponseError,
@@ -46,6 +47,7 @@ export const projectErrorHttpEntries = [
   [ProjectMetadataToolError, mapProjectMetadataToolError],
 
   [ProjectNotFoundError, 404],
+  [ProjectCommandProfileNotFoundError, 404],
   [ProjectUserNotFoundError, 404],
   [ProjectMemberNotFoundError, 404],
 

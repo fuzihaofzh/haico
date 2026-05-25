@@ -16,6 +16,12 @@ export class AgentProjectNotFoundError extends Error {
   }
 }
 
+export class AgentCommandProfileNotFoundError extends Error {
+  constructor() {
+    super('Command profile not found');
+  }
+}
+
 export class AgentInvalidParentAssignmentError extends Error {
   constructor(message: string) {
     super(message);

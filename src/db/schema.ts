@@ -27,6 +27,8 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       name TEXT NOT NULL,
       command TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'claude' CHECK(type IN ('claude', 'codex', 'gemini')),
+      scenario TEXT DEFAULT NULL,
+      config_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -36,6 +38,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
       task_description TEXT NOT NULL,
+      command_profile_id TEXT REFERENCES command_profiles(id) ON DELETE SET NULL,
       command_template TEXT DEFAULT 'cld',
       command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
       orchestrator_engine TEXT DEFAULT 'langgraph' CHECK(orchestrator_engine IN ('native', 'langgraph')),
@@ -66,6 +69,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       session_token_count INTEGER DEFAULT 0,
       session_max_tokens INTEGER DEFAULT 400000,
       session_resume_timeout INTEGER DEFAULT 300,
+      command_profile_id TEXT REFERENCES command_profiles(id) ON DELETE SET NULL,
       command_template TEXT DEFAULT NULL,
       command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
       status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error')),
@@ -740,16 +744,34 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
         name TEXT NOT NULL,
         command TEXT NOT NULL,
         type TEXT NOT NULL DEFAULT 'claude' CHECK(type IN ('claude', 'codex', 'gemini')),
+        scenario TEXT DEFAULT NULL,
+        config_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
       );
-      INSERT INTO command_profiles (id, name, command, type, created_at, updated_at)
-      SELECT id, name, command, type, created_at, updated_at
+      INSERT INTO command_profiles (id, name, command, type, scenario, config_json, created_at, updated_at)
+      SELECT id, name, command, type, NULL, '{}', created_at, updated_at
       FROM command_profiles_old;
       DROP TABLE command_profiles_old;
       CREATE INDEX IF NOT EXISTS idx_command_profiles_name ON command_profiles(name);
     `);
     logger.info('Migration: rebuilt command_profiles table to include gemini type');
+  }
+
+  const commandProfileCols = db.prepare("PRAGMA table_info(command_profiles)").all() as any[];
+  if (!commandProfileCols.find((c: any) => c.name === 'scenario')) {
+    db.exec("ALTER TABLE command_profiles ADD COLUMN scenario TEXT DEFAULT NULL");
+    logger.info('Migration: added scenario column to command_profiles table');
+  }
+  if (!commandProfileCols.find((c: any) => c.name === 'config_json')) {
+    db.exec("ALTER TABLE command_profiles ADD COLUMN config_json TEXT NOT NULL DEFAULT '{}'");
+    logger.info('Migration: added config_json column to command_profiles table');
+  }
+
+  const commandProfileProjectCols = db.prepare("PRAGMA table_info(projects)").all() as any[];
+  if (!commandProfileProjectCols.find((c: any) => c.name === 'command_profile_id')) {
+    db.exec("ALTER TABLE projects ADD COLUMN command_profile_id TEXT REFERENCES command_profiles(id) ON DELETE SET NULL");
+    logger.info('Migration: added command_profile_id column to projects table');
   }
 
   // Migration: fix agents CHECK constraint to include 'waiting' status and expanded command_type values
@@ -778,6 +800,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
         session_token_count INTEGER DEFAULT 0,
         session_max_tokens INTEGER DEFAULT 400000,
         session_resume_timeout INTEGER DEFAULT 300,
+        command_profile_id TEXT REFERENCES command_profiles(id) ON DELETE SET NULL,
         command_template TEXT DEFAULT NULL,
         command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
         status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error')),
@@ -792,14 +815,14 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
         id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
         custom_instructions, constraints_json, context_json, capabilities_json, executor_preferences_json,
         new_session_per_run, session_run_count, session_max_runs,
-        session_token_count, session_max_tokens, session_resume_timeout, command_template, command_type,
+        session_token_count, session_max_tokens, session_resume_timeout, command_profile_id, command_template, command_type,
         status, paused, pid, last_prompt, started_at, finished_at, created_at
       )
       SELECT
         id, project_id, name, role, is_controller, parent_agent_id, session_id, working_directory,
         custom_instructions, '{}', '{}', '{}', '{}',
         new_session_per_run, session_run_count, session_max_runs,
-        session_token_count, session_max_tokens, session_resume_timeout, command_template, command_type,
+        session_token_count, session_max_tokens, session_resume_timeout, NULL, command_template, command_type,
         status, paused, pid, last_prompt, started_at, finished_at, created_at
       FROM agents_old;
       DROP TABLE agents_old;
@@ -808,6 +831,12 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
     `);
     db.pragma('foreign_keys = ON');
     logger.info('Migration: rebuilt agents table with updated status and command_type constraints');
+  }
+
+  const agentCols = db.prepare("PRAGMA table_info(agents)").all() as any[];
+  if (!agentCols.find((c: any) => c.name === 'command_profile_id')) {
+    db.exec("ALTER TABLE agents ADD COLUMN command_profile_id TEXT REFERENCES command_profiles(id) ON DELETE SET NULL");
+    logger.info('Migration: added command_profile_id column to agents table');
   }
 
   // Migration: fix broken FK references after agents table rebuild

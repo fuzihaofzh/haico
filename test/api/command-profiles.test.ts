@@ -1,0 +1,180 @@
+import { after, before, describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { createAgentTask } from '../../src/services/tasks';
+import {
+  buildControllerCommandConfig,
+} from '../../src/services/command-profiles';
+import { buildAgentProcessCommand } from '../../src/services/process-manager/command';
+import { getDatabase } from '../../src/db/database';
+import { createApiTestHarness, type ApiTestHarness } from './helpers';
+
+describe('Command profiles', () => {
+  let ctx: ApiTestHarness;
+  let previousDefaultAdmin: string | undefined;
+
+  before(async () => {
+    previousDefaultAdmin = process.env.HAICO_DEFAULT_ADMIN;
+    process.env.HAICO_DEFAULT_ADMIN = 'true';
+    ctx = await createApiTestHarness('command-profiles');
+    const login = await ctx.api('/api/auth/default-admin-login', { method: 'POST' });
+    assert.equal(login.status, 200, login.raw);
+    ctx.setAuthToken?.(login.body.token);
+  });
+
+  after(async () => {
+    await ctx.close();
+    if (previousDefaultAdmin === undefined) delete process.env.HAICO_DEFAULT_ADMIN;
+    else process.env.HAICO_DEFAULT_ADMIN = previousDefaultAdmin;
+  });
+
+  it('normalizes scenario and config_json through the API', async () => {
+    const created = await ctx.api('/api/command-profiles', {
+      method: 'POST',
+      body: {
+        name: 'Claude deep',
+        command: 'cld',
+        type: 'claude',
+        scenario: 'Architecture',
+        config_json: { model: 'claude-opus', allowedTools: ['Read', 'Grep'], verbose: true },
+      },
+    });
+    assert.equal(created.status, 201, created.raw);
+    assert.equal(created.body.scenario, 'Architecture');
+    assert.deepEqual(created.body.config_json, {
+      model: 'claude-opus',
+      allowedTools: ['Read', 'Grep'],
+      verbose: true,
+    });
+
+    const updated = await ctx.api(`/api/command-profiles/${created.body.id}`, {
+      method: 'PUT',
+      body: {
+        scenario: '',
+        config_json: '{"sandbox":"workspace-write","skipGitRepoCheck":true}',
+        type: 'codex',
+      },
+    });
+    assert.equal(updated.status, 200, updated.raw);
+    assert.equal(updated.body.scenario, null);
+    assert.deepEqual(updated.body.config_json, {
+      sandbox: 'workspace-write',
+      skipGitRepoCheck: true,
+    });
+
+    const invalid = await ctx.api(`/api/command-profiles/${created.body.id}`, {
+      method: 'PUT',
+      body: { config_json: '[]' },
+    });
+    assert.equal(invalid.status, 400, invalid.raw);
+    assert.match(invalid.body.error, /JSON object/);
+  });
+
+  it('keeps legacy command defaults for empty config and applies structured config when present', () => {
+    const legacyClaude = buildAgentProcessCommand({
+      toolPath: 'cld',
+      resolvedCommandType: 'claude',
+      sessionId: 'run-1',
+      existingSessionId: null,
+      commandProfileConfigJson: '{}',
+    });
+    assert.equal(
+      legacyClaude.command,
+      'cld -p --output-format stream-json --verbose --session-id run-1 --dangerously-skip-permissions --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"'
+    );
+
+    const configuredClaude = buildAgentProcessCommand({
+      toolPath: 'cld',
+      resolvedCommandType: 'claude',
+      sessionId: 'run-1',
+      existingSessionId: null,
+      commandProfileConfigJson: { model: 'claude-opus', allowedTools: ['Read', 'Grep'], verbose: true },
+    });
+    assert.match(configuredClaude.command, /--model 'claude-opus'/);
+    assert.match(configuredClaude.command, /--allowedTools 'Read Grep'/);
+    assert.match(configuredClaude.command, /--verbose/);
+    assert.doesNotMatch(configuredClaude.command, /NotebookEdit/);
+
+    const configuredCodex = buildAgentProcessCommand({
+      toolPath: 'codex',
+      resolvedCommandType: 'codex',
+      sessionId: 'run-1',
+      existingSessionId: null,
+      commandProfileConfigJson: { sandbox: 'workspace-write', skipGitRepoCheck: true, bypassApprovals: true },
+    });
+    assert.equal(
+      configuredCodex.command,
+      "codex exec --json --sandbox 'workspace-write' --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
+    );
+
+    const legacyController = buildControllerCommandConfig({
+      commandTemplate: 'cld',
+      commandType: 'claude',
+      commandProfileConfigJson: '{}',
+    });
+    assert.equal(legacyController.commandTemplate, 'cld --model claude-sonnet-4-6');
+
+    const configuredController = buildControllerCommandConfig({
+      commandTemplate: 'cld',
+      commandType: 'claude',
+      commandProfileConfigJson: { model: 'claude-opus' },
+    });
+    assert.equal(configuredController.commandTemplate, "cld --model 'claude-opus'");
+  });
+
+  it('snapshots latest profile config for new tasks without mutating existing task snapshots', async () => {
+    const profile = await ctx.api('/api/command-profiles', {
+      method: 'POST',
+      body: {
+        name: 'Codex daily',
+        command: 'codex',
+        type: 'codex',
+        scenario: 'Daily',
+        config_json: { sandbox: 'workspace-write', skipGitRepoCheck: true },
+      },
+    });
+    assert.equal(profile.status, 201, profile.raw);
+
+    const project = await ctx.api('/api/projects', {
+      method: 'POST',
+      body: {
+        name: `profile-runtime-${Date.now()}`,
+        task_description: 'Profile runtime snapshot test',
+        command_profile_id: profile.body.id,
+      },
+    });
+    assert.equal(project.status, 201, project.raw);
+    assert.equal(project.body.command_profile_id, profile.body.id);
+
+    const db = getDatabase();
+    const assistant = db.prepare(
+      'SELECT id FROM agents WHERE project_id = ? AND is_controller = 0 ORDER BY created_at LIMIT 1'
+    ).get(project.body.id) as { id: string };
+
+    const firstTask = createAgentTask(assistant.id, {
+      prompt: 'first profile snapshot',
+      source: 'test',
+      reason: 'profile snapshot test',
+    });
+    const firstSnapshot = JSON.parse(firstTask.executor_snapshot_json);
+    assert.equal(firstSnapshot.command_profile_id, profile.body.id);
+    assert.equal(firstSnapshot.command_profile_config_json, JSON.stringify({ sandbox: 'workspace-write', skipGitRepoCheck: true }));
+
+    const updated = await ctx.api(`/api/command-profiles/${profile.body.id}`, {
+      method: 'PUT',
+      body: { config_json: { sandbox: 'danger-full-access', bypassApprovals: true } },
+    });
+    assert.equal(updated.status, 200, updated.raw);
+
+    const secondTask = createAgentTask(assistant.id, {
+      prompt: 'second profile snapshot',
+      source: 'test',
+      reason: 'profile snapshot test',
+    });
+    const reloadedFirst = db.prepare('SELECT executor_snapshot_json FROM tasks WHERE id = ?').get(firstTask.id) as any;
+    const firstSnapshotAfterUpdate = JSON.parse(reloadedFirst.executor_snapshot_json);
+    const secondSnapshot = JSON.parse(secondTask.executor_snapshot_json);
+
+    assert.equal(firstSnapshotAfterUpdate.command_profile_config_json, JSON.stringify({ sandbox: 'workspace-write', skipGitRepoCheck: true }));
+    assert.equal(secondSnapshot.command_profile_config_json, JSON.stringify({ sandbox: 'danger-full-access', bypassApprovals: true }));
+  });
+});

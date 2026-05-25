@@ -343,9 +343,10 @@ function populateCommandProfileOptions(selectedProfileId) {
     : profiles[0].id;
 
   select.disabled = false;
-  select.innerHTML = profiles.map((profile) =>
-    `<option value="${profile.id}">${esc(profile.name)} (${esc(profile.type)})</option>`
-  ).join('');
+  select.innerHTML = profiles.map((profile) => {
+    const label = manager?.formatLabel ? manager.formatLabel(profile) : `${profile.name} (${profile.type})`;
+    return `<option value="${profile.id}">${esc(label)}</option>`;
+  }).join('');
   select.value = nextProfileId;
   handleCommandProfileChange();
 }
@@ -385,7 +386,7 @@ function handleCommandProfileChange() {
   hiddenInput.value = selectedProfile?.command || '';
   if (preview) {
     preview.textContent = selectedProfile
-      ? `Command: ${selectedProfile.command} (${selectedProfile.type})`
+      ? `Agent Tool: ${manager?.formatLabel ? manager.formatLabel(selectedProfile) : `${selectedProfile.name} (${selectedProfile.type})`} · Command: ${selectedProfile.command}`
       : 'No Agent Tool is configured yet. Open Settings and add one first.';
   }
   refreshReadiness().catch((error) => {
@@ -604,6 +605,7 @@ async function submitProject(event) {
       name,
       description,
       task_description: taskDesc,
+      command_profile_id: selectedProfile.id,
       command_template: toolPath,
       command_type: selectedProfile.type,
       working_directory: workDir,

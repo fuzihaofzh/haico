@@ -94,10 +94,14 @@ async function populateCommandProfileSelect(select, options) {
   return manager.getProfiles();
 }
 
-function setCommandProfileSelection(select, commandTemplate, commandType) {
+function setCommandProfileSelection(select, commandTemplate, commandType, commandProfileId) {
   if (!select) return;
 
   const manager = getCommandProfileManager();
+  if (commandProfileId && manager?.getById(commandProfileId)) {
+    select.value = commandProfileId;
+    return;
+  }
   const normalizedCommand = String(commandTemplate || '').trim();
   if (!normalizedCommand) {
     select.value = '';
@@ -117,12 +121,16 @@ function setCommandProfileSelection(select, commandTemplate, commandType) {
   select.value = CUSTOM_COMMAND_PROFILE_VALUE;
 }
 
-function updateCommandPreview(previewId, commandTemplate, commandType, fallbackText) {
+function updateCommandPreview(previewId, commandTemplate, commandType, fallbackText, commandProfileId) {
   const preview = document.getElementById(previewId);
   if (!preview) return;
+  const manager = getCommandProfileManager();
+  const selectedProfile = manager?.getById(commandProfileId || '') || manager?.findMatch(commandTemplate, commandType) || null;
   const command = String(commandTemplate || '').trim();
   preview.textContent = command
-    ? `Command: ${command}${commandType ? ` (${commandType})` : ''}`
+    ? selectedProfile
+      ? `Agent Tool: ${manager?.formatLabel ? manager.formatLabel(selectedProfile) : `${selectedProfile.name} (${selectedProfile.type})`} · Command: ${command}`
+      : `Command: ${command}${commandType ? ` (${commandType})` : ''}`
     : fallbackText;
 }
 
@@ -163,7 +171,7 @@ async function hydrateCreateAgentCommandProfileControls(commandTemplate, command
   const selectedProfile = manager?.getById(select.value) || null;
   input.value = selectedProfile?.command || String(commandTemplate || '').trim();
   input.dataset.commandType = selectedProfile?.type || commandType || '';
-  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
+  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.', select.value);
 }
 
 function handleCreateAgentCommandProfileChange() {
@@ -176,7 +184,7 @@ function handleCreateAgentCommandProfileChange() {
   if (selectedProfile) {
     input.value = selectedProfile.command || '';
     input.dataset.commandType = selectedProfile.type || '';
-    updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
+    updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.', select.value);
     return;
   }
 
@@ -207,12 +215,12 @@ async function hydrateAgentCommandProfileControls(agentId, agent) {
     projectDefaultLabel: 'Use project default',
     includeCustom: false,
   });
-  setCommandProfileSelection(select, agent?.command_template, agent?.command_type);
+  setCommandProfileSelection(select, agent?.command_template, agent?.command_type, agent?.command_profile_id);
   const manager = getCommandProfileManager();
   const selectedProfile = manager?.getById(select.value) || null;
   input.value = selectedProfile?.command || String(agent?.command_template || '').trim();
   input.dataset.commandType = selectedProfile?.type || agent?.command_type || '';
-  updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
+  updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.', select.value);
 }
 
 function handleAgentCommandProfileChange(agentId) {
@@ -225,7 +233,7 @@ function handleAgentCommandProfileChange(agentId) {
   if (selectedProfile) {
     input.value = selectedProfile.command || '';
     input.dataset.commandType = selectedProfile.type || '';
-    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
+    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.', select.value);
     return;
   }
 
@@ -255,16 +263,18 @@ function buildAgentCommandConfigPayload(selectId, inputId) {
 
   if (selectedProfile) {
     return {
+      command_profile_id: selectedProfile.id,
       command_template: selectedProfile.command,
       command_type: selectedProfile.type,
     };
   }
 
   if (!commandTemplate) {
-    return { command_template: null, command_type: null };
+    return { command_profile_id: null, command_template: null, command_type: null };
   }
 
   return {
+    command_profile_id: null,
     command_template: commandTemplate,
     command_type: input?.dataset.commandType || undefined,
   };
@@ -288,7 +298,7 @@ async function refreshCreateAgentCommandProfileControls() {
   const selectedProfile = manager?.getById(select.value) || null;
   input.value = selectedProfile?.command || commandTemplate;
   input.dataset.commandType = selectedProfile?.type || selectedType || '';
-  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
+  updateCommandPreview('agent-cmdtpl-preview', input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.', select.value);
 }
 
 async function refreshVisibleAgentCommandProfileControls() {
@@ -309,11 +319,11 @@ async function refreshVisibleAgentCommandProfileControls() {
       projectDefaultLabel: 'Use project default',
       includeCustom: false,
     });
-    setCommandProfileSelection(select, commandTemplate, selectedType);
+    setCommandProfileSelection(select, commandTemplate, selectedType, existingAgent?.command_profile_id);
     const selectedProfile = manager?.getById(select.value) || null;
     input.value = selectedProfile?.command || commandTemplate;
     input.dataset.commandType = selectedProfile?.type || selectedType || '';
-    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.');
+    updateCommandPreview(`ad-cmdtpl-preview-${agentId}`, input.value, input.dataset.commandType, 'Using project-level Agent Tool setting.', select.value);
   }
 }
 

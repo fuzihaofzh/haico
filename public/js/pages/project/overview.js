@@ -14,7 +14,7 @@ function updateProjectCostSummary(cost) {
   costValue.textContent = '';
 }
 
-async function hydrateProjectCommandProfileControls(commandTemplate, commandType) {
+async function hydrateProjectCommandProfileControls(commandTemplate, commandType, commandProfileId) {
   const select = document.getElementById('project-cmd-profile');
   const input = document.getElementById('project-cmd');
   if (!select || !input) return;
@@ -24,14 +24,14 @@ async function hydrateProjectCommandProfileControls(commandTemplate, commandType
     includeCustom: false,
     emptyLabel: 'No Agent Tools configured - open Settings first',
   });
-  setCommandProfileSelection(select, commandTemplate, commandType);
+  setCommandProfileSelection(select, commandTemplate, commandType, commandProfileId);
 
   const manager = getCommandProfileManager();
   const selectedProfile = manager?.getById(select.value) || null;
   input.value = selectedProfile?.command || String(commandTemplate || '').trim();
   input.dataset.commandType = selectedProfile?.type || commandType || '';
   select.disabled = !canManageProject() || (profiles.length === 0 && !input.value);
-  updateCommandPreview('project-cmd-preview', input.value, input.dataset.commandType, 'Choose an Agent Tool configured in Settings.');
+  updateCommandPreview('project-cmd-preview', input.value, input.dataset.commandType, 'Choose an Agent Tool configured in Settings.', select.value);
 }
 
 function handleProjectCommandProfileChange() {
@@ -45,7 +45,7 @@ function handleProjectCommandProfileChange() {
     input.value = selectedProfile.command || '';
     input.dataset.commandType = selectedProfile.type || '';
   }
-  updateCommandPreview('project-cmd-preview', input.value, input.dataset.commandType, 'Choose an Agent Tool configured in Settings.');
+  updateCommandPreview('project-cmd-preview', input.value, input.dataset.commandType, 'Choose an Agent Tool configured in Settings.', select.value);
 }
 
 function buildProjectCommandConfigPayload() {
@@ -75,7 +75,7 @@ function hydrateOverviewFields() {
   document.getElementById('project-cmd').dataset.commandType = projectData.command_type || '';
   document.getElementById('project-created').textContent = formatLocalDateTime(projectData.created_at);
 
-  hydrateProjectCommandProfileControls(projectData.command_template, projectData.command_type).catch((error) => {
+  hydrateProjectCommandProfileControls(projectData.command_template, projectData.command_type, projectData.command_profile_id).catch((error) => {
     console.error('Failed to hydrate project command profile controls', error);
   });
 

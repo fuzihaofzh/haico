@@ -6,6 +6,9 @@ export interface ExecutorSnapshot {
   executor_type: ExecutorType;
   command_template: string;
   command_type: CommandProfileType | null;
+  command_profile_id: string | null;
+  command_profile_name: string | null;
+  command_profile_config_json: string;
   working_directory: string | null;
   env: Record<string, string>;
   session_policy: {

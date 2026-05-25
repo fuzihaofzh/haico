@@ -165,6 +165,7 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
         name: body.name,
         description: body.description,
         task_description: body.task_description,
+        command_profile_id: body.command_profile_id,
         command_template: body.command_template,
         command_type: body.command_type,
         orchestrator_engine: body.orchestrator_engine,

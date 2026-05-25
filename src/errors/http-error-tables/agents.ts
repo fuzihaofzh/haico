@@ -3,6 +3,7 @@ import {
   AgentAlreadyRunningError,
   AgentBinaryPreviewUnsupportedError,
   AgentDirectoryExpectedError,
+  AgentCommandProfileNotFoundError,
   AgentFileAccessDeniedError,
   AgentFileContentTypeError,
   AgentFileExpectedError,
@@ -46,6 +47,7 @@ export const agentErrorHttpEntries = [
 
   [AgentNotFoundError, 404],
   [AgentProjectNotFoundError, 404],
+  [AgentCommandProfileNotFoundError, 404],
   [AgentFileNotFoundError, 404],
   [AgentSQLiteTableNotFoundError, 404],
   [AgentRunNotFoundError, 404],

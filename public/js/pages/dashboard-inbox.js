@@ -1046,9 +1046,10 @@ async function populateDashboardChatProfileOptions() {
     saveDashboardChatPreferences();
   }
 
-  select.innerHTML = profiles.map((profile) =>
-    `<option value="${esc(profile.id)}">${esc(profile.name)} (${esc(profile.type)})</option>`
-  ).join('');
+  select.innerHTML = profiles.map((profile) => {
+    const label = manager?.formatLabel ? manager.formatLabel(profile) : `${profile.name} (${profile.type})`;
+    return `<option value="${esc(profile.id)}">${esc(label)}</option>`;
+  }).join('');
   select.value = _dashboardChatProfileId;
 }
 

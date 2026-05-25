@@ -5,7 +5,14 @@ import path from 'path';
 import { getDatabase } from '../../db/database';
 import { Agent, Project } from '../../types';
 import logger from '../../logger';
-import { resolveCommandType } from '../command-profiles';
+import {
+  appendClaudeConfigArgs,
+  appendCodexConfigArgs,
+  appendGeminiConfigArgs,
+  hasCommandFlag,
+  isEmptyCommandProfileConfig,
+  resolveCommandType,
+} from '../command-profiles';
 import { PROMPT_ENV_MAX_CHARS } from './policy';
 
 const PROMPT_DIR = path.join(os.tmpdir(), 'haico-prompts');
@@ -42,13 +49,28 @@ export function buildAgentProcessCommand(input: {
   resolvedCommandType: ReturnType<typeof resolveCommandType>;
   sessionId: string;
   existingSessionId: string | null;
+  commandProfileConfigJson?: string | Record<string, unknown> | null;
 }): { command: string; useStreamJson: boolean } {
   const lowerTool = input.toolPath.toLowerCase();
+  const hasConfig = !isEmptyCommandProfileConfig(input.commandProfileConfigJson);
 
   if (input.resolvedCommandType === 'claude') {
     const sessionFlag = input.existingSessionId
       ? `--resume ${input.sessionId}`
       : `--session-id ${input.sessionId}`;
+    if (hasConfig) {
+      const baseParts = [
+        input.toolPath,
+        hasCommandFlag(input.toolPath, '-p') ? '' : '-p',
+        hasCommandFlag(input.toolPath, '--output-format') ? '' : '--output-format stream-json',
+        sessionFlag,
+        hasCommandFlag(input.toolPath, '--dangerously-skip-permissions') ? '' : '--dangerously-skip-permissions',
+      ].filter(Boolean);
+      return {
+        command: appendClaudeConfigArgs(baseParts.join(' '), input.commandProfileConfigJson),
+        useStreamJson: true,
+      };
+    }
     return {
       command: `${input.toolPath} -p --output-format stream-json --verbose ${sessionFlag} --dangerously-skip-permissions --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"`,
       useStreamJson: true,
@@ -65,8 +87,23 @@ export function buildAgentProcessCommand(input: {
     }
 
     if (input.existingSessionId) {
+      if (hasConfig) {
+        const base = `${input.toolPath} exec resume --json ${input.sessionId} -`;
+        return {
+          command: appendCodexConfigArgs(base, input.commandProfileConfigJson),
+          useStreamJson: true,
+        };
+      }
       return {
         command: `${input.toolPath} exec resume --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check ${input.sessionId} -`,
+        useStreamJson: true,
+      };
+    }
+
+    if (hasConfig) {
+      const base = `${input.toolPath} exec --json`;
+      return {
+        command: appendCodexConfigArgs(base, input.commandProfileConfigJson),
         useStreamJson: true,
       };
     }
@@ -78,6 +115,13 @@ export function buildAgentProcessCommand(input: {
   }
 
   if (input.resolvedCommandType === 'gemini') {
+    if (hasConfig) {
+      const command = appendGeminiConfigArgs(input.toolPath, input.commandProfileConfigJson);
+      return {
+        command,
+        useStreamJson: /(^|\s)--output-format(?:\s|=)stream-json(?:\s|$)/.test(command),
+      };
+    }
     return {
       command: `${input.toolPath} --output-format stream-json --sandbox --approval-mode yolo`,
       useStreamJson: true,
@@ -220,4 +264,3 @@ export function detachChildProcessIo(child: ChildProcess | undefined): void {
     child.unref();
   } catch {}
 }
-
