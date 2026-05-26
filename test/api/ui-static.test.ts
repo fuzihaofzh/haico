@@ -124,6 +124,10 @@ describe('Frontend UI English copy (#540)', () => {
       path.join(jsDir, 'pages', 'dashboard-inbox.js'),
       'utf-8'
     );
+    const notificationSoundJs = fs.readFileSync(
+      path.join(jsDir, 'components', 'notification-sound.js'),
+      'utf-8'
+    );
     const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings/general.html']
       .map((name) => fs.readFileSync(path.join(publicDir, name), 'utf-8'))
       .join('\n');
@@ -137,7 +141,8 @@ describe('Frontend UI English copy (#540)', () => {
     assert.equal(dashboardHtml.includes('Notification Sound'), false);
     assert.equal(agentHtml.includes('Notification Sound'), false);
     assert.equal(issueHtml.includes('Notification Sound'), false);
-    assert.equal(commonJs.includes('topbar-sound-toggle'), true);
+    assert.equal(commonJs.includes('topbar-sound-toggle'), false);
+    assert.equal(notificationSoundJs.includes('topbar-sound-toggle'), true);
   });
 
   it('dashboard pages avoid page-specific inline event handlers', () => {

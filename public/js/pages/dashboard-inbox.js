@@ -1,4 +1,6 @@
 import { initDashboardPage, loadDashboardProjects, setupDashboardWS } from './dashboard-core.js';
+import { playNotificationSound } from '../components/notification-sound.js';
+import { showToast } from '../components/toast.js';
 
 // Cache for last activity data from summary endpoint
 let _lastActivityMap = {};
@@ -328,9 +330,7 @@ async function loadNotifications(options) {
         }
         _knownActionIssueIds = currentIds;
         if (newItems.length > 0) {
-          if (typeof playNotificationSound === 'function') {
-            playNotificationSound();
-          }
+          playNotificationSound();
           showBrowserNotification(newItems);
         }
       }

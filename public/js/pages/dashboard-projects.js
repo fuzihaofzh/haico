@@ -1,4 +1,5 @@
 import { initDashboardPage, invalidateDashboardProjects, loadDashboardProjects, setupDashboardWS } from './dashboard-core.js';
+import { showToast } from '../components/toast.js';
 
 let _currentUser = null;
 let _lastActivityMap = {};

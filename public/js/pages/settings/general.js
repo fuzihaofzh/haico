@@ -1,4 +1,5 @@
 import { initDashboardPage, invalidateDashboardProjects } from '../dashboard-core.js';
+import { syncNotificationSoundToggles, toggleNotificationSound } from '../../components/notification-sound.js';
 
 let accountSummaryRendered = false;
 
@@ -75,8 +76,77 @@ function bindSettingsEvents() {
   });
 }
 
+function getBrowserNotificationPermission() {
+  if (!('Notification' in window)) return 'unsupported';
+  return Notification.permission || 'default';
+}
+
+function updateBrowserNotificationPermissionControls() {
+  const statusEl = document.getElementById('browser-notification-status');
+  const detailEl = document.getElementById('browser-notification-detail');
+  const btn = document.getElementById('browser-notification-request-btn');
+  if (!statusEl || !detailEl || !btn) return;
+
+  const state = getBrowserNotificationPermission();
+  const configs = {
+    unsupported: {
+      label: 'Unsupported',
+      detail: 'This browser does not support system notifications.',
+      button: 'Unavailable',
+      disabled: true,
+    },
+    default: {
+      label: 'Not requested',
+      detail: 'Allow HAICO to show system notifications for new actionable work.',
+      button: 'Enable Browser Notifications',
+      disabled: false,
+    },
+    granted: {
+      label: 'Allowed',
+      detail: 'Browser notifications are enabled for this site.',
+      button: 'Enabled',
+      disabled: true,
+    },
+    denied: {
+      label: 'Blocked',
+      detail: 'Notifications are blocked. Enable them in your browser site settings.',
+      button: 'Blocked',
+      disabled: true,
+    },
+  };
+  const config = configs[state] || configs.default;
+  statusEl.textContent = config.label;
+  statusEl.dataset.state = state;
+  detailEl.textContent = config.detail;
+  btn.textContent = config.button;
+  btn.disabled = config.disabled;
+  btn.dataset.state = state;
+}
+
+function requestBrowserNotificationPermission() {
+  if (!('Notification' in window) || Notification.permission !== 'default') {
+    updateBrowserNotificationPermissionControls();
+    return;
+  }
+  Notification.requestPermission().then(function() {
+    updateBrowserNotificationPermissionControls();
+  });
+}
+
+function bindNotificationSettings() {
+  const browserBtn = document.getElementById('browser-notification-request-btn');
+  if (browserBtn) browserBtn.addEventListener('click', requestBrowserNotificationPermission);
+
+  const soundToggle = document.querySelector('.settings-sound-toggle');
+  if (soundToggle) soundToggle.addEventListener('click', toggleNotificationSound);
+
+  updateBrowserNotificationPermissionControls();
+  syncNotificationSoundToggles();
+}
+
 async function initSettingsGeneralPage() {
   bindSettingsEvents();
+  bindNotificationSettings();
   await initDashboardPage('settings');
   await loadAccountSummary();
 }

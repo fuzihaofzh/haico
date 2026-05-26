@@ -1,4 +1,6 @@
 import { initDashboardPage } from '../dashboard-core.js';
+import { showConfirm } from '../../components/confirm.js';
+import { showToast } from '../../components/toast.js';
 
 const PROFILE_TYPE_OPTIONS = [
   { value: 'claude', label: 'Claude' },

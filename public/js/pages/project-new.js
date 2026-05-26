@@ -3,6 +3,7 @@ import {
   REMOTE_OPTIONS_CACHE_KEY,
   invalidateDashboardProjects,
 } from '../shared/dashboard-project-store.js';
+import { showToast } from '../components/toast.js';
 
 const REMOTE_OPTIONS_CACHE_TTL_MS = 60000;
 

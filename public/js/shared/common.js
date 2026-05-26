@@ -1,6 +1,17 @@
 // ─── User Menu ───
 
 let _currentUser = null;
+let _notificationSoundModulePromise = null;
+
+function loadNotificationSoundModule() {
+  if (window.HAICONotificationSound) {
+    return Promise.resolve(window.HAICONotificationSound);
+  }
+  if (!_notificationSoundModulePromise) {
+    _notificationSoundModulePromise = import('/public/js/components/notification-sound.js');
+  }
+  return _notificationSoundModulePromise;
+}
 
 function clearHeaderUserSkeleton(root) {
   (root || document).querySelectorAll('.header-user-skeleton').forEach(function(el) {
@@ -32,9 +43,14 @@ async function initUserMenu() {
   }
   clearHeaderUserSkeleton(headerRight);
 
-  const soundToggle = createNotificationSoundToggle();
-  headerRight.appendChild(soundToggle);
-  syncNotificationSoundToggles();
+  try {
+    const notificationSound = await loadNotificationSoundModule();
+    const soundToggle = notificationSound.createNotificationSoundToggle();
+    headerRight.appendChild(soundToggle);
+    notificationSound.syncNotificationSoundToggles();
+  } catch (error) {
+    console.warn('[HAICO] initUserMenu: notification sound controls failed —', error.message || error);
+  }
 
   const menu = document.createElement('div');
   menu.className = 'user-menu';
@@ -360,102 +376,6 @@ document.addEventListener('click', function(e) {
   }
 });
 
-// Toast notifications
-function showToast(message, type) {
-  type = type || 'info';
-  let container = document.getElementById('toast-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'toast-container';
-    container.className = 'toast-container';
-    document.body.appendChild(container);
-  }
-  const toast = document.createElement('div');
-  toast.className = 'toast toast-' + type;
-  toast.textContent = message;
-  toast.onclick = function() { toast.remove(); };
-  container.appendChild(toast);
-  setTimeout(function() { toast.remove(); }, 3000);
-}
-
-function showConfirm(message, options) {
-  const opts = options || {};
-  const tone = opts.tone === 'danger' ? 'danger' : 'default';
-  const title = opts.title || (tone === 'danger' ? 'Confirm deletion' : 'Confirm action');
-  const confirmLabel = opts.confirmLabel || (tone === 'danger' ? 'Delete' : 'Confirm');
-  const cancelLabel = opts.cancelLabel || 'Cancel';
-  const messageHtml = esc(message || '').replace(/\n/g, '<br>');
-
-  return new Promise(resolve => {
-    let overlay = document.getElementById('confirm-overlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'confirm-overlay';
-      overlay.className = 'modal-overlay confirm-overlay';
-      document.body.appendChild(overlay);
-    }
-
-    const close = (value) => {
-      overlay.classList.remove('active');
-      overlay.innerHTML = '';
-      overlay.removeEventListener('click', handleOverlayClick);
-      document.removeEventListener('keydown', handleKeydown, true);
-      resolve(value);
-    };
-
-    const handleOverlayClick = (event) => {
-      if (event.target === overlay) close(false);
-    };
-
-    const handleKeydown = (event) => {
-      if (!overlay.classList.contains('active')) return;
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        close(false);
-        return;
-      }
-      if (event.key === 'Enter' && !event.shiftKey) {
-        const active = document.activeElement;
-        const tag = active && active.tagName ? active.tagName.toLowerCase() : '';
-        if (tag === 'textarea') return;
-        const confirmButton = document.getElementById('confirm-ok');
-        if (confirmButton) {
-          event.preventDefault();
-          confirmButton.click();
-        }
-      }
-    };
-
-    overlay.innerHTML = h`<div class="modal confirm-modal confirm-modal-${tone}" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
-      <div class="confirm-modal-header">
-        <div class="confirm-modal-eyebrow">${tone === 'danger' ? 'Danger zone' : 'Confirmation'}</div>
-        <h3 id="confirm-title" class="confirm-modal-title">${title}</h3>
-      </div>
-      <div class="confirm-modal-body">
-        <div class="confirm-modal-message">${html(messageHtml)}</div>
-      </div>
-      <div class="modal-actions confirm-modal-actions">
-        <button class="btn btn-sm" id="confirm-cancel" type="button">${cancelLabel}</button>
-        <button class="btn btn-sm ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}" id="confirm-ok" type="button">${confirmLabel}</button>
-      </div>
-    </div>`;
-
-    overlay.classList.add('active');
-    overlay.addEventListener('click', handleOverlayClick);
-    document.addEventListener('keydown', handleKeydown, true);
-
-    const confirmButton = document.getElementById('confirm-ok');
-    const cancelButton = document.getElementById('confirm-cancel');
-    if (confirmButton) confirmButton.onclick = () => close(true);
-    if (cancelButton) cancelButton.onclick = () => close(false);
-
-    requestAnimationFrame(() => {
-      if (tone === 'danger' && cancelButton) cancelButton.focus();
-      else if (confirmButton) confirmButton.focus();
-    });
-  });
-}
-
 // ─── Keyboard shortcuts ───
 
 // ESC to close modals
@@ -631,195 +551,6 @@ async function logout() {
   await fetch('/api/auth/logout', { method: 'POST' });
   window.location.href = '/login';
 }
-
-// ─── Browser Notifications ───
-
-function getBrowserNotificationPermission() {
-  if (!('Notification' in window)) return 'unsupported';
-  return Notification.permission || 'default';
-}
-
-function updateBrowserNotificationPermissionControls() {
-  const statusEl = document.getElementById('browser-notification-status');
-  const detailEl = document.getElementById('browser-notification-detail');
-  const btn = document.getElementById('browser-notification-request-btn');
-  if (!statusEl || !detailEl || !btn) return;
-
-  const state = getBrowserNotificationPermission();
-  const configs = {
-    unsupported: {
-      label: 'Unsupported',
-      detail: 'This browser does not support system notifications.',
-      button: 'Unavailable',
-      disabled: true,
-    },
-    default: {
-      label: 'Not requested',
-      detail: 'Allow HAICO to show system notifications for new actionable work.',
-      button: 'Enable Browser Notifications',
-      disabled: false,
-    },
-    granted: {
-      label: 'Allowed',
-      detail: 'Browser notifications are enabled for this site.',
-      button: 'Enabled',
-      disabled: true,
-    },
-    denied: {
-      label: 'Blocked',
-      detail: 'Notifications are blocked. Enable them in your browser site settings.',
-      button: 'Blocked',
-      disabled: true,
-    },
-  };
-  const config = configs[state] || configs.default;
-  statusEl.textContent = config.label;
-  statusEl.dataset.state = state;
-  detailEl.textContent = config.detail;
-  btn.textContent = config.button;
-  btn.disabled = config.disabled;
-  btn.dataset.state = state;
-}
-
-function requestBrowserNotificationPermission() {
-  if (!('Notification' in window) || Notification.permission !== 'default') {
-    updateBrowserNotificationPermissionControls();
-    return;
-  }
-  Notification.requestPermission().then(function() {
-    updateBrowserNotificationPermissionControls();
-  });
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-  const btn = document.getElementById('browser-notification-request-btn');
-  if (btn) btn.addEventListener('click', requestBrowserNotificationPermission);
-  updateBrowserNotificationPermissionControls();
-});
-
-// ─── Sound Alerts ───
-
-// Web Audio API notification sound (short "ding")
-let _notifAudioCtx = null;
-let _notifLastPlayTime = 0;
-
-// Unlock AudioContext on first user interaction (browser autoplay policy)
-// Listen on multiple event types to maximize chances of unlocking
-function _unlockAudioCtx() {
-  if (!_notifAudioCtx) {
-    _notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  if (_notifAudioCtx.state === 'suspended') {
-    _notifAudioCtx.resume();
-  }
-}
-['click', 'keydown', 'touchstart', 'mousedown'].forEach(function(evt) {
-  document.addEventListener(evt, _unlockAudioCtx, { once: false, passive: true });
-});
-
-function _playDingSound(ctx) {
-  var t = ctx.currentTime;
-  var osc1 = ctx.createOscillator();
-  var osc2 = ctx.createOscillator();
-  var gain = ctx.createGain();
-
-  osc1.type = 'sine';
-  osc1.frequency.setValueAtTime(880, t);       // A5
-  osc2.type = 'sine';
-  osc2.frequency.setValueAtTime(1175, t + 0.1); // D6
-
-  gain.gain.setValueAtTime(0.3, t);
-  gain.gain.exponentialRampToValueAtTime(0.01, t + 0.4);
-
-  osc1.connect(gain);
-  osc2.connect(gain);
-  gain.connect(ctx.destination);
-
-  osc1.start(t);
-  osc1.stop(t + 0.15);
-  osc2.start(t + 0.1);
-  osc2.stop(t + 0.4);
-}
-
-function playNotificationSound() {
-  if (!isNotificationSoundEnabled()) return;
-
-  // Throttle: no more than once per 5 seconds
-  var now = Date.now();
-  if (now - _notifLastPlayTime < 5000) return;
-  _notifLastPlayTime = now;
-
-  // Create AudioContext if needed
-  if (!_notifAudioCtx) {
-    _notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-
-  var ctx = _notifAudioCtx;
-
-  // If suspended, resume first then play after resume completes
-  if (ctx.state === 'suspended') {
-    ctx.resume().then(function() {
-      if (ctx.state === 'running') {
-        _playDingSound(ctx);
-      }
-    });
-  } else if (ctx.state === 'running') {
-    _playDingSound(ctx);
-  }
-}
-
-function isNotificationSoundEnabled() {
-  return localStorage.getItem('haico-notification-sound') !== 'off';
-}
-
-function setNotificationSoundEnabled(enabled) {
-  localStorage.setItem('haico-notification-sound', enabled ? 'on' : 'off');
-  syncNotificationSoundToggles();
-}
-
-function toggleNotificationSound() {
-  const nextEnabled = !isNotificationSoundEnabled();
-  setNotificationSoundEnabled(nextEnabled);
-  if (nextEnabled) _unlockAudioCtx();
-}
-
-function syncNotificationSoundToggles() {
-  const isOn = isNotificationSoundEnabled();
-  document.querySelectorAll('.notif-sound-toggle').forEach(function(el) {
-    el.classList.toggle('on', isOn);
-    el.classList.toggle('muted', !isOn);
-    el.setAttribute('aria-pressed', String(!isOn));
-    el.setAttribute('aria-label', isOn ? 'Mute notification sound' : 'Unmute notification sound');
-    el.title = isOn ? 'Mute notification sound' : 'Unmute notification sound';
-  });
-}
-
-function createNotificationSoundToggle() {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'notif-sound-toggle topbar-sound-toggle';
-  btn.innerHTML = h`
-    <span class="sound-toggle-track" aria-hidden="true">
-      <svg class="sound-icon sound-icon-on" viewBox="0 0 24 24">
-        <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
-        <path d="M16 8.5a5 5 0 0 1 0 7"></path>
-        <path d="M18.5 6a8 8 0 0 1 0 12"></path>
-      </svg>
-      <svg class="sound-icon sound-icon-off" viewBox="0 0 24 24">
-        <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
-        <path d="M17 9l4 4"></path>
-        <path d="M21 9l-4 4"></path>
-      </svg>
-      <span class="sound-toggle-knob"></span>
-    </span>
-  `;
-  btn.addEventListener('click', toggleNotificationSound);
-  return btn;
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-  syncNotificationSoundToggles();
-});
 
 // ─── Project-level WebSocket for real-time updates ───
 
