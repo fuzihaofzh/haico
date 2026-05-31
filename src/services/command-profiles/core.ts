@@ -1,5 +1,13 @@
-import { config } from '../config';
-import { Agent, Project } from '../types';
+import Database from 'better-sqlite3';
+import { config } from '../../config';
+import { Agent, Project } from '../../types';
+import {
+  CommandProfileNotFoundError,
+  InvalidCommandProfileConfigJsonError,
+  InvalidCommandProfileTypeError,
+  MissingCommandProfileCommandError,
+  MissingCommandProfileNameError,
+} from './errors';
 
 export const COMMAND_PROFILE_TYPES = ['claude', 'codex', 'gemini'] as const;
 
@@ -224,4 +232,141 @@ export function resolveEffectiveAgentCommandConfig(
     commandTemplate,
     commandType: resolveCommandType(explicitType, commandTemplate),
   };
+}
+
+export function normalizeProfileName(value: unknown): string {
+  return String(value || '').trim();
+}
+
+export function normalizeProfileCommand(value: unknown): string {
+  return String(value || '').trim();
+}
+
+export function normalizeScenario(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  return normalized || null;
+}
+
+export function normalizeConfigJsonForStorage(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '{}';
+  let parsed = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new InvalidCommandProfileConfigJsonError();
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new InvalidCommandProfileConfigJsonError();
+  }
+  return JSON.stringify(parsed);
+}
+
+export function serializeCommandProfile(row: any): any {
+  if (!row) return row;
+  let configJson: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(row.config_json || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      configJson = parsed;
+    }
+  } catch {
+    configJson = {};
+  }
+  return {
+    ...row,
+    scenario: row.scenario || null,
+    config_json: configJson,
+  };
+}
+
+const COMMAND_PROFILE_FIELDS = 'id, name, command, type, scenario, config_json, created_at, updated_at';
+
+export function listCommandProfiles(db: Database.Database): any[] {
+  const profiles = db.prepare(
+    `SELECT ${COMMAND_PROFILE_FIELDS}
+     FROM command_profiles
+     ORDER BY lower(name), created_at`
+  ).all();
+  return profiles.map(serializeCommandProfile);
+}
+
+export interface CreateCommandProfileInput {
+  name?: unknown;
+  command?: unknown;
+  type?: unknown;
+  scenario?: unknown;
+  config_json?: unknown;
+}
+
+export function createCommandProfile(db: Database.Database, input: CreateCommandProfileInput): any {
+  const name = normalizeProfileName(input.name);
+  const command = normalizeProfileCommand(input.command);
+  const type = resolveCommandType(input.type, command);
+  const scenario = normalizeScenario(input.scenario);
+  const configJson = normalizeConfigJsonForStorage(input.config_json);
+
+  if (!name) throw new MissingCommandProfileNameError();
+  if (!command) throw new MissingCommandProfileCommandError();
+  if (!type) throw new InvalidCommandProfileTypeError();
+
+  const result = db.prepare(
+    `INSERT INTO command_profiles (name, command, type, scenario, config_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+  ).run(name, command, type, scenario, configJson);
+
+  return serializeCommandProfile(
+    db.prepare(`SELECT ${COMMAND_PROFILE_FIELDS} FROM command_profiles WHERE rowid = ?`)
+      .get(result.lastInsertRowid)
+  );
+}
+
+export interface UpdateCommandProfileInput {
+  name?: unknown;
+  command?: unknown;
+  type?: unknown;
+  scenario?: unknown;
+  config_json?: unknown;
+}
+
+export function updateCommandProfile(db: Database.Database, id: string, input: UpdateCommandProfileInput): any {
+  const existing = db.prepare(`SELECT ${COMMAND_PROFILE_FIELDS} FROM command_profiles WHERE id = ?`)
+    .get(id) as Record<string, any> | undefined;
+  if (!existing) throw new CommandProfileNotFoundError();
+
+  const hasName = Object.prototype.hasOwnProperty.call(input, 'name');
+  const hasCommand = Object.prototype.hasOwnProperty.call(input, 'command');
+  const hasType = Object.prototype.hasOwnProperty.call(input, 'type');
+  const hasScenario = Object.prototype.hasOwnProperty.call(input, 'scenario');
+  const hasConfigJson = Object.prototype.hasOwnProperty.call(input, 'config_json');
+
+  const name = hasName ? normalizeProfileName(input.name) : existing.name;
+  const command = hasCommand ? normalizeProfileCommand(input.command) : existing.command;
+  const type = hasType || hasCommand
+    ? resolveCommandType(hasType ? input.type : existing.type, command)
+    : normalizeCommandProfileType(existing.type);
+  const scenario = hasScenario ? normalizeScenario(input.scenario) : existing.scenario;
+  const configJson = hasConfigJson
+    ? normalizeConfigJsonForStorage(input.config_json)
+    : (existing.config_json || '{}');
+
+  if (!name) throw new MissingCommandProfileNameError();
+  if (!command) throw new MissingCommandProfileCommandError();
+  if (!type) throw new InvalidCommandProfileTypeError();
+
+  db.prepare(
+    `UPDATE command_profiles
+     SET name = ?, command = ?, type = ?, scenario = ?, config_json = ?, updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(name, command, type, scenario, configJson, id);
+
+  return serializeCommandProfile(
+    db.prepare(`SELECT ${COMMAND_PROFILE_FIELDS} FROM command_profiles WHERE id = ?`).get(id)
+  );
+}
+
+export function deleteCommandProfile(db: Database.Database, id: string): void {
+  const result = db.prepare('DELETE FROM command_profiles WHERE id = ?').run(id);
+  if (result.changes === 0) throw new CommandProfileNotFoundError();
 }

@@ -177,4 +177,63 @@ describe('Command profiles', () => {
     assert.equal(firstSnapshotAfterUpdate.command_profile_config_json, JSON.stringify({ sandbox: 'workspace-write', skipGitRepoCheck: true }));
     assert.equal(secondSnapshot.command_profile_config_json, JSON.stringify({ sandbox: 'danger-full-access', bypassApprovals: true }));
   });
+
+  it('returns 404 when updating a non-existent command profile', async () => {
+    const result = await ctx.api('/api/command-profiles/nonexistent-id', {
+      method: 'PUT',
+      body: { name: 'test' },
+    });
+    assert.equal(result.status, 404);
+    assert.equal(result.body.error, 'Command profile not found');
+  });
+
+  it('returns 404 when deleting a non-existent command profile', async () => {
+    const result = await ctx.api('/api/command-profiles/nonexistent-id', {
+      method: 'DELETE',
+    });
+    assert.equal(result.status, 404);
+    assert.equal(result.body.error, 'Command profile not found');
+  });
+
+  it('returns 400 when creating without required name', async () => {
+    const result = await ctx.api('/api/command-profiles', {
+      method: 'POST',
+      body: { command: 'cld', type: 'claude' },
+    });
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error, 'name is required');
+  });
+
+  it('returns 400 when creating without required command', async () => {
+    const result = await ctx.api('/api/command-profiles', {
+      method: 'POST',
+      body: { name: 'test', type: 'claude' },
+    });
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error, 'command is required');
+  });
+
+  it('returns 400 when creating with an invalid type', async () => {
+    const result = await ctx.api('/api/command-profiles', {
+      method: 'POST',
+      body: { name: 'test', command: 'foo', type: 'invalid-type' },
+    });
+    assert.equal(result.status, 400);
+    assert.match(result.body.error, /type is required/);
+  });
+
+  it('returns 400 when clearing name to empty on update', async () => {
+    const created = await ctx.api('/api/command-profiles', {
+      method: 'POST',
+      body: { name: 'temp-profile', command: 'cld', type: 'claude' },
+    });
+    assert.equal(created.status, 201);
+
+    const result = await ctx.api(`/api/command-profiles/${created.body.id}`, {
+      method: 'PUT',
+      body: { name: '' },
+    });
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error, 'name is required');
+  });
 });

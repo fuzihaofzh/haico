@@ -2,6 +2,7 @@ import { agentMessageErrorHttpEntries } from './http-error-tables/agent-messages
 import { agentErrorHttpEntries } from './http-error-tables/agents';
 import { approvalErrorHttpEntries } from './http-error-tables/approvals';
 import { authErrorHttpEntries } from './http-error-tables/auth';
+import { commandProfileErrorHttpEntries } from './http-error-tables/command-profiles';
 import { executiveSummaryErrorHttpEntries } from './http-error-tables/executive-summaries';
 import { inputErrorHttpEntries } from './http-error-tables/input';
 import { issueErrorHttpEntries } from './http-error-tables/issues';
@@ -31,6 +32,7 @@ const errorHttpEntries = [
   ...paymentApprovalErrorHttpEntries,
   ...executiveSummaryErrorHttpEntries,
   ...inputErrorHttpEntries,
+  ...commandProfileErrorHttpEntries,
   ...remoteInstancesErrorHttpEntries,
 ] satisfies readonly ErrorHttpEntry[];
 
