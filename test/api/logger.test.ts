@@ -114,7 +114,7 @@ describe('business event logging', () => {
     }
   });
 
-  it('records core project, issue, approval, and payment approval business events', async () => {
+  it('records core project and issue business events', async () => {
     logger.info = capture('info') as any;
     logger.warn = capture('warn') as any;
     logger.debug = capture('debug') as any;
@@ -126,11 +126,6 @@ describe('business event logging', () => {
     const { getDatabase } = await import('../../src/db/database');
     const { createProject } = await import('../../src/services/projects');
     const { createIssue, updateIssue } = await import('../../src/services/issue');
-    const { createApproval, decideApproval } = await import('../../src/services/approvals');
-    const {
-      createPaymentApproval,
-      submitPaymentApprovalDecision,
-    } = await import('../../src/services/payment-approvals');
 
     const db = getDatabase(dbPath, { skipStartupMaintenance: true });
     const project = createProject(
@@ -160,42 +155,10 @@ describe('business event logging', () => {
     assert.equal(updatedIssue.status, 'in_progress');
     assert.equal(updatedIssue.assigned_to, null);
 
-    const approval = createApproval(db, projectId, {
-        agent_id: worker.id,
-        title: 'Approve deploy',
-        risk_level: 'high',
-    });
-
-    const decidedApproval = decideApproval(db, approval.id, {
-        status: 'approved',
-        decided_by: 'user',
-    });
-    assert.equal(decidedApproval.status, 'approved');
-
-    const paymentApproval = createPaymentApproval(db, projectId, {
-        requested_by: 'controller-a',
-        title: 'Pay vendor',
-        amount: 1250,
-        currency: 'USD',
-        risk_level: 'critical',
-        required_approvals: 1,
-    });
-
-    const paymentDecision = submitPaymentApprovalDecision(db, paymentApproval.id, {
-        decided_by: 'controller-b',
-        decision: 'approve',
-    });
-    assert.equal(paymentDecision.status, 'approved');
-
     const messages = events.map((event) => event.message);
     assert.ok(messages.includes('project.created'));
     assert.ok(messages.includes('issue.created'));
     assert.ok(messages.includes('issue.updated'));
-    assert.ok(messages.includes('approval.created'));
-    assert.ok(messages.includes('approval.decided'));
-    assert.ok(messages.includes('payment_approval.created'));
-    assert.ok(messages.includes('payment_approval.decided'));
-    assert.ok(messages.includes('payment_approval.resolved'));
 
     const issueLog = events.find((event) => event.message === 'issue.created');
     assert.ok(issueLog);

@@ -237,47 +237,6 @@ export interface StartAgentInput {
   prompt: string;
 }
 
-export interface ApprovalRequest {
-  id: string;
-  project_id: string;
-  issue_id: string | null;
-  agent_id: string;
-  title: string;
-  description: string;
-  risk_level: 'low' | 'medium' | 'high' | 'critical';
-  status: 'pending' | 'approved' | 'rejected';
-  decided_by: string | null;
-  decision_note: string;
-  decided_at: string | null;
-  created_at: string;
-}
-
-export interface PaymentApprovalRequest {
-  id: string;
-  project_id: string;
-  issue_id: string | null;
-  requested_by: string;
-  title: string;
-  description: string;
-  amount: number;
-  currency: string;
-  beneficiary: string;
-  risk_level: 'low' | 'medium' | 'high' | 'critical';
-  required_approvals: number;
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
-  resolved_at: string | null;
-  created_at: string;
-}
-
-export interface PaymentApprovalDecision {
-  id: string;
-  payment_approval_id: string;
-  decided_by: string;
-  decision: 'approve' | 'reject';
-  note: string;
-  created_at: string;
-}
-
 export type ExecutiveSummaryStatus = 'draft' | 'final' | 'archived';
 
 export interface ExecutiveSummaryBlock {

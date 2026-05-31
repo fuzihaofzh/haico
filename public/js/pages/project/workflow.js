@@ -1,5 +1,4 @@
 let _workflowData = null;
-let _workflowApprovalsData = [];
 
 function cloneWorkflowTemplate(id) {
   return document.getElementById(id).content.firstElementChild.cloneNode(true);
@@ -11,7 +10,7 @@ function setWorkflowText(root, slotName, value) {
 }
 
 async function loadWorkflowTab() {
-  await Promise.all([loadWorkflowGraph(), loadWorkflowApprovals()]);
+  await Promise.all([loadWorkflowGraph()]);
   await Promise.all([loadTreasuryWorkflowLayer(), loadWorkflowActivity()]);
 }
 
@@ -44,7 +43,7 @@ async function loadTreasuryWorkflowLayer() {
     const model = window.HAICOTreasuryWorkflow.buildModel({
       project: projectData,
       workflow: _workflowData,
-      approvals: _workflowApprovalsData,
+      approvals: [],
       activeIssues: activeIssues,
     });
     container.innerHTML = window.HAICOTreasuryWorkflow.render(model);
@@ -261,16 +260,6 @@ function renderWorkflowGraphHierarchy(container, data) {
     svg.appendChild(group);
   });
 
-  // Pending approvals indicator
-  if (data.pending_approvals && data.pending_approvals.length > 0) {
-    svg.appendChild(createWorkflowText(W - 10, 20, '\u26a0 ' + data.pending_approvals.length + ' pending approval(s)', {
-      'text-anchor': 'end',
-      fill: 'var(--warning)',
-      'font-size': '11',
-      'font-weight': '600',
-    }));
-  }
-
   var summary = cloneWorkflowTemplate('tmpl-workflow-graph-summary');
   var summaryText = agents.length + ' agents \u00b7 ' + data.total_active_issues + ' active issues';
   if (data.recent_messages && data.recent_messages.length > 0) {
@@ -368,87 +357,6 @@ function renderWorkflowActivityEvent(event) {
 
 // ─── Approval Requests (#616) ───
 
-async function loadWorkflowApprovals() {
-  var panel = document.getElementById('workflow-approvals-container');
-  var listEl = document.getElementById('workflow-approvals-list');
-  var countEl = document.getElementById('workflow-approval-count');
-  if (!panel || !listEl) return;
-
-  try {
-    var res = await fetch(projectApiPath('/approvals') + '?status=pending', { headers: apiHeaders() });
-    if (!res.ok) throw new Error('failed');
-    var approvals = await res.json();
-    _workflowApprovalsData = Array.isArray(approvals) ? approvals : [];
-
-    if (approvals.length === 0) {
-      panel.style.display = 'none';
-      listEl.replaceChildren();
-      if (countEl) { countEl.textContent = '0'; countEl.style.display = 'none'; }
-      return;
-    }
-
-    panel.style.display = '';
-    if (countEl) { countEl.textContent = approvals.length; countEl.style.display = ''; }
-
-    listEl.replaceChildren(...approvals.map(renderWorkflowApproval));
-  } catch (e) {
-    _workflowApprovalsData = [];
-    panel.style.display = 'none';
-  }
-}
-
-function renderWorkflowApproval(approval) {
-  var row = cloneWorkflowTemplate('tmpl-workflow-approval-card');
-  var riskColors = { low: 'var(--success)', medium: 'var(--warning)', high: 'var(--error)', critical: 'var(--error)' };
-  var riskColor = riskColors[approval.risk_level] || 'var(--warning)';
-  row.style.borderColor = riskColor + '44';
-  row.style.borderLeftColor = riskColor;
-  row.style.background = riskColor + '08';
-  setWorkflowText(row, 'title', approval.title);
-  setWorkflowText(row, 'agent-name', approval.agent_name || 'unknown');
-  setWorkflowText(row, 'risk', approval.risk_level);
-  row.querySelector('[data-slot="risk"]').style.color = riskColor;
-  setWorkflowText(row, 'time', timeAgo(approval.created_at));
-  var description = row.querySelector('[data-slot="description"]');
-  if (approval.description) {
-    description.textContent = approval.description;
-  } else {
-    description.remove();
-  }
-  row.querySelector('[data-action="approve"]').addEventListener('click', function() {
-    decideApproval(approval.id, 'approved');
-  });
-  row.querySelector('[data-action="reject"]').addEventListener('click', function() {
-    decideApproval(approval.id, 'rejected');
-  });
-  return row;
-}
-
-async function decideApproval(approvalId, decision) {
-  var note = '';
-  if (decision === 'rejected') {
-    note = prompt('Reason for rejection (optional):') || '';
-  }
-  try {
-    var res = await fetch(buildApprovalApiPath(approvalId), {
-      method: 'PUT',
-      headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: decision, decision_note: note, decided_by: 'user' })
-    });
-    if (res.ok) {
-      showToast('Approval ' + decision, 'success');
-      loadWorkflowApprovals();
-    } else {
-      var err = await res.json();
-      showToast(err.error || 'Failed', 'error');
-    }
-  } catch (e) {
-    showToast('Failed to submit decision', 'error');
-  }
-}
-
-window.decideApproval = decideApproval;
-
 function viewAgent(agentId) { window.location.href = projectPagePath("agents") + "?agent=" + encodeURIComponent(agentId); }
 
 (async function initWorkflowPage(){
@@ -458,6 +366,4 @@ function viewAgent(agentId) { window.location.href = projectPagePath("agents") +
   events.on("agent_status", () => { loadWorkflowGraph(); loadTreasuryWorkflowLayer(); });
   events.on("issue_created", () => { loadWorkflowGraph(); loadWorkflowActivity(); loadTreasuryWorkflowLayer(); });
   events.on("issue_updated", () => { loadWorkflowGraph(); loadWorkflowActivity(); loadTreasuryWorkflowLayer(); });
-  events.on("approval_created", () => { loadWorkflowApprovals(); loadTreasuryWorkflowLayer(); });
-  events.on("approval_decided", () => { loadWorkflowApprovals(); loadTreasuryWorkflowLayer(); });
 })();

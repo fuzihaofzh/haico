@@ -7,8 +7,6 @@ import {
   requireCommentAccess,
   requireMilestoneAccess,
   requireKnowledgeAccess,
-  requireApprovalAccess,
-  requirePaymentApprovalAccess,
   requireMessageAccess,
   requireRelationAccess,
 } from '../../services/project-access';
@@ -19,8 +17,6 @@ type EntityType =
   | 'comment'
   | 'milestone'
   | 'knowledge'
-  | 'approval'
-  | 'payment-approval'
   | 'message'
   | 'relation';
 
@@ -35,8 +31,6 @@ const ENTITY_ACCESS_MAP: Record<EntityType, (db: any, ctx: any, id: string, mana
   comment: requireCommentAccess,
   milestone: requireMilestoneAccess,
   knowledge: requireKnowledgeAccess,
-  approval: requireApprovalAccess,
-  'payment-approval': requirePaymentApprovalAccess,
   message: requireMessageAccess,
   relation: requireRelationAccess,
 };

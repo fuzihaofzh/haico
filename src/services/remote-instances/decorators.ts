@@ -35,10 +35,6 @@ function stripRemoteAgentId(value: unknown): string {
   return parsed ? parsed.remoteAgentId : String(value || '').trim();
 }
 
-function prefixRemoteApprovalId(instanceId: string, remoteApprovalId: unknown): string {
-  return `remote-approval:${instanceId}:${String(remoteApprovalId || '')}`;
-}
-
 function prefixRemoteKnowledgeId(instanceId: string, remoteKnowledgeId: unknown): string {
   return `remote-knowledge:${instanceId}:${String(remoteKnowledgeId || '')}`;
 }
@@ -151,21 +147,6 @@ export function decorateRemoteIssueSummary(instance: RemoteInstanceRecord, remot
   });
 }
 
-export function decorateRemoteApproval(instance: RemoteInstanceRecord, remoteProjectId: string, approval: any) {
-  const remoteIssueId = approval?.issue_id ? String(approval.issue_id) : '';
-  return {
-    ...approval,
-    id: prefixRemoteApprovalId(instance.id, approval?.id || ''),
-    remote_approval_id: String(approval?.id || ''),
-    project_id: `remote:${instance.id}:${String(remoteProjectId || approval?.project_id || '')}`,
-    remote_project_id: String(remoteProjectId || approval?.project_id || ''),
-    issue_id: remoteIssueId ? prefixRemoteIssueId(instance.id, remoteIssueId) : null,
-    remote_issue_id: remoteIssueId || null,
-    remote_instance_id: instance.id,
-    is_remote: true,
-  };
-}
-
 export function decorateRemoteKnowledgeEntry(instance: RemoteInstanceRecord, remoteProjectId: string, entry: any) {
   return {
     ...entry,
@@ -206,9 +187,6 @@ export function decorateRemoteWorkflowStatus(instance: RemoteInstanceRecord, rem
       remote_instance_id: instance.id,
       is_remote: true,
     })) : [],
-    pending_approvals: Array.isArray(data?.pending_approvals)
-      ? data.pending_approvals.map((approval: any) => decorateRemoteApproval(instance, remoteProjectId, approval))
-      : [],
   };
 }
 
@@ -224,4 +202,4 @@ export function buildRemoteProxyPath(pathname: string, query: Record<string, unk
   return queryString ? `${pathname}?${queryString}` : pathname;
 }
 
-export { parseRemoteProjectCompositeId, prefixRemoteIssueId, prefixRemoteCommentId, prefixRemoteAgentId, parseRemoteAgentCompositeId, stripRemoteAgentId, prefixRemoteApprovalId, prefixRemoteKnowledgeId, parseRemoteIssueCompositeId, stripRemoteIssueId };
+export { parseRemoteProjectCompositeId, prefixRemoteIssueId, prefixRemoteCommentId, prefixRemoteAgentId, parseRemoteAgentCompositeId, stripRemoteAgentId, prefixRemoteKnowledgeId, parseRemoteIssueCompositeId, stripRemoteIssueId };

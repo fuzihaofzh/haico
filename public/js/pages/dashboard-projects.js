@@ -92,15 +92,6 @@ async function loadDashboardSummary() {
       errCard.style.display = 'none';
     }
 
-    // Pending approvals stat
-    const approvalCard = document.getElementById('stat-approvals-card');
-    if (data.pending_approvals > 0) {
-      document.getElementById('stat-approvals').textContent = data.pending_approvals;
-      if (approvalCard) approvalCard.style.display = '';
-    } else {
-      if (approvalCard) approvalCard.style.display = 'none';
-    }
-
     document.getElementById('dashboard-stats').style.display = '';
   } catch (e) {
     console.error('Failed to load dashboard summary', e);
@@ -331,92 +322,7 @@ async function sendQuickCmd(projectId) {
   }
 }
 
-async function loadDashboardApprovals() {
-  const panel = document.getElementById('dashboard-approvals-panel');
-  const listEl = document.getElementById('dashboard-approvals-list');
-  const countEl = document.getElementById('dashboard-approval-count');
-  if (!panel || !listEl) return;
 
-  try {
-    const res = await fetch('/api/approvals/pending-count', { headers: apiHeaders() });
-    if (!res.ok) return;
-    const data = await res.json();
-
-    if (data.count === 0) {
-      panel.style.display = 'none';
-      return;
-    }
-
-    panel.style.display = '';
-    if (countEl) countEl.textContent = data.count;
-
-    // Reuse the already loaded project index when available.
-    const projects = await ensureDashboardProjectsLoaded();
-
-    let allApprovals = [];
-    for (const p of projects) {
-      try {
-        const approvalsPath = `${buildProjectApiPath(p.id, '/approvals')}?status=pending&limit=10`;
-        const aRes = await fetch(approvalsPath, { headers: apiHeaders() });
-        if (aRes.ok) {
-          const items = await aRes.json();
-          items.forEach(function(item) { item._project_name = p.name; item._project_id = p.id; });
-          allApprovals = allApprovals.concat(items);
-        }
-      } catch {}
-    }
-
-    if (allApprovals.length === 0) {
-      panel.style.display = 'none';
-      return;
-    }
-
-    listEl.innerHTML = allApprovals.map(function(a) {
-      const riskColors = { low: 'var(--success)', medium: 'var(--warning)', high: 'var(--error)', critical: 'var(--error)' };
-      const riskColor = riskColors[a.risk_level] || 'var(--warning)';
-      return h`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
-        <div>
-          <strong>${a.title}</strong>
-          <div style="font-size:11px;color:var(--text-secondary)">
-            <a href="${buildProjectPageHref(a._project_id)}/workflow" style="color:var(--link)">${a._project_name}</a>
-            · Agent: ${a.agent_name || 'unknown'}
-            · Risk: <span style="color:${riskColor}">${a.risk_level}</span>
-            · ${timeAgo(a.created_at)}
-          </div>
-        </div>
-        <div style="display:flex;gap:4px;flex-shrink:0">
-          <button class="btn btn-sm btn-primary" data-action="decide-approval" data-approval-id="${a.id}" data-decision="approved">Approve</button>
-          <button class="btn btn-sm" data-action="decide-approval" data-approval-id="${a.id}" data-decision="rejected" style="color:var(--error)">Reject</button>
-        </div>
-      </div>`;
-    }).join('');
-  } catch (e) {
-    console.error('Failed to load approvals', e);
-    if (panel) panel.style.display = 'none';
-  }
-}
-
-async function dashboardDecideApproval(approvalId, decision) {
-  let note = '';
-  if (decision === 'rejected') {
-    note = prompt('Reason for rejection (optional):') || '';
-  }
-  try {
-    const res = await fetch(buildApprovalApiPath(approvalId), {
-      method: 'PUT',
-      headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: decision, decision_note: note, decided_by: 'user' })
-    });
-    if (res.ok) {
-      showToast('Approval ' + decision, 'success');
-      loadDashboardSummary();
-    } else {
-      const err = await res.json();
-      showToast(err.error || 'Failed', 'error');
-    }
-  } catch (e) {
-    showToast('Failed to submit decision', 'error');
-  }
 }
 
 async function loadActivityStream() {
@@ -471,16 +377,6 @@ async function loadActivityStream() {
           icon = h`<span style="color:var(--text-secondary)">&#9632;</span>`;
           label = 'Agent Stopped';
           detail = h`<a href="${buildProjectPageHref(ev.project_id)}/agents">${ev.agent_name}</a>`;
-          break;
-        case 'approval_created':
-          icon = h`<span style="color:var(--warning)">&#9888;</span>`;
-          label = 'Approval Needed';
-          detail = h`${ev.title}`;
-          break;
-        case 'approval_decided':
-          icon = h`<span style="color:var(--success)">&#10003;</span>`;
-          label = 'Approval ' + (ev.approval_status || '');
-          detail = h`${ev.title}`;
           break;
         default:
           icon = h`<span style="color:var(--text-secondary)">&#183;</span>`;
@@ -615,8 +511,6 @@ function bindProjectsEvents() {
       filterAgentBoard(actionEl.dataset.status || 'running');
     } else if (action === 'toggle-activity-stream') {
       toggleActivityStream();
-    } else if (action === 'decide-approval') {
-      dashboardDecideApproval(actionEl.dataset.approvalId || '', actionEl.dataset.decision || '');
     }
   });
   document.body.addEventListener('input', (event) => {
@@ -634,7 +528,7 @@ function bindProjectsEvents() {
 }
 
 async function refreshProjectsPage() {
-  await Promise.all([loadDashboardSummary(), loadProjects({ force: true }), loadAgentBoard(), loadActivityStream(), loadDashboardApprovals()]);
+  await Promise.all([loadDashboardSummary(), loadProjects({ force: true }), loadAgentBoard(), loadActivityStream()]);
 }
 
 function startProjectsPolling() {

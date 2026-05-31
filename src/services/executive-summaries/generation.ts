@@ -48,29 +48,6 @@ export function buildGeneratedExecutiveSummaryContent(
      ORDER BY priority DESC LIMIT 5`
   ).all(projectId, periodEnd) as HighPriorityIssueRow[];
 
-  const approvalsTotal = db.prepare(
-    `SELECT COUNT(*) as count FROM approval_requests
-     WHERE project_id = ? AND created_at >= ? AND created_at <= ?`
-  ).get(projectId, periodStart, periodEnd) as CountRow;
-
-  const approvalsApproved = db.prepare(
-    `SELECT COUNT(*) as count FROM approval_requests
-     WHERE project_id = ? AND status = 'approved'
-     AND decided_at >= ? AND decided_at <= ?`
-  ).get(projectId, periodStart, periodEnd) as CountRow;
-
-  const approvalsRejected = db.prepare(
-    `SELECT COUNT(*) as count FROM approval_requests
-     WHERE project_id = ? AND status = 'rejected'
-     AND decided_at >= ? AND decided_at <= ?`
-  ).get(projectId, periodStart, periodEnd) as CountRow;
-
-  const approvalsPending = db.prepare(
-    `SELECT COUNT(*) as count FROM approval_requests
-     WHERE project_id = ? AND status = 'pending'
-     AND created_at <= ?`
-  ).get(projectId, periodEnd) as CountRow;
-
   const agentActivity = db.prepare(
     `SELECT a.name, a.role,
             (SELECT COUNT(*) FROM issues i WHERE i.assigned_to = a.id AND i.status IN ('done', 'closed')
@@ -92,18 +69,17 @@ export function buildGeneratedExecutiveSummaryContent(
     ].join('\n'),
 
     payment_activity: [
-      '**Approval Activity for Period**',
+      '**Issue Resolution Activity**',
       '',
-      '| Status | Count |',
+      '| Metric | Count |',
       '|--------|-------|',
-      `| Submitted | ${approvalsTotal.count} |`,
-      `| Approved | ${approvalsApproved.count} |`,
-      `| Rejected | ${approvalsRejected.count} |`,
-      `| Pending | ${approvalsPending.count} |`,
+      `| Created | ${issuesCreated.count} |`,
+      `| Resolved | ${issuesDone.count} |`,
+      `| Still open | ${issuesOpen.count} |`,
       '',
-      approvalsTotal.count > 0
-        ? `Approval rate: ${((approvalsApproved.count / approvalsTotal.count) * 100).toFixed(1)}%.`
-        : 'No approval requests submitted during this period.',
+      issuesCreated.count > 0
+        ? `Resolution rate: ${((issuesDone.count / issuesCreated.count) * 100).toFixed(1)}%.`
+        : 'No issues created during this period.',
     ].join('\n'),
 
     liquidity_alerts: [
@@ -125,15 +101,11 @@ export function buildGeneratedExecutiveSummaryContent(
     ].join('\n'),
 
     risk_compliance: [
-      `**Pending Approvals at Period End**: ${approvalsPending.count}`,
+      `**Open Issues at Period End**: ${issuesOpen.count}`,
       '',
-      approvalsPending.count > 0
-        ? 'Review pending approvals to ensure timely processing and policy compliance.'
-        : 'All approval requests have been resolved.',
-      '',
-      approvalsRejected.count > 0
-        ? `**${approvalsRejected.count} rejection(s)** during period — review root causes.`
-        : 'No rejections during this period.',
+      highPriorityOpen.length > 0
+        ? `${highPriorityOpen.length} high-priority item(s) require attention.`
+        : 'No high-priority items pending.',
     ].join('\n'),
 
     action_items: [
@@ -143,13 +115,9 @@ export function buildGeneratedExecutiveSummaryContent(
       highPriorityOpen.length > 0
         ? `- High-priority items requiring attention: ${highPriorityOpen.length}`
         : '',
-      approvalsPending.count > 0
-        ? `- Pending approvals to resolve: ${approvalsPending.count}`
-        : '',
       '',
       '**Next Steps**',
       '- Review high-priority items and assign owners',
-      '- Clear pending approval backlog',
       '- Prepare forecast inputs for next period',
     ].filter(Boolean).join('\n'),
   };

@@ -147,15 +147,6 @@ async function loadDashboardSummary() {
       errCard.style.display = 'none';
     }
 
-    // Pending approvals stat
-    const approvalCard = document.getElementById('stat-approvals-card');
-    if (data.pending_approvals > 0) {
-      document.getElementById('stat-approvals').textContent = data.pending_approvals;
-      if (approvalCard) approvalCard.style.display = '';
-    } else {
-      if (approvalCard) approvalCard.style.display = 'none';
-    }
-
     document.getElementById('dashboard-stats').style.display = '';
   } catch (e) {
     console.error('Failed to load dashboard summary', e);

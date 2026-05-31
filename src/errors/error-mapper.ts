@@ -1,13 +1,11 @@
 import { agentMessageErrorHttpEntries } from './http-error-tables/agent-messages';
 import { agentErrorHttpEntries } from './http-error-tables/agents';
-import { approvalErrorHttpEntries } from './http-error-tables/approvals';
 import { authErrorHttpEntries } from './http-error-tables/auth';
 import { commandProfileErrorHttpEntries } from './http-error-tables/command-profiles';
 import { executiveSummaryErrorHttpEntries } from './http-error-tables/executive-summaries';
 import { inputErrorHttpEntries } from './http-error-tables/input';
 import { issueErrorHttpEntries } from './http-error-tables/issues';
 import { knowledgeErrorHttpEntries } from './http-error-tables/knowledge';
-import { paymentApprovalErrorHttpEntries } from './http-error-tables/payment-approvals';
 import { projectAccessErrorHttpEntries } from './http-error-tables/project-access';
 import { projectErrorHttpEntries } from './http-error-tables/projects';
 import { remoteInstancesErrorHttpEntries } from './http-error-tables/remote-instances';
@@ -28,8 +26,6 @@ const errorHttpEntries = [
   ...projectErrorHttpEntries,
   ...issueErrorHttpEntries,
   ...agentErrorHttpEntries,
-  ...approvalErrorHttpEntries,
-  ...paymentApprovalErrorHttpEntries,
   ...executiveSummaryErrorHttpEntries,
   ...inputErrorHttpEntries,
   ...commandProfileErrorHttpEntries,

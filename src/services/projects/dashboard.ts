@@ -86,7 +86,6 @@ export async function getDashboardSummary(
 
   let localAgentStats = { total: 0, running: 0, error_count: 0 };
   let localIssueStats = { total: 0, open_count: 0 };
-  let pendingApprovalCount = 0;
   const lastActivityMap: Record<string, string | null> = {};
 
   if (projectIds.length > 0) {
@@ -130,11 +129,6 @@ export async function getDashboardSummary(
       const times = [row.last_agent_activity, row.last_issue_activity].filter(Boolean);
       lastActivityMap[row.id] = times.length ? times.sort().pop()! : null;
     }
-
-    const approvalCount = db.prepare(
-      `SELECT COUNT(*) as count FROM approval_requests WHERE project_id IN (${placeholders}) AND status = 'pending'`
-    ).get(...projectIds) as any;
-    pendingApprovalCount = approvalCount?.count || 0;
   }
 
   const localCostTotals = sumCostRows(listLatestProjectSetCostRows(db, projectIds));
@@ -156,7 +150,6 @@ export async function getDashboardSummary(
       error_count: localAgentStats.error_count + remoteAgentStats.error_count,
     },
     issues: { total: localIssueStats.total, open: localIssueStats.open_count },
-    pending_approvals: pendingApprovalCount,
     total_cost_usd: localCostTotals.cost_usd,
     total_input_tokens: localCostTotals.input_tokens,
     total_output_tokens: localCostTotals.output_tokens,
@@ -223,7 +216,7 @@ export function getDashboardActivityStream(
       SELECT 'issue_created' as event_type, i.id as object_id, i.number, i.title, i.status,
              i.created_by as actor, i.created_at as time, p.id as project_id, p.name as project_name,
              NULL as body, NULL as issue_number, NULL as issue_title, NULL as issue_id,
-             NULL as agent_name, NULL as agent_status, NULL as approval_status, NULL as risk_level
+             NULL as agent_name, NULL as agent_status
       FROM issues i JOIN projects p ON i.project_id = p.id
       WHERE i.project_id IN (${placeholders})
       ORDER BY i.created_at DESC LIMIT ?
@@ -231,7 +224,7 @@ export function getDashboardActivityStream(
     UNION ALL SELECT * FROM (
       SELECT 'issue_status_change', i.id, i.number, i.title, i.status,
              NULL, i.updated_at, p.id, p.name,
-             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+             NULL, NULL, NULL, NULL, NULL, NULL
       FROM issues i JOIN projects p ON i.project_id = p.id
       WHERE i.project_id IN (${placeholders}) AND i.updated_at != i.created_at
       ORDER BY i.updated_at DESC LIMIT ?
@@ -239,7 +232,7 @@ export function getDashboardActivityStream(
     UNION ALL SELECT * FROM (
       SELECT 'comment', c.id, NULL, NULL, NULL,
              c.author_id, c.created_at, p.id, p.name,
-             c.body, i.number, i.title, i.id, NULL, NULL, NULL, NULL
+             c.body, i.number, i.title, i.id, NULL, NULL
       FROM issue_comments c JOIN issues i ON c.issue_id = i.id JOIN projects p ON i.project_id = p.id
       WHERE i.project_id IN (${placeholders})
       ORDER BY c.created_at DESC LIMIT ?
@@ -248,26 +241,15 @@ export function getDashboardActivityStream(
       SELECT CASE WHEN tr.status IN ('starting', 'running') THEN 'agent_started' ELSE 'agent_stopped' END,
              tr.id, NULL, NULL, NULL,
              NULL, COALESCE(tr.finished_at, tr.started_at, tr.created_at), p.id, p.name,
-             NULL, NULL, NULL, NULL, a.name, tr.status, NULL, NULL
+             NULL, NULL, NULL, NULL, a.name, tr.status
       FROM task_runs tr
       JOIN agents a ON a.id = tr.agent_id
       JOIN projects p ON tr.project_id = p.id
       WHERE tr.project_id IN (${placeholders}) AND (tr.started_at IS NOT NULL OR tr.finished_at IS NOT NULL)
       ORDER BY COALESCE(tr.finished_at, tr.started_at, tr.created_at) DESC LIMIT ?
     )
-    UNION ALL SELECT * FROM (
-      SELECT CASE WHEN ar.status = 'pending' THEN 'approval_created' ELSE 'approval_decided' END,
-             ar.id, NULL, ar.title, NULL,
-             NULL, COALESCE(ar.decided_at, ar.created_at), p.id, p.name,
-             NULL, NULL, NULL, NULL, ag.name, NULL, ar.status, ar.risk_level
-      FROM approval_requests ar
-      JOIN projects p ON ar.project_id = p.id
-      JOIN agents ag ON ar.agent_id = ag.id
-      WHERE ar.project_id IN (${placeholders})
-      ORDER BY COALESCE(ar.decided_at, ar.created_at) DESC LIMIT ?
-    )
     ORDER BY time DESC LIMIT ?
-  `).all(...ids, limit, ...ids, limit, ...ids, limit, ...ids, limit, ...ids, limit, limit) as any[];
+  `).all(...ids, limit, ...ids, limit, ...ids, limit, ...ids, limit, limit) as any[];
 }
 
 export async function listDashboardAgents(

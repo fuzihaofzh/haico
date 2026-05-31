@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { CommandProfileType } from '../types';
-import { resolveCommandType } from './command-profiles';
+import { resolveCommandType, shellWords, extractCommandBinary } from './command-profiles';
 
 export interface ToolReadinessIssue {
   code: 'missing_command' | 'missing_cli' | 'auth_missing';
@@ -31,69 +31,6 @@ export interface ToolReadinessSummary {
   ready: boolean;
   issues: ToolReadinessIssue[];
   auth: ToolAuthReadiness;
-}
-
-function shellWords(input: string): string[] {
-  const words: string[] = [];
-  let current = '';
-  let quote: '"' | "'" | null = null;
-  let escaping = false;
-
-  for (const ch of input) {
-    if (escaping) {
-      current += ch;
-      escaping = false;
-      continue;
-    }
-
-    if (ch === '\\' && quote !== "'") {
-      escaping = true;
-      continue;
-    }
-
-    if (quote) {
-      if (ch === quote) {
-        quote = null;
-      } else {
-        current += ch;
-      }
-      continue;
-    }
-
-    if (ch === '"' || ch === "'") {
-      quote = ch as '"' | "'";
-      continue;
-    }
-
-    if (/\s/.test(ch)) {
-      if (current) {
-        words.push(current);
-        current = '';
-      }
-      continue;
-    }
-
-    current += ch;
-  }
-
-  if (current) words.push(current);
-  return words;
-}
-
-function extractCommandBinary(commandTemplate: string): string {
-  const words = shellWords(commandTemplate);
-  if (!words.length) return '';
-
-  let index = 0;
-  if (words[0] === 'env') {
-    index = 1;
-    while (index < words.length && /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(words[index])) {
-      index += 1;
-    }
-    if (words[index] === '--') index += 1;
-  }
-
-  return words[index] || words[0];
 }
 
 function resolveBinaryPath(binary: string): string | null {

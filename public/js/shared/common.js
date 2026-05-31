@@ -140,12 +140,6 @@ function parseRemoteAgentId(value) {
   return { instanceId: match[1], remoteAgentId: match[2] };
 }
 
-function parseRemoteApprovalId(value) {
-  const match = /^remote-approval:([^:]+):(.+)$/.exec(decodeRouteParam(value));
-  if (!match) return null;
-  return { instanceId: match[1], remoteApprovalId: match[2] };
-}
-
 function parseRemoteKnowledgeId(value) {
   const match = /^remote-knowledge:([^:]+):(.+)$/.exec(decodeRouteParam(value));
   if (!match) return null;
@@ -221,14 +215,6 @@ function buildAgentApiPath(agentId, suffix) {
     return `/api/remote-agents/${encodeURIComponent(remote.instanceId)}/${encodeURIComponent(remote.remoteAgentId)}${tail}`;
   }
   return `/api/agents/${encodeURIComponent(decodeRouteParam(agentId))}${tail}`;
-}
-
-function buildApprovalApiPath(approvalId) {
-  const remote = parseRemoteApprovalId(approvalId);
-  if (remote) {
-    return `/api/remote-approvals/${encodeURIComponent(remote.instanceId)}/${encodeURIComponent(remote.remoteApprovalId)}`;
-  }
-  return `/api/approvals/${encodeURIComponent(decodeRouteParam(approvalId))}`;
 }
 
 function buildKnowledgeApiPath(knowledgeId) {
@@ -633,7 +619,7 @@ function connectProjectEventsDirect(projectId) {
  * Connect to a project's event stream. Returns an object with .close() and .on(type, cb).
  * Uses the SharedWorker-backed client when available and falls back to direct WebSocket.
  * Event types are defined by src/realtime/protocol.ts and include project events
- * for agents, issues, comments, approvals, payment approvals, and executive summaries.
+ * for agents, issues, comments, and executive summaries.
  */
 function connectProjectEvents(projectId) {
   if (isRemoteProjectId(projectId)) {

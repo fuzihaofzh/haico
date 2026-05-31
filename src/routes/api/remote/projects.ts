@@ -7,7 +7,6 @@ import {
   serializeRemoteInstance,
 } from '../../../services/remote-instances';
 import {
-  decorateRemoteApproval,
   decorateRemoteActivityEvent,
   decorateRemoteWorkflowStatus,
   buildRemoteProxyPath,

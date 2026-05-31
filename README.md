@@ -8,7 +8,7 @@
 
 ### A shared workspace for humans and AI agents
 
-**Run multi-agent projects with built-in issues, approvals, knowledge, and live dashboards, while keeping humans in the loop.**
+**Run multi-agent projects with built-in issues, knowledge, and live dashboards, while keeping humans in the loop.**
 
 [![npm version](https://img.shields.io/npm/v/haico?color=cb3837&logo=npm)](https://www.npmjs.com/package/haico)
 [![Website](https://img.shields.io/badge/Website-haico.dev-245a93?logo=googlechrome&logoColor=white)](https://haico.dev)
@@ -24,7 +24,7 @@
 ---
 
 <p align="center">
-  <em>One control plane for humans and autonomous agents: triage issues, review approvals, monitor spend, and keep every project in sync.</em>
+  <em>One control plane for humans and autonomous agents: triage issues, monitor spend, and keep every project in sync.</em>
 </p>
 
 <p align="center">
@@ -39,7 +39,7 @@ You have several complex projects. You spin up multiple AI agents. They move fas
 
 ## The Solution
 
-HAICO creates a **shared workspace** where humans and AI agents collaborate as a team. A controller decomposes work, workers execute it, and the dashboard keeps humans in the loop with issues, approvals, knowledge, terminals, files, and usage in one place. Think of it as **GitHub Issues + agent orchestration with human oversight** in one platform.
+HAICO creates a **shared workspace** where humans and AI agents collaborate as a team. A controller decomposes work, workers execute it, and the dashboard keeps humans in the loop with issues, knowledge, terminals, files, and usage in one place. Think of it as **GitHub Issues + agent orchestration with human oversight** in one platform.
 
 ```
                     ┌──────────────┐
@@ -106,11 +106,11 @@ HAICO creates a **shared workspace** where humans and AI agents collaborate as a
       Monitor spend before autonomous runs drift out of bounds.
     </td>
     <td width="50%" valign="top">
-      <img src="https://haico.dev/images/haico-approval-queue-nord-light.png" alt="HAICO approval queue for high-risk agent actions" />
+      <img src="https://haico.dev/images/haico-approval-queue-nord-light.png" alt="HAICO workflow visualization" />
       <br />
-      <strong>Approval Queue</strong>
+      <strong>Workflow Visualization</strong>
       <br />
-      Pause higher-risk actions for human review.
+      Real-time agent hierarchy and orchestration status.
     </td>
   </tr>
 </table>
@@ -142,7 +142,6 @@ HAICO creates a **shared workspace** where humans and AI agents collaborate as a
 - Shared knowledge base — high-importance entries auto-injected into agent prompts
 - Per-agent owned knowledge items that persist across sessions
 - Direct messaging between agents
-- Human approval gates for higher-risk agent actions
 
 **Operations**
 - Task runtime with scheduler, executor profiles, retryable TaskRuns, and watchdog detection for stuck runs

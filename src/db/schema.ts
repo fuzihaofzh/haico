@@ -356,52 +356,6 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
     CREATE INDEX IF NOT EXISTS idx_task_runs_run ON task_runs(run_id);
     CREATE INDEX IF NOT EXISTS idx_executor_sessions_agent ON executor_sessions(agent_id, executor_profile_id);
 
-    CREATE TABLE IF NOT EXISTS approval_requests (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
-      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      description TEXT DEFAULT '',
-      risk_level TEXT DEFAULT 'medium' CHECK(risk_level IN ('low', 'medium', 'high', 'critical')),
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
-      decided_by TEXT,
-      decision_note TEXT DEFAULT '',
-      decided_at DATETIME,
-      created_at DATETIME DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_approval_project ON approval_requests(project_id, status);
-    CREATE INDEX IF NOT EXISTS idx_approval_agent ON approval_requests(agent_id);
-
-    CREATE TABLE IF NOT EXISTS payment_approval_requests (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
-      requested_by TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT DEFAULT '',
-      amount REAL NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'USD',
-      beneficiary TEXT NOT NULL DEFAULT '',
-      risk_level TEXT DEFAULT 'high' CHECK(risk_level IN ('low', 'medium', 'high', 'critical')),
-      required_approvals INTEGER NOT NULL DEFAULT 2,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected', 'cancelled')),
-      resolved_at DATETIME,
-      created_at DATETIME DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_payment_approval_project ON payment_approval_requests(project_id, status);
-
-    CREATE TABLE IF NOT EXISTS payment_approval_decisions (
-      id TEXT PRIMARY KEY,
-      payment_approval_id TEXT NOT NULL REFERENCES payment_approval_requests(id) ON DELETE CASCADE,
-      decided_by TEXT NOT NULL,
-      decision TEXT NOT NULL CHECK(decision IN ('approve', 'reject')),
-      note TEXT DEFAULT '',
-      created_at DATETIME DEFAULT (datetime('now')),
-      UNIQUE(payment_approval_id, decided_by)
-    );
-    CREATE INDEX IF NOT EXISTS idx_payment_decision_approval ON payment_approval_decisions(payment_approval_id);
-
     CREATE TABLE IF NOT EXISTS executive_summaries (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -860,38 +814,6 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
     `);
     db.pragma('foreign_keys = ON');
     logger.info('Migration: rebuilt conversation_logs table to fix FK references');
-  }
-
-  const approvalRequestsTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='approval_requests'").get() as any;
-  if (approvalRequestsTableSql && (
-    approvalRequestsTableSql.sql.includes('agents_old')
-    || approvalRequestsTableSql.sql.includes('issues_old')
-    || approvalRequestsTableSql.sql.includes('projects_old')
-  )) {
-    db.pragma('foreign_keys = OFF');
-    db.exec(`
-      ALTER TABLE approval_requests RENAME TO approval_requests_old;
-      CREATE TABLE approval_requests (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
-        agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-        title TEXT NOT NULL,
-        description TEXT DEFAULT '',
-        risk_level TEXT DEFAULT 'medium' CHECK(risk_level IN ('low', 'medium', 'high', 'critical')),
-        status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
-        decided_by TEXT,
-        decision_note TEXT DEFAULT '',
-        decided_at DATETIME,
-        created_at DATETIME DEFAULT (datetime('now'))
-      );
-      INSERT INTO approval_requests SELECT * FROM approval_requests_old;
-      DROP TABLE approval_requests_old;
-      CREATE INDEX IF NOT EXISTS idx_approval_project ON approval_requests(project_id, status);
-      CREATE INDEX IF NOT EXISTS idx_approval_agent ON approval_requests(agent_id);
-    `);
-    db.pragma('foreign_keys = ON');
-    logger.info('Migration: rebuilt approval_requests table to fix FK references');
   }
 
   // Migration: normalize controller command_type and only add Sonnet defaults for Claude controllers.

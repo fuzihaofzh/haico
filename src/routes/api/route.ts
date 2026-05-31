@@ -1,13 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { registerAgentRoutes } from './agents';
-import { registerApprovalRoutes } from './approvals';
 import { registerCommandProfileRoutes } from './command-profiles';
 import { registerDashboardChatRoutes } from './dashboard-chat';
 import { registerExecutiveSummaryRoutes } from './executive-summaries';
 import { registerIssueRoutes } from './issues';
 import { registerKnowledgeRoutes } from './knowledge';
 import { registerMessageRoutes } from './messages';
-import { registerPaymentApprovalRoutes } from './payment-approvals';
 import { registerProjectRoutes } from './projects';
 import { registerRemoteInstanceRoutes } from './remote';
 import { registerTemplateRoutes } from './templates';
@@ -23,8 +21,6 @@ export async function registerApiRoutes(fastify: FastifyInstance): Promise<void>
   registerKnowledgeRoutes(fastify);
   registerMessageRoutes(fastify);
   registerTemplateRoutes(fastify);
-  registerApprovalRoutes(fastify);
-  registerPaymentApprovalRoutes(fastify);
   registerExecutiveSummaryRoutes(fastify);
   registerRemoteInstanceRoutes(fastify);
   registerDashboardChatRoutes(fastify);

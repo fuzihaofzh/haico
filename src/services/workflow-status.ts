@@ -3,7 +3,6 @@ import Database from 'better-sqlite3';
 export interface ProjectWorkflowStatus {
   agents: any[];
   recent_messages: any[];
-  pending_approvals: any[];
   total_active_issues: number;
 }
 
@@ -32,14 +31,6 @@ export function getProjectWorkflowStatus(
      ORDER BY created_at DESC LIMIT 20`
   ).all(projectId) as any[];
 
-  const pendingApprovals = db.prepare(
-    `SELECT ar.id, ar.title, ar.risk_level, ar.agent_id, ar.created_at, a.name as agent_name
-     FROM approval_requests ar
-     LEFT JOIN agents a ON ar.agent_id = a.id
-     WHERE ar.project_id = ? AND ar.status = 'pending'
-     ORDER BY ar.created_at DESC`
-  ).all(projectId) as any[];
-
   const issuesByAgent: Record<string, any[]> = {};
   for (const issue of activeIssues) {
     const agentId = issue.assigned_to;
@@ -54,7 +45,6 @@ export function getProjectWorkflowStatus(
       current_issues: issuesByAgent[agent.id] || [],
     })),
     recent_messages: recentMessages,
-    pending_approvals: pendingApprovals,
     total_active_issues: activeIssues.length,
   };
 }

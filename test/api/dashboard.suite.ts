@@ -146,45 +146,6 @@ export function registerDashboardSuites(
       assert.equal(res.statusCode, 401);
     });
 
-    it("activity-stream includes approval events with agent_name (#627)", async () => {
-      // Create an approval request via the API
-      const { status: createStatus, body: approval } = await ctx.api(
-        `/api/projects/${getProjectId()}/approvals`,
-        {
-          method: "POST",
-          body: {
-            agent_id: getControllerId(),
-            title: "Test approval for activity stream",
-            description: "Verify agent_name appears in activity stream",
-            risk_level: "high",
-          },
-          headers: { cookie: `haico-auth=${getSessionToken()}` },
-        }
-      );
-      assert.equal(createStatus, 201, "approval should be created");
-
-      // Fetch activity stream and verify no 500 error
-      const { status, body } = await ctx.api("/api/dashboard/activity-stream", {
-        headers: { cookie: `haico-auth=${getSessionToken()}` },
-      });
-      assert.equal(status, 200, "activity-stream should not return 500");
-      assert.ok(Array.isArray(body));
-
-      // Find the approval event
-      const approvalEvt = body.find(
-        (e: any) =>
-          e.event_type === "approval_created" && e.object_id === approval.id
-      );
-      assert.ok(
-        approvalEvt,
-        "activity stream should include the approval event"
-      );
-      assert.ok(
-        approvalEvt.agent_name,
-        "approval event should have agent_name from joined agents table"
-      );
-    });
-
     // ── Agent Board (#618) ──
 
     it("GET /api/dashboard/agents returns agent list (with auth)", async () => {

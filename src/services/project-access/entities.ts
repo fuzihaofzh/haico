@@ -3,7 +3,6 @@ import {
   AgentAccessAgentNotFoundError,
   MessageAccessMessageNotFoundError,
 } from './errors';
-import { ApprovalNotFoundError } from '../approvals/errors';
 import {
   IssueCommentNotFoundError,
   IssueNotFoundError,
@@ -11,7 +10,6 @@ import {
   MilestoneNotFoundError,
 } from '../issue/errors';
 import { KnowledgeEntryNotFoundError } from '../knowledge/errors';
-import { PaymentApprovalNotFoundError } from '../payment-approvals/errors';
 import { requireProjectAccess } from './projects';
 import { ProjectPermission, ProjectRequestContext, ProjectScopedEntity } from './types';
 
@@ -111,38 +109,6 @@ export function requireKnowledgeAccess(
     'SELECT id, project_id FROM knowledge_entries WHERE id = ?',
     knowledgeId,
     () => new KnowledgeEntryNotFoundError(),
-    requireManage
-  );
-}
-
-export function requireApprovalAccess(
-  db: Database.Database,
-  context: ProjectRequestContext,
-  approvalId: string,
-  requireManage = false
-) {
-  return requireEntityAccess<{ id: string; project_id: string }>(
-    db,
-    context,
-    'SELECT id, project_id FROM approval_requests WHERE id = ?',
-    approvalId,
-    () => new ApprovalNotFoundError(),
-    requireManage
-  );
-}
-
-export function requirePaymentApprovalAccess(
-  db: Database.Database,
-  context: ProjectRequestContext,
-  paymentApprovalId: string,
-  requireManage = false
-) {
-  return requireEntityAccess<{ id: string; project_id: string }>(
-    db,
-    context,
-    'SELECT id, project_id FROM payment_approval_requests WHERE id = ?',
-    paymentApprovalId,
-    () => new PaymentApprovalNotFoundError(),
     requireManage
   );
 }

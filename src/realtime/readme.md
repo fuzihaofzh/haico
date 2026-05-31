@@ -4,7 +4,7 @@ HAICO 的 WebSocket 不是裸 `ws` 随意响应模式，而是一层规定型 re
 
 ## 通道职责
 
-- `/ws/projects/:id/events`: project-level live events。用于 agent 状态、issue、comment、approval、executive summary 等页面刷新信号。需要 project read access。
+- `/ws/projects/:id/events`: project-level live events。用于 agent 状态、issue、comment、executive summary 等页面刷新信号。需要 project read access。
 - `/ws/agents/:id/terminal`: agent run output stream。用于 stdout/stderr/exit/error 等运行输出。需要 agent read access。
 - `/ws/terminal/:agentId`: interactive PTY terminal。用于 input、resize、kill 和 terminal output。需要 agent manage access。
 

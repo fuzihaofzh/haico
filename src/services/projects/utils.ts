@@ -1,6 +1,4 @@
-export function buildSqlPlaceholders(values: readonly unknown[]): string {
-  return values.map(() => '?').join(', ');
-}
+export { buildSqlPlaceholders } from '../issue/utils';
 
 export function parseBoundedLimit(value: unknown, fallback: number, max: number, min = 1): number {
   const parsed = Number.parseInt(String(value ?? fallback), 10);
