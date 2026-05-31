@@ -9,7 +9,7 @@ import { registerKnowledgeRoutes } from './knowledge';
 import { registerMessageRoutes } from './messages';
 import { registerPaymentApprovalRoutes } from './payment-approvals';
 import { registerProjectRoutes } from './projects';
-import { registerRemoteInstanceRoutes } from './remote-instances';
+import { registerRemoteInstanceRoutes } from './remote';
 import { registerTemplateRoutes } from './templates';
 
 // Protected business API routes only.

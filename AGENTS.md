@@ -38,7 +38,8 @@ src/
 │   └── schema.ts       # Schema + 迁移
 ├── routes/
 │   ├── route.ts         # 顶层注册: auth → protected API → UI → WebSocket
-│   ├── api/             # 受保护业务 API, 每模块一文件
+│   ├── prehandlers/     # Fastify preHandler 适配层 (非 service 逻辑)
+│   ├── api/             # 受保护业务 API, 每模块一文件或 remote/ 子目录
 │   ├── auth.ts          # 登录/注册等公开认证路由
 │   ├── ui.ts            # SSR/静态页面入口
 │   └── ws.ts            # WebSocket 路由
@@ -48,13 +49,15 @@ src/
     ├── langgraph-runner.ts  # LangGraph 编排
     ├── pre-controller.ts    # 规则引擎拦截
     ├── process-manager/     # Agent 子进程管理
+    ├── remote-instances/    # 远程实例: core/crud/proxy/decorators/notifications/errors
     └── ...                  # 其他服务见 src/services/
 ```
 
 ## Conventions
 
-- **路由**: `src/routes/api/` 每模块一文件, `registerXxxRoutes(fastify)`；认证、UI、WebSocket 路由分别在 `auth.ts`、`ui.ts`、`ws.ts`
-- **权限**: `requireXxxAccess(db, getProjectRequestContext(request), id, requireManage?)` 统一模式
+- **路由**: `src/routes/api/` 每模块一文件或 `remote/` 子目录按路径前缀拆分, `registerXxxRoutes(fastify)`；认证、UI、WebSocket 路由分别在 `auth.ts`、`ui.ts`、`ws.ts`
+- **PreHandler**: `src/routes/prehandlers/` 权限/校验 Fastify preHandler 工厂，路由通过 `fastify.register` scope + `addHook('preHandler', ...)` 应用，而非内联检查
+- **权限**: prehandler 解析权限后将结果挂到 `request.projectPermission`、`request.resolvedEntity` 等；service 函数接收 `ProjectPermission` (非完整 `ProjectRequestContext`)
 - **API**: 前缀 `/api/` | 错误 `{ error: string }` | 分页 `limit` + `offset`
 - **WebSocket**: `broadcastToProject(projectId, { type, projectId, data })`, type 用 `snake_case` (与 JS/TS camelCase 习惯不同)
 - **DB**: better-sqlite3 同步 API | 批量 IN 子句: `buildSqlPlaceholders(values)` | cost 查询仅取每 run_id 最后一条（累积值）
@@ -70,7 +73,8 @@ src/
 
 ## Route / Service / Error Boundary
 
-- **路由只管传输**: 解析 params/body/query、执行 `requireXxxAccess`、调用 service、设置成功响应。
+- **路由只管传输**: 解析 params/body/query、调用 service、设置成功响应。
+- **PreHandler 只管权限/校验**: Fastify scope 级 hook 执行角色检查、权限解析、输入校验等；纯适配层，不含业务逻辑，验证逻辑留在 `services/project-access/` 等处
 - **Service 只管业务**: 业务规则、DB、文件系统、进程生命周期、领域事件/WebSocket 广播都下沉到 service。
 - **业务失败抛领域错误**: route 中不要写业务型 `reply.code(4xx).send({ error })`；由 service 抛 `<Entity><Reason>Error`。
 - **HTTP 映射集中处理**: `src/errors/error-mapper.ts` 按具体领域错误类映射 status code；详见 `architecture/error-handling.md`。

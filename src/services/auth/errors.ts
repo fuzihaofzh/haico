@@ -25,3 +25,10 @@ export class DefaultAdminLoginLocalhostOnlyError extends Error {
     this.name = 'DefaultAdminLoginLocalhostOnlyError';
   }
 }
+
+export class AdminRoleRequiredError extends Error {
+  constructor() {
+    super('Admin role required');
+    this.name = 'AdminRoleRequiredError';
+  }
+}

@@ -3,11 +3,13 @@ import { agentErrorHttpEntries } from './http-error-tables/agents';
 import { approvalErrorHttpEntries } from './http-error-tables/approvals';
 import { authErrorHttpEntries } from './http-error-tables/auth';
 import { executiveSummaryErrorHttpEntries } from './http-error-tables/executive-summaries';
+import { inputErrorHttpEntries } from './http-error-tables/input';
 import { issueErrorHttpEntries } from './http-error-tables/issues';
 import { knowledgeErrorHttpEntries } from './http-error-tables/knowledge';
 import { paymentApprovalErrorHttpEntries } from './http-error-tables/payment-approvals';
 import { projectAccessErrorHttpEntries } from './http-error-tables/project-access';
 import { projectErrorHttpEntries } from './http-error-tables/projects';
+import { remoteInstancesErrorHttpEntries } from './http-error-tables/remote-instances';
 import type {
   ErrorConstructor,
   ErrorHttpEntry,
@@ -28,6 +30,8 @@ const errorHttpEntries = [
   ...approvalErrorHttpEntries,
   ...paymentApprovalErrorHttpEntries,
   ...executiveSummaryErrorHttpEntries,
+  ...inputErrorHttpEntries,
+  ...remoteInstancesErrorHttpEntries,
 ] satisfies readonly ErrorHttpEntry[];
 
 const errorHttpMap = createErrorHttpMap(errorHttpEntries);

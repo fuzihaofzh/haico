@@ -2,37 +2,11 @@ import { FastifyInstance } from 'fastify';
 import { getDatabase } from '../../db/database';
 import { CreateProjectInput } from '../../types';
 import { getProjectRequestContext } from '../../middleware/request-context';
-import { requireProjectAccess } from '../../services/project-access';
-import {
-  assertProjectTaskDescription,
-  buildProjectExport,
-  buildProjectIssuesCsv,
-  createProject,
-  deleteProject,
-  generateProjectMetadata,
-  getDashboardActivityStream,
-  getDashboardSummary,
-  getProject,
-  getProjectActivity,
-  getProjectCosts,
-  getProjectGitLog,
-  getTodayCost,
-  getUsageByProject,
-  listDashboardAgents,
-  listProjectMembers,
-  listProjectOrchestrationRuns,
-  listProjects,
-  removeProjectMember,
-  updateProject,
-  updateProjectMemberRole,
-  upsertProjectMember,
-} from '../../services/projects';
-import {
-  createRemoteProject,
-  findRemoteInstanceById,
-  generateRemoteProjectMetadata,
-  isLocalTargetInstanceId,
-} from '../../services/remote-instances';
+import { assertProjectTaskDescription } from '../../services/projects/core';
+import { requireProjectAccessPrehandler } from '../prehandlers';
+import { buildProjectExport, buildProjectIssuesCsv, createProject, deleteProject, generateProjectMetadata, getDashboardActivityStream, getDashboardSummary, getProject, getProjectActivity, getProjectCosts, getProjectGitLog, getTodayCost, getUsageByProject, listDashboardAgents, listProjectMembers, listProjectOrchestrationRuns, listProjects, removeProjectMember, updateProject, updateProjectMemberRole, upsertProjectMember } from '../../services/projects';
+import { createRemoteProject, findRemoteInstanceById, generateRemoteProjectMetadata, isLocalTargetInstanceId } from '../../services/remote-instances';
+import { RemoteInstanceNotFoundError, RemoteInstanceDisabledError } from '../../services/remote-instances/errors';
 import { triggerControllerOnDemand } from '../../services/issue/automation';
 
 export function registerProjectRoutes(fastify: FastifyInstance): void {
@@ -74,10 +48,10 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
         const db = getDatabase();
         const remoteInstance = findRemoteInstanceById(db, String(target_instance_id || '').trim());
         if (!remoteInstance) {
-          return reply.code(404).send({ error: 'Remote instance not found' });
+          throw new RemoteInstanceNotFoundError();
         }
         if (!remoteInstance.enabled) {
-          return reply.code(400).send({ error: 'Remote instance is disabled' });
+          throw new RemoteInstanceDisabledError();
         }
 
         const result = await generateRemoteProjectMetadata(remoteInstance, {
@@ -97,49 +71,6 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     }
   );
 
-  fastify.get<{ Params: { id: string }; Querystring: { period?: string } }>('/projects/:id/costs', async (request, reply) => {
-    const db = getDatabase();
-    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
-    return getProjectCosts(db, request.params.id, request.query.period);
-  });
-
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/projects/:id/git-log', async (request, reply) => {
-    const db = getDatabase();
-    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
-    return getProjectGitLog(db, request.params.id, request.query.limit);
-  });
-
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/projects/:id/activity', async (request, reply) => {
-    const db = getDatabase();
-    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
-    return getProjectActivity(db, request.params.id, request.query.limit);
-  });
-
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
-    '/projects/:id/orchestration-runs',
-    async (request, reply) => {
-      const db = getDatabase();
-      requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
-      return listProjectOrchestrationRuns(db, request.params.id, request.query.limit);
-    }
-  );
-
-  fastify.post<{ Params: { id: string }; Body: { issue_number?: number } }>(
-    '/projects/:id/controller/trigger',
-    async (request, reply) => {
-      const db = getDatabase();
-      requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
-      const issueNumber = typeof request.body?.issue_number === 'number'
-        ? request.body.issue_number
-        : undefined;
-      triggerControllerOnDemand(db, request.params.id, issueNumber, 'user', {
-        reason: 'manual-controller-trigger',
-        forceUrgent: true,
-      });
-      return { success: true };
-    }
-  );
-
   fastify.get<{ Querystring: { with_stats?: string } }>('/projects', async (request) => {
     const db = getDatabase();
     return listProjects(db, getProjectRequestContext(request), {
@@ -155,10 +86,10 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
       const db = getDatabase();
       const remoteInstance = findRemoteInstanceById(db, String(body.target_instance_id || '').trim());
       if (!remoteInstance) {
-        return reply.code(404).send({ error: 'Remote instance not found' });
+        throw new RemoteInstanceNotFoundError();
       }
       if (!remoteInstance.enabled) {
-        return reply.code(400).send({ error: 'Remote instance is disabled' });
+        throw new RemoteInstanceDisabledError();
       }
 
       const result = await createRemoteProject(remoteInstance, {
@@ -185,76 +116,95 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     return reply.code(201).send(project);
   });
 
-  fastify.get<{ Params: { id: string } }>('/projects/:id', async (request, reply) => {
-    const db = getDatabase();
-    const access = requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
-    return getProject(db, request.params.id, access);
+  fastify.register(async (projectReadScope) => {
+    projectReadScope.addHook('preHandler', requireProjectAccessPrehandler({ param: 'id', manage: false }));
+
+    projectReadScope.get<{ Params: { id: string }; Querystring: { period?: string } }>('/projects/:id/costs', async (request) => {
+      const db = getDatabase();
+      return getProjectCosts(db, request.params.id, request.query.period);
+    });
+
+    projectReadScope.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/projects/:id/git-log', async (request) => {
+      const db = getDatabase();
+      return getProjectGitLog(db, request.params.id, request.query.limit);
+    });
+
+    projectReadScope.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/projects/:id/activity', async (request) => {
+      const db = getDatabase();
+      return getProjectActivity(db, request.params.id, request.query.limit);
+    });
+
+    projectReadScope.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/projects/:id/orchestration-runs', async (request) => {
+      const db = getDatabase();
+      return listProjectOrchestrationRuns(db, request.params.id, request.query.limit);
+    });
+
+    projectReadScope.get<{ Params: { id: string } }>('/projects/:id', async (request) => {
+      const db = getDatabase();
+      return getProject(db, request.params.id, request.projectPermission!);
+    });
+
+    projectReadScope.get<{ Params: { id: string } }>('/projects/:id/members', async (request) => {
+      const db = getDatabase();
+      return { members: listProjectMembers(db, request.params.id) };
+    });
+
+    projectReadScope.get<{ Params: { id: string } }>('/projects/:id/export', async (request, reply) => {
+      const db = getDatabase();
+      const result = buildProjectExport(db, request.params.id);
+      reply.header('Content-Type', 'application/json');
+      reply.header('Content-Disposition', `attachment; filename="${result.fileName}"`);
+      return result.data;
+    });
+
+    projectReadScope.get<{ Params: { id: string } }>('/projects/:id/export/issues.csv', async (request, reply) => {
+      const db = getDatabase();
+      const result = buildProjectIssuesCsv(db, request.params.id);
+      reply.header('Content-Type', 'text/csv');
+      reply.header('Content-Disposition', `attachment; filename="${result.fileName}"`);
+      return result.csv;
+    });
   });
 
-  fastify.put<{ Params: { id: string }; Body: Partial<CreateProjectInput> & { status?: string; color?: string } }>(
-    '/projects/:id',
-    async (request, reply) => {
-      const db = getDatabase();
-      const access = requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
-      return updateProject(db, request.params.id, request.body || {}, access);
-    }
-  );
+  fastify.register(async (projectWriteScope) => {
+    projectWriteScope.addHook('preHandler', requireProjectAccessPrehandler({ param: 'id', manage: true }));
 
-  fastify.get<{ Params: { id: string } }>('/projects/:id/members', async (request, reply) => {
-    const db = getDatabase();
-    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
-    return { members: listProjectMembers(db, request.params.id) };
-  });
-
-  fastify.post<{ Params: { id: string }; Body: { user_id?: string; username?: string; role?: string } }>(
-    '/projects/:id/members',
-    async (request, reply) => {
+    projectWriteScope.post<{ Params: { id: string }; Body: { issue_number?: number } }>('/projects/:id/controller/trigger', async (request) => {
       const db = getDatabase();
-      requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
+      const issueNumber = typeof request.body?.issue_number === 'number'
+        ? request.body.issue_number
+        : undefined;
+      triggerControllerOnDemand(db, request.params.id, issueNumber, 'user', {
+        reason: 'manual-controller-trigger',
+        forceUrgent: true,
+      });
+      return { success: true };
+    });
+
+    projectWriteScope.put<{ Params: { id: string }; Body: Partial<CreateProjectInput> & { status?: string; color?: string } }>('/projects/:id', async (request) => {
+      const db = getDatabase();
+      return updateProject(db, request.params.id, request.body || {}, request.projectPermission!);
+    });
+
+    projectWriteScope.post<{ Params: { id: string }; Body: { user_id?: string; username?: string; role?: string } }>('/projects/:id/members', async (request, reply) => {
+      const db = getDatabase();
       const result = upsertProjectMember(db, request.params.id, request.body || {});
       return reply.code(result.created ? 201 : 200).send(result.member);
-    }
-  );
+    });
 
-  fastify.delete<{ Params: { id: string; userId: string } }>(
-    '/projects/:id/members/:userId',
-    async (request, reply) => {
+    projectWriteScope.delete<{ Params: { id: string; userId: string } }>('/projects/:id/members/:userId', async (request) => {
       const db = getDatabase();
-      requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
       return removeProjectMember(db, request.params.id, request.params.userId);
-    }
-  );
+    });
 
-  fastify.patch<{ Params: { id: string; userId: string }; Body: { role: string } }>(
-    '/projects/:id/members/:userId',
-    async (request, reply) => {
+    projectWriteScope.patch<{ Params: { id: string; userId: string }; Body: { role: string } }>('/projects/:id/members/:userId', async (request) => {
       const db = getDatabase();
-      requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
       return updateProjectMemberRole(db, request.params.id, request.params.userId, request.body?.role);
-    }
-  );
+    });
 
-  fastify.get<{ Params: { id: string } }>('/projects/:id/export', async (request, reply) => {
-    const db = getDatabase();
-    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
-    const result = buildProjectExport(db, request.params.id);
-    reply.header('Content-Type', 'application/json');
-    reply.header('Content-Disposition', `attachment; filename="${result.fileName}"`);
-    return result.data;
-  });
-
-  fastify.get<{ Params: { id: string } }>('/projects/:id/export/issues.csv', async (request, reply) => {
-    const db = getDatabase();
-    requireProjectAccess(db, getProjectRequestContext(request), request.params.id);
-    const result = buildProjectIssuesCsv(db, request.params.id);
-    reply.header('Content-Type', 'text/csv');
-    reply.header('Content-Disposition', `attachment; filename="${result.fileName}"`);
-    return result.csv;
-  });
-
-  fastify.delete<{ Params: { id: string } }>('/projects/:id', async (request, reply) => {
-    const db = getDatabase();
-    const access = requireProjectAccess(db, getProjectRequestContext(request), request.params.id, true);
-    return deleteProject(db, request.params.id, access.permission, request.log);
+    projectWriteScope.delete<{ Params: { id: string } }>('/projects/:id', async (request) => {
+      const db = getDatabase();
+      return deleteProject(db, request.params.id, request.projectPermission!, request.log);
+    });
   });
 }

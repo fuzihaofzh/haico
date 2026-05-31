@@ -2,7 +2,8 @@
 
 HAICO backend error handling follows a layered model:
 
-- **Routes** describe the successful HTTP flow: read params/body/query, check access, call services, and return success responses.
+- **PreHandlers** enforce access control and input validation before routes run. They throw domain errors (e.g. `AdminRoleRequiredError`, `InputValidationError`, `RemoteInstanceNotFoundError`) that flow through the same error-mapper pipeline. PreHandlers are pure Fastify adapters — no business logic, no service imports beyond `services/project-access/` for permission resolution.
+- **Routes** describe the successful HTTP flow: read params/body/query, call services, and return success responses.
 - **Services** contain business logic. When business rules fail, services throw specific domain errors such as `KnowledgeEntryNotFoundError` or `InvalidKnowledgeCategoryError`.
 - **Services do not return transport-shaped failures** such as `{ ok: false, statusCode, error }`.
 - **Services do not wrap internal tools by default**. Database, filesystem, and third-party errors should bubble up unless the service can translate them into a clearer domain error.
@@ -59,8 +60,8 @@ For API responses:
 
 ## Current Migration Strategy
 
-The core framework pieces are in place: routes use throwing access helpers such
-as `requireProjectAccess`, the global Fastify error handler delegates to
+The core framework pieces are in place: routes use Fastify preHandlers for access
+control, the global Fastify error handler delegates to
 `src/errors/error-mapper.ts`, and domain modules own their specific error
 classes.
 
@@ -72,3 +73,48 @@ Continue migration gradually:
 4. Add new domain errors to `src/errors/error-mapper.ts` so response shape stays `{ error: string }`.
 
 The long-term target is that new routes call services directly and let errors bubble to middleware.
+
+## PreHandler Pattern
+
+PreHandlers live in `src/routes/prehandlers/` and enforce access control or input validation before route handlers run. They are attached via Fastify's `fastify.register()` scope + `addHook('preHandler', ...)` pattern, not as inline checks inside handlers.
+
+Available prehandlers (see `src/routes/prehandlers/index.ts`):
+
+| PreHandler | Purpose | Throws |
+|---|---|---|
+| `requireAdminRolePrehandler()` | Admin-only routes | `AdminRoleRequiredError` → 403 |
+| `requireProjectAccessPrehandler({ param?, manage? })` | Project membership + manage check | `ProjectAccessDeniedError` → 403 |
+| `requireEntityAccessPrehandler(entity, { param?, manage? })` | Entity ownership within project | `EntityNotFoundError` → 404, `ProjectAccessDeniedError` → 403 |
+| `requireRemoteInstancePrehandler({ param?, requireEnabled? })` | Resolve remote instance by ID | `RemoteInstanceNotFoundError` → 404, `RemoteInstanceDisabledError` → 400 |
+| `requireReactionTargetTypePrehandler({ param? })` | Validate reaction target type | `InvalidReactionTargetTypeError` → 400 |
+| `validateInput({ body?, query? })` | Field-level input validation | `InputValidationError` → 400 |
+
+PreHandlers resolve data and attach results to the request object (e.g. `request.projectPermission`, `request.resolvedEntity`, `request.resolvedRemoteInstance`). Route handlers read these via non-null assertion (`request.projectPermission!`) since the preHandler guarantees they exist by the time the handler runs.
+
+### Scope Pattern
+
+```typescript
+// Admin-only routes
+fastify.register(async (adminScope) => {
+  adminScope.addHook('preHandler', requireAdminRolePrehandler());
+  adminScope.get('/admin-resource', async () => { ... });
+});
+
+// Project-scoped routes
+fastify.register(async (projectScope) => {
+  projectScope.addHook('preHandler', requireProjectAccessPrehandler());
+  projectScope.get('/projects/:id/...', async (request) => {
+    const permission = request.projectPermission!;
+  });
+});
+```
+
+### What Belongs in PreHandlers vs Route Handlers
+
+- **PreHandler**: role checks, project/entity permission resolution, remote instance lookup, input field validation (required/enum/json/url). No business logic — only Fastify adapter code.
+- **Route handler**: business-specific validation (e.g. "cannot delete yourself", "default admin cannot be demoted"), service calls, response shaping.
+- **Service**: all business rules, DB operations, domain errors.
+
+### UI Routes (ui.ts)
+
+SSR/HTMX partial routes that return HTML do NOT use the preHandler pattern. They use the `isRequestAdmin(request)` helper instead, because error responses must be HTML partials (not JSON from error-mapper).

@@ -1,4 +1,5 @@
 import {
+  AdminRoleRequiredError,
   AuthenticationRequiredError,
   DefaultAdminLoginDisabledError,
   DefaultAdminLoginLocalhostOnlyError,
@@ -21,6 +22,10 @@ export const authErrorHttpEntries = [
   ],
   [
     DefaultAdminLoginLocalhostOnlyError,
+    (error) => ({ statusCode: 403, message: error.message }),
+  ],
+  [
+    AdminRoleRequiredError,
     (error) => ({ statusCode: 403, message: error.message }),
   ],
 ] satisfies readonly ErrorHttpEntry[];

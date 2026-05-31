@@ -97,6 +97,14 @@ export function serializeProject(
   context: ProjectRequestContext
 ): SerializedProject {
   const permission = getProjectPermission(db, project.id, context.user);
+  return serializeProjectWithPermission(db, project, permission);
+}
+
+function serializeProjectWithPermission(
+  db: Database.Database,
+  project: Project,
+  permission: ProjectPermission
+): SerializedProject {
   return {
     ...project,
     permission_level: permission.level,
@@ -185,10 +193,10 @@ function attachProjectStats(db: Database.Database, projects: SerializedProject[]
   });
 }
 
-export function getProject(db: Database.Database, projectId: string, context: ProjectRequestContext): SerializedProject {
+export function getProject(db: Database.Database, projectId: string, permission: ProjectPermission): SerializedProject {
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
   if (!project) throw new ProjectNotFoundError();
-  return serializeProject(db, project, context);
+  return serializeProjectWithPermission(db, project, permission);
 }
 
 export function createProject(
@@ -348,7 +356,7 @@ export function updateProject(
   db: Database.Database,
   projectId: string,
   input: UpdateProjectInput,
-  context: ProjectRequestContext
+  permission: ProjectPermission
 ): SerializedProject {
   const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Project | undefined;
   if (!existing) throw new ProjectNotFoundError();
@@ -425,7 +433,7 @@ export function updateProject(
   if (Object.keys(changes).length > 0) {
     logger.info({ projectId, changes }, 'project.updated');
   }
-  return serializeProject(db, updated, context);
+  return serializeProjectWithPermission(db, updated, permission);
 }
 
 export function deleteProject(

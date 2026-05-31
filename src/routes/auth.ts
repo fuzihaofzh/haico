@@ -15,6 +15,7 @@ import {
   updateUserRole,
   validateRegistrationInput,
 } from '../services/auth/users';
+import { requireAdminRolePrehandler } from './prehandlers';
 
 function isLocalhostAddress(address: string | undefined): boolean {
   return address === '127.0.0.1'
@@ -141,40 +142,38 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return reply.status(401).send({ error: 'Not authenticated' });
   });
 
-  app.get('/auth/users', async (request, reply) => {
-    const user = request.user;
-    if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
-    return { users: listUsers(getDatabase()) };
-  });
+  app.register(async (adminScope) => {
+    adminScope.addHook('preHandler', requireAdminRolePrehandler());
 
-  app.put('/auth/users/:id', async (request, reply) => {
-    const user = request.user;
-    if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
+    adminScope.get('/auth/users', async () => {
+      return { users: listUsers(getDatabase()) };
+    });
 
-    const { id } = request.params as { id: string };
-    const { role } = request.body as { role?: string };
-    if (id === user.id) return reply.status(400).send({ error: 'Cannot change your own role' });
-    if (role && !['admin', 'member'].includes(role)) return reply.status(400).send({ error: 'Invalid role' });
-    const target = getDatabase().prepare('SELECT username FROM users WHERE id = ?').get(id) as { username: string } | undefined;
-    if (target?.username === DEFAULT_ADMIN_USERNAME && role && role !== 'admin') {
-      return reply.status(400).send({ error: 'Default admin cannot be demoted' });
-    }
+    adminScope.put('/auth/users/:id', async (request, reply) => {
+      const user = request.user!;
+      const { id } = request.params as { id: string };
+      const { role } = request.body as { role?: string };
+      if (id === user.id) return reply.status(400).send({ error: 'Cannot change your own role' });
+      if (role && !['admin', 'member'].includes(role)) return reply.status(400).send({ error: 'Invalid role' });
+      const target = getDatabase().prepare('SELECT username FROM users WHERE id = ?').get(id) as { username: string } | undefined;
+      if (target?.username === DEFAULT_ADMIN_USERNAME && role && role !== 'admin') {
+        return reply.status(400).send({ error: 'Default admin cannot be demoted' });
+      }
 
-    const updated = updateUserRole(getDatabase(), id, role);
-    if (!updated) return reply.status(404).send({ error: 'User not found' });
-    return { user: updated };
-  });
+      const updated = updateUserRole(getDatabase(), id, role);
+      if (!updated) return reply.status(404).send({ error: 'User not found' });
+      return { user: updated };
+    });
 
-  app.delete('/auth/users/:id', async (request, reply) => {
-    const user = request.user;
-    if (!user || user.role !== 'admin') return reply.status(403).send({ error: 'Admin access required' });
+    adminScope.delete('/auth/users/:id', async (request, reply) => {
+      const user = request.user!;
+      const { id } = request.params as { id: string };
+      if (id === user.id) return reply.status(400).send({ error: 'Cannot delete yourself' });
 
-    const { id } = request.params as { id: string };
-    if (id === user.id) return reply.status(400).send({ error: 'Cannot delete yourself' });
-
-    const result = deleteUser(getDatabase(), id);
-    if (result === 'not-found') return reply.status(404).send({ error: 'User not found' });
-    if (result === 'protected') return reply.status(400).send({ error: 'Default admin cannot be deleted' });
-    return { ok: true };
+      const result = deleteUser(getDatabase(), id);
+      if (result === 'not-found') return reply.status(404).send({ error: 'User not found' });
+      if (result === 'protected') return reply.status(400).send({ error: 'Default admin cannot be deleted' });
+      return { ok: true };
+    });
   });
 }

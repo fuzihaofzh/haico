@@ -1,23 +1,14 @@
 import { FastifyInstance } from 'fastify';
 import { getDatabase } from '../../db/database';
+import { assertSendAgentMessageInput, listAgentInboxMessages, listAgentSentMessages, markAgentMessageRead, markAllAgentMessagesRead, sendAgentMessage } from '../../services/agents/index';
+import { requireEntityAccessPrehandler } from '../prehandlers';
 import { getProjectRequestContext } from '../../middleware/request-context';
-import {
-  assertSendAgentMessageInput,
-  listAgentInboxMessages,
-  listAgentSentMessages,
-  markAgentMessageRead,
-  markAllAgentMessagesRead,
-  sendAgentMessage,
-} from '../../services/agents/index';
-import {
-  requireAgentAccess,
-  requireMessageAccess,
-} from '../../services/project-access';
 
 export function registerMessageRoutes(fastify: FastifyInstance): void {
-  // Send a message to an agent
+  // Send/read-all/mark-read use manage access on agent
   fastify.post<{ Params: { id: string }; Body: { to: string; subject?: string; body: string; reply_to_id?: string } }>(
     '/agents/:id/messages/send',
+    { preHandler: [requireEntityAccessPrehandler('agent', { manage: true })] },
     async (request, reply) => {
       const db = getDatabase();
       const context = getProjectRequestContext(request);
@@ -26,64 +17,55 @@ export function registerMessageRoutes(fastify: FastifyInstance): void {
       const input = { fromAgentId, toAgentId: to, subject, body, replyToId: reply_to_id };
 
       assertSendAgentMessageInput(input);
-      requireAgentAccess(db, context, fromAgentId, true);
 
       const message = sendAgentMessage(db, input);
       return reply.code(201).send(message);
     }
   );
 
-  // Get inbox (messages received by this agent)
-  fastify.get<{ Params: { id: string }; Querystring: { status?: string; limit?: string } }>(
-    '/agents/:id/messages',
+  fastify.post<{ Params: { id: string } }>(
+    '/agents/:id/messages/read-all',
+    { preHandler: [requireEntityAccessPrehandler('agent', { manage: true })] },
     async (request, reply) => {
       const db = getDatabase();
-      const context = getProjectRequestContext(request);
       const { id } = request.params;
-      const { status, limit } = request.query;
 
-      requireAgentAccess(db, context, id);
-      return { messages: listAgentInboxMessages(db, { agentId: id, status, limit }) };
+      return { updated: markAllAgentMessagesRead(db, id) };
     }
   );
 
-  // Get sent messages
-  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
-    '/agents/:id/messages/sent',
-    async (request, reply) => {
-      const db = getDatabase();
-      const context = getProjectRequestContext(request);
-      const { id } = request.params;
-
-      requireAgentAccess(db, context, id);
-      return { messages: listAgentSentMessages(db, { agentId: id, limit: request.query.limit }) };
-    }
-  );
-
-  // Mark message as read
   fastify.put<{ Params: { id: string; msgId: string } }>(
     '/agents/:id/messages/:msgId',
+    { preHandler: [requireEntityAccessPrehandler('agent', { manage: true }), requireEntityAccessPrehandler('message', { param: 'msgId', manage: true })] },
     async (request, reply) => {
       const db = getDatabase();
-      const context = getProjectRequestContext(request);
       const { id, msgId } = request.params;
 
-      requireAgentAccess(db, context, id, true);
-      requireMessageAccess(db, context, msgId, true);
       return markAgentMessageRead(db, id, msgId);
     }
   );
 
-  // Mark all messages as read for an agent
-  fastify.post<{ Params: { id: string } }>(
-    '/agents/:id/messages/read-all',
+  // Get inbox/sent uses read access on agent
+  fastify.get<{ Params: { id: string }; Querystring: { status?: string; limit?: string } }>(
+    '/agents/:id/messages',
+    { preHandler: [requireEntityAccessPrehandler('agent')] },
     async (request, reply) => {
       const db = getDatabase();
-      const context = getProjectRequestContext(request);
+      const { id } = request.params;
+      const { status, limit } = request.query;
+
+      return { messages: listAgentInboxMessages(db, { agentId: id, status, limit }) };
+    }
+  );
+
+  fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
+    '/agents/:id/messages/sent',
+    { preHandler: [requireEntityAccessPrehandler('agent')] },
+    async (request, reply) => {
+      const db = getDatabase();
       const { id } = request.params;
 
-      requireAgentAccess(db, context, id, true);
-      return { updated: markAllAgentMessagesRead(db, id) };
+      return { messages: listAgentSentMessages(db, { agentId: id, limit: request.query.limit }) };
     }
   );
 }

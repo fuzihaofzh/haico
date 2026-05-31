@@ -10,6 +10,7 @@ import {
   findRemoteInstanceById,
   isLocalTargetInstanceId,
 } from '../../services/remote-instances';
+import { RemoteInstanceNotFoundError, RemoteInstanceDisabledError } from '../../services/remote-instances/errors';
 import { inspectToolReadiness } from '../../services/tool-readiness';
 
 function normalizeProfileName(value: unknown): string {
@@ -96,10 +97,10 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
         const db = getDatabase();
         const remoteInstance = findRemoteInstanceById(db, targetInstanceId);
         if (!remoteInstance) {
-          return reply.code(404).send({ error: 'Remote instance not found' });
+          throw new RemoteInstanceNotFoundError();
         }
         if (!remoteInstance.enabled) {
-          return reply.code(400).send({ error: 'Remote instance is disabled' });
+          throw new RemoteInstanceDisabledError();
         }
 
         const result = await checkRemoteCommandProfile(remoteInstance, { command, type });

@@ -9,6 +9,7 @@ import {
   authenticateRemoteInstance,
   applyProbeToRemoteInstance,
   loadRemoteInstances,
+  normalizeRemoteApiToken,
   normalizeRemoteInstanceBaseUrl,
   normalizeRemoteInstanceName,
   probeRemoteInstance,
@@ -24,10 +25,6 @@ function esc(value: unknown): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function normalizeRemoteApiToken(value: unknown): string {
-  return String(value || '').trim();
 }
 
 function deriveRemoteInstanceName(baseUrl: string, fallback = ''): string {
