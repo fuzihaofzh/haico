@@ -1,10 +1,10 @@
 
 import path from 'path';
-import os from 'os';
 import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { config } from '../config';
 import { resolveCommandType } from './command-profiles';
+import { expandHomePath } from './git';
 import logger from '../logger';
 
 let pty: typeof import('node-pty') | null = null;
@@ -102,7 +102,7 @@ export function getOrCreatePtySession(
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Agent | undefined;
 
   let cwd = agent?.working_directory || process.cwd();
-  if (cwd.startsWith('~/')) cwd = path.join(os.homedir(), cwd.slice(2));
+  if (cwd.startsWith('~/')) cwd = expandHomePath(cwd);
 
   // Get command template: agent-level > project-level > default
   let commandTemplate = 'claude';

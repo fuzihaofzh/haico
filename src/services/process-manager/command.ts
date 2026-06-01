@@ -5,6 +5,7 @@ import path from 'path';
 import { getDatabase } from '../../db/database';
 import { Agent, Project } from '../../types';
 import logger from '../../logger';
+import { expandHomePath } from '../git';
 import {
   appendClaudeConfigArgs,
   appendCodexConfigArgs,
@@ -170,7 +171,7 @@ function buildPromptEnvValue(prompt: string): { value: string; truncated: boolea
 
 export function resolveAgentCwd(agent: Agent): string {
   let cwd = agent.working_directory || process.cwd();
-  if (cwd.startsWith('~/')) cwd = path.join(os.homedir(), cwd.slice(2));
+  if (cwd.startsWith('~/')) cwd = expandHomePath(cwd);
 
   try {
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {

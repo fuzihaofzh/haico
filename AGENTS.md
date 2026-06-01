@@ -47,6 +47,7 @@ src/
     ├── controller.ts        # 编排引擎
     ├── orchestrator.ts      # Native 编排
     ├── langgraph-runner.ts  # LangGraph 编排
+    ├── git.ts               # 通用 Git CLI 封装 (只认路径, 不依赖业务模块)
     ├── pre-controller.ts    # 规则引擎拦截
     ├── process-manager/     # Agent 子进程管理
     ├── remote-instances/    # 远程实例: core/crud/proxy/decorators/notifications/errors
@@ -87,9 +88,10 @@ src/
 - **权限**: 后端只认真实 user session；admin 全权限，owner/member/editor 通过 project_id 回溯到项目级
 - **远程实例 ID 装饰**: `remote-{entity}:{instanceId}:{remoteId}`，代理请求需剥除前缀再转发
 - **编排/Issue 自动化**: 改 controller、agent lifecycle、issue dispatch 前先读 `architecture/orchestration.md`
+- **Git 通用层与编排层分离**: 新增 git 操作必须先在 `src/services/git.ts` 实现纯路径签名函数，再由业务编排层组合调用；`git.ts` 禁止导入 DB/Agent/Project 等业务模块，详见 `architecture/git.md`
 
 ## References
 
 - 产品需求: `prd/` (00-overview.md ~ 15-data-model.md)
-- 架构文档: `architecture/error-handling.md`, `architecture/orchestration.md`
+- 架构文档: `architecture/error-handling.md`, `architecture/orchestration.md`, `architecture/git.md`
 - Playwright 配置: `playwright.config.ts` | 测试: `test/e2e/*.spec.ts`

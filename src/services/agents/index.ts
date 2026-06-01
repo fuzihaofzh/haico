@@ -2,13 +2,12 @@
  * Agent service package public surface.
  *
  * Structure:
- * - core.ts: list/create/get/update/delete agents
+ * - core.ts: list/create/get/update/delete agents + git status
  * - lifecycle.ts: start/retry/stop/pause/unpause/status/system prompt
  * - messages.ts: direct agent-to-agent messaging
  * - hierarchy.ts: parent/child hierarchy validation and traversal
  * - files.ts: workspace file list/content/serve/upload/download/SQLite preview
  * - runs.ts: terminal/log/cost/run/report serialization
- * - git.ts: agent working-directory git status
  * - errors.ts: agent domain errors, all plain Error subclasses
  * - message-errors.ts: direct messaging domain errors
  * - types.ts: shared service input/output contracts
@@ -26,6 +25,7 @@ export {
   createAgent,
   deleteAgent,
   getAgent,
+  getAgentGitStatus,
   listProjectAgents,
   updateAgent,
 } from './core';
@@ -65,7 +65,6 @@ export {
   listAgentRuns,
   listAgentTaskRuns,
 } from './runs';
-export { getAgentGitStatus } from './git';
 export * from './errors';
 export * from './message-errors';
 export * from './types';

@@ -5,6 +5,7 @@ import { Agent, CommandProfile, CreateAgentInput, Project } from '../../types';
 import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
 import { validateParentAgentAssignment } from './hierarchy';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
+import { expandHomePath, getGitStatus, getGitLog } from '../git';
 import logger from '../../logger';
 import {
   AgentCommandProfileNotFoundError,
@@ -368,4 +369,27 @@ export function deleteAgent(agentId: string): { success: true } {
     activeTaskRunId: activeBeforeDelete,
   }, 'agent.deleted');
   return { success: true };
+}
+
+export function getAgentGitStatus(agentId: string): any {
+  const db = getDatabase();
+  const agent = getAgentOrThrow(db, agentId);
+
+  const dir = agent.working_directory ? expandHomePath(agent.working_directory) : null;
+  if (!dir) return { branch: null, recent_commits: [], has_uncommitted: false, diff_stat: '' };
+
+  const status = getGitStatus(dir);
+  const log = getGitLog(dir, 5);
+
+  return {
+    branch: status.branch,
+    recent_commits: log.map((entry) => ({
+      hash: entry.shortHash,
+      message: entry.message,
+      date: entry.date,
+    })),
+    has_uncommitted: status.hasUncommitted,
+    diff_stat: status.diffStat,
+    uncommitted_files: status.uncommittedFiles,
+  };
 }

@@ -1,11 +1,11 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { getDatabase, isDatabaseOpen } from '../../db/database';
 import { broadcastToAgent, broadcastToProject } from '../../realtime';
 import logger from '../../logger';
 import { Agent } from '../../types';
+import { expandHomePath } from '../git';
 import { resolveCommandType } from '../command-profiles';
 import {
   buildAgentProcessCommand,
@@ -29,7 +29,7 @@ import { detachChildProcessIo } from '../process-manager/command';
 
 function resolveTaskCwd(agent: Agent, configuredCwd: string | null): string {
   let cwd = configuredCwd || agent.working_directory || process.cwd();
-  if (cwd.startsWith('~/')) cwd = path.join(os.homedir(), cwd.slice(2));
+  if (cwd.startsWith('~/')) cwd = expandHomePath(cwd);
 
   try {
     if (fs.existsSync(cwd) && fs.statSync(cwd).isDirectory()) return cwd;

@@ -1,10 +1,10 @@
 import Database from 'better-sqlite3';
 import * as fs from 'fs/promises';
-import * as os from 'os';
 import * as path from 'path';
 import { TextDecoder } from 'util';
 import { Agent } from '../../types';
 import { getAgent } from './core';
+import { expandHomePath } from '../git';
 import {
   AgentBinaryPreviewUnsupportedError,
   AgentDirectoryExpectedError,
@@ -43,20 +43,13 @@ import {
 
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
-function expandWorkingDirectory(dir: string): string {
-  if (dir.startsWith('~/')) {
-    return path.join(os.homedir(), dir.slice(2));
-  }
-  return dir;
-}
-
 function resolveAgentFilesystemPath(agent: Agent, requestedPath?: string): { rootDir: string; targetPath: string; relativePath: string } {
   if (!agent.working_directory) {
     throw new AgentWorkingDirectoryRequiredError();
   }
 
   try {
-    const rootDir = path.resolve(expandWorkingDirectory(agent.working_directory));
+    const rootDir = path.resolve(expandHomePath(agent.working_directory));
     const candidate = path.resolve(rootDir, requestedPath || '.');
     const rootPrefix = rootDir.endsWith(path.sep) ? rootDir : `${rootDir}${path.sep}`;
     if (candidate !== rootDir && !candidate.startsWith(rootPrefix)) {

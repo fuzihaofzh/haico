@@ -1,9 +1,6 @@
-import { execSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import Database from 'better-sqlite3';
 import { Agent } from '../../types';
+import { expandHomePath, getGitLogWithAuthor, isGitRepository } from '../git';
 import { parseBoundedLimit, parseJson } from './utils';
 
 export function getProjectActivity(
@@ -53,37 +50,26 @@ export function getProjectGitLog(
   for (const agent of agents) {
     let dir = agent.working_directory;
     if (!dir) continue;
-    if (dir.startsWith('~/')) dir = path.join(os.homedir(), dir.slice(2));
+    dir = expandHomePath(dir);
     if (!dirToAgents.has(dir)) dirToAgents.set(dir, []);
     dirToAgents.get(dir)!.push(agent.name);
   }
 
   for (const [dir, agentNames] of dirToAgents) {
-    try {
-      if (!fs.existsSync(path.join(dir, '.git')) && !fs.existsSync(dir)) continue;
-      const output = execSync(
-        `git log --format='%H|%an|%s|%ai' -n ${limit}`,
-        { cwd: dir, timeout: 2000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim();
-      if (!output) continue;
-      for (const line of output.split('\n')) {
-        const parts = line.split('|');
-        if (parts.length < 4) continue;
-        const hash = parts[0];
-        if (seen.has(hash)) continue;
-        seen.add(hash);
-        commits.push({
-          hash,
-          short_hash: hash.slice(0, 7),
-          author: parts[1],
-          message: parts[2],
-          date: parts.slice(3).join('|'),
-          repo_path: dir,
-          agent_name: agentNames[0],
-        });
-      }
-    } catch {
-      // Skip non-git or inaccessible repositories.
+    if (!isGitRepository(dir)) continue;
+    const log = getGitLogWithAuthor(dir, limit);
+    for (const entry of log) {
+      if (seen.has(entry.hash)) continue;
+      seen.add(entry.hash);
+      commits.push({
+        hash: entry.hash,
+        short_hash: entry.shortHash,
+        author: entry.author,
+        message: entry.message,
+        date: entry.date,
+        repo_path: dir,
+        agent_name: agentNames[0],
+      });
     }
   }
 
