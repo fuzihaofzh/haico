@@ -4,7 +4,7 @@ import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { config } from '../config';
 import { resolveCommandType } from './command-profiles';
-import { expandHomePath } from './git';
+import { expandHomePath } from './file-management';
 import logger from '../logger';
 
 let pty: typeof import('node-pty') | null = null;

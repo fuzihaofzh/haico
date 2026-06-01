@@ -5,7 +5,7 @@ import path from 'path';
 import { getDatabase } from '../../db/database';
 import { Agent, Project } from '../../types';
 import logger from '../../logger';
-import { expandHomePath } from '../git';
+import { expandHomePath } from '../file-management';
 import {
   appendClaudeConfigArgs,
   appendCodexConfigArgs,

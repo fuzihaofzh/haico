@@ -1,9 +1,20 @@
 import {
   AgentAlreadyPausedError,
   AgentAlreadyRunningError,
+  AgentCommandProfileNotFoundError,
+  AgentInvalidParentAssignmentError,
+  AgentNameRequiredError,
+  AgentNotFoundError,
+  AgentNotPausedError,
+  AgentPausedError,
+  AgentProjectNotFoundError,
+  AgentPromptUnavailableError,
+  AgentRetryPromptMissingError,
+  AgentRunNotFoundError,
+} from '../../services/agents/errors';
+import {
   AgentBinaryPreviewUnsupportedError,
   AgentDirectoryExpectedError,
-  AgentCommandProfileNotFoundError,
   AgentFileAccessDeniedError,
   AgentFileContentTypeError,
   AgentFileExpectedError,
@@ -11,23 +22,14 @@ import {
   AgentFileOperationFailedError,
   AgentFilePathRequiredError,
   AgentFileTooLargeError,
-  AgentInvalidParentAssignmentError,
-  AgentNameRequiredError,
-  AgentNotFoundError,
-  AgentNotPausedError,
   AgentPathOutsideWorkingDirectoryError,
   AgentPathResolutionError,
-  AgentPausedError,
   AgentPreviewFileTypeUnsupportedError,
-  AgentProjectNotFoundError,
-  AgentPromptUnavailableError,
-  AgentRetryPromptMissingError,
-  AgentRunNotFoundError,
   AgentSQLiteFileUnsupportedError,
   AgentSQLiteTableNotFoundError,
   AgentUploadMissingFileError,
   AgentWorkingDirectoryRequiredError,
-} from '../../services/agents/errors';
+} from '../../services/agents/file-errors';
 import type { ErrorHttpEntry } from '../http-error-types';
 
 export const agentErrorHttpEntries = [

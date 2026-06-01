@@ -1,12 +1,8 @@
 import { execSync } from 'child_process';
-import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 
-export function expandHomePath(dir: string): string {
-  if (dir.startsWith('~/')) return path.join(os.homedir(), dir.slice(2));
-  return dir;
-}
+export { expandHomePath } from './file-management';
 
 export function isGitRepository(dir: string): boolean {
   return fs.existsSync(path.join(dir, '.git'));

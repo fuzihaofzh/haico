@@ -5,7 +5,8 @@ import { Agent, CommandProfile, CreateAgentInput, Project } from '../../types';
 import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
 import { validateParentAgentAssignment } from './hierarchy';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
-import { expandHomePath, getGitStatus, getGitLog } from '../git';
+import { expandHomePath } from '../file-management';
+import { getGitStatus, getGitLog } from '../git';
 import logger from '../../logger';
 import {
   AgentCommandProfileNotFoundError,

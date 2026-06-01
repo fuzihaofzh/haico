@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { Agent } from '../../types';
-import { expandHomePath, getGitLogWithAuthor, isGitRepository } from '../git';
+import { expandHomePath } from '../file-management';
+import { getGitLogWithAuthor, isGitRepository } from '../git';
 import { parseBoundedLimit, parseJson } from './utils';
 
 export function getProjectActivity(

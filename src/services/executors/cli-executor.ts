@@ -5,7 +5,7 @@ import { getDatabase, isDatabaseOpen } from '../../db/database';
 import { broadcastToAgent, broadcastToProject } from '../../realtime';
 import logger from '../../logger';
 import { Agent } from '../../types';
-import { expandHomePath } from '../git';
+import { expandHomePath } from '../file-management';
 import { resolveCommandType } from '../command-profiles';
 import {
   buildAgentProcessCommand,

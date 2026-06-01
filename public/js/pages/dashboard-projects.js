@@ -322,9 +322,6 @@ async function sendQuickCmd(projectId) {
   }
 }
 
-
-}
-
 async function loadActivityStream() {
   try {
     const filter = document.getElementById('activity-project-filter');
