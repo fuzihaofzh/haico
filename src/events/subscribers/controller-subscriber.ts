@@ -1,11 +1,19 @@
 import { eventBus } from '../bus';
 import { coalesce } from '../coalescing';
 import type { DomainEvent } from '../types';
-import type { IssueUpdatedEvent, TaskCompletedEvent } from '../events';
+import type { IssueUpdatedEvent, TaskCompletedEvent, ControllerTriggerRequestedEvent } from '../events';
 import { triggerControllerAgent } from '../../services/controller';
 import { getDatabase } from '../../db/database';
 
+const COALESCE_URGENT_MS = 3_000;
+const COALESCE_NORMAL_MS = 60_000;
+const MIN_CONTROLLER_INTERVAL_MS = 300_000;
+
 function determineUrgency(event: DomainEvent): 'urgent' | 'normal' {
+  if (event.type === 'controller.trigger_requested') {
+    const p = event.payload as ControllerTriggerRequestedEvent['payload'];
+    return p.priority;
+  }
   const payload = event.payload as Record<string, unknown>;
   const actor = payload.actor || payload.createdBy || payload.authorId;
   if (actor === 'user' || actor === 'system') return 'urgent';
@@ -15,6 +23,10 @@ function determineUrgency(event: DomainEvent): 'urgent' | 'normal' {
 }
 
 function getTriggerIssueNumber(event: DomainEvent): number | undefined {
+  if (event.type === 'controller.trigger_requested') {
+    const p = event.payload as ControllerTriggerRequestedEvent['payload'];
+    return p.triggerIssueNumber;
+  }
   const payload = event.payload as Record<string, unknown>;
   if (event.type === 'issue.updated') {
     const p = payload as IssueUpdatedEvent['payload'];
@@ -26,9 +38,10 @@ function getTriggerIssueNumber(event: DomainEvent): number | undefined {
 }
 
 const controllerHandler = coalesce({
-  windowMs: 3_000,
+  windowMs: COALESCE_URGENT_MS,
+  windowFn: (mergedEvent) => determineUrgency(mergedEvent) === 'urgent' ? COALESCE_URGENT_MS : COALESCE_NORMAL_MS,
   keyFn: (event) => `controller:${event.projectId}`,
-  minIntervalMs: 300_000,
+  minIntervalMs: MIN_CONTROLLER_INTERVAL_MS,
   mergeFn: (existing, incoming) => {
     const existingUrgent = determineUrgency(existing) === 'urgent';
     const incomingUrgent = determineUrgency(incoming) === 'urgent';
@@ -53,4 +66,5 @@ export function registerControllerSubscribers(): void {
       controllerHandler(event);
     }
   });
+  eventBus.subscribe('controller.trigger_requested', controllerHandler);
 }

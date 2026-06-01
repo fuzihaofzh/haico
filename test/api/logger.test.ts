@@ -100,7 +100,7 @@ describe('business event logging', () => {
     logger.warn = originalWarn;
     logger.debug = originalDebug;
     events.length = 0;
-    const { clearCoalescingTimers } = await import('../../src/services/controller');
+    const { clearCoalescingTimers } = await import('../../src/events');
     clearCoalescingTimers();
     const { closeDatabase } = await import('../../src/db/database');
     closeDatabase();

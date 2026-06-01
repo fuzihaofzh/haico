@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
+import { v4 as uuidv4 } from 'uuid';
 import { Agent, Issue, Project } from '../../types';
-import { createAgentTask } from '../tasks';
+import { eventBus } from '../../events';
 import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from '../agent-wakeup-guard';
 import { deriveAgentRuntimeStatus } from '../tasks/runtime-state';
 import { buildAssignedIssuesPrompt, getAgentIssueBatch } from './batch';
@@ -77,21 +78,31 @@ export function autoStartAgentForDispatchableIssues(
     agent.id,
     signature.activityKey || signature.signature,
   ].join(':');
-  const task = createAgentTask(agent.id, {
-    source: 'issue-assignment',
-    source_ref: batch.currentBatch[0]?.id || null,
-    task_type: 'issue-work',
-    reason: `${opts.source}: assigned issue batch queued`,
-    prompt,
-    priority: Math.max(...batch.currentBatch.map((issue) => issue.priority), 0),
-    metadata: {
-      source: opts.source,
-      active_issue_count: batch.activeIssues.length,
-      current_batch_issue_ids: batch.currentBatch.map((issue) => issue.id),
-      current_batch_issue_numbers: batch.currentBatch.map((issue) => issue.number),
-      queued_issue_numbers: batch.queuedIssues.map((issue) => issue.number),
+  const taskId = uuidv4();
+  eventBus.publish('task.requested', {
+    type: 'task.requested',
+    projectId: project.id,
+    payload: {
+      taskId,
+      agentId: agent.id,
+      source: 'issue-assignment',
+      sourceRef: batch.currentBatch[0]?.id || null,
+      taskType: 'issue-work',
+      reason: `${opts.source}: assigned issue batch queued`,
+      prompt,
+      priority: Math.max(...batch.currentBatch.map((issue) => issue.priority), 0),
+      metadata: {
+        source: opts.source,
+        active_issue_count: batch.activeIssues.length,
+        current_batch_issue_ids: batch.currentBatch.map((issue) => issue.id),
+        current_batch_issue_numbers: batch.currentBatch.map((issue) => issue.number),
+        queued_issue_numbers: batch.queuedIssues.map((issue) => issue.number),
+      },
+      dedupeKey,
+      forceNewSession: false,
+      scheduledAt: null,
     },
-    dedupe_key: dedupeKey,
+    meta: { correlationId: taskId, timestamp: Date.now(), source: 'issue/agent-autostart.autoStartAgentForDispatchableIssues' },
   });
   recordAgentWakeup(agent.id, wakeupDecision.signature, opts.source, wakeupDecision.activityKey);
 
@@ -100,6 +111,6 @@ export function autoStartAgentForDispatchableIssues(
     reason: `${opts.source}: queued issue-work task`,
     activeIssueCount: batch.activeIssues.length,
     currentBatchIssueNumbers: batch.currentBatch.map((issue) => issue.number),
-    taskId: task.id,
+    taskId,
   };
 }

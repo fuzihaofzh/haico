@@ -1,4 +1,4 @@
-import { getDatabase, isDatabaseOpen } from '../db/database';
+import { getDatabase } from '../db/database';
 import { Agent, Project, Issue } from '../types';
 import { startControllerOrchestration } from './orchestrator';
 import {
@@ -7,97 +7,9 @@ import {
   getControllerBackoff,
 } from './controller-backoff';
 import { deriveAgentRuntimeStatus } from './tasks/runtime-state';
-import { createAgentTask } from './tasks';
 import logger from '../logger';
 
-// --- Event Coalescing Architecture ---
-// Instead of triggering controller on every event, events are queued and coalesced.
-// Two priority levels with different coalesce windows:
-//   urgent (user actions): 3 seconds — user is waiting for response
-//   normal (agent actions): 60 seconds — batch agent activity into one controller run
-// Hard minimum interval: 5 minutes between controller runs, NEVER bypassed.
-
-const MIN_CONTROLLER_INTERVAL_MS = 300_000; // 5 minutes hard floor
-const COALESCE_URGENT_MS = 3_000;           // 3s for user events
-const COALESCE_NORMAL_MS = 60_000;          // 60s for agent events
-
-interface CoalescedTrigger {
-  project: Project;
-  issueNumbers: Set<number>;
-  highestPriority: 'urgent' | 'normal';
-  reasons: string[];
-  skipActivityCheck: boolean;
-}
-
-const coalescedTriggers = new Map<string, CoalescedTrigger>();
-const coalescingTimers = new Map<string, NodeJS.Timeout>();
-const lastControllerRunMs = new Map<string, number>();
-
-/**
- * Enqueue a controller trigger event. Events are coalesced per project.
- * This is the ONLY entry point for triggering the controller from event sources.
- */
-export function enqueueControllerTrigger(
-  project: Project,
-  opts: {
-    issueNumber?: number;
-    priority: 'urgent' | 'normal';
-    reason: string;
-    skipActivityCheck?: boolean;
-  }
-): void {
-  const existing = coalescedTriggers.get(project.id);
-  const trigger = existing || {
-    project,
-    issueNumbers: new Set<number>(),
-    highestPriority: opts.priority,
-    reasons: [],
-    skipActivityCheck: false,
-  };
-  trigger.project = project;
-  if (opts.issueNumber !== undefined) trigger.issueNumbers.add(opts.issueNumber);
-  if (opts.priority === 'urgent') trigger.highestPriority = 'urgent';
-  trigger.reasons.push(opts.reason);
-  trigger.skipActivityCheck = trigger.skipActivityCheck || Boolean(opts.skipActivityCheck);
-  coalescedTriggers.set(project.id, trigger);
-
-  const windowMs = trigger.highestPriority === 'urgent' ? COALESCE_URGENT_MS : COALESCE_NORMAL_MS;
-  const lastRunMs = lastControllerRunMs.get(project.id) || 0;
-  const minIntervalDelay = Math.max(0, MIN_CONTROLLER_INTERVAL_MS - (Date.now() - lastRunMs));
-  const delayMs = Math.max(windowMs, minIntervalDelay);
-
-  const existingTimer = coalescingTimers.get(project.id);
-  if (existingTimer) clearTimeout(existingTimer);
-  const timer = setTimeout(() => flushControllerTrigger(project.id), delayMs);
-  timer.unref?.();
-  coalescingTimers.set(project.id, timer);
-  logger.debug({
-    projectId: project.id,
-    issueNumber: opts.issueNumber,
-    priority: opts.priority,
-    reason: opts.reason,
-    delayMs,
-  }, 'controller.trigger_enqueued_task_runtime');
-}
-
-function flushControllerTrigger(projectId: string): void {
-  const trigger = coalescedTriggers.get(projectId);
-  coalescingTimers.delete(projectId);
-  coalescedTriggers.delete(projectId);
-  if (!trigger) return;
-
-  const issueNumbers = [...trigger.issueNumbers];
-  const triggerIssueNumber = issueNumbers.length === 1 ? issueNumbers[0] : undefined;
-  triggerControllerAgent(trigger.project, trigger.skipActivityCheck, triggerIssueNumber);
-  lastControllerRunMs.set(projectId, Date.now());
-}
-
-/** Cancel all pending coalescing timers (for shutdown). */
-export function clearCoalescingTimers(): void {
-  for (const timer of coalescingTimers.values()) clearTimeout(timer);
-  coalescingTimers.clear();
-  coalescedTriggers.clear();
-}
+const lastTriggerSnapshot = new Map<string, string>();
 
 export function buildControllerTaskPrompt(project: Project, triggerIssueNumber?: number): string {
   const db = getDatabase();
@@ -263,8 +175,6 @@ ${workers.map((a: any) => {
 Assignable targets: ${agents.map((a: any) => `"${a.id}" (${a.name})`).join(', ')}, "user" for human tasks, or "all" to broadcast to everyone.`;
 }
 
-const lastTriggerSnapshot = new Map<string, string>();
-
 export function triggerControllerAgent(project: Project, skipActivityCheck = false, triggerIssueNumber?: number): void {
   if (project.status === 'paused') {
     logger.debug({ projectId: project.id }, 'controller.trigger_skipped_project_paused');
@@ -309,43 +219,5 @@ export function triggerControllerAgent(project: Project, skipActivityCheck = fal
     taskPrompt,
     triggerIssueNumber,
     activitySnapshot: snapshot,
-  });
-}
-
-export function createControllerTask(
-  project: Project,
-  controller: Agent,
-  prompt: string,
-  input: {
-    source: string;
-    reason: string;
-    triggerIssueNumber?: number;
-    metadata?: Record<string, unknown>;
-    priority?: number;
-  }
-): ReturnType<typeof createAgentTask> {
-  const db = getDatabase();
-  const triggerIssue = input.triggerIssueNumber
-    ? db.prepare('SELECT id FROM issues WHERE project_id = ? AND number = ?')
-        .get(project.id, input.triggerIssueNumber) as { id: string } | undefined
-    : undefined;
-  return createAgentTask(controller.id, {
-    source: input.source,
-    source_ref: triggerIssue?.id || null,
-    task_type: 'controller',
-    reason: input.reason,
-    prompt,
-    priority: input.priority ?? 20,
-    metadata: {
-      project_id: project.id,
-      trigger_issue_number: input.triggerIssueNumber ?? null,
-      ...(input.metadata || {}),
-    },
-    dedupe_key: [
-      'controller',
-      project.id,
-      controller.id,
-      input.triggerIssueNumber ?? 'project',
-    ].join(':'),
   });
 }

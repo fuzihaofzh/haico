@@ -26,10 +26,11 @@ EventBus (events/bus.ts)
   → middleware chain: correlation → logging → persistence → dispatch
 
 Subscribers (events/subscribers/)
-  → realtime-subscriber    → broadcastToProject()
-  → agent-subscriber       → autoStart / mentions
-  → controller-subscriber  → triggerControllerAgent() (with coalescing)
-  → task-subscriber        → triggerControllerOnDemand() + recovery
+  → realtime-subscriber         → broadcastToProject()
+  → agent-subscriber            → autoStart / mentions
+  → controller-subscriber       → triggerControllerAgent() (with coalescing)
+  → task-subscriber             → issue recovery scan
+  → task-creation-subscriber    → createAgentTaskWithId() + audit comments
 ```
 
 ### 依赖方向
@@ -43,6 +44,7 @@ src/events/subscribers/  ← 唯一同时依赖 events/ 和 services/ 的地方
   controller-subscriber.ts
   agent-subscriber.ts
   task-subscriber.ts
+  task-creation-subscriber.ts
 
 src/services/        ← 发布者，只依赖 events/bus 的 publish
 ```
@@ -81,6 +83,17 @@ src/services/        ← 发布者，只依赖 events/bus 的 publish
 | `issue.relation_changed` | `issue/relations.ts` | sourceIssueId, targetIssueId, relationType, action |
 | `task.completed` | `tasks/completion.ts` | taskId, taskType, status, issueNumbers |
 | `scheduler.tick` | `scheduler/index.ts` | tickType |
+| `agent.status_changed` | `agents/lifecycle.ts`, `executors/cli-executor.ts` | agentId, status, paused?, taskId?, taskRunId? |
+| `agent.message_sent` | `agents/messages.ts` | message, fromAgentName, toAgentName |
+| `agent.message_updated` | `tasks/completion.ts` | message, status |
+| `summary.created` | `executive-summaries/core.ts` | summary |
+| `summary.updated` | `executive-summaries/core.ts` | summary |
+| `summary.deleted` | `executive-summaries/core.ts` | summaryId |
+| `summary.block_updated` | `executive-summaries/core.ts` | summaryId, block |
+| `summary.generated` | `executive-summaries/core.ts` | summary |
+| `summary.finalized` | `executive-summaries/core.ts` | summary |
+| `task.requested` | `agents/messages.ts`, `issue/automation.ts`, `issue/agent-autostart.ts`, `orchestrator.ts`, `langgraph-runner.ts` | taskId, agentId, source, taskType, prompt, priority, dedupeKey, auditComment? |
+| `controller.trigger_requested` | `issue/automation.ts` | triggerIssueNumber?, priority, reason, actorId? |
 
 ### 新增事件
 
@@ -119,19 +132,25 @@ eventBus.use(myMiddleware);
 
 ```typescript
 const handler = coalesce({
-  windowMs: 3000,        // 合并窗口：3 秒内的同类事件只触发一次
+  windowMs: 3000,        // 默认合并窗口
+  windowFn: (mergedEvent) => determineUrgency(mergedEvent) === 'urgent' ? 3000 : 60000,  // 动态窗口
   keyFn: (e) => `controller:${e.projectId}`,  // 按 projectId 分组合并
   minIntervalMs: 300000, // 硬下限：两次实际执行间隔至少 5 分钟
-  mergeFn: (existing, incoming) => incoming,   // 合并策略：保留最后一个
+  mergeFn: (existing, incoming) => incomingUrgent && !existingUrgent ? incoming : existing,   // 合并策略
 }, (event) => {
   // 实际处理逻辑，在窗口结束后执行
   triggerControllerAgent(project, false, triggerIssueNumber);
 });
-
-eventBus.subscribe('issue.created', handler);
 ```
 
-Controller subscriber 已使用 coalescing 替代了原来 `controller.ts` 中的 `CoalescedTrigger` Map。
+### 优先级感知窗口
+
+Controller subscriber 使用 `windowFn` 根据合并后事件的优先级动态选择窗口：
+- **urgent**（用户/系统操作）：3 秒窗口
+- **normal**（Agent 事件）：60 秒窗口
+- 硬下限始终 5 分钟（`minIntervalMs: 300000`）
+
+这替代了原来 `controller.ts` 中的 `CoalescedTrigger` Map 和 `enqueueControllerTrigger` 内部队列。所有 Controller 触发路径（issue 事件、task completion、`triggerControllerOnDemand`）统一经由 EventBus `controller.trigger_requested` + 单一 coalesce 实例。
 
 ## 事件日志（Event Log）
 
@@ -142,6 +161,29 @@ SELECT * FROM domain_events
 WHERE project_id = ? AND type = 'issue.created'
 ORDER BY published_at DESC LIMIT 50;
 ```
+
+## task.requested 模式
+
+`task.requested` 事件使用**预生成 UUID**模式：调用方在发布事件前生成 `taskId = uuidv4()`， subscriber 使用该 ID 创建 Task。
+
+```
+调用方（生产者）                           Subscriber（消费者）
+messages.ts                              task-creation-subscriber.ts
+  taskId = uuidv4()                        createAgentTaskWithId(taskId, agentId, input)
+  eventBus.publish('task.requested', {
+    payload: { taskId, agentId, ... }       → dedupe_key 命中时返回已有 Task
+  })                                        → auditComment 存在时写入 issue_comments
+```
+
+**为什么用预生成 UUID 而不是同步返回值？**
+
+`createAgentTask` 原本返回 `Task` 对象，但所有调用方只使用 `task.id` 做日志/溯源记录，不用于流程控制。预生成 UUID 让调用方无需等待返回值即可知道 taskId，同时保持了 EventBus 的 fire-and-forget 语义。
+
+**dedupe_key 行为**：当 `dedupe_key` 命中已有 pending/running task 时，`createAgentTaskWithId` 返回已有 Task（其 ID 与预生成的不同）。调用方记录的 taskId 可能与实际 Task ID 不一致——这是可接受的，因为 dedupe 意味着任务已存在，溯源记录指向的 ID 只是意图记录而非精确关联。
+
+**auditComment**：`task.requested` 的可选字段。仅 `issue/automation.ts` 的 `parseMentionsAndStartAgents` 使用，用于在 Task 创建后向 `issue_comments` 表写入事件记录。其他调用方不需要审计评论。
+
+**保留直接调用的路径**：`createManualAgentTask`（用户手动启动 Agent）仍直接调用 `createAgentTask`，不走 EventBus。这是同步请求-响应路径，调用方需要 Task 的完整返回值。
 
 ### 调试
 

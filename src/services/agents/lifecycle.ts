@@ -1,6 +1,6 @@
 import { getDatabase } from '../../db/database';
 import { buildSystemPrompt } from '../system-prompt';
-import { broadcastToProject } from '../../realtime';
+import { eventBus } from '../../events';
 import logger from '../../logger';
 import {
   AgentAlreadyPausedError,
@@ -76,10 +76,11 @@ export function stopAgent(agentId: string, _requestLogger?: AgentStopLogger): { 
   const agent = getAgentOrThrow(db, agentId);
   const result = cancelActiveTaskForAgent(agent.id);
 
-  broadcastToProject(agent.project_id, {
-    type: 'agent_status',
+  eventBus.publish('agent.status_changed', {
+    type: 'agent.status_changed',
     projectId: agent.project_id,
-    data: { agentId: agent.id, status: 'idle' },
+    payload: { agentId: agent.id, status: 'idle' },
+    meta: { correlationId: agent.id, timestamp: Date.now(), source: 'agents/lifecycle.stopAgent' },
   });
 
   logger.info({
@@ -104,10 +105,11 @@ export function pauseAgent(agentId: string): { success: true } {
 
   db.prepare("UPDATE agents SET paused = 1, status = 'idle' WHERE id = ?").run(agent.id);
 
-  broadcastToProject(agent.project_id, {
-    type: 'agent_status',
+  eventBus.publish('agent.status_changed', {
+    type: 'agent.status_changed',
     projectId: agent.project_id,
-    data: { agentId: agent.id, status: 'paused', paused: true },
+    payload: { agentId: agent.id, status: 'paused', paused: true },
+    meta: { correlationId: agent.id, timestamp: Date.now(), source: 'agents/lifecycle.pauseAgent' },
   });
 
   logger.info({
@@ -129,10 +131,11 @@ export function unpauseAgent(agentId: string): { success: true } {
 
   db.prepare("UPDATE agents SET paused = 0, status = 'idle' WHERE id = ?").run(agent.id);
 
-  broadcastToProject(agent.project_id, {
-    type: 'agent_status',
+  eventBus.publish('agent.status_changed', {
+    type: 'agent.status_changed',
     projectId: agent.project_id,
-    data: { agentId: agent.id, status: 'idle', paused: false },
+    payload: { agentId: agent.id, status: 'idle', paused: false },
+    meta: { correlationId: agent.id, timestamp: Date.now(), source: 'agents/lifecycle.unpauseAgent' },
   });
 
   logger.info({

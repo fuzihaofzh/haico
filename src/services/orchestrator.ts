@@ -1,10 +1,11 @@
 import { Agent, OrchestratorEngine, Project } from '../types';
+import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 import { getDatabase } from '../db/database';
 import logger from '../logger';
+import { eventBus } from '../events';
 import { runControllerWithLangGraph } from './langgraph-runner';
 import { applyControllerBackoff, buildControllerActivitySnapshot } from './controller-backoff';
-import { createAgentTask } from './tasks';
 
 export interface ControllerOrchestrationInput {
   project: Project;
@@ -106,26 +107,36 @@ function recordOrchestrationRun(projectId: string, input: OrchestrationRunRecord
 
 function startNativeController(input: ControllerOrchestrationInput): void {
   const { project, controller, taskPrompt } = input;
-  const task = createAgentTask(controller.id, {
-    source: 'controller-orchestration',
-    source_ref: null,
-    task_type: 'controller',
-    reason: input.triggerIssueNumber
-      ? `Native controller orchestration for issue #${input.triggerIssueNumber}`
-      : 'Native controller orchestration',
-    prompt: taskPrompt,
-    priority: 20,
-    metadata: {
-      engine: 'native',
-      trigger_issue_number: input.triggerIssueNumber ?? null,
-      activity_snapshot: input.activitySnapshot || '',
+  const taskId = uuidv4();
+  eventBus.publish('task.requested', {
+    type: 'task.requested',
+    projectId: project.id,
+    payload: {
+      taskId,
+      agentId: controller.id,
+      source: 'controller-orchestration',
+      sourceRef: null,
+      taskType: 'controller',
+      reason: input.triggerIssueNumber
+        ? `Native controller orchestration for issue #${input.triggerIssueNumber}`
+        : 'Native controller orchestration',
+      prompt: taskPrompt,
+      priority: 20,
+      metadata: {
+        engine: 'native',
+        trigger_issue_number: input.triggerIssueNumber ?? null,
+        activity_snapshot: input.activitySnapshot || '',
+      },
+      dedupeKey: [
+        'controller',
+        project.id,
+        controller.id,
+        input.triggerIssueNumber ?? 'project',
+      ].join(':'),
+      forceNewSession: false,
+      scheduledAt: null,
     },
-    dedupe_key: [
-      'controller',
-      project.id,
-      controller.id,
-      input.triggerIssueNumber ?? 'project',
-    ].join(':'),
+    meta: { correlationId: taskId, timestamp: Date.now(), source: 'orchestrator.startNativeController' },
   });
   recordOrchestrationRun(project.id, {
     engine: 'native',
@@ -135,10 +146,10 @@ function startNativeController(input: ControllerOrchestrationInput): void {
     controllerRunId: undefined,
     controllerPid: undefined,
     dispatchCount: 0,
-    dispatchSummary: `native controller task queued: ${task.id}`,
+    dispatchSummary: `native controller task queued: ${taskId}`,
     reasons: ['Native engine queued a controller Task'],
     actions: [],
-    dispatchResults: [{ agentId: controller.id, started: true, message: 'controller task queued', taskId: task.id }],
+    dispatchResults: [{ agentId: controller.id, started: true, message: 'controller task queued', taskId }],
     backoffMs: 0,
     backoffReason: '',
     backoffLabel: '',

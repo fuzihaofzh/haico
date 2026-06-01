@@ -10,12 +10,11 @@ import { getDatabase, closeDatabase } from './db/database';
 import { registerRoutes } from './routes/route';
 import { initializeScheduler, stopAllSchedulers } from './scheduler';
 import { stopAllCliTaskRuns } from './services/executors/cli-executor';
-import { clearCoalescingTimers } from './services/controller';
 import { killAllPtySessions } from './services/terminal';
 import { clearAllPtyCleanupTimers, handleWebSocketError } from './realtime';
 import { setupErrorHandler } from './middleware/error-handler';
 import { bootstrapDefaultAdmin } from './services/auth/default-admin';
-import { registerAllSubscribers, clearCoalescingTimers as clearEventCoalescingTimers } from './events';
+import { registerAllSubscribers, clearCoalescingTimers } from './events';
 import { loggerOptions } from './logger';
 
 export interface AppOptions {
@@ -82,7 +81,6 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
 
 export async function destroyApp(fastify: FastifyInstance): Promise<void> {
   clearCoalescingTimers();
-  clearEventCoalescingTimers();
 
   stopAllSchedulers();
   await stopAllCliTaskRuns();

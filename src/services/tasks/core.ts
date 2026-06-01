@@ -72,6 +72,10 @@ function getActiveTaskRunForAgent(agentId: string): TaskRun | undefined {
 }
 
 export function createAgentTask(agentId: string, input: CreateAgentTaskInput): Task {
+  return createAgentTaskWithId(uuidv4(), agentId, input);
+}
+
+export function createAgentTaskWithId(taskId: string, agentId: string, input: CreateAgentTaskInput): Task {
   const db = getDatabase();
   if (input.dedupe_key) {
     const existing = db.prepare(`
@@ -119,7 +123,6 @@ export function createAgentTask(agentId: string, input: CreateAgentTaskInput): T
     },
   };
 
-  const taskId = uuidv4();
   db.prepare(`
     INSERT INTO tasks (
       id, project_id, target_agent_id, source, source_ref, task_type, reason,

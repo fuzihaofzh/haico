@@ -2,7 +2,8 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { getDatabase, isDatabaseOpen } from '../../db/database';
-import { broadcastToAgent, broadcastToProject } from '../../realtime';
+import { broadcastToAgent } from '../../realtime';
+import { eventBus } from '../../events';
 import logger from '../../logger';
 import { Agent } from '../../types';
 import { expandHomePath } from '../file-management';
@@ -160,10 +161,11 @@ export function startCliTaskRun(input: StartCliTaskRunInput): StartCliTaskRunRes
   db.prepare('UPDATE tasks SET status = ?, started_at = COALESCE(started_at, datetime(\'now\')), updated_at = datetime(\'now\') WHERE id = ?')
     .run('running', input.taskId);
 
-  broadcastToProject(input.agent.project_id, {
-    type: 'agent_status',
+  eventBus.publish('agent.status_changed', {
+    type: 'agent.status_changed',
     projectId: input.agent.project_id,
-    data: { agentId: input.agent.id, status: 'running', taskId: input.taskId, taskRunId: input.taskRunId },
+    payload: { agentId: input.agent.id, status: 'running', taskId: input.taskId, taskRunId: input.taskRunId },
+    meta: { correlationId: input.taskRunId, timestamp: Date.now(), source: 'executors/cli-executor.startCliTaskRun' },
   });
 
   logger.info({
@@ -267,10 +269,11 @@ export function startCliTaskRun(input: StartCliTaskRunInput): StartCliTaskRunRes
     }, 'task.run.completed');
 
     broadcastToAgent(input.agent.id, { type: 'exit', code, runId: input.runId });
-    broadcastToProject(input.agent.project_id, {
-      type: 'agent_status',
+    eventBus.publish('agent.status_changed', {
+      type: 'agent.status_changed',
       projectId: input.agent.project_id,
-      data: { agentId: input.agent.id, status: taskRunStatus === 'completed' ? 'idle' : taskRunStatus },
+      payload: { agentId: input.agent.id, status: taskRunStatus === 'completed' ? 'idle' : taskRunStatus },
+      meta: { correlationId: input.taskRunId, timestamp: Date.now(), source: 'executors/cli-executor.childClose' },
     });
   });
 

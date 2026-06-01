@@ -1,7 +1,6 @@
 import { getDatabase } from '../../db/database';
 import logger from '../../logger';
 import { Agent, Project, Task, TaskRunStatus } from '../../types';
-import { broadcastToProject } from '../../realtime';
 import { eventBus } from '../../events';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -77,10 +76,11 @@ function routeTaskCompletion(task: Task, input: {
       .run(task.source_ref, agent.id);
     const message = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(task.source_ref);
     if (!message) return;
-    broadcastToProject(task.project_id, {
-      type: 'agent_message',
+    eventBus.publish('agent.message_updated', {
+      type: 'agent.message_updated',
       projectId: task.project_id,
-      data: { message, status: 'read' },
+      payload: { message, status: 'read' },
+      meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'tasks/completion.routeTaskCompletion' },
     });
   }
 }

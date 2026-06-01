@@ -1,6 +1,7 @@
 export {
   cancelActiveTaskForAgent,
   createAgentTask,
+  createAgentTaskWithId,
   createManualAgentTask,
   retryLastTaskRunForAgent,
   runTaskImmediately,

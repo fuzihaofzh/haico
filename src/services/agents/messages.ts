@@ -14,9 +14,8 @@ import {
   MissingAgentMessageBodyError,
   MissingAgentMessageRecipientError,
 } from './message-errors';
-import { broadcastToProject } from '../../realtime';
+import { eventBus } from '../../events';
 import logger from '../../logger';
-import { createAgentTask } from '../tasks';
 
 export interface AgentMessage {
   id: string;
@@ -105,10 +104,15 @@ function createAgentMessage(
 }
 
 function broadcastAgentMessageCreated(message: AgentMessage, fromAgent: Agent, toAgent: Agent): void {
-  broadcastToProject(fromAgent.project_id, {
-    type: 'agent_message',
+  eventBus.publish('agent.message_sent', {
+    type: 'agent.message_sent',
     projectId: fromAgent.project_id,
-    data: { message, from: fromAgent.name, to: toAgent.name },
+    payload: {
+      message,
+      fromAgentName: fromAgent.name,
+      toAgentName: toAgent.name,
+    },
+    meta: { correlationId: message.id, timestamp: Date.now(), source: 'agents/messages.broadcastAgentMessageCreated' },
   });
 }
 
@@ -134,21 +138,31 @@ function maybeWakeRecipientAgent(
     'Review your inbox and respond or take action as appropriate. Use the HAICO agent message APIs if you need to reply.',
   ].join('\n');
 
-  const task = createAgentTask(toAgent.id, {
-    source: 'agent-message',
-    source_ref: message.id,
-    task_type: 'message',
-    reason: `Direct message from ${fromAgent.name}`,
-    prompt,
-    priority: 5,
-    metadata: {
-      message_id: message.id,
-      from_agent_id: fromAgent.id,
-      from_agent_name: fromAgent.name,
-      subject: subject || '',
-      reply_to_id: message.reply_to_id,
+  const taskId = uuidv4();
+  eventBus.publish('task.requested', {
+    type: 'task.requested',
+    projectId: toAgent.project_id,
+    payload: {
+      taskId,
+      agentId: toAgent.id,
+      source: 'agent-message',
+      sourceRef: message.id,
+      taskType: 'message',
+      reason: `Direct message from ${fromAgent.name}`,
+      prompt,
+      priority: 5,
+      metadata: {
+        message_id: message.id,
+        from_agent_id: fromAgent.id,
+        from_agent_name: fromAgent.name,
+        subject: subject || '',
+        reply_to_id: message.reply_to_id,
+      },
+      dedupeKey: ['agent-message', toAgent.project_id, toAgent.id, message.id].join(':'),
+      forceNewSession: false,
+      scheduledAt: null,
     },
-    dedupe_key: ['agent-message', toAgent.project_id, toAgent.id, message.id].join(':'),
+    meta: { correlationId: taskId, timestamp: Date.now(), source: 'agents/messages.maybeWakeRecipientAgent' },
   });
 
   logger.info({
@@ -156,10 +170,10 @@ function maybeWakeRecipientAgent(
     fromAgentId: fromAgent.id,
     toAgentId: toAgent.id,
     messageId: message.id,
-    taskId: task.id,
+    taskId,
     subject,
     bodyLength: body.length,
-  }, 'agent_message.task_created');
+  }, 'agent_message.task_requested');
 }
 
 export function sendAgentMessage(db: Database.Database, input: SendAgentMessageInput): AgentMessage {

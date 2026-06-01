@@ -6,7 +6,8 @@ import logger from '../logger';
 import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgress } from './issue/batch';
 import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
 import { listDispatchableIssuesForAgent, listOrchestrationIssues } from './issue/dispatch';
-import { createAgentTask, getAgentRuntimeState } from './tasks';
+import { getAgentRuntimeState } from './tasks';
+import { eventBus } from '../events';
 
 export interface LangGraphControllerInput {
   project: Project;
@@ -611,26 +612,36 @@ const controllerGraph = new StateGraph(ControllerGraphState)
         }
 
         const issueBatch = getAgentIssueBatch(assignedIssues);
-        const task = createAgentTask(agent.id, {
-          source: 'langgraph-dispatch',
-          source_ref: issueBatch.currentBatch[0]?.id || assignedIssues[0]?.id || null,
-          task_type: 'issue-work',
-          reason: action.reason || 'LangGraph worker dispatch',
-          prompt,
-          priority: 15,
-          metadata: {
-            issue_ids: assignedIssues.map((issue) => issue.id),
-            issue_numbers: assignedIssues.map((issue) => issue.number),
-            current_batch_issue_ids: issueBatch.currentBatch.map((issue) => issue.id),
-            current_batch_issue_numbers: issueBatch.currentBatch.map((issue) => issue.number),
-            orchestration_engine: 'langgraph',
+        const taskId = uuidv4();
+        eventBus.publish('task.requested', {
+          type: 'task.requested',
+          projectId: state.project.id,
+          payload: {
+            taskId,
+            agentId: agent.id,
+            source: 'langgraph-dispatch',
+            sourceRef: issueBatch.currentBatch[0]?.id || assignedIssues[0]?.id || null,
+            taskType: 'issue-work',
+            reason: action.reason || 'LangGraph worker dispatch',
+            prompt,
+            priority: 15,
+            metadata: {
+              issue_ids: assignedIssues.map((issue) => issue.id),
+              issue_numbers: assignedIssues.map((issue) => issue.number),
+              current_batch_issue_ids: issueBatch.currentBatch.map((issue) => issue.id),
+              current_batch_issue_numbers: issueBatch.currentBatch.map((issue) => issue.number),
+              orchestration_engine: 'langgraph',
+            },
+            dedupeKey: [
+              'issue-work',
+              state.project.id,
+              agent.id,
+              issueBatch.activeIssues.map((issue) => issue.id).sort().join(','),
+            ].join(':'),
+            forceNewSession: false,
+            scheduledAt: null,
           },
-          dedupe_key: [
-            'issue-work',
-            state.project.id,
-            agent.id,
-            issueBatch.activeIssues.map((issue) => issue.id).sort().join(','),
-          ].join(':'),
+          meta: { correlationId: taskId, timestamp: Date.now(), source: 'langgraph-runner.dispatchWorkers' },
         });
         markCurrentBatchInProgress(db, issueBatch);
         const recordedWakeup = buildAgentWakeupSignature(
@@ -638,18 +649,11 @@ const controllerGraph = new StateGraph(ControllerGraphState)
         );
         recordAgentWakeup(agent.id, recordedWakeup.signature, 'langgraph', recordedWakeup.activityKey);
 
-        logger.info({
-          projectId: state.project.id,
-          agentId: agent.id,
-          currentBatchCount: issueBatch.currentBatch.length,
-          activeIssueCount: issueBatch.activeIssues.length,
-          taskId: task.id,
-        }, 'langgraph.worker_task_created');
         results.push({
           agentId: action.agentId,
           started: true,
           message: 'queued task for ' + issueBatch.currentBatch.length + '/' + issueBatch.activeIssues.length + ' assigned issue(s) in current batch',
-          taskId: task.id,
+          taskId,
         });
       } catch (err: any) {
         forceController = true;
@@ -697,30 +701,40 @@ const controllerGraph = new StateGraph(ControllerGraphState)
       ? state.taskPrompt + '\n\n## Orchestration Findings\n' + findings.join('\n') + '\n\nPlease decide whether to re-dispatch workers, assign issue to user, close issue, or create follow-up issues.'
       : state.taskPrompt;
 
-    const task = createAgentTask(state.controller.id, {
-      source: 'langgraph-controller',
-      source_ref: null,
-      task_type: 'controller',
-      reason: 'LangGraph decided controller execution is required',
-      prompt: controllerPrompt,
-      priority: 20,
-      metadata: {
-        trigger_issue_number: state.triggerIssueNumber ?? null,
-        controller_reasons: state.controllerReasons,
-        worker_outcome_hints: state.workerOutcomeHints.slice(0, 8),
-        dispatch_results: state.dispatchResults,
-        orchestration_engine: 'langgraph',
+    const taskId = uuidv4();
+    eventBus.publish('task.requested', {
+      type: 'task.requested',
+      projectId: state.project.id,
+      payload: {
+        taskId,
+        agentId: state.controller.id,
+        source: 'langgraph-controller',
+        sourceRef: null,
+        taskType: 'controller',
+        reason: 'LangGraph decided controller execution is required',
+        prompt: controllerPrompt,
+        priority: 20,
+        metadata: {
+          trigger_issue_number: state.triggerIssueNumber ?? null,
+          controller_reasons: state.controllerReasons,
+          worker_outcome_hints: state.workerOutcomeHints.slice(0, 8),
+          dispatch_results: state.dispatchResults,
+          orchestration_engine: 'langgraph',
+        },
+        dedupeKey: [
+          'controller',
+          state.project.id,
+          state.controller.id,
+          state.triggerIssueNumber ?? 'project',
+        ].join(':'),
+        forceNewSession: false,
+        scheduledAt: null,
       },
-      dedupe_key: [
-        'controller',
-        state.project.id,
-        state.controller.id,
-        state.triggerIssueNumber ?? 'project',
-      ].join(':'),
+      meta: { correlationId: taskId, timestamp: Date.now(), source: 'langgraph-runner.executeController' },
     });
 
     return {
-      controllerTaskId: task.id,
+      controllerTaskId: taskId,
     };
   })
   .addNode('finish', (state) => {

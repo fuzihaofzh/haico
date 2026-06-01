@@ -3,6 +3,7 @@ import logger from '../logger';
 
 export interface CoalesceOptions {
   windowMs: number;
+  windowFn?: (mergedEvent: DomainEvent) => number;
   keyFn: (event: DomainEvent) => string;
   minIntervalMs?: number;
   mergeFn?: (existing: DomainEvent, incoming: DomainEvent) => DomainEvent;
@@ -41,7 +42,8 @@ export function coalesce(
     const minDelay = opts.minIntervalMs
       ? Math.max(0, opts.minIntervalMs - (Date.now() - lastRunMs))
       : 0;
-    const delayMs = Math.max(opts.windowMs, minDelay);
+    const effectiveWindowMs = opts.windowFn ? opts.windowFn(entry.event) : opts.windowMs;
+    const delayMs = Math.max(effectiveWindowMs, minDelay);
 
     entry.timer = setTimeout(() => {
       coalescedEntries.delete(key);

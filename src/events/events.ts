@@ -79,6 +79,96 @@ export interface SchedulerTickEvent extends DomainEvent<
   { tickType: 'taskRuntime' | 'issueRecovery' }
 > {}
 
+export interface AgentStatusChangedEvent extends DomainEvent<
+  'agent.status_changed',
+  {
+    agentId: string;
+    status: string;
+    paused?: boolean;
+    taskId?: string;
+    taskRunId?: string;
+  }
+> {}
+
+export interface AgentMessageSentEvent extends DomainEvent<
+  'agent.message_sent',
+  {
+    message: any;
+    fromAgentName: string;
+    toAgentName: string;
+  }
+> {}
+
+export interface AgentMessageUpdatedEvent extends DomainEvent<
+  'agent.message_updated',
+  {
+    message: any;
+    status: string;
+  }
+> {}
+
+export interface SummaryCreatedEvent extends DomainEvent<
+  'summary.created',
+  { summary: any }
+> {}
+
+export interface SummaryUpdatedEvent extends DomainEvent<
+  'summary.updated',
+  { summary: any }
+> {}
+
+export interface SummaryDeletedEvent extends DomainEvent<
+  'summary.deleted',
+  { summaryId: string }
+> {}
+
+export interface SummaryBlockUpdatedEvent extends DomainEvent<
+  'summary.block_updated',
+  { summaryId: string; block: any }
+> {}
+
+export interface SummaryGeneratedEvent extends DomainEvent<
+  'summary.generated',
+  { summary: any }
+> {}
+
+export interface SummaryFinalizedEvent extends DomainEvent<
+  'summary.finalized',
+  { summary: any }
+> {}
+
+export interface TaskRequestedEvent extends DomainEvent<
+  'task.requested',
+  {
+    taskId: string;
+    agentId: string;
+    source: string;
+    sourceRef: string | null;
+    taskType: string;
+    reason: string;
+    prompt: string;
+    priority: number;
+    metadata: Record<string, unknown>;
+    dedupeKey: string | null;
+    forceNewSession: boolean;
+    scheduledAt: string | null;
+    auditComment?: {
+      issueId: string;
+      body: string;
+    };
+  }
+> {}
+
+export interface ControllerTriggerRequestedEvent extends DomainEvent<
+  'controller.trigger_requested',
+  {
+    triggerIssueNumber?: number;
+    priority: 'urgent' | 'normal';
+    reason: string;
+    actorId?: string;
+  }
+> {}
+
 export type HaicoDomainEvent =
   | IssueCreatedEvent
   | IssueUpdatedEvent
@@ -86,7 +176,18 @@ export type HaicoDomainEvent =
   | CommentAddedEvent
   | IssueRelationChangedEvent
   | TaskCompletedEvent
-  | SchedulerTickEvent;
+  | SchedulerTickEvent
+  | AgentStatusChangedEvent
+  | AgentMessageSentEvent
+  | AgentMessageUpdatedEvent
+  | SummaryCreatedEvent
+  | SummaryUpdatedEvent
+  | SummaryDeletedEvent
+  | SummaryBlockUpdatedEvent
+  | SummaryGeneratedEvent
+  | SummaryFinalizedEvent
+  | TaskRequestedEvent
+  | ControllerTriggerRequestedEvent;
 
 export interface HaicoEventMap {
   'issue.created': IssueCreatedEvent;
@@ -96,4 +197,15 @@ export interface HaicoEventMap {
   'issue.relation_changed': IssueRelationChangedEvent;
   'task.completed': TaskCompletedEvent;
   'scheduler.tick': SchedulerTickEvent;
+  'agent.status_changed': AgentStatusChangedEvent;
+  'agent.message_sent': AgentMessageSentEvent;
+  'agent.message_updated': AgentMessageUpdatedEvent;
+  'summary.created': SummaryCreatedEvent;
+  'summary.updated': SummaryUpdatedEvent;
+  'summary.deleted': SummaryDeletedEvent;
+  'summary.block_updated': SummaryBlockUpdatedEvent;
+  'summary.generated': SummaryGeneratedEvent;
+  'summary.finalized': SummaryFinalizedEvent;
+  'task.requested': TaskRequestedEvent;
+  'controller.trigger_requested': ControllerTriggerRequestedEvent;
 }

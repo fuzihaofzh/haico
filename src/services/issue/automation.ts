@@ -2,9 +2,8 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { Agent, Project } from '../../types';
 import logger from '../../logger';
-import { enqueueControllerTrigger } from '../controller';
 import { tryHandleWithoutLLM } from '../pre-controller';
-import { createAgentTask } from '../tasks';
+import { eventBus } from '../../events';
 import { autoStartAgentForDispatchableIssues } from './agent-autostart';
 
 export function parseMentionedAgentNames(text: string): string[] {
@@ -68,53 +67,49 @@ export function parseMentionsAndStartAgents(
   if (mentions.length === 0) return;
 
   const agents = db.prepare('SELECT * FROM agents WHERE project_id = ?').all(projectId) as Agent[];
-  const eventStmt = db.prepare(
-    'INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)'
-  );
 
   for (const agentName of mentions) {
     const agent = agents.find((candidate) => candidate.name === agentName);
     if (!agent) continue;
 
-    const task = createAgentTask(agent.id, {
-      source: 'issue-mention',
-      source_ref: issueId,
-      task_type: 'issue-work',
-      reason: `@${agent.name} mentioned on issue #${issueNumber}`,
-      prompt: buildMentionTaskPrompt({
-        issueId,
-        issueNumber,
-        issueTitle,
-        mentionText: text,
-        authorId,
-        agentName: agent.name,
-      }),
-      priority: 10,
-      metadata: {
-        issue_id: issueId,
-        issue_number: issueNumber,
-        issue_title: issueTitle,
-        mentioned_agent_name: agent.name,
-        triggered_by: authorId,
-      },
-    });
-
-    logger.info({
-      projectId,
+    const taskId = uuidv4();
+    const prompt = buildMentionTaskPrompt({
       issueId,
       issueNumber,
-      agentId: agent.id,
-      taskId: task.id,
-      triggeredBy: authorId,
-    }, 'issue.mention_task_created');
-    eventStmt.run(
-      uuidv4(),
-      issueId,
-      'system',
-      `Task queued for @${agent.name} from mention on issue #${issueNumber}`,
-      'status_change',
-      JSON.stringify({ mention: agentName, agent_id: agent.id, task_id: task.id, triggered_by: authorId })
-    );
+      issueTitle,
+      mentionText: text,
+      authorId,
+      agentName: agent.name,
+    });
+    eventBus.publish('task.requested', {
+      type: 'task.requested',
+      projectId,
+      payload: {
+        taskId,
+        agentId: agent.id,
+        source: 'issue-mention',
+        sourceRef: issueId,
+        taskType: 'issue-work',
+        reason: `@${agent.name} mentioned on issue #${issueNumber}`,
+        prompt,
+        priority: 10,
+        metadata: {
+          issue_id: issueId,
+          issue_number: issueNumber,
+          issue_title: issueTitle,
+          mentioned_agent_name: agent.name,
+          triggered_by: authorId,
+        },
+        dedupeKey: null,
+        forceNewSession: false,
+        scheduledAt: null,
+        auditComment: {
+          issueId,
+          body: `Task queued for @${agent.name} from mention on issue #${issueNumber}`,
+        },
+      },
+      meta: { correlationId: taskId, timestamp: Date.now(), source: 'issue/automation.parseMentionsAndStartAgents' },
+    });
   }
 }
 
@@ -150,10 +145,16 @@ export function triggerControllerOnDemand(
     }
   }
 
-  enqueueControllerTrigger(project, {
-    issueNumber: triggerIssueNumber,
-    priority: isUserAction ? 'urgent' : 'normal',
-    reason: opts?.reason || (isUserAction ? 'user-action' : 'agent-event'),
+  eventBus.publish('controller.trigger_requested', {
+    type: 'controller.trigger_requested',
+    projectId,
+    payload: {
+      triggerIssueNumber,
+      priority: isUserAction ? 'urgent' : 'normal',
+      reason: opts?.reason || (isUserAction ? 'user-action' : 'agent-event'),
+      actorId,
+    },
+    meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'issue/automation.triggerControllerOnDemand' },
   });
 }
 
@@ -211,29 +212,30 @@ export function autoStartAgentFromUserComment(
     'Inspect the issue through the HAICO issue APIs, respond to the user comment, and update issue state if needed.',
   ].join('\n');
 
-  const task = createAgentTask(agent.id, {
-    source: 'user-comment',
-    source_ref: input.commentId,
-    task_type: 'issue-work',
-    reason: `User comment routed issue #${issueNumber} to ${agent.name}`,
-    prompt,
-    priority: 10,
-    metadata: {
-      issue_id: input.issueId,
-      issue_number: issueNumber,
-      issue_title: input.issueTitle,
-      comment_id: input.commentId,
-      routed_agent_id: agent.id,
-    },
-    dedupe_key: ['issue-user-comment', project.id, agent.id, input.commentId].join(':'),
-  });
-
-  logger.info({
+  const taskId = uuidv4();
+  eventBus.publish('task.requested', {
+    type: 'task.requested',
     projectId: project.id,
-    issueId: input.issueId,
-    issueNumber,
-    commentId: input.commentId,
-    agentId: agent.id,
-    taskId: task.id,
-  }, 'issue.user_comment_task_created');
+    payload: {
+      taskId,
+      agentId: agent.id,
+      source: 'user-comment',
+      sourceRef: input.commentId,
+      taskType: 'issue-work',
+      reason: `User comment routed issue #${issueNumber} to ${agent.name}`,
+      prompt,
+      priority: 10,
+      metadata: {
+        issue_id: input.issueId,
+        issue_number: issueNumber,
+        issue_title: input.issueTitle,
+        comment_id: input.commentId,
+        routed_agent_id: agent.id,
+      },
+      dedupeKey: ['issue-user-comment', project.id, agent.id, input.commentId].join(':'),
+      forceNewSession: false,
+      scheduledAt: null,
+    },
+    meta: { correlationId: taskId, timestamp: Date.now(), source: 'issue/automation.autoStartAgentFromUserComment' },
+  });
 }

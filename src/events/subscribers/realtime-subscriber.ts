@@ -1,7 +1,7 @@
 import { eventBus } from '../bus';
 import { broadcastToProject } from '../../realtime';
 import { getDatabase } from '../../db/database';
-import type { IssueUpdatedEvent } from '../events';
+import type { IssueUpdatedEvent, AgentStatusChangedEvent, SummaryCreatedEvent, SummaryUpdatedEvent, SummaryBlockUpdatedEvent, SummaryGeneratedEvent, SummaryFinalizedEvent } from '../events';
 
 export function registerRealtimeSubscribers(): void {
   eventBus.subscribe('issue.created', (event) => {
@@ -62,5 +62,89 @@ export function registerRealtimeSubscribers(): void {
         data: { issue: sourceIssue },
       });
     }
+  });
+
+  eventBus.subscribe('agent.status_changed', (event) => {
+    const p = event.payload as AgentStatusChangedEvent['payload'];
+    broadcastToProject(event.projectId, {
+      type: 'agent_status',
+      projectId: event.projectId,
+      data: {
+        agentId: p.agentId,
+        status: p.status,
+        ...(p.paused !== undefined ? { paused: p.paused } : {}),
+        ...(p.taskId ? { taskId: p.taskId } : {}),
+        ...(p.taskRunId ? { taskRunId: p.taskRunId } : {}),
+      },
+    });
+  });
+
+  eventBus.subscribe('agent.message_sent', (event) => {
+    broadcastToProject(event.projectId, {
+      type: 'agent_message',
+      projectId: event.projectId,
+      data: { message: event.payload.message, from: event.payload.fromAgentName, to: event.payload.toAgentName },
+    });
+  });
+
+  eventBus.subscribe('agent.message_updated', (event) => {
+    broadcastToProject(event.projectId, {
+      type: 'agent_message',
+      projectId: event.projectId,
+      data: { message: event.payload.message, status: event.payload.status },
+    });
+  });
+
+  eventBus.subscribe('summary.created', (event) => {
+    const p = event.payload as SummaryCreatedEvent['payload'];
+    broadcastToProject(event.projectId, {
+      type: 'executive_summary_created',
+      projectId: event.projectId,
+      data: p.summary as Record<string, any>,
+    });
+  });
+
+  eventBus.subscribe('summary.updated', (event) => {
+    const p = event.payload as SummaryUpdatedEvent['payload'];
+    broadcastToProject(event.projectId, {
+      type: 'executive_summary_updated',
+      projectId: event.projectId,
+      data: p.summary as Record<string, any>,
+    });
+  });
+
+  eventBus.subscribe('summary.deleted', (event) => {
+    broadcastToProject(event.projectId, {
+      type: 'executive_summary_deleted',
+      projectId: event.projectId,
+      data: { id: event.payload.summaryId },
+    });
+  });
+
+  eventBus.subscribe('summary.block_updated', (event) => {
+    const p = event.payload as SummaryBlockUpdatedEvent['payload'];
+    broadcastToProject(event.projectId, {
+      type: 'executive_summary_block_updated',
+      projectId: event.projectId,
+      data: { summary_id: p.summaryId, block: p.block as Record<string, any> },
+    });
+  });
+
+  eventBus.subscribe('summary.generated', (event) => {
+    const p = event.payload as SummaryGeneratedEvent['payload'];
+    broadcastToProject(event.projectId, {
+      type: 'executive_summary_generated',
+      projectId: event.projectId,
+      data: p.summary as Record<string, any>,
+    });
+  });
+
+  eventBus.subscribe('summary.finalized', (event) => {
+    const p = event.payload as SummaryFinalizedEvent['payload'];
+    broadcastToProject(event.projectId, {
+      type: 'executive_summary_finalized',
+      projectId: event.projectId,
+      data: p.summary as Record<string, any>,
+    });
   });
 }

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { broadcastToProject } from '../../realtime';
+import { eventBus } from '../../events';
 import { ExecutiveSummary, ExecutiveSummaryBlock } from '../../types';
 import {
   DuplicateExecutiveSummaryBlockKeyError,
@@ -239,10 +239,11 @@ export function createExecutiveSummary(
     return serializeSummary(db, getSummaryRowOrThrow(db, projectId, id));
   })();
 
-  broadcastToProject(projectId, {
-    type: 'executive_summary_created',
+  eventBus.publish('summary.created', {
+    type: 'summary.created',
     projectId,
-    data: result,
+    payload: { summary: result },
+    meta: { correlationId: result.id, timestamp: Date.now(), source: 'executive-summaries/core.createExecutiveSummary' },
   });
 
   return result;
@@ -291,10 +292,11 @@ export function updateExecutiveSummary(
   ).run(...values);
 
   const result = getExecutiveSummary(db, projectId, summaryId);
-  broadcastToProject(projectId, {
-    type: 'executive_summary_updated',
+  eventBus.publish('summary.updated', {
+    type: 'summary.updated',
     projectId,
-    data: result,
+    payload: { summary: result },
+    meta: { correlationId: summaryId, timestamp: Date.now(), source: 'executive-summaries/core.updateExecutiveSummary' },
   });
 
   return result;
@@ -308,10 +310,11 @@ export function deleteExecutiveSummary(
   getSummaryRowOrThrow(db, projectId, summaryId);
   db.prepare('DELETE FROM executive_summaries WHERE id = ?').run(summaryId);
 
-  broadcastToProject(projectId, {
-    type: 'executive_summary_deleted',
+  eventBus.publish('summary.deleted', {
+    type: 'summary.deleted',
     projectId,
-    data: { id: summaryId },
+    payload: { summaryId },
+    meta: { correlationId: summaryId, timestamp: Date.now(), source: 'executive-summaries/core.deleteExecutiveSummary' },
   });
 
   return { ok: true };
@@ -354,10 +357,11 @@ export function updateExecutiveSummaryBlock(
   db.prepare("UPDATE executive_summaries SET updated_at = datetime('now') WHERE id = ?").run(summaryId);
 
   const updated = getBlockRowOrThrow(db, summaryId, blockId);
-  broadcastToProject(projectId, {
-    type: 'executive_summary_block_updated',
+  eventBus.publish('summary.block_updated', {
+    type: 'summary.block_updated',
     projectId,
-    data: { summary_id: summaryId, block: updated },
+    payload: { summaryId, block: serializeBlock(updated) },
+    meta: { correlationId: blockId, timestamp: Date.now(), source: 'executive-summaries/core.updateExecutiveSummaryBlock' },
   });
 
   return serializeBlock(updated);
@@ -428,10 +432,11 @@ export function generateExecutiveSummary(
   db.prepare("UPDATE executive_summaries SET updated_at = datetime('now') WHERE id = ?").run(summaryId);
 
   const result = getExecutiveSummary(db, projectId, summaryId);
-  broadcastToProject(projectId, {
-    type: 'executive_summary_generated',
+  eventBus.publish('summary.generated', {
+    type: 'summary.generated',
     projectId,
-    data: result,
+    payload: { summary: result },
+    meta: { correlationId: summaryId, timestamp: Date.now(), source: 'executive-summaries/core.generateExecutiveSummary' },
   });
 
   return result;
@@ -455,10 +460,11 @@ export function finalizeExecutiveSummary(
   ).run(summaryId);
 
   const result = getExecutiveSummary(db, projectId, summaryId);
-  broadcastToProject(projectId, {
-    type: 'executive_summary_finalized',
+  eventBus.publish('summary.finalized', {
+    type: 'summary.finalized',
     projectId,
-    data: result,
+    payload: { summary: result },
+    meta: { correlationId: summaryId, timestamp: Date.now(), source: 'executive-summaries/core.finalizeExecutiveSummary' },
   });
 
   return result;
