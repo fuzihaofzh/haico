@@ -25,34 +25,9 @@ bash test/run-e2e.sh       # 真实 Agent 编排端到端
 
 Node.js (ES2022, CommonJS) · Fastify 5 · SQLite (better-sqlite3, WAL, 外键启用) · TypeScript strict · 原生 HTML/CSS/JS (SSR + REST + WebSocket, 无构建工具) · native/langgraph 编排 · Agent CLI executor · node-pty optional
 
-## Code Map
+## Structure
 
-```
-src/
-├── app.ts              # Fastify 入口
-├── config.ts           # 环境变量: HAICO_PORT, HAICO_HOST, HAICO_DB_PATH, HAICO_ORCHESTRATOR_ENGINE
-├── types.ts            # 核心类型定义
-├── middleware/auth.ts   # users + sessions 认证
-├── db/
-│   ├── database.ts     # SQLite 连接
-│   └── schema.ts       # Schema + 迁移
-├── routes/
-│   ├── route.ts         # 顶层注册: auth → protected API → UI → WebSocket
-│   ├── prehandlers/     # Fastify preHandler 适配层 (非 service 逻辑)
-│   ├── api/             # 受保护业务 API, 每模块一文件或 remote/ 子目录
-│   ├── auth.ts          # 登录/注册等公开认证路由
-│   ├── ui.ts            # SSR/静态页面入口
-│   └── ws.ts            # WebSocket 路由
-└── services/            # 纯逻辑, 无 Fastify 依赖
-    ├── controller.ts        # 编排引擎
-    ├── orchestrator.ts      # Native 编排
-    ├── langgraph-runner.ts  # LangGraph 编排
-    ├── git.ts               # 通用 Git CLI 封装 (只认路径, 不依赖业务模块)
-    ├── pre-controller.ts    # 规则引擎拦截
-    ├── process-manager/     # Agent 子进程管理
-    ├── remote-instances/    # 远程实例: core/crud/proxy/decorators/notifications/errors
-    └── ...                  # 其他服务见 src/services/
-```
+入口 `src/app.ts` → 路由 `src/routes/` → 服务 `src/services/` → DB `src/db/`。领域事件总线 `src/events/` 解耦服务间副作用，核心模块禁止依赖 services，只有 `src/events/subscribers/` 可以同时依赖两者。架构详见 `architecture/` 下各文档。
 
 ## Conventions
 
@@ -62,6 +37,7 @@ src/
 - **API**: 前缀 `/api/` | 错误 `{ error: string }` | 分页 `limit` + `offset`
 - **WebSocket**: `broadcastToProject(projectId, { type, projectId, data })`, type 用 `snake_case` (与 JS/TS camelCase 习惯不同)
 - **DB**: better-sqlite3 同步 API | 批量 IN 子句: `buildSqlPlaceholders(values)` | cost 查询仅取每 run_id 最后一条（累积值）
+- **EventBus**: 服务函数完成业务操作后通过 `eventBus.publish()` 发布领域事件，副作用（WS 推送、Agent 启动、Controller 触发）由 `src/events/subscribers/` 中的订阅者处理；`src/events/` 核心模块禁止 import `src/services/`；详见 `architecture/event-bus.md`
 
 ## Frontend
 
@@ -76,7 +52,7 @@ src/
 
 - **路由只管传输**: 解析 params/body/query、调用 service、设置成功响应。
 - **PreHandler 只管权限/校验**: Fastify scope 级 hook 执行角色检查、权限解析、输入校验等；纯适配层，不含业务逻辑，验证逻辑留在 `services/project-access/` 等处
-- **Service 只管业务**: 业务规则、DB、文件系统、进程生命周期、领域事件/WebSocket 广播都下沉到 service。
+- **Service 只管业务**: 业务规则、DB、文件系统、进程生命周期下沉到 service；副作用（WebSocket 广播、Agent 启动、Controller 触发）通过 `eventBus.publish()` 发布领域事件，由 subscribers 处理。
 - **业务失败抛领域错误**: route 中不要写业务型 `reply.code(4xx).send({ error })`；由 service 抛 `<Entity><Reason>Error`。
 - **HTTP 映射集中处理**: `src/errors/error-mapper.ts` 按具体领域错误类映射 status code；详见 `architecture/error-handling.md`。
 - **Service 禁止 Fastify 依赖**: service 不 import Fastify 类型；如需日志，传入最小 logger interface。
@@ -87,11 +63,12 @@ src/
 - **启动时**自动将 stuck running agents 重置为 idle，勿手动干预
 - **权限**: 后端只认真实 user session；admin 全权限，owner/member/editor 通过 project_id 回溯到项目级
 - **远程实例 ID 装饰**: `remote-{entity}:{instanceId}:{remoteId}`，代理请求需剥除前缀再转发
-- **编排/Issue 自动化**: 改 controller、agent lifecycle、issue dispatch 前先读 `architecture/orchestration.md`
+- **编排/Issue 自动化**: 改 controller、agent lifecycle、issue dispatch 前先读 `architecture/orchestration.md`；改事件发布/订阅逻辑前先读 `architecture/event-bus.md`
 - **Git 通用层与编排层分离**: 新增 git 操作必须先在 `src/services/git.ts` 实现纯路径签名函数，再由业务编排层组合调用；`git.ts` 禁止导入 DB/Agent/Project 等业务模块，详见 `architecture/git.md`
+- **EventBus 依赖方向**: `src/events/` 核心模块（bus/types/events/middleware/coalescing/store）禁止 import `src/services/`；只有 `src/events/subscribers/` 可以同时依赖 events 和 services；subscriber 中不要让事件触发回自身（防循环）
 
 ## References
 
 - 产品需求: `prd/` (00-overview.md ~ 15-data-model.md)
-- 架构文档: `architecture/error-handling.md`, `architecture/orchestration.md`, `architecture/git.md`
+- 架构文档: `architecture/error-handling.md`, `architecture/orchestration.md`, `architecture/git.md`, `architecture/event-bus.md`
 - Playwright 配置: `playwright.config.ts` | 测试: `test/e2e/*.spec.ts`

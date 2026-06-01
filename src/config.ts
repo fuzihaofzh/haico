@@ -13,4 +13,5 @@ export const config = {
   defaultCommandTemplate: 'cld',
   defaultOrchestratorEngine: normalizeOrchestratorEngine(process.env.HAICO_ORCHESTRATOR_ENGINE),
   logRetentionDays: 30,
+  eventLogEnabled: process.env.HAICO_EVENT_LOG !== 'off',
 };

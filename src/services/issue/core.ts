@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { broadcastToProject } from '../../realtime';
 import logger from '../../logger';
+import { eventBus } from '../../events';
 import {
   InvalidIssueStatusError,
   IssueDeleteStatusConflictError,
@@ -12,11 +12,6 @@ import {
   MissingIssueCreateFieldsError,
 } from './errors';
 import { attachCommentReactions } from './utils';
-import {
-  autoStartAssignedAgentForIssue,
-  parseMentionsAndStartAgents,
-  triggerControllerOnDemand,
-} from './automation';
 
 const ISSUE_STATUSES = ['open', 'in_progress', 'pending', 'done', 'closed'] as const;
 type IssueStatus = typeof ISSUE_STATUSES[number];
@@ -269,18 +264,20 @@ export function createIssue(db: Database.Database, projectId: string, input: Cre
     return { created, updatedParent };
   })();
 
-  if (result.updatedParent) {
-    broadcastToProject(projectId, {
-      type: 'issue_updated',
-      projectId,
-      data: { issue: result.updatedParent },
-    });
-  }
-
-  broadcastToProject(projectId, {
-    type: 'issue_created',
+  eventBus.publish('issue.created', {
+    type: 'issue.created',
     projectId,
-    data: { issue: result.created },
+    payload: {
+      issueId: result.created.id,
+      issueNumber: result.created.number,
+      title: result.created.title,
+      createdBy: created_by,
+      assignedTo: result.created.assigned_to,
+      body: body,
+      parentId: result.created.parent_id,
+      parentUpdated: Boolean(result.updatedParent),
+    },
+    meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'issue/core' },
   });
 
   logger.info({
@@ -293,19 +290,6 @@ export function createIssue(db: Database.Database, projectId: string, input: Cre
     priority: result.created.priority,
     parentUpdated: Boolean(result.updatedParent),
   }, 'issue.created');
-
-  if (created_by === 'user') {
-    autoStartAssignedAgentForIssue(db, projectId, result.created.number, assigned_to, 'issue-create-assignment');
-  }
-
-  if (body) {
-    parseMentionsAndStartAgents(db, body, projectId, result.created.id, result.created.number, title, created_by);
-  }
-
-  triggerControllerOnDemand(db, projectId, result.created.number, created_by, {
-    reason: 'issue-created',
-    forceUrgent: created_by === 'user' && (!assigned_to || assigned_to === 'all'),
-  });
 
   return result.created;
 }
@@ -529,33 +513,20 @@ export function updateIssue(db: Database.Database, issueId: string, input: Updat
     }, 'issue.returned_to_user');
   }
 
-  broadcastToProject(result.updated.project_id, {
-    type: 'issue_updated',
+  eventBus.publish('issue.updated', {
+    type: 'issue.updated',
     projectId: result.updated.project_id,
-    data: { issue: result.updated },
+    payload: {
+      issueId,
+      issueNumber: result.finalIssue.number,
+      changes,
+      actor: actorId,
+      parentCompletion: result.parentCompletion || undefined,
+      refreshedParentId: result.refreshedParent?.id || undefined,
+      returnedToUser: result.returnedToUser || undefined,
+    },
+    meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'issue/core' },
   });
-
-  if (result.parentIssueForTrigger) {
-    triggerControllerOnDemand(db, result.updated.project_id, result.parentIssueForTrigger.number, 'system', {
-      reason: 'all-children-complete',
-    });
-  }
-
-  if (result.refreshedParent) {
-    broadcastToProject(result.updated.project_id, {
-      type: 'issue_updated',
-      projectId: result.updated.project_id,
-      data: { issue: result.refreshedParent },
-    });
-  }
-
-  triggerControllerOnDemand(db, result.updated.project_id, result.updated.number, actorId, {
-    reason: 'issue-updated',
-  });
-
-  if (actorId === 'user' && assigned_to && assigned_to !== result.existing.assigned_to) {
-    autoStartAssignedAgentForIssue(db, result.updated.project_id, result.updated.number, assigned_to, 'issue-update-assignment');
-  }
 
   return result.finalIssue;
 }

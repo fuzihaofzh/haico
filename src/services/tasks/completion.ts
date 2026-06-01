@@ -2,8 +2,8 @@ import { getDatabase } from '../../db/database';
 import logger from '../../logger';
 import { Agent, Project, Task, TaskRunStatus } from '../../types';
 import { broadcastToProject } from '../../realtime';
-import { triggerControllerOnDemand } from '../issue/automation';
-import { runIssueRecoveryScan } from '../issue/recovery';
+import { eventBus } from '../../events';
+import { v4 as uuidv4 } from 'uuid';
 
 function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -41,16 +41,35 @@ function routeTaskCompletion(task: Task, input: {
   if (!project || project.status === 'paused') return;
 
   if (task.task_type === 'issue-work') {
-    for (const issueNumber of extractIssueNumbers(task)) {
-      triggerControllerOnDemand(db, task.project_id, issueNumber, agent?.id || 'system', {
-        reason: input.status === 'completed' ? 'task-completed' : `task-${input.status}`,
-      });
-    }
-    runIssueRecoveryScan(db, logger);
+    eventBus.publish('task.completed', {
+      type: 'task.completed',
+      projectId: task.project_id,
+      payload: {
+        taskId: task.id,
+        taskRunId: input.taskRunId,
+        agentId: agent?.id || 'system',
+        taskType: task.task_type,
+        status: input.status,
+        issueNumbers: extractIssueNumbers(task),
+      },
+      meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'tasks/completion' },
+    });
   }
 
   if (task.task_type === 'controller' && input.status === 'completed') {
-    runIssueRecoveryScan(db, logger);
+    eventBus.publish('task.completed', {
+      type: 'task.completed',
+      projectId: task.project_id,
+      payload: {
+        taskId: task.id,
+        taskRunId: input.taskRunId,
+        agentId: agent?.id || 'system',
+        taskType: task.task_type,
+        status: input.status,
+        issueNumbers: [],
+      },
+      meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'tasks/completion' },
+    });
   }
 
   if (task.task_type === 'message' && input.status === 'completed' && task.source_ref && agent) {

@@ -1,22 +1,12 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { Agent, Project } from '../../types';
-import { broadcastToProject } from '../../realtime';
-import logger from '../../logger';
+import { eventBus } from '../../events';
 import {
   IssueCommentNotFoundError,
   IssueNotFoundError,
   MissingIssueCommentFieldsError,
 } from './errors';
 import { attachCommentReactions } from './utils';
-import {
-  autoStartAgentFromUserComment,
-  findFirstMentionedAgent,
-  parseMentionsAndStartAgents,
-  triggerControllerOnDemand,
-} from './automation';
-
-const FALLBACK_CONTROLLER_ID = 'b9b6362c-2d59-40cd-9ffc-fd871a7e811e';
 
 export interface AddIssueCommentInput {
   author_id?: string;
@@ -37,54 +27,6 @@ function getCommentOrThrow(db: Database.Database, commentId: string): any {
   const comment = db.prepare('SELECT * FROM issue_comments WHERE id = ?').get(commentId) as any;
   if (!comment) throw new IssueCommentNotFoundError();
   return comment;
-}
-
-function handleUserCommentReassignment(
-  db: Database.Database,
-  issue: any,
-  body: string,
-  issueId: string,
-  commentId: string
-): void {
-  const agents = db.prepare('SELECT * FROM agents WHERE project_id = ?').all(issue.project_id) as Agent[];
-  const targetAgent = findFirstMentionedAgent(body, agents);
-  const controllerAgent = agents.find((agent) => agent.is_controller);
-  const newAssignee = targetAgent ? targetAgent.id : (controllerAgent?.id || FALLBACK_CONTROLLER_ID);
-  const previousAssignee = issue.assigned_to;
-  const previousStatus = issue.status;
-
-  db.prepare('UPDATE issues SET assigned_to = ? WHERE id = ?').run(newAssignee, issueId);
-
-  if (issue.status === 'done' || issue.status === 'closed') {
-    db.prepare("UPDATE issues SET status = 'open' WHERE id = ?").run(issueId);
-  }
-
-  if (previousAssignee !== newAssignee || previousStatus === 'done' || previousStatus === 'closed') {
-    logger.info({
-      projectId: issue.project_id,
-      issueId,
-      issueNumber: issue.number,
-      assignedTo: newAssignee,
-      previousAssignee,
-      reopened: previousStatus === 'done' || previousStatus === 'closed',
-      previousStatus,
-      targetAgentId: targetAgent?.id || controllerAgent?.id || null,
-    }, 'issue.user_comment_routed');
-  }
-
-  const agentToStart = targetAgent || (controllerAgent as Agent | undefined);
-  if (!agentToStart) return;
-
-  const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(issue.project_id) as Project | undefined;
-  if (!project || project.status === 'paused') return;
-  if (targetAgent) return;
-
-  autoStartAgentFromUserComment(db, project, issue.number, agentToStart, {
-    issueId,
-    issueTitle: issue.title,
-    commentId,
-    commentBody: body,
-  });
 }
 
 export function listIssueComments(db: Database.Database, issueId: string, sinceCreatedAt?: string): any[] {
@@ -112,21 +54,21 @@ export function addIssueComment(db: Database.Database, issueId: string, input: A
     return { issue, comment };
   })();
 
-  broadcastToProject(result.issue.project_id, {
-    type: 'comment_added',
+  eventBus.publish('comment.added', {
+    type: 'comment.added',
     projectId: result.issue.project_id,
-    data: { comment: result.comment, issueId, issueNumber: result.issue.number },
+    payload: {
+      issueId,
+      issueNumber: result.issue.number,
+      issueTitle: result.issue.title,
+      commentId: result.comment.id,
+      authorId: author_id,
+      body,
+      issueStatus: result.issue.status,
+      assignedTo: result.issue.assigned_to,
+    },
+    meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'issue/comments' },
   });
-
-  parseMentionsAndStartAgents(db, body, result.issue.project_id, issueId, result.issue.number, result.issue.title, author_id);
-
-  triggerControllerOnDemand(db, result.issue.project_id, result.issue.number, author_id, {
-    reason: 'comment-added',
-  });
-
-  if (author_id === 'user') {
-    handleUserCommentReassignment(db, result.issue, body, issueId, result.comment.id);
-  }
 
   return result.comment;
 }

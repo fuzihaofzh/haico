@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { broadcastToProject } from '../../realtime';
+import { eventBus } from '../../events';
 import {
   InvalidIssueRelationTypeError,
   IssueRelationAlreadyExistsError,
@@ -100,10 +100,18 @@ export function createIssueRelation(
     throw error;
   }
 
-  broadcastToProject(fromIssue.project_id, {
-    type: 'issue_updated',
+  eventBus.publish('issue.relation_changed', {
+    type: 'issue.relation_changed',
     projectId: fromIssue.project_id,
-    data: { issue: db.prepare('SELECT * FROM issues WHERE id = ?').get(sourceIssueId) },
+    payload: {
+      sourceIssueId,
+      sourceIssueNumber: fromIssue.number,
+      targetIssueId,
+      targetIssueNumber: (db.prepare('SELECT number FROM issues WHERE id = ?').get(targetIssueId) as any)?.number,
+      relationType,
+      action: 'created',
+    },
+    meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'issue/relations' },
   });
 
   return getRelationOrThrow(db, relId);
@@ -119,10 +127,18 @@ export function deleteIssueRelation(db: Database.Database, issueId: string, rela
 
   const fromIssue = db.prepare('SELECT * FROM issues WHERE id = ?').get(relation.from_issue_id) as any;
   if (fromIssue) {
-    broadcastToProject(fromIssue.project_id, {
-      type: 'issue_updated',
+    eventBus.publish('issue.relation_changed', {
+      type: 'issue.relation_changed',
       projectId: fromIssue.project_id,
-      data: { issue: fromIssue },
+      payload: {
+        sourceIssueId: relation.from_issue_id,
+        sourceIssueNumber: fromIssue.number,
+        targetIssueId: relation.to_issue_id,
+        targetIssueNumber: (db.prepare('SELECT number FROM issues WHERE id = ?').get(relation.to_issue_id) as any)?.number,
+        relationType: relation.relation_type,
+        action: 'deleted',
+      },
+      meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'issue/relations' },
     });
   }
 }

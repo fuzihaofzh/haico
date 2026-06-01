@@ -5,8 +5,9 @@ import { cleanupConversationLogs } from '../db/maintenance';
 import logger from '../logger';
 import { runTaskRunWatchdogScan, runTaskSchedulerTick } from '../services/tasks';
 import { runIssueRecoveryScan } from '../services/issue/recovery';
+import { purgeOldEvents } from '../events/store';
 
-type ScheduledTaskName = 'logCleanup' | 'taskRuntime' | 'issueRecovery';
+type ScheduledTaskName = 'logCleanup' | 'taskRuntime' | 'issueRecovery' | 'eventLogCleanup';
 
 const tasks: Partial<Record<ScheduledTaskName, cron.ScheduledTask>> = {};
 
@@ -56,6 +57,13 @@ export function initializeScheduler(): void {
   });
   scheduleTask('issueRecovery', '*/2 * * * *', () => {
     runIssueRecoveryScan(getDatabase(), logger);
+  });
+
+  scheduleTask('eventLogCleanup', '0 4 * * *', () => {
+    const deletedCount = purgeOldEvents(30);
+    if (deletedCount > 0) {
+      logger.info(`Event log cleanup: deleted ${deletedCount} events older than 30 days`);
+    }
   });
 
   logger.info('Scheduler initialized');

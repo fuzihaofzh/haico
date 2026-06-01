@@ -380,6 +380,20 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       UNIQUE(summary_id, block_key)
     );
     CREATE INDEX IF NOT EXISTS idx_exec_blocks_summary ON executive_summary_blocks(summary_id);
+
+    CREATE TABLE IF NOT EXISTS domain_events (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      correlation_id TEXT NOT NULL,
+      causation_id TEXT,
+      payload TEXT NOT NULL,
+      source TEXT NOT NULL,
+      published_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_domain_events_project_time ON domain_events(project_id, published_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_domain_events_correlation ON domain_events(correlation_id);
+    CREATE INDEX IF NOT EXISTS idx_domain_events_type ON domain_events(type);
   `);
 
   // Migration: add paused column if missing
