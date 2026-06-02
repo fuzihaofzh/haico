@@ -7,6 +7,8 @@ import { getAgentIssueBatch, buildAssignedIssuesPrompt, markCurrentBatchInProgre
 import { buildAgentWakeupSignature, getAgentWakeupDecision, recordAgentWakeup } from './agent-wakeup-guard';
 import { listDispatchableIssuesForAgent, listOrchestrationIssues } from './issue/dispatch';
 import { getAgentRuntimeState } from './tasks';
+import { updateIssue } from './issue/core';
+import { addIssueComment } from './issue/comments';
 import { eventBus } from '../events';
 
 export interface LangGraphControllerInput {
@@ -278,9 +280,6 @@ export function reconcileNeedsUserOutcomes(project: Project, hints: WorkerOutcom
   const idleReasons: string[] = [];
   let movedCount = 0;
   const agentNameById = new Map(agents.map((a) => [a.id, a.name]));
-  const eventStmt = db.prepare(
-    'INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)'
-  );
 
   for (const hint of hints) {
     if (hint.signal !== 'needs_user') continue;
@@ -291,43 +290,21 @@ export function reconcileNeedsUserOutcomes(project: Project, hints: WorkerOutcom
       const issueId = hint.issueIds[i];
       const issueNumber = hint.issueNumbers[i] || 0;
       const issueRow = db.prepare(
-        "SELECT assigned_to FROM issues WHERE id = ? AND project_id = ? AND status IN ('open', 'in_progress')"
-      ).get(issueId, project.id) as { assigned_to: string | null } | undefined;
+        "SELECT assigned_to, project_id FROM issues WHERE id = ? AND project_id = ? AND status IN ('open', 'in_progress')"
+      ).get(issueId, project.id) as { assigned_to: string | null; project_id: string } | undefined;
       if (!issueRow || issueRow.assigned_to === 'user') continue;
 
-      db.prepare(
-        "UPDATE issues SET assigned_to = 'user', acknowledged_at = NULL, updated_at = datetime('now') WHERE id = ?"
-      ).run(issueId);
-
-      const metaBase = {
-        source: 'langgraph_worker_outcome',
-        signal: hint.signal,
-        agent_id: hint.agentId,
-        issue_number: issueNumber,
-      };
-
-      eventStmt.run(
-        uuidv4(),
-        issueId,
-        'system',
-        'assigned to user (auto-handoff from ' + agentName + ')',
-        'assignment',
-        JSON.stringify({ ...metaBase, from: hint.agentId, to: 'user' })
-      );
+      updateIssue(db, issueId, {
+        assigned_to: 'user',
+        actor: 'system',
+      });
 
       const commentBody =
         'Auto-handoff by orchestrator: worker ' + agentName + ' ended with signal "' + hint.signal + '".\n' +
         'Summary: ' + hint.summary + '\n' +
         (hint.excerpt ? 'Worker excerpt: ' + hint.excerpt : '');
 
-      eventStmt.run(
-        uuidv4(),
-        issueId,
-        'system',
-        commentBody,
-        'comment',
-        JSON.stringify({ ...metaBase, excerpt: hint.excerpt })
-      );
+      addIssueComment(db, issueId, { author_id: 'system', body: commentBody });
 
       movedCount += 1;
       idleReasons.push('auto-assigned issue #' + (issueNumber || '?') + ' to user after ' + agentName + ' signaled needs_user');

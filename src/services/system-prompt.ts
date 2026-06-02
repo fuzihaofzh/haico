@@ -3,7 +3,6 @@ import { Agent, Project } from '../types';
 import { config } from '../config';
 import { getDirectChildAgents, loadProjectHierarchyAgents } from './agents/hierarchy';
 import { resolveCommandType } from './command-profiles';
-import { markExpiredKnowledgeEntries } from './knowledge/lifecycle';
 import { ensureAgentKnowledgeEntry } from './knowledge/agent-memory';
 import { deriveAgentRuntimeStatus } from './tasks/runtime-state';
 
@@ -199,7 +198,6 @@ ${C} "${base}/api/projects/${project.id}/knowledge?q=关键词"
   }
 
   // Knowledge base: auto-inject active high importance entries
-  markExpiredKnowledgeEntries(db, project.id);
   const knowledgeEntries = db.prepare(
     `SELECT title, content
      FROM knowledge_entries

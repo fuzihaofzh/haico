@@ -11,6 +11,9 @@ import { attachCommentReactions } from './utils';
 export interface AddIssueCommentInput {
   author_id?: string;
   body?: string;
+  silent?: boolean;
+  event_type?: string;
+  meta?: Record<string, unknown>;
 }
 
 export interface UpdateIssueCommentInput {
@@ -41,34 +44,41 @@ export function listIssueComments(db: Database.Database, issueId: string, sinceC
 }
 
 export function addIssueComment(db: Database.Database, issueId: string, input: AddIssueCommentInput): any {
-  const { author_id, body } = input;
+  const { author_id, body, silent, event_type, meta } = input;
   if (!author_id || !body) throw new MissingIssueCommentFieldsError();
 
   const result = db.transaction(() => {
     const issue = getIssueOrThrow(db, issueId);
     const id = uuidv4();
-    db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body) VALUES (?, ?, ?, ?)')
-      .run(id, issueId, author_id, body);
+    if (event_type || meta) {
+      db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, issueId, author_id, body, event_type || 'comment', meta ? JSON.stringify(meta) : null);
+    } else {
+      db.prepare('INSERT INTO issue_comments (id, issue_id, author_id, body) VALUES (?, ?, ?, ?)')
+        .run(id, issueId, author_id, body);
+    }
     db.prepare("UPDATE issues SET updated_at = datetime('now'), acknowledged_at = NULL WHERE id = ?").run(issueId);
     const comment = getCommentOrThrow(db, id);
     return { issue, comment };
   })();
 
-  eventBus.publish('comment.added', {
-    type: 'comment.added',
-    projectId: result.issue.project_id,
-    payload: {
-      issueId,
-      issueNumber: result.issue.number,
-      issueTitle: result.issue.title,
-      commentId: result.comment.id,
-      authorId: author_id,
-      body,
-      issueStatus: result.issue.status,
-      assignedTo: result.issue.assigned_to,
-    },
-    meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'issue/comments' },
-  });
+  if (!silent) {
+    eventBus.publish('comment.added', {
+      type: 'comment.added',
+      projectId: result.issue.project_id,
+      payload: {
+        issueId,
+        issueNumber: result.issue.number,
+        issueTitle: result.issue.title,
+        commentId: result.comment.id,
+        authorId: author_id,
+        body,
+        issueStatus: result.issue.status,
+        assignedTo: result.issue.assigned_to,
+      },
+      meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'issue/comments' },
+    });
+  }
 
   return result.comment;
 }

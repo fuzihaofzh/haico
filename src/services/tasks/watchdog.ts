@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import logger from '../../logger';
 import { DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS, getAgentFinalResultAge } from '../process-manager';
 import { getCliTaskRunIdleMs, isCliTaskRunRunning, stopCliTaskRun } from '../executors/cli-executor';
-import { completeTaskRun } from './completion';
+import { handleTaskRunExit } from './completion';
 
 type LogMethod = {
   (message: string, ...args: unknown[]): void;
@@ -51,7 +51,7 @@ export function runTaskRunWatchdogScan(
 
   for (const row of rows) {
     if (!isCliTaskRunRunning(row.id)) {
-      completeTaskRun({
+      handleTaskRunExit({
         taskRunId: row.id,
         status: 'failed',
         exitCode: null,
@@ -70,8 +70,7 @@ export function runTaskRunWatchdogScan(
 
     const finalResultAgeMs = getAgentFinalResultAge(row.agent_id);
     if (finalResultAgeMs >= FINAL_RESULT_KILL_DELAY_MS) {
-      stopCliTaskRun(row.id);
-      completeTaskRun({
+      handleTaskRunExit({
         taskRunId: row.id,
         status: 'completed',
         exitCode: null,
@@ -91,8 +90,7 @@ export function runTaskRunWatchdogScan(
 
     const idleMs = getCliTaskRunIdleMs(row.id);
     if (idleMs >= 0 && idleMs >= DEFAULT_IDLE_TIMEOUT_MS) {
-      stopCliTaskRun(row.id);
-      completeTaskRun({
+      handleTaskRunExit({
         taskRunId: row.id,
         status: 'failed',
         exitCode: null,

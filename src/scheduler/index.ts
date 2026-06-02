@@ -6,8 +6,12 @@ import logger from '../logger';
 import { runTaskRunWatchdogScan, runTaskSchedulerTick } from '../services/tasks';
 import { runIssueRecoveryScan } from '../services/issue/recovery';
 import { purgeOldEvents } from '../events/store';
+import { markExpiredKnowledgeEntries } from '../services/knowledge/lifecycle';
+import { eventBus } from '../events';
 
-type ScheduledTaskName = 'logCleanup' | 'taskRuntime' | 'issueRecovery' | 'eventLogCleanup';
+import { v4 as uuidv4 } from 'uuid';
+
+type ScheduledTaskName = 'logCleanup' | 'taskRuntime' | 'issueRecovery' | 'eventLogCleanup' | 'knowledgeExpiry';
 
 const tasks: Partial<Record<ScheduledTaskName, cron.ScheduledTask>> = {};
 
@@ -42,6 +46,12 @@ function startLogCleanup(): void {
 export function initializeScheduler(): void {
   startLogCleanup();
   scheduleTask('taskRuntime', '*/1 * * * *', () => {
+    eventBus.publish('scheduler.tick', {
+      type: 'scheduler.tick',
+      projectId: '',
+      payload: { tickType: 'taskRuntime' },
+      meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'scheduler/taskRuntime' },
+    });
     const watchdog = runTaskRunWatchdogScan(getDatabase(), logger);
     const result = runTaskSchedulerTick(10);
     if (
@@ -56,6 +66,12 @@ export function initializeScheduler(): void {
     }
   });
   scheduleTask('issueRecovery', '*/2 * * * *', () => {
+    eventBus.publish('scheduler.tick', {
+      type: 'scheduler.tick',
+      projectId: '',
+      payload: { tickType: 'issueRecovery' },
+      meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'scheduler/issueRecovery' },
+    });
     runIssueRecoveryScan(getDatabase(), logger);
   });
 
@@ -63,6 +79,18 @@ export function initializeScheduler(): void {
     const deletedCount = purgeOldEvents(30);
     if (deletedCount > 0) {
       logger.info(`Event log cleanup: deleted ${deletedCount} events older than 30 days`);
+    }
+  });
+
+  scheduleTask('knowledgeExpiry', '0 * * * *', () => {
+    const db = getDatabase();
+    const projects = db.prepare("SELECT id FROM projects WHERE status = 'active'").all() as Array<{ id: string }>;
+    let totalExpired = 0;
+    for (const project of projects) {
+      totalExpired += markExpiredKnowledgeEntries(db, project.id);
+    }
+    if (totalExpired > 0) {
+      logger.info({ totalExpired }, 'knowledge.expiry.marked');
     }
   });
 

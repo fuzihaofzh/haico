@@ -90,6 +90,25 @@ export interface AgentStatusChangedEvent extends DomainEvent<
   }
 > {}
 
+export interface AgentCreatedEvent extends DomainEvent<
+  'agent.created',
+  {
+    agentId: string;
+    agentName: string;
+    projectId: string;
+    isController: boolean;
+  }
+> {}
+
+export interface AgentDeletedEvent extends DomainEvent<
+  'agent.deleted',
+  {
+    agentId: string;
+    agentName: string;
+    hadActiveTask: boolean;
+  }
+> {}
+
 export interface AgentMessageSentEvent extends DomainEvent<
   'agent.message_sent',
   {
@@ -169,6 +188,13 @@ export interface ControllerTriggerRequestedEvent extends DomainEvent<
   }
 > {}
 
+export interface ProjectDeletedEvent extends DomainEvent<
+  'project.deleted',
+  {
+    agentIds: string[];
+  }
+> {}
+
 export type HaicoDomainEvent =
   | IssueCreatedEvent
   | IssueUpdatedEvent
@@ -178,6 +204,8 @@ export type HaicoDomainEvent =
   | TaskCompletedEvent
   | SchedulerTickEvent
   | AgentStatusChangedEvent
+  | AgentCreatedEvent
+  | AgentDeletedEvent
   | AgentMessageSentEvent
   | AgentMessageUpdatedEvent
   | SummaryCreatedEvent
@@ -187,7 +215,8 @@ export type HaicoDomainEvent =
   | SummaryGeneratedEvent
   | SummaryFinalizedEvent
   | TaskRequestedEvent
-  | ControllerTriggerRequestedEvent;
+  | ControllerTriggerRequestedEvent
+  | ProjectDeletedEvent;
 
 export interface HaicoEventMap {
   'issue.created': IssueCreatedEvent;
@@ -198,6 +227,8 @@ export interface HaicoEventMap {
   'task.completed': TaskCompletedEvent;
   'scheduler.tick': SchedulerTickEvent;
   'agent.status_changed': AgentStatusChangedEvent;
+  'agent.created': AgentCreatedEvent;
+  'agent.deleted': AgentDeletedEvent;
   'agent.message_sent': AgentMessageSentEvent;
   'agent.message_updated': AgentMessageUpdatedEvent;
   'summary.created': SummaryCreatedEvent;
@@ -208,4 +239,5 @@ export interface HaicoEventMap {
   'summary.finalized': SummaryFinalizedEvent;
   'task.requested': TaskRequestedEvent;
   'controller.trigger_requested': ControllerTriggerRequestedEvent;
+  'project.deleted': ProjectDeletedEvent;
 }

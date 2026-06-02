@@ -5,8 +5,8 @@ import { buildSystemPrompt } from '../system-prompt';
 import { getAgentOrThrow, getProjectOrThrow } from '../agents/core';
 import { AgentAlreadyRunningError, AgentPausedError, AgentPromptUnavailableError, AgentRetryPromptMissingError } from '../agents/errors';
 import { resolveExecutorProfile, snapshotExecutorConfig } from '../executors/profiles';
-import { startCliTaskRun, stopCliTaskRun } from '../executors/cli-executor';
-import { completeTaskRun } from './completion';
+import { startCliTaskRun } from '../executors/cli-executor';
+import { handleTaskRunExit } from './completion';
 import { getAgentRuntimeState } from './runtime-state';
 
 export interface StartManualTaskInput {
@@ -344,8 +344,7 @@ export function cancelActiveTaskForAgent(agentId: string): { success: true } {
   const db = getDatabase();
   const active = getActiveTaskRunForAgent(agentId);
   if (!active) return { success: true };
-  stopCliTaskRun(active.id);
-  completeTaskRun({
+  handleTaskRunExit({
     taskRunId: active.id,
     status: 'cancelled',
     exitCode: null,

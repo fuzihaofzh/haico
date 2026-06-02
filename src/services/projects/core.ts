@@ -2,7 +2,6 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../../config';
 import { Agent, CommandProfile, CreateProjectInput, OrchestratorEngine, Project } from '../../types';
-import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
 import { getProjectPermission, listAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-access';
 import logger, { AppLogger } from '../../logger';
@@ -17,6 +16,7 @@ import {
 import { buildSqlPlaceholders } from './utils';
 import { ensureProjectDefaultExecutorProfile, syncProjectDefaultExecutorProfile } from '../executors/profiles';
 import { cancelActiveTaskForAgent, summarizeAgentRuntimeStates } from '../tasks';
+import { eventBus } from '../../events';
 
 export interface ProjectOwnerSummary {
   id: string;
@@ -283,13 +283,6 @@ export function createProject(
       controllerCommandConfig.commandTemplate,
       controllerCommandConfig.commandType
     );
-    ensureAgentKnowledgeEntry(db, {
-      id: controllerId,
-      project_id: id,
-      role: controllerRole,
-      working_directory: input.working_directory || null,
-      custom_instructions: '',
-    });
 
     const assistantId = uuidv4();
     const assistantRole = 'Assistant to the controller. Handles analysis, code execution, data processing, and research tasks delegated by the controller.';
@@ -317,13 +310,6 @@ export function createProject(
       JSON.stringify(['analysis', 'research', 'execution']),
       executorPreferences
     );
-    ensureAgentKnowledgeEntry(db, {
-      id: assistantId,
-      project_id: id,
-      role: assistantRole,
-      working_directory: input.working_directory || null,
-      custom_instructions: '',
-    });
 
     return {
       project: db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project,
@@ -343,6 +329,19 @@ export function createProject(
     controllerAgentId: result.controllerId,
     assistantAgentId: result.assistantId,
   }, 'project.created');
+
+  eventBus.publish('agent.created', {
+    type: 'agent.created',
+    projectId: result.project.id,
+    payload: { agentId: result.controllerId, agentName: `${input.name || 'project'}-controller`, projectId: result.project.id, isController: true },
+    meta: { correlationId: result.controllerId, timestamp: Date.now(), source: 'projects/core.createProject' },
+  });
+  eventBus.publish('agent.created', {
+    type: 'agent.created',
+    projectId: result.project.id,
+    payload: { agentId: result.assistantId, agentName: `${input.name || 'project'}-assistant`, projectId: result.project.id, isController: false },
+    meta: { correlationId: result.assistantId, timestamp: Date.now(), source: 'projects/core.createProject' },
+  });
 
   return serializeProject(db, result.project, { user: context.user });
 }
@@ -469,6 +468,13 @@ export function deleteProject(
     }
     throw err;
   }
+
+  eventBus.publish('project.deleted', {
+    type: 'project.deleted',
+    projectId,
+    payload: { agentIds: stoppedAgentIds },
+    meta: { correlationId: projectId, timestamp: Date.now(), source: 'projects/core.deleteProject' },
+  });
 
   logger.info({ projectId, agentCount: agents.length, permission: permission.level }, 'project.deleted');
   return { success: true };

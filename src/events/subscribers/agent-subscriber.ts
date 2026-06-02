@@ -1,8 +1,10 @@
 import { eventBus } from '../bus';
 import { autoStartAssignedAgentForIssue, parseMentionsAndStartAgents, autoStartAgentFromUserComment } from '../../services/issue/automation';
+import { updateIssue } from '../../services/issue/core';
 import { getDatabase } from '../../db/database';
 import { Agent, Project } from '../../types';
-import type { IssueCreatedEvent, IssueUpdatedEvent, CommentAddedEvent } from '../events';
+import { ensureAgentKnowledgeEntry } from '../../services/knowledge/agent-memory';
+import type { IssueCreatedEvent, IssueUpdatedEvent, CommentAddedEvent, AgentCreatedEvent } from '../events';
 
 const FALLBACK_CONTROLLER_ID = 'b9b6362c-2d59-40cd-9ffc-fd871a7e811e';
 
@@ -55,12 +57,14 @@ export function registerAgentSubscribers(): void {
         const controllerAgent = agents.find((a) => a.is_controller);
 
         const newAssignee = targetAgent?.id || controllerAgent?.id || FALLBACK_CONTROLLER_ID;
-        if (newAssignee && newAssignee !== issue.assigned_to) {
-          db.prepare('UPDATE issues SET assigned_to = ? WHERE id = ?').run(newAssignee, issueId);
-        }
+        const needsReassign = newAssignee && newAssignee !== issue.assigned_to;
+        const needsReopen = issue.status === 'done' || issue.status === 'closed';
 
-        if (issue.status === 'done' || issue.status === 'closed') {
-          db.prepare("UPDATE issues SET status = 'open' WHERE id = ?").run(issueId);
+        if (needsReassign || needsReopen) {
+          const updateInput: any = { actor: 'system' };
+          if (needsReassign) updateInput.assigned_to = newAssignee;
+          if (needsReopen) updateInput.status = 'open';
+          updateIssue(db, issueId, updateInput);
         }
 
         const agentToStart = targetAgent || controllerAgent;
@@ -76,6 +80,15 @@ export function registerAgentSubscribers(): void {
           }
         }
       }
+    }
+  });
+
+  eventBus.subscribe('agent.created', (event) => {
+    const p = event.payload as AgentCreatedEvent['payload'];
+    const db = getDatabase();
+    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(p.agentId) as any;
+    if (agent) {
+      ensureAgentKnowledgeEntry(db, agent);
     }
   });
 }

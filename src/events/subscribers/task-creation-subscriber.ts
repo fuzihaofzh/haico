@@ -1,8 +1,7 @@
 import { eventBus } from '../bus';
 import { createAgentTaskWithId } from '../../services/tasks/core';
+import { addIssueComment } from '../../services/issue/comments';
 import { getDatabase } from '../../db/database';
-import { v4 as uuidv4 } from 'uuid';
-import logger from '../../logger';
 import type { TaskRequestedEvent } from '../events';
 
 export function registerTaskCreationSubscribers(): void {
@@ -23,16 +22,13 @@ export function registerTaskCreationSubscribers(): void {
 
     if (p.auditComment) {
       const db = getDatabase();
-      db.prepare(
-        'INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(
-        uuidv4(),
-        p.auditComment.issueId,
-        'system',
-        p.auditComment.body,
-        'status_change',
-        JSON.stringify({ task_id: task.id, source: p.source, ...p.metadata })
-      );
+      addIssueComment(db, p.auditComment.issueId, {
+        author_id: 'system',
+        body: p.auditComment.body,
+        silent: true,
+        event_type: 'status_change',
+        meta: { task_id: task.id, source: p.source, ...p.metadata },
+      });
     }
   });
 }

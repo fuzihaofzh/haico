@@ -2,7 +2,6 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../../db/database';
 import { Agent, CommandProfile, CreateAgentInput, Project } from '../../types';
-import { ensureAgentKnowledgeEntry } from '../knowledge/agent-memory';
 import { validateParentAgentAssignment } from './hierarchy';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
 import { expandHomePath } from '../file-management';
@@ -17,9 +16,9 @@ import {
 } from './errors';
 import { UpdateAgentInput } from './types';
 import { ensureProjectDefaultExecutorProfile } from '../executors/profiles';
-import { stopCliTaskRun } from '../executors/cli-executor';
-import { completeTaskRun } from '../tasks/completion';
+import { handleTaskRunExit } from '../tasks/completion';
 import { deriveAgentRuntimeState } from '../tasks/runtime-state';
+import { eventBus } from '../../events';
 
 function parseCoalescedInt(value: unknown, fallback: number, min: number): number {
   const parsed = Number.parseInt(String(value), 10);
@@ -192,7 +191,6 @@ export function createAgent(projectId: string, input: CreateAgentInput): Agent {
   );
 
   const createdAgent = getAgentOrThrow(db, id);
-  ensureAgentKnowledgeEntry(db, createdAgent);
   logger.info({
     projectId,
     agentId: createdAgent.id,
@@ -200,6 +198,14 @@ export function createAgent(projectId: string, input: CreateAgentInput): Agent {
     parentAgentId: createdAgent.parent_agent_id,
     commandType: createdAgent.command_type,
   }, 'agent.created');
+
+  eventBus.publish('agent.created', {
+    type: 'agent.created',
+    projectId,
+    payload: { agentId: createdAgent.id, agentName: createdAgent.name, projectId, isController: Boolean(createdAgent.is_controller) },
+    meta: { correlationId: createdAgent.id, timestamp: Date.now(), source: 'agents/core.createAgent' },
+  });
+
   return serializeAgent(db, createdAgent);
 }
 
@@ -352,8 +358,7 @@ export function deleteAgent(agentId: string): { success: true } {
 
   const activeBeforeDelete = deriveAgentRuntimeState(db, agent).active_task_run_id;
   if (activeBeforeDelete) {
-    stopCliTaskRun(activeBeforeDelete);
-    completeTaskRun({
+    handleTaskRunExit({
       taskRunId: activeBeforeDelete,
       status: 'cancelled',
       exitCode: null,
@@ -362,8 +367,15 @@ export function deleteAgent(agentId: string): { success: true } {
     });
   }
 
-  db.prepare('UPDATE issues SET assigned_to = NULL WHERE assigned_to = ?').run(agentId);
   db.prepare('DELETE FROM agents WHERE id = ?').run(agentId);
+
+  eventBus.publish('agent.deleted', {
+    type: 'agent.deleted',
+    projectId: agent.project_id,
+    payload: { agentId: agent.id, agentName: agent.name, hadActiveTask: !!activeBeforeDelete },
+    meta: { correlationId: agent.id, timestamp: Date.now(), source: 'agents/core.deleteAgent' },
+  });
+
   logger.info({
     projectId: agent.project_id,
     agentId: agent.id,

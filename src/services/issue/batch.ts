@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
-import { v4 as uuidv4 } from 'uuid';
 import { Issue } from '../../types';
+import { updateIssue } from './core';
 
 export const MAX_ASSIGNED_ISSUES_PER_RUN = 2;
 
@@ -68,28 +68,13 @@ export function buildAssignedIssuesPrompt(
 export function markCurrentBatchInProgress(db: Database.Database, batch: AgentIssueBatch): void {
   const resumableIssues = batch.currentBatch
     .filter((issue) => issue.status === 'open' || issue.status === 'pending');
-  const resumableIds = resumableIssues.map((issue) => issue.id);
 
-  if (resumableIds.length === 0) return;
+  if (resumableIssues.length === 0) return;
 
-  const placeholders = resumableIds.map(() => '?').join(', ');
-  db.prepare(
-    `UPDATE issues
-     SET status = 'in_progress', updated_at = datetime('now')
-     WHERE id IN (${placeholders}) AND status IN ('open', 'pending')`
-  ).run(...resumableIds);
-
-  const eventStmt = db.prepare(
-    'INSERT INTO issue_comments (id, issue_id, author_id, body, event_type, meta) VALUES (?, ?, ?, ?, ?, ?)'
-  );
   for (const issue of resumableIssues) {
-    eventStmt.run(
-      uuidv4(),
-      issue.id,
-      'system',
-      `changed status from ${issue.status} to in_progress (agent started current batch)`,
-      'status_change',
-      JSON.stringify({ from: issue.status, to: 'in_progress', source: 'agent_batch_start' })
-    );
+    updateIssue(db, issue.id, {
+      status: 'in_progress',
+      actor: 'system',
+    });
   }
 }

@@ -26,6 +26,7 @@ describe('scheduler runtime', () => {
       '*/1 * * * *',
       '*/2 * * * *',
       '0 4 * * *',
+      '0 * * * *',
     ]);
 
     stopAllSchedulers();

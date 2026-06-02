@@ -27,10 +27,12 @@ EventBus (events/bus.ts)
 
 Subscribers (events/subscribers/)
   → realtime-subscriber         → broadcastToProject()
-  → agent-subscriber            → autoStart / mentions
+  → agent-subscriber            → autoStart / mentions / ensureAgentKnowledgeEntry
+  → agent-deletion-subscriber   → cleanup issues/knowledge/sessions on agent.deleted
   → controller-subscriber       → triggerControllerAgent() (with coalescing)
-  → task-subscriber             → issue recovery scan
+  → task-subscriber             → issue recovery scan + scoped agent restart
   → task-creation-subscriber    → createAgentTaskWithId() + audit comments
+  → project-deletion-subscriber → cleanup knowledge/sessions/summaries on project.deleted
 ```
 
 ### 依赖方向
@@ -43,6 +45,8 @@ src/events/subscribers/  ← 唯一同时依赖 events/ 和 services/ 的地方
   realtime-subscriber.ts
   controller-subscriber.ts
   agent-subscriber.ts
+  agent-deletion-subscriber.ts
+  project-deletion-subscriber.ts
   task-subscriber.ts
   task-creation-subscriber.ts
 
@@ -79,10 +83,13 @@ src/services/        ← 发布者，只依赖 events/bus 的 publish
 | `issue.created` | `issue/core.ts` | issueId, issueNumber, createdBy, assignedTo, body |
 | `issue.updated` | `issue/core.ts` | issueId, issueNumber, changes, actor, parentCompletion |
 | `issue.deleted` | `issue/core.ts` | issueId, issueNumber |
+| `agent.created` | `agents/core.ts`, `projects/core.ts` | agentId, agentName, projectId, isController |
+| `agent.deleted` | `agents/core.ts` | agentId, agentName, hadActiveTask |
+| `project.deleted` | `projects/core.ts` | agentIds |
+| `scheduler.tick` | `scheduler/index.ts` | tickType |
 | `comment.added` | `issue/comments.ts` | issueId, issueNumber, commentId, authorId, body |
 | `issue.relation_changed` | `issue/relations.ts` | sourceIssueId, targetIssueId, relationType, action |
 | `task.completed` | `tasks/completion.ts` | taskId, taskType, status, issueNumbers |
-| `scheduler.tick` | `scheduler/index.ts` | tickType |
 | `agent.status_changed` | `agents/lifecycle.ts`, `executors/cli-executor.ts` | agentId, status, paused?, taskId?, taskRunId? |
 | `agent.message_sent` | `agents/messages.ts` | message, fromAgentName, toAgentName |
 | `agent.message_updated` | `tasks/completion.ts` | message, status |
@@ -184,6 +191,26 @@ messages.ts                              task-creation-subscriber.ts
 **auditComment**：`task.requested` 的可选字段。仅 `issue/automation.ts` 的 `parseMentionsAndStartAgents` 使用，用于在 Task 创建后向 `issue_comments` 表写入事件记录。其他调用方不需要审计评论。
 
 **保留直接调用的路径**：`createManualAgentTask`（用户手动启动 Agent）仍直接调用 `createAgentTask`，不走 EventBus。这是同步请求-响应路径，调用方需要 Task 的完整返回值。
+
+## 删除事件模式
+
+`agent.deleted`、`project.deleted`、`issue.deleted` 遵循统一模式：**发布者在完成自身核心删除后发布事件，subscriber 负责清理关联数据。**
+
+```
+deleteAgent()
+  → 停止活跃 task（同步前置条件）
+  → DB DELETE agents WHERE id = ?
+  → eventBus.publish('agent.deleted', { agentId, agentName, hadActiveTask })
+  → [agent-deletion-subscriber]
+      → UPDATE issues SET assigned_to = NULL WHERE assigned_to = agentId
+      → DELETE FROM agent_knowledge WHERE agent_id = agentId
+      → DELETE FROM executor_sessions WHERE agent_id = agentId
+```
+
+关键约束：
+- **前置条件在发布前完成**：停止 task、删除主记录等核心操作在事件发布前同步完成，确保即使 subscriber 失败，主实体已不存在
+- **subscriber 只做清理**：subscriber 处理的是"孤儿数据"——那些引用已删除实体的关联记录
+- **事件不携带完整数据**：只传 ID 和必要元信息（如 `hadActiveTask`），subscriber 自行查询需要的上下文
 
 ### 调试
 

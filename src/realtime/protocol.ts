@@ -1,9 +1,13 @@
 export type ProjectEventType =
   | 'agent_status'
+  | 'agent_created'
+  | 'agent_deleted'
   | 'issue_created'
   | 'issue_updated'
+  | 'issue_deleted'
   | 'comment_added'
   | 'agent_message'
+  | 'project_deleted'
   | 'executive_summary_created'
   | 'executive_summary_updated'
   | 'executive_summary_deleted'

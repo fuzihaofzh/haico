@@ -3,6 +3,7 @@ import logger from '../../logger';
 import { Agent, Project, Task, TaskRunStatus } from '../../types';
 import { eventBus } from '../../events';
 import { v4 as uuidv4 } from 'uuid';
+import { stopCliTaskRun } from '../executors/cli-executor';
 
 function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -72,17 +73,24 @@ function routeTaskCompletion(task: Task, input: {
   }
 
   if (task.task_type === 'message' && input.status === 'completed' && task.source_ref && agent) {
-    db.prepare("UPDATE agent_messages SET status = 'read' WHERE id = ? AND to_agent_id = ?")
-      .run(task.source_ref, agent.id);
-    const message = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(task.source_ref);
-    if (!message) return;
     eventBus.publish('agent.message_updated', {
       type: 'agent.message_updated',
       projectId: task.project_id,
-      payload: { message, status: 'read' },
+      payload: { messageId: task.source_ref, agentId: agent.id, status: 'read' },
       meta: { correlationId: uuidv4(), timestamp: Date.now(), source: 'tasks/completion.routeTaskCompletion' },
     });
   }
+}
+
+export function handleTaskRunExit(input: {
+  taskRunId: string;
+  status: Extract<TaskRunStatus, 'completed' | 'failed' | 'cancelled'>;
+  exitCode: number | null;
+  failureKind?: string | null;
+  failureMessage?: string | null;
+}): void {
+  stopCliTaskRun(input.taskRunId);
+  completeTaskRun(input);
 }
 
 export function completeTaskRun(input: {

@@ -24,7 +24,7 @@ import {
   runningProcesses,
 } from '../process-manager/state';
 import { classifyAgentExitStatus } from '../process-manager';
-import { completeTaskRun, failTaskRunSpawn } from '../tasks/completion';
+import { handleTaskRunExit, failTaskRunSpawn } from '../tasks/completion';
 import { StartCliTaskRunInput, StartCliTaskRunResult } from './types';
 import { detachChildProcessIo } from '../process-manager/command';
 
@@ -249,7 +249,7 @@ export function startCliTaskRun(input: StartCliTaskRunInput): StartCliTaskRunRes
       output.logAndBroadcast('HAICO: agent exited without emitting a completion event; marking this task run as failed\n', 'stderr');
     }
 
-    completeTaskRun({
+    handleTaskRunExit({
       taskRunId: input.taskRunId,
       exitCode: code,
       status: taskRunStatus,

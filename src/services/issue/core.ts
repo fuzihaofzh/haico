@@ -540,11 +540,22 @@ export function deleteIssue(db: Database.Database, issueId: string): void {
   ).get(issueId) as any).c;
   if (childCount > 0) throw new IssueHasChildrenDeleteConflictError(childCount);
 
+  const issueNumber = issue.number;
+  const projectId = issue.project_id;
+
   db.prepare('DELETE FROM issues WHERE id = ?').run(issueId);
+
+  eventBus.publish('issue.deleted', {
+    type: 'issue.deleted',
+    projectId,
+    payload: { issueId, issueNumber },
+    meta: { correlationId: issueId, timestamp: Date.now(), source: 'issue/core.deleteIssue' },
+  });
+
   logger.info({
-    projectId: issue.project_id,
+    projectId,
     issueId,
-    issueNumber: issue.number,
+    issueNumber,
   }, 'issue.deleted');
 }
 
