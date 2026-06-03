@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js"></script>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <link rel="stylesheet" href="/public/css/issues.css">
+</head>
+<body class="dashboard-shell" data-dashboard-page="chat">
+  <div data-dashboard-sidebar>
+    <nav class="vertical-sidebar dashboard-sidebar-skeleton" aria-hidden="true">
+      <span class="sidebar-logo sidebar-skeleton-logo"></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-nav-settings sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+    </nav>
+  </div>
+
+  <header>
+    <div class="header-right">
+      <a class="btn btn-primary btn-sm" href="/projects/new">+ New Project</a>
+      <span class="header-user-skeleton" aria-hidden="true">
+        <span class="header-skeleton-sound"></span>
+        <span class="header-skeleton-avatar"></span>
+      </span>
+    </div>
+  </header>
+
+  <main id="main-content" class="container">
+    <div id="chat-page-panel" class="card dashboard-view dashboard-view-chat" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 120px);min-height:400px">
+      <div class="compose-header" style="flex-shrink:0">
+        <h3>Chat</h3>
+      </div>
+      <div class="dashboard-chat-toolbar">
+        <div class="dashboard-chat-control">
+          <label>Agent Tool</label>
+          <select id="dashboard-chat-profile" data-action="dashboard-chat-profile">
+            <option value="">Loading Agent Tools...</option>
+          </select>
+        </div>
+        <div class="dashboard-chat-control">
+          <label>Scope</label>
+          <select id="dashboard-chat-project" data-action="dashboard-chat-project">
+            <option value="">Loading projects...</option>
+          </select>
+        </div>
+      </div>
+      <div class="compose-status dashboard-chat-status" id="dashboard-chat-status"></div>
+      <div class="dashboard-chat-transcript" id="dashboard-chat-transcript" style="flex:1;overflow-y:auto"></div>
+      <div class="dashboard-chat-composer">
+        <textarea id="dashboard-chat-input" rows="4" placeholder="Ask about progress, issues, or delegate work..." data-action="dashboard-chat-input"></textarea>
+        <div class="dashboard-chat-actions">
+          <div class="dashboard-chat-note">Long-running work will be delegated as an issue instead of being done inline.</div>
+          <button class="btn btn-primary" id="dashboard-chat-send" data-action="send-dashboard-chat">Send</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/public/vendor/marked.js"></script>
+  <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
+  <script src="/public/js/shared/common.js"></script>
+  <script type="module" src="/public/js/components/toast.js"></script>
+  <script type="module" src="/public/js/components/confirm.js"></script>
+  <script src="/public/js/components/dashboard-sidebar.js"></script>
+  <script src="/public/js/shared/ws-client.js"></script>
+  <script src="/public/js/shared/command-profiles.js"></script>
+  <script type="module" src="/public/js/pages/dashboard-chat.js"></script>
+</body>
+</html>

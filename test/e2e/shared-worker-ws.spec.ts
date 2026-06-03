@@ -43,14 +43,14 @@ test('SharedWorker shares one project event socket across same-project pages', a
   const secondPageErrors = trackPageErrors(secondPage);
 
   try {
-    await page.goto(`/projects/${project.id}`);
+    await page.goto(`/project/${project.id}`);
     await expect(page.locator('#project-title')).toContainText(project.name);
     await expect.poll(async () => {
       const snapshot = await getProjectSnapshot(page, project.id);
       return snapshot ? `${snapshot.subscriberCount}:${snapshot.socketState}` : 'missing';
     }).toBe('1:OPEN');
 
-    await secondPage.goto(`/projects/${project.id}/agents`);
+    await secondPage.goto(`/project/${project.id}/agents`);
     await expect(secondPage.locator('#agent-list')).toBeVisible();
 
     await expect.poll(async () => {

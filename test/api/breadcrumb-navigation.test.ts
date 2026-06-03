@@ -59,7 +59,7 @@ describe('Breadcrumb Navigation', () => {
 
   it('project overview page has breadcrumb with section span', async () => {
     const res = await ctx.inject({
-      url: `/projects/${projectId}`,
+      url: `/project/${projectId}`,
       headers: { cookie: `haico-auth=${sessionToken}` },
     });
     assert.equal(res.statusCode, 200);
@@ -75,7 +75,7 @@ describe('Breadcrumb Navigation', () => {
 
   it('project pages expose real section routes in the project nav', async () => {
     const res = await ctx.inject({
-      url: `/projects/${projectId}`,
+      url: `/project/${projectId}`,
       headers: { cookie: `haico-auth=${sessionToken}` },
     });
     assert.equal(res.statusCode, 200);
@@ -91,7 +91,7 @@ describe('Breadcrumb Navigation', () => {
   it('project child routes render their dedicated project views', async () => {
     for (const view of ['agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow']) {
       const res = await ctx.inject({
-        url: `/projects/${projectId}/${view}`,
+        url: `/project/${projectId}/${view}`,
         headers: { cookie: `haico-auth=${sessionToken}` },
       });
       assert.equal(res.statusCode, 200);

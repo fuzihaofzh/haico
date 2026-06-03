@@ -1,5 +1,6 @@
 import { initDashboardPage, invalidateDashboardProjects } from '../dashboard-core.js';
 import { syncNotificationSoundToggles, toggleNotificationSound } from '../../components/notification-sound.js';
+import { showToast } from '../../components/toast.js';
 
 let accountSummaryRendered = false;
 
@@ -144,11 +145,35 @@ function bindNotificationSettings() {
   syncNotificationSoundToggles();
 }
 
+async function loadDefaultLandingPage() {
+  const select = document.getElementById('default-landing-page');
+  if (!select) return;
+  try {
+    const res = await fetch('/api/settings/default-landing-page', { headers: apiHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      select.value = data.value || 'overview';
+    }
+  } catch {}
+  select.addEventListener('change', async () => {
+    try {
+      const res = await fetch('/api/settings/default-landing-page', {
+        method: 'PUT',
+        headers: apiHeaders(),
+        body: JSON.stringify({ value: select.value }),
+      });
+      if (res.ok) {
+        showToast('Default landing page updated', 'success');
+      }
+    } catch {}
+  });
+}
+
 async function initSettingsGeneralPage() {
   bindSettingsEvents();
   bindNotificationSettings();
   await initDashboardPage('settings');
-  await loadAccountSummary();
+  await Promise.all([loadAccountSummary(), loadDefaultLandingPage()]);
 }
 
 initSettingsGeneralPage().catch((error) => {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HAICO - Issue</title>
+  <title>Issue - HAICO</title>
   <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
   <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
@@ -12,81 +12,35 @@
   <link rel="stylesheet" href="/public/css/style.css">
   <link rel="stylesheet" href="/public/css/issues.css">
   <link rel="stylesheet" href="/public/vendor/katex/katex.min.css?v=0.16.11">
+  <style>
+    .issue-detail-page { max-width: 900px; margin: 0 auto; padding: 24px 20px; }
+    .issue-detail-page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .issue-detail-page-header a { font-size: 13px; color: var(--text-secondary); text-decoration: none; }
+    .issue-detail-page-header a:hover { color: var(--accent); }
+  </style>
 </head>
 <body>
-  <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
-  <div class="drawer" id="drawer">
-    <div class="drawer-header">
-      <h3>
-        <a href="/" class="haico-wordmark">
-          <img src="/public/brand/haico-mark.svg" alt="">
-          <span>HAICO</span>
-        </a>
-      </h3>
-      <button class="drawer-close" onclick="closeDrawer()">&times;</button>
-    </div>
-    <div class="drawer-content">
-      <div class="drawer-section">
-        <div class="drawer-section-header">Navigation</div>
-        <a href="/" class="drawer-link">Dashboard</a>
-      </div>
-      <div class="drawer-section">
-        <div class="drawer-section-header">Settings</div>
-        <div class="settings-section">
-          <div class="setting-group">
-            <label>Theme</label>
-            <select id="theme-select" onchange="changeTheme(this.value)">
-              <option value="github-dark">GitHub Dark</option>
-              <option value="dracula">Dracula</option>
-              <option value="nord-dark">Nord Dark</option>
-              <option value="nord-light">Nord Light</option>
-              <option value="monokai">Monokai</option>
-              <option value="solarized-dark">Solarized Dark</option>
-              <option value="solarized-light">Solarized Light</option>
-            </select>
-          </div>
-          <a class="drawer-link" href="/settings/agent-tools">Agent Tools</a>
-        </div>
-      </div>
-      <div class="drawer-section">
-        <a href="/change-password" class="drawer-link">Change Password</a>
-        <a href="#" class="drawer-link" onclick="logout();return false" style="color:var(--error)">Logout</a>
-      </div>
-    </div>
-  </div>
-
-  <header>
-    <button class="menu-btn" onclick="toggleDrawer()">
-      <span></span><span></span><span></span>
-    </button>
-    <h1>
-      <a href="/" class="haico-wordmark">
-        <img src="/public/brand/haico-mark.svg" alt="">
-        <span>HAICO</span>
-      </a>
-    </h1>
-    <div class="breadcrumb" style="margin-left:12px">
-      <a href="/">Projects</a> / <a id="project-link" href="#">Project</a> / <a id="issues-link" href="#">Issues</a> / <span id="issue-title-breadcrumb">Issue</span>
-    </div>
-    <div class="header-right">
-      <span class="header-user-skeleton" aria-hidden="true">
-        <span class="header-skeleton-sound"></span>
-        <span class="header-skeleton-avatar"></span>
+  <div class="issue-detail-page">
+    <div class="issue-detail-page-header">
+      <span class="breadcrumb">
+        <a href="/inbox" id="issues-link">Issues</a>
+        <span>/</span>
+        <a href="#" id="project-link">Project</a>
+        <span>/</span>
+        <span id="issue-title-breadcrumb">Loading...</span>
       </span>
     </div>
-  </header>
-
-  <div class="container" id="issue-page">
-    <div class="empty-state">Loading...</div>
+    <div id="issue-detail-content">
+      <div class="loading-spinner"><span class="spinner"></span>Loading issue...</div>
+    </div>
   </div>
-  <script src="/public/js/shared/ws-client.js"></script>
+
+  <script src="/public/vendor/marked.js"></script>
+  <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
   <script src="/public/js/shared/common.js"></script>
   <script type="module" src="/public/js/components/toast.js"></script>
   <script type="module" src="/public/js/components/confirm.js"></script>
-  <script src="/public/js/shared/command-profiles.js"></script>
-  <script src="/public/vendor/marked.js"></script>
-  <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
   <script src="/public/js/components/issue-renderer.js"></script>
-  <script src="/public/js/pages/issue.js"></script>
+  <script type="module" src="/public/js/pages/issue-detail.js"></script>
 </body>
 </html>

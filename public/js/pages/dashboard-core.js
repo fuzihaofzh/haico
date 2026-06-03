@@ -7,12 +7,12 @@ import {
   subscribeDashboardProjects,
 } from '../shared/dashboard-project-store.js';
 
-const DASHBOARD_NAV_VIEWS = new Set(['inbox', 'projects', 'usage', 'settings']);
+const DASHBOARD_NAV_VIEWS = new Set(['overview', 'inbox', 'chat', 'projects', 'usage', 'settings']);
 let dashboardView = getInitialDashboardView();
 let wsRefreshTimer = null;
 
 function normalizeDashboardView(view) {
-  return DASHBOARD_NAV_VIEWS.has(view) ? view : 'inbox';
+  return DASHBOARD_NAV_VIEWS.has(view) ? view : 'overview';
 }
 
 function getInitialDashboardView() {
@@ -93,6 +93,45 @@ if (typeof window !== 'undefined') {
   });
 }
 
+
+async function loadDashboardSummary() {
+  try {
+    const res = await fetch('/api/dashboard/summary', { headers: apiHeaders() });
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    const runningStat = document.getElementById('stat-running');
+    const openIssuesStat = document.getElementById('stat-open-issues');
+    if (runningStat && openIssuesStat) {
+      runningStat.textContent = data.agents.running;
+      openIssuesStat.textContent = data.issues.open;
+
+      const fmtTokens = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
+      if (data.total_cost_usd > 0) {
+        document.getElementById('stat-cost').textContent = '$' + data.total_cost_usd.toFixed(2);
+      } else if (data.total_input_tokens > 0) {
+        document.getElementById('stat-cost').textContent = fmtTokens(data.total_input_tokens) + '↑ ' + fmtTokens(data.total_output_tokens) + '↓';
+        const costLabel = document.getElementById('stat-cost')?.closest('.stat-card')?.querySelector('.stat-label');
+        if (costLabel) costLabel.textContent = 'Token Usage';
+      }
+
+      const errCard = document.getElementById('stat-errors-card');
+      if (data.agents.error_count > 0) {
+        document.getElementById('stat-errors').textContent = data.agents.error_count;
+        errCard.style.display = '';
+      } else {
+        errCard.style.display = 'none';
+      }
+
+      document.getElementById('dashboard-stats').style.display = '';
+    }
+
+    return data;
+  } catch (e) {
+    console.error('Failed to load dashboard summary', e);
+    return null;
+  }
+}
 export {
   applyDashboardViewState,
   getCachedDashboardProjects,
@@ -103,6 +142,7 @@ export {
   invalidateDashboardProjectCaches,
   invalidateDashboardProjects,
   loadDashboardProjects,
+  loadDashboardSummary,
   normalizeDashboardView,
   setupDashboardWS,
   subscribeDashboardProjects,

@@ -1,4 +1,4 @@
-import { initDashboardPage, invalidateDashboardProjects, loadDashboardProjects, setupDashboardWS } from './dashboard-core.js';
+import { initDashboardPage, invalidateDashboardProjects, loadDashboardProjects, loadDashboardSummary, setupDashboardWS } from './dashboard-core.js';
 import { showToast } from '../components/toast.js';
 
 let _currentUser = null;
@@ -61,41 +61,9 @@ function getProjectAccessMeta(project) {
   return PROJECT_ACCESS_META[getProjectAccessLevel(project)] || PROJECT_ACCESS_META.none;
 }
 
-async function loadDashboardSummary() {
-  try {
-    const res = await fetch('/api/dashboard/summary', { headers: apiHeaders() });
-    if (!res.ok) return;
-    const data = await res.json();
-
-    _lastActivityMap = data.last_activity || {};
-
-    const runningStat = document.getElementById('stat-running');
-    const openIssuesStat = document.getElementById('stat-open-issues');
-    if (!runningStat || !openIssuesStat) return;
-
-    runningStat.textContent = data.agents.running;
-    openIssuesStat.textContent = data.issues.open;
-    const fmtTokensDash = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v;
-    if (data.total_cost_usd > 0) {
-      document.getElementById('stat-cost').textContent = '$' + data.total_cost_usd.toFixed(2);
-    } else if (data.total_input_tokens > 0) {
-      document.getElementById('stat-cost').textContent = fmtTokensDash(data.total_input_tokens) + '↑ ' + fmtTokensDash(data.total_output_tokens) + '↓';
-      const costLabel = document.getElementById('stat-cost')?.closest('.stat-card')?.querySelector('.stat-label');
-      if (costLabel) costLabel.textContent = 'Token Usage';
-    }
-
-    const errCard = document.getElementById('stat-errors-card');
-    if (data.agents.error_count > 0) {
-      document.getElementById('stat-errors').textContent = data.agents.error_count;
-      errCard.style.display = '';
-    } else {
-      errCard.style.display = 'none';
-    }
-
-    document.getElementById('dashboard-stats').style.display = '';
-  } catch (e) {
-    console.error('Failed to load dashboard summary', e);
-  }
+async function loadProjectsSummary() {
+  const data = await loadDashboardSummary();
+  if (data) _lastActivityMap = data.last_activity || {};
 }
 
 async function loadProjects(options = {}) {
@@ -525,7 +493,7 @@ function bindProjectsEvents() {
 }
 
 async function refreshProjectsPage() {
-  await Promise.all([loadDashboardSummary(), loadProjects({ force: true }), loadAgentBoard(), loadActivityStream()]);
+  await Promise.all([loadProjectsSummary(), loadProjects({ force: true }), loadAgentBoard(), loadActivityStream()]);
 }
 
 function startProjectsPolling() {

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Overview - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js"></script>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <link rel="stylesheet" href="/public/css/issues.css">
+</head>
+<body class="dashboard-shell" data-dashboard-page="overview">
+  <div data-dashboard-sidebar>
+    <nav class="vertical-sidebar dashboard-sidebar-skeleton" aria-hidden="true">
+      <span class="sidebar-logo sidebar-skeleton-logo"></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-nav-settings sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+    </nav>
+  </div>
+
+  <header>
+    <div class="header-right">
+      <a class="btn btn-primary btn-sm" href="/projects/new">+ New Project</a>
+      <span class="header-user-skeleton" aria-hidden="true">
+        <span class="header-skeleton-sound"></span>
+        <span class="header-skeleton-avatar"></span>
+      </span>
+    </div>
+  </header>
+
+  <main id="main-content" class="container">
+    <div class="dashboard-view dashboard-view-overview">
+      <!-- Stats -->
+      <div id="dashboard-stats" class="overview-stats" style="display:none">
+        <a href="/projects" class="stat-card" style="text-decoration:none;color:inherit">
+          <div class="stat-value" id="stat-running">0</div>
+          <div class="stat-label">Running Agents</div>
+        </a>
+        <a href="/inbox" class="stat-card" style="text-decoration:none;color:inherit">
+          <div class="stat-value" id="stat-open-issues">0</div>
+          <div class="stat-label">Action Required</div>
+        </a>
+        <a href="/usage" class="stat-card" style="text-decoration:none;color:inherit">
+          <div class="stat-value" id="stat-cost">$0.00</div>
+          <div class="stat-label">Total Cost</div>
+        </a>
+        <a href="/projects" class="stat-card stat-card-errors" id="stat-errors-card" style="display:none;text-decoration:none;color:inherit">
+          <div class="stat-value" id="stat-errors" style="color:var(--error)">0</div>
+          <div class="stat-label">Agent Errors</div>
+        </a>
+      </div>
+
+      <!-- Quick Links -->
+      <div class="overview-quick-links">
+        <a href="/inbox" class="overview-quick-link">
+          <div class="overview-quick-link-icon inbox">&#9993;</div>
+          <div class="overview-quick-link-content">
+            <div class="overview-quick-link-title">Inbox</div>
+            <div class="overview-quick-link-desc" id="overview-inbox-desc">Check your notifications</div>
+          </div>
+        </a>
+        <a href="/chat" class="overview-quick-link">
+          <div class="overview-quick-link-icon chat">&#128172;</div>
+          <div class="overview-quick-link-content">
+            <div class="overview-quick-link-title">Chat</div>
+            <div class="overview-quick-link-desc">Ask HAICO about your projects</div>
+          </div>
+        </a>
+        <a href="/compose" class="overview-quick-link">
+          <div class="overview-quick-link-icon compose">&#9998;</div>
+          <div class="overview-quick-link-content">
+            <div class="overview-quick-link-title">Compose</div>
+            <div class="overview-quick-link-desc">Create a new issue</div>
+          </div>
+        </a>
+      </div>
+
+      <!-- Active Projects -->
+      <div class="overview-projects">
+        <div class="overview-projects-title">Active Projects</div>
+        <div id="overview-projects-list"></div>
+      </div>
+
+      <!-- Recent Activity -->
+      <div>
+        <div class="overview-activity-title">Recent Activity</div>
+        <div class="overview-activity-list" id="overview-activity-list">
+          <div style="padding:16px;color:var(--text-secondary);font-size:12px;text-align:center">Loading...</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/public/js/shared/common.js"></script>
+  <script type="module" src="/public/js/components/toast.js"></script>
+  <script type="module" src="/public/js/components/confirm.js"></script>
+  <script src="/public/js/components/dashboard-sidebar.js"></script>
+  <script src="/public/js/shared/ws-client.js"></script>
+  <script src="/public/js/shared/command-profiles.js"></script>
+  <script type="module" src="/public/js/pages/dashboard-overview.js"></script>
+</body>
+</html>

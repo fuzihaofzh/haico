@@ -433,7 +433,7 @@ async function loadAgentInfo() {
       window.AgentFiles.setAgent(agent);
     }
 
-    document.getElementById('project-link').href = `/projects/${agent.project_id}`;
+    document.getElementById('project-link').href = `/project/${agent.project_id}`;
     // Load project name for breadcrumb
     if (!window._projectLoaded) {
       window._projectLoaded = true;

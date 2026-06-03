@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compose - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js"></script>
+  <link rel="stylesheet" href="/public/css/style.css">
+</head>
+<body class="dashboard-shell" data-dashboard-page="compose">
+  <div data-dashboard-sidebar>
+    <nav class="vertical-sidebar dashboard-sidebar-skeleton" aria-hidden="true">
+      <span class="sidebar-logo sidebar-skeleton-logo"></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-nav-settings sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+    </nav>
+  </div>
+
+  <header>
+    <div class="header-right">
+      <a class="btn btn-primary btn-sm" href="/projects/new">+ New Project</a>
+      <span class="header-user-skeleton" aria-hidden="true">
+        <span class="header-skeleton-sound"></span>
+        <span class="header-skeleton-avatar"></span>
+      </span>
+    </div>
+  </header>
+
+  <main id="main-content" class="container">
+    <div class="dashboard-view dashboard-view-compose compose-page">
+      <div class="compose-page-header">
+        <a href="/inbox" class="btn btn-sm" style="text-decoration:none">&larr; Inbox</a>
+        <h2>New Issue</h2>
+      </div>
+      <div class="compose-form">
+        <div class="compose-field">
+          <label>Project</label>
+          <select id="global-compose-project" data-action="global-compose-project">
+            <option value="">Loading projects...</option>
+          </select>
+        </div>
+        <div class="compose-field">
+          <label>To</label>
+          <select id="global-compose-to">
+            <option value="">Select a project first</option>
+          </select>
+        </div>
+        <div class="compose-field compose-subject-field">
+          <label>Subject</label>
+          <input type="text" id="global-compose-subject" placeholder="Subject">
+        </div>
+        <div class="compose-field compose-body-field">
+          <label>Message</label>
+          <textarea id="global-compose-body" rows="10" placeholder="Write a message..."></textarea>
+        </div>
+        <div class="compose-status" id="global-compose-status"></div>
+      </div>
+      <div class="compose-actions">
+        <a href="/inbox" class="btn" style="text-decoration:none">Cancel</a>
+        <button class="btn btn-primary" id="global-compose-send" data-action="send-global-compose">Send</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="/public/js/shared/common.js"></script>
+  <script type="module" src="/public/js/components/toast.js"></script>
+  <script type="module" src="/public/js/components/confirm.js"></script>
+  <script src="/public/js/components/dashboard-sidebar.js"></script>
+  <script src="/public/js/shared/ws-client.js"></script>
+  <script src="/public/js/shared/command-profiles.js"></script>
+  <script type="module" src="/public/js/pages/compose.js"></script>
+</body>
+</html>

@@ -1,10 +1,10 @@
-// Parse URL: /issues/:uuid OR /projects/:pid/issues/:num
+// Parse URL: /issues/:uuid OR /project/:pid/issues/:num
 const pathParts = window.location.pathname.split('/').filter(Boolean);
 let issueId = null;
 let projectId = null;
 let issueNum = null;
 if (pathParts[0] === 'issues') { issueId = decodeRouteParam(pathParts[1]); }
-else if (pathParts[0] === 'projects' && pathParts[2] === 'issues') {
+else if (pathParts[0] === 'project' && pathParts[2] === 'issues') {
   projectId = decodeRouteParam(pathParts[1]);
   issueNum = decodeRouteParam(pathParts[3]);
 }

@@ -20,8 +20,8 @@ const PROJECT_VIEW_LABELS = {
 
 function getProjectIdFromPath() {
   const parts = window.location.pathname.split('/').filter(Boolean);
-  const projectsIndex = parts.indexOf('projects');
-  return decodeRouteParam(projectsIndex >= 0 ? parts[projectsIndex + 1] : '');
+  const idx = parts.indexOf('project');
+  return decodeRouteParam(idx >= 0 ? parts[idx + 1] : '');
 }
 
 function getProjectView() {

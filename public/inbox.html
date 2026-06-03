@@ -20,12 +20,15 @@
       <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
       <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
       <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
       <span class="sidebar-nav-item sidebar-nav-settings sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
     </nav>
   </div>
 
   <header>
     <div class="header-right">
+      <a class="btn btn-primary btn-sm" href="/compose">Compose</a>
       <a class="btn btn-primary btn-sm" href="/projects/new">+ New Project</a>
       <span class="header-user-skeleton" aria-hidden="true">
         <span class="header-skeleton-sound"></span>
@@ -35,27 +38,6 @@
   </header>
 
   <main id="main-content" class="container">
-    <!-- Aggregate Stats -->
-    <div id="dashboard-stats" class="dashboard-stats dashboard-view dashboard-view-inbox" style="display:none">
-      <div class="stat-card">
-        <div class="stat-value" id="stat-running">0</div>
-        <div class="stat-label">Running Agents</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value" id="stat-open-issues">0</div>
-        <div class="stat-label">Open Issues</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value" id="stat-cost">$0.00</div>
-        <div class="stat-label">Total Cost</div>
-      </div>
-      <div class="stat-card stat-card-errors" id="stat-errors-card" style="display:none">
-        <div class="stat-value" id="stat-errors" style="color:var(--error)">0</div>
-        <div class="stat-label">Agent Errors</div>
-      </div>
-
-    </div>
-
     <!-- Inbox Panel (Gmail-style) -->
     <div id="notifications-panel" class="mail-panel dashboard-view dashboard-view-inbox" style="display:none">
       <div class="mail-toolbar">
@@ -78,8 +60,6 @@
           </select>
         </div>
         <div class="mail-toolbar-right">
-          <button class="btn btn-sm btn-primary compose-toolbar-btn" data-action="open-global-compose">Compose</button>
-          <button class="btn btn-sm" data-action="open-dashboard-chat">Chat</button>
           <button class="btn btn-sm" data-action="toggle-notifications" id="notif-toggle-icon" title="Collapse/Expand">&#9660;</button>
         </div>
       </div>
@@ -108,13 +88,6 @@
     </div>
   </main>
 
-  <!-- Issue Detail Floating Panel -->
-  <div class="modal-overlay" id="issueDetailModal">
-    <div class="modal issue-panel-modal">
-      <button data-action="close-issue-panel" style="position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:18px;line-height:1">&times;</button>
-      <div id="issueDetailContent"><div style="padding:20px;text-align:center;color:var(--text-secondary)">Loading...</div></div>
-    </div>
-  </div>
   <script src="/public/vendor/marked.js"></script>
   <script src="/public/vendor/katex/katex.min.js?v=0.16.11"></script>
   <script src="/public/js/shared/common.js"></script>

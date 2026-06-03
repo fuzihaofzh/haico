@@ -22,6 +22,13 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (user_id, key)
+    );
+
     CREATE TABLE IF NOT EXISTS command_profiles (
       id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
       name TEXT NOT NULL,

@@ -118,7 +118,7 @@
   };
 
   function getProjectIdFromPath() {
-    const match = window.location.pathname.match(/\/projects\/([^/]+)\//);
+    const match = window.location.pathname.match(/\/project\/([^/]+)\//);
     return match ? decodeURIComponent(match[1]) : '';
   }
 
@@ -555,7 +555,7 @@
     const title = document.getElementById('ops-project-title');
     const breadcrumbLink = document.getElementById('ops-project-link');
     if (breadcrumbLink) {
-      breadcrumbLink.href = `/projects/${encodeURIComponent(OPS_STATE.projectId)}`;
+      breadcrumbLink.href = `/project/${encodeURIComponent(OPS_STATE.projectId)}`;
       breadcrumbLink.textContent = OPS_STATE.projectName;
     }
     if (title) title.textContent = `${OPS_STATE.projectName} Operations Console`;

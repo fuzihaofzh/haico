@@ -167,7 +167,7 @@ function isRemoteInboxIssue(issue) {
 }
 
 function buildProjectPageHref(projectId) {
-  return `/projects/${encodeURIComponent(decodeRouteParam(projectId))}`;
+  return `/project/${encodeURIComponent(decodeRouteParam(projectId))}`;
 }
 
 function buildProjectApiPath(projectId, suffix) {

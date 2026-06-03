@@ -30,7 +30,7 @@ test('agent run history renders TaskRun records created by manual start', async 
       return run?.task_run_status || 'missing';
     }, { timeout: 10_000 }).toBe('completed');
 
-    await page.goto(`/projects/${project.id}/agents`);
+    await page.goto(`/project/${project.id}/agents`);
     await expect(page.locator('#agent-list')).toBeVisible();
     await page.locator('.agent-item').filter({ hasText: agent.name }).first().click();
 

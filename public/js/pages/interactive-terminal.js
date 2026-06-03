@@ -203,7 +203,7 @@ async function loadAgentInfo() {
     if (pres.ok) {
       const project = await pres.json();
       document.getElementById('project-link').textContent = project.name;
-      document.getElementById('project-link').href = `/projects/${agent.project_id}`;
+      document.getElementById('project-link').href = `/project/${agent.project_id}`;
     }
   } catch (e) {
     console.error('Failed to load agent info', e);
