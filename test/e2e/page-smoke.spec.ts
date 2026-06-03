@@ -34,7 +34,6 @@ test.describe('page smoke checks', () => {
     await page.goto('/settings');
     await expect(page.locator('#settings-view-panel')).toBeVisible();
     await expect(page.getByRole('link', { name: 'General' })).toHaveAttribute('aria-current', 'page');
-    await expect(page.locator('#remote-instances-settings')).toBeVisible();
     await expect(page.getByText('Browser Notifications')).toBeVisible();
     await expect(page.getByRole('link', { name: '+ New Project' })).toHaveAttribute('href', '/projects/new');
     await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'settings');
@@ -55,6 +54,11 @@ test.describe('page smoke checks', () => {
     await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'projects');
 
     await expectNoPageErrors(pageErrors);
+
+    await page.goto('/admin/users');
+    await expect(page.locator('#admin-view-panel')).toBeVisible();
+    await expect(page.locator('[data-admin-tab="users"].active')).toBeVisible();
+    await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'admin');
   });
 
   test('new project page creates a local project and redirects to detail', async ({ page, request }) => {

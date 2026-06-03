@@ -151,21 +151,6 @@
           </div>
         </section>
       </div>
-
-      <section class="card settings-card settings-card-wide">
-        <div class="settings-card-header">
-          <div>
-            <h3>Remote HAICO Instances</h3>
-            <p>Add other HAICO machine URLs so their projects appear in this dashboard.</p>
-          </div>
-        </div>
-        <div class="settings-section settings-section-page">
-          <div id="remote-instances-settings" hx-get="/settings/partials/remote-instances" hx-trigger="load, remote-instances-refresh from:body" hx-swap="innerHTML">
-            <div class="empty-state">Loading remote instance settings...</div>
-          </div>
-        </div>
-      </section>
-    </div>
   </main>
   <script src="/public/vendor/htmx.min.js"></script>
   <script src="/public/js/shared/common.js"></script>

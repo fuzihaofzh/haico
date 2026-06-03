@@ -12,6 +12,7 @@ import {
   hasAnyUsers,
   listUsers,
   registerUser,
+  resetUserPassword,
   updateUserRole,
   validateRegistrationInput,
 } from '../services/auth/users';
@@ -174,6 +175,20 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       if (result === 'not-found') return reply.status(404).send({ error: 'User not found' });
       if (result === 'protected') return reply.status(400).send({ error: 'Default admin cannot be deleted' });
       return { ok: true };
+    });
+    adminScope.post('/auth/users/:id/reset-password', async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const { password } = request.body as { password?: string };
+      if (!password || password.length < 4) {
+        return reply.status(400).send({ error: 'Password must be at least 4 characters' });
+      }
+
+      const target = getDatabase().prepare('SELECT username FROM users WHERE id = ?').get(id) as { username: string } | undefined;
+      if (!target) return reply.status(404).send({ error: 'User not found' });
+
+      const result = resetUserPassword(getDatabase(), target.username, password);
+      if (!result) return reply.status(404).send({ error: 'User not found' });
+      return { ok: true, user: result };
     });
   });
 }

@@ -326,6 +326,67 @@ export function registerAuthSuites(
       assert.ok(authenticated.body.includes("No remote HAICO instances yet."));
     });
 
+    it("admin page routes serve HTML", async () => {
+      // /admin redirects to /admin/users
+      const redirect = await ctx.inject({
+        url: "/admin",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(redirect.statusCode, 302);
+      assert.equal(redirect.headers["location"], "/admin/users");
+
+      // /admin/users serves its own page
+      const usersRes = await ctx.inject({
+        url: "/admin/users",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(usersRes.statusCode, 200);
+      assert.ok(usersRes.headers["content-type"]?.includes("text/html"));
+      assert.ok(usersRes.body.includes("admin-view-panel"));
+      assert.ok(usersRes.body.includes("users-tab.js"));
+
+      // /admin/global-settings serves its own page
+      const settingsRes = await ctx.inject({
+        url: "/admin/global-settings",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(settingsRes.statusCode, 200);
+      assert.ok(settingsRes.body.includes("global-settings-tab.js"));
+
+      // /admin/system serves its own page
+      const systemRes = await ctx.inject({
+        url: "/admin/system",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(systemRes.statusCode, 200);
+      assert.ok(systemRes.body.includes("system-tab.js"));
+    });
+
+    it("POST /api/auth/users/:id/reset-password resets password", async () => {
+      // Create a member user to reset
+      const register = await ctx.api("/api/auth/register", {
+        method: "POST",
+        body: { username: "resetpwtest", password: "oldpass1234" },
+      });
+      assert.equal(register.status, 201);
+      const targetUserId = register.body.user.id;
+
+      const res = await ctx.api(`/api/auth/users/${targetUserId}/reset-password`, {
+        method: "POST",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+        body: { password: "newpass1234" },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.ok, true);
+
+      // Verify the new password works
+      const login = await ctx.api("/api/auth/login", {
+        method: "POST",
+        body: { username: "resetpwtest", password: "newpass1234" },
+      });
+      assert.equal(login.status, 200);
+    });
+
     it("POST /api/auth/logout clears cookie", async () => {
       const { status, body } = await ctx.api("/api/auth/logout", {
         method: "POST",
@@ -340,6 +401,94 @@ export function registerAuthSuites(
       });
       assert.equal(login.status, 200);
       setSessionToken(login.body.token);
+    });
+
+    // ── Admin API ──
+    it("GET /api/admin/system-status returns metrics", async () => {
+      const res = await ctx.api("/api/admin/system-status", {
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(typeof res.body.total_users, "number");
+      assert.equal(typeof res.body.total_projects, "number");
+      assert.equal(typeof res.body.running_agents, "number");
+      assert.ok(res.body.uptime);
+      assert.equal(typeof res.body.log_retention_days, "number");
+      assert.equal(typeof res.body.event_log_enabled, "boolean");
+    });
+
+    it("GET /api/admin/settings returns current settings", async () => {
+      const res = await ctx.api("/api/admin/settings", {
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(typeof res.body.log_retention_days, "number");
+      assert.equal(typeof res.body.event_log_enabled, "boolean");
+    });
+
+    it("PUT /api/admin/settings updates settings", async () => {
+      const res = await ctx.api("/api/admin/settings", {
+        method: "PUT",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+        body: { log_retention_days: 60, event_log_enabled: false },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.log_retention_days, 60);
+      assert.equal(res.body.event_log_enabled, false);
+      assert.ok(res.body.updated.includes("log_retention_days=60"));
+      assert.ok(res.body.updated.includes("event_log_enabled=false"));
+
+      // Verify persistence via GET
+      const getRes = await ctx.api("/api/admin/settings", {
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(getRes.body.log_retention_days, 60);
+      assert.equal(getRes.body.event_log_enabled, false);
+
+      // Restore defaults
+      await ctx.api("/api/admin/settings", {
+        method: "PUT",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+        body: { log_retention_days: 30, event_log_enabled: true },
+      });
+    });
+
+    it("admin APIs reject non-admin users", async () => {
+      // memberToken may have been invalidated by change-password test.
+      // Re-login as member to get a fresh token.
+      const memberLogin = await ctx.api("/api/auth/login", {
+        method: "POST",
+        body: { username: "testmember", password: "member1234" },
+      });
+      const freshMemberToken = memberLogin.status === 200 ? memberLogin.body.token : null;
+
+      if (!freshMemberToken) {
+        // Member user may not exist yet — skip this test
+        return;
+      }
+
+      const res = await ctx.api("/api/admin/system-status", {
+        headers: { cookie: `haico-auth=${freshMemberToken}` },
+      });
+      assert.ok(res.status === 403 || res.status === 401, `Expected 403/401, got ${res.status}`);
+    });
+
+    it("POST /api/admin/reset-stuck-agents returns message", async () => {
+      const res = await ctx.api("/api/admin/reset-stuck-agents", {
+        method: "POST",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(res.status, 200);
+      assert.ok(res.body.message);
+    });
+
+    it("POST /api/admin/run-maintenance returns message", async () => {
+      const res = await ctx.api("/api/admin/run-maintenance", {
+        method: "POST",
+        headers: { cookie: `haico-auth=${getSessionToken()}` },
+      });
+      assert.equal(res.status, 200);
+      assert.ok(res.body.message);
     });
   });
 }

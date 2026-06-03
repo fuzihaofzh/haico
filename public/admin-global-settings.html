@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - Global Settings - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js"></script>
+  <link rel="stylesheet" href="/public/css/style.css">
+</head>
+<body class="dashboard-shell" data-dashboard-page="admin">
+  <div data-dashboard-sidebar>
+    <nav class="vertical-sidebar dashboard-sidebar-skeleton" aria-hidden="true">
+      <span class="sidebar-logo sidebar-skeleton-logo"></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-nav-settings sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+    </nav>
+  </div>
+
+  <header>
+    <div class="header-right">
+      <span class="header-user-skeleton" aria-hidden="true">
+        <span class="header-skeleton-sound"></span>
+        <span class="header-skeleton-avatar"></span>
+      </span>
+    </div>
+  </header>
+
+  <main id="main-content" class="container">
+    <div id="admin-view-panel" class="dashboard-view dashboard-view-admin">
+      <div class="settings-page-header">
+        <div>
+          <div class="settings-page-eyebrow">Administration</div>
+          <h2>Admin</h2>
+          <p>Manage users, global settings, and system operations.</p>
+        </div>
+      </div>
+
+      <nav class="settings-section-nav" aria-label="Admin sections">
+        <a href="/admin/users">Users</a>
+        <a href="/admin/global-settings" class="active" aria-current="page">Global Settings</a>
+        <a href="/admin/system">System</a>
+      </nav>
+
+      <div class="settings-page-grid">
+        <section class="card settings-card settings-card-wide">
+          <div class="settings-card-header">
+            <div>
+              <h3>Log Retention</h3>
+              <p>Number of days to keep conversation logs. Older logs are automatically deleted.</p>
+            </div>
+          </div>
+          <div class="settings-section settings-section-page" style="padding:16px">
+            <div class="setting-group">
+              <label for="log-retention-days">Retention Days</label>
+              <input type="number" id="log-retention-days" min="1" max="365" value="30"
+                style="width:100px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:14px;font-family:inherit">
+            </div>
+          </div>
+        </section>
+
+        <section class="card settings-card settings-card-wide">
+          <div class="settings-card-header">
+            <div>
+              <h3>Event Log</h3>
+              <p>Enable or disable the event log for debugging and auditing.</p>
+            </div>
+          </div>
+          <div class="settings-section settings-section-page" style="padding:16px">
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-copy">
+                <div class="settings-toggle-title">Event Log Enabled</div>
+              </div>
+              <button class="settings-sound-toggle on" id="event-log-toggle" role="switch" aria-checked="true" aria-label="Toggle event log">
+                <span class="settings-sound-toggle-track">
+                  <span class="settings-sound-toggle-knob"></span>
+                </span>
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Remote Instances — full-width, no card wrapper, horizontal scroll -->
+      <div class="admin-fullwidth-section">
+        <div class="admin-page-bar">
+          <h3>Remote HAICO Instances</h3>
+        </div>
+        <div class="admin-scrollable">
+          <div id="remote-instances-settings" hx-get="/settings/partials/remote-instances" hx-trigger="load, remote-instances-refresh from:body" hx-swap="innerHTML">
+            <div class="empty-state">Loading remote instances...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/public/vendor/htmx.min.js"></script>
+  <script src="/public/js/shared/common.js"></script>
+  <script src="/public/js/components/dashboard-sidebar.js"></script>
+  <script type="module" src="/public/js/pages/admin/global-settings-tab.js"></script>
+</body>
+</html>

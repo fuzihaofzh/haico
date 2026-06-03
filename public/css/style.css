@@ -215,8 +215,11 @@ a:hover { opacity: 0.8; }
   letter-spacing: -0.04em;
 }
 
-.sidebar-nav-settings {
+.sidebar-nav-admin {
   margin-top: auto;
+}
+
+.sidebar-nav-settings {
   margin-bottom: 4px;
 }
 
@@ -261,13 +264,15 @@ a:hover { opacity: 0.8; }
 .dashboard-shell[data-dashboard-page="projects"] .dashboard-view:not(.dashboard-view-projects),
 .dashboard-shell[data-dashboard-page="usage"] .dashboard-view:not(.dashboard-view-usage),
 .dashboard-shell[data-dashboard-page="settings"] .dashboard-view:not(.dashboard-view-settings),
+.dashboard-shell[data-dashboard-page="admin"] .dashboard-view:not(.dashboard-view-admin),
 .dashboard-shell[data-dashboard-view="overview"] .dashboard-view:not(.dashboard-view-overview),
 .dashboard-shell[data-dashboard-view="inbox"] .dashboard-view:not(.dashboard-view-inbox),
 .dashboard-shell[data-dashboard-view="chat"] .dashboard-view:not(.dashboard-view-chat),
 .dashboard-shell[data-dashboard-view="compose"] .dashboard-view:not(.dashboard-view-compose),
 .dashboard-shell[data-dashboard-view="projects"] .dashboard-view:not(.dashboard-view-projects),
 .dashboard-shell[data-dashboard-view="usage"] .dashboard-view:not(.dashboard-view-usage),
-.dashboard-shell[data-dashboard-view="settings"] .dashboard-view:not(.dashboard-view-settings) {
+.dashboard-shell[data-dashboard-view="settings"] .dashboard-view:not(.dashboard-view-settings),
+.dashboard-shell[data-dashboard-view="admin"] .dashboard-view:not(.dashboard-view-admin) {
   display: none !important;
 }
 
@@ -636,17 +641,26 @@ header h1 span { color: var(--accent); }
   overflow-x: auto;
 }
 
-.settings-section-nav a {
+.settings-section-nav a,
+.settings-section-nav button {
   display: inline-flex;
   align-items: center;
   padding: 8px 14px;
   border-bottom: 2px solid transparent;
   color: var(--text-secondary);
   white-space: nowrap;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  font: inherit;
+  cursor: pointer;
 }
 
 .settings-section-nav a.active,
-.settings-section-nav a[aria-current="page"] {
+.settings-section-nav a[aria-current="page"],
+.settings-section-nav button.active,
+.settings-section-nav button[aria-current="page"] {
   color: var(--accent);
   border-bottom-color: var(--accent);
   background: var(--selected-bg);
@@ -2140,6 +2154,27 @@ header h1 span { color: var(--accent); }
 .info-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .info-panel dt { color: var(--text-secondary); font-size: 13px; }
 .info-panel dd { font-size: 14px; margin-bottom: 8px; }
+
+/* Admin page layout */
+.admin-page-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.admin-page-bar h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.admin-fullwidth-section {
+  margin-top: 16px;
+}
+.admin-scrollable {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 
 /* Utilities */
 .flex { display: flex; gap: 12px; align-items: center; }
@@ -3817,6 +3852,7 @@ header h1 span { color: var(--accent); }
   .sidebar-nav-label {
     max-width: 48px;
   }
+  .sidebar-nav-admin,
   .sidebar-nav-settings {
     width: 100%;
     min-width: 0;
@@ -3829,6 +3865,7 @@ header h1 span { color: var(--accent); }
     box-shadow: none;
     z-index: 1;
   }
+  .sidebar-nav-admin { margin-bottom: 0; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
   .dashboard-stats { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .mail-toolbar {
@@ -3956,6 +3993,7 @@ header h1 span { color: var(--accent); }
   .sidebar-nav-label {
     max-width: 44px;
   }
+  .sidebar-nav-admin,
   .sidebar-nav-settings {
     width: 100%;
     max-width: 100%;

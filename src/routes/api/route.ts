@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { registerAdminRoutes } from './admin';
 import { registerAgentRoutes } from './agents';
 import { registerCommandProfileRoutes } from './command-profiles';
 import { registerDashboardChatRoutes } from './dashboard-chat';
@@ -16,6 +17,7 @@ import { registerTemplateRoutes } from './templates';
 // login/register endpoints must remain available before the auth guard.
 export async function registerApiRoutes(fastify: FastifyInstance): Promise<void> {
   registerProjectRoutes(fastify);
+  registerAdminRoutes(fastify);
   registerAgentRoutes(fastify);
   registerIssueRoutes(fastify);
   registerCommandProfileRoutes(fastify);

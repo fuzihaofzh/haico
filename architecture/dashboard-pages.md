@@ -2,7 +2,9 @@
 
 ## Sidebar Navigation
 
-Order: Overview → Inbox → Chat → Projects → Usage → Settings
+Order: Overview → Inbox → Chat → Projects → Usage → Settings → Admin
+
+_Admin entry only rendered when user role is admin_
 
 ## Pages
 
@@ -27,6 +29,7 @@ Order: Overview → Inbox → Chat → Projects → Usage → Settings
 | `/projects/new` | `projects-new.html` | `project-new.js` | Create new project |
 | `/usage` | `usage.html` | `usage.js` | Usage/cost dashboard |
 | `/settings` | `settings/general.html` | `settings/general.js` | Settings |
+| `/admin` | `admin.html` | `admin.js` | Admin page with tabs: Users / Global Settings / System (admin-only) |
 
 ## Route Conventions
 
