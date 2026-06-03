@@ -8,7 +8,7 @@ test('dashboard shows a project created through the API', async ({ page, request
     await page.goto('/');
 
     await expect(page).toHaveTitle(/HAICO/);
-    await page.getByRole('link', { name: 'Projects' }).click();
+    await page.getByRole('navigation', { name: 'Dashboard navigation' }).getByRole('link', { name: 'Projects' }).click();
     await expect(page.locator('.project-card-title').getByText(project.name, { exact: true })).toBeVisible();
   } finally {
     await deleteE2EProject(request, project.id);

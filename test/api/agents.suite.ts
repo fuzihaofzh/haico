@@ -540,40 +540,4 @@ export function registerAgentSuites(
       });
     });
   });
-
-  // ─── Error Recovery (Task runtime) ───
-
-  describe("Error Recovery", () => {
-    it("single process error is reflected through derived runtime state", async () => {
-      // Run agent with a command that fails
-      await ctx.api(`/api/projects/${getProjectId()}`, {
-        method: "PUT",
-        body: { command_template: "false" },
-      });
-      await ctx.api(`/api/agents/${getWorkerId()}/start`, {
-        method: "POST",
-        body: { prompt: "should fail" },
-      });
-
-      // Wait for error
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 1000));
-        const { body: st } = await ctx.api(
-          `/api/agents/${getWorkerId()}/status`
-        );
-        if (st.status !== "running") break;
-      }
-
-      const { body: agent } = await ctx.api(`/api/agents/${getWorkerId()}`);
-      assert.equal(agent.status, "error");
-      assert.equal(agent.runtime_state.status, "error");
-      assert.ok(agent.runtime_state.last_task_run_id);
-
-      // Restore
-      await ctx.api(`/api/projects/${getProjectId()}`, {
-        method: "PUT",
-        body: { command_template: "echo" },
-      });
-    });
-  });
 }

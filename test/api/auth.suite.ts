@@ -143,7 +143,7 @@ export function registerAuthSuites(
       assert.equal(status, 401);
     });
 
-    it("HAICO_NO_AUTH does not bypass authentication", async () => {
+    it("unauthenticated requests are rejected even when HAICO_NO_AUTH is set", async () => {
       const previous = process.env.HAICO_NO_AUTH;
       process.env.HAICO_NO_AUTH = "true";
       try {

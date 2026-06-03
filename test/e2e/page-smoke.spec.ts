@@ -10,16 +10,16 @@ test.describe('page smoke checks', () => {
     const pageErrors = trackPageErrors(page);
 
     await page.goto('/');
-    await expect(page).toHaveURL(/\/inbox$/);
+    await expect(page).toHaveURL(/\/overview$/);
 
-    await expect(page).toHaveTitle(/Inbox - HAICO/);
-    await expect(page.getByRole('link', { name: 'Inbox' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Projects' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Usage' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
+    await expect(page).toHaveTitle(/Overview - HAICO/);
+    await expect(page.getByRole('navigation', { name: 'Dashboard navigation' }).getByRole('link', { name: 'Inbox' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Dashboard navigation' }).getByRole('link', { name: 'Projects' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Dashboard navigation' }).getByRole('link', { name: 'Usage' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Dashboard navigation' }).getByRole('link', { name: 'Settings' })).toBeVisible();
     await expect(page.getByRole('link', { name: '+ New Project' })).toHaveAttribute('href', '/projects/new');
-    await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
-    await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'inbox');
+    await expect(page.getByRole('link', { name: 'Compose' })).toBeVisible();
+    await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'overview');
 
     await page.goto('/projects');
     await expect(page.locator('#projects-view-panel')).toBeVisible();
@@ -57,7 +57,7 @@ test.describe('page smoke checks', () => {
 
     await page.goto('/admin/users');
     await expect(page.locator('#admin-view-panel')).toBeVisible();
-    await expect(page.locator('[data-admin-tab="users"].active')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Users' })).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('.sidebar-nav-item.active')).toHaveAttribute('data-sidebar-view', 'admin');
   });
 
@@ -82,7 +82,7 @@ test.describe('page smoke checks', () => {
       await page.getByRole('button', { name: 'Create' }).click();
       await page.waitForURL((url) => {
         const parts = url.pathname.split('/').filter(Boolean);
-        return parts.length === 2 && parts[0] === 'projects' && parts[1] !== 'new';
+        return parts.length === 2 && parts[0] === 'project' && parts[1] !== 'new';
       });
       projectId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop() || '');
       await expect(page.locator('#project-title')).toBeVisible();
@@ -106,7 +106,7 @@ test.describe('page smoke checks', () => {
       await expect(page).toHaveTitle(new RegExp(project.name));
       await expect(page.locator('#project-title')).toContainText(project.name);
       await expect(page.locator('#project-status')).toBeVisible();
-      await expect(page.getByText('Overview')).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'Project sections' }).getByRole('link', { name: 'Overview' })).toBeVisible();
       await expect(page.locator('#project-name-edit')).toHaveValue(project.name);
       await expect(page.locator('#project-task')).toBeVisible();
 
@@ -160,8 +160,7 @@ test.describe('page smoke checks', () => {
     try {
       await page.goto(`/issues/${issue.id}`);
 
-      await expect(page).toHaveTitle(new RegExp(issue.title));
-      await expect(page.locator('#issue-page')).toContainText(issue.title);
+      await expect(page.locator('#issue-detail-content')).toContainText(issue.title);
       await expect(page.locator('#ir-title-display')).toBeVisible();
       await expect(page.locator('#ir-body-display')).toContainText('verify the issue page layout');
       await expect(page.locator('#ir-detail-status')).toBeVisible();

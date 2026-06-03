@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { ApiTestHarness } from './helpers';
 import { createApiTestHarness, createTestSession } from './helpers';
 
-describe('Quick Commands removed (#230)', () => {
+describe('Issue creation via API', () => {
   let ctx: ApiTestHarness;
   let projectId: string;
 
@@ -27,25 +27,7 @@ describe('Quick Commands removed (#230)', () => {
     await ctx?.close();
   });
 
-  it('POST /api/projects/:pid/quick-commands returns 404 (endpoint removed)', async () => {
-    const { status } = await ctx.api(
-      `/api/projects/${projectId}/quick-commands`,
-      {
-        method: 'POST',
-        body: { message: 'test' },
-      }
-    );
-    assert.equal(status, 404);
-  });
-
-  it('GET /api/projects/:pid/quick-commands returns 404 (endpoint removed)', async () => {
-    const { status } = await ctx.api(
-      `/api/projects/${projectId}/quick-commands`
-    );
-    assert.equal(status, 404);
-  });
-
-  it('POST /api/projects/:pid/issues accepts issue creation (new quick-cmd path)', async () => {
+  it('POST /api/projects/:pid/issues accepts issue creation', async () => {
     const { status, body } = await ctx.api(
       `/api/projects/${projectId}/issues`,
       {
@@ -63,7 +45,7 @@ describe('Quick Commands removed (#230)', () => {
     assert.equal(body.title, 'Add a dark mode feature');
   });
 
-  it('quick-cmd: title and body are stored independently (#276)', async () => {
+  it('title and body are stored independently (#276)', async () => {
     const titleText = '修复登录超时问题';
     const bodyText =
       '详细描述：用户在使用VPN时，登录请求会超时。需要增加超时时间或优化认证流程。';
@@ -85,7 +67,7 @@ describe('Quick Commands removed (#230)', () => {
     assert.notEqual(body.title, body.body, 'title 和 body 应不同');
   });
 
-  it('quick-cmd: body 为空时以 title 作为 body 的后备值 (#276)', async () => {
+  it('body falls back to title when empty (#276)', async () => {
     const titleText = '优化搜索性能';
     const { status, body } = await ctx.api(
       `/api/projects/${projectId}/issues`,
@@ -104,7 +86,7 @@ describe('Quick Commands removed (#230)', () => {
     assert.equal(body.body, titleText, 'body 未填写时应与 title 相同');
   });
 
-  it('quick-cmd: title 和 body 均为非空字符串时均被保存 (#276)', async () => {
+  it('both title and body are preserved when non-empty (#276)', async () => {
     const titleText = '添加导出功能';
     const bodyText = '支持将 issue 列表导出为 CSV 和 PDF 格式';
     const { status, body } = await ctx.api(

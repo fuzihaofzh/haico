@@ -376,5 +376,4 @@ export function registerAutomationTriggerSuites(
     });
   });
 
-  // ─── API连接失败自动重启 (#436/#437) ───
 }

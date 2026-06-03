@@ -1,6 +1,13 @@
-function getIssueIdFromPath() {
-  const match = window.location.pathname.match(/^\/issue\/([^/]+)$/);
-  return match ? match[1] : null;
+function parseIssuePath() {
+  // Match /issues/:id, /issue/:id, or /project/:pid/issues/:num
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  if (pathParts[0] === 'issues' || pathParts[0] === 'issue') {
+    return { issueId: decodeRouteParam(pathParts[1]) };
+  }
+  if (pathParts[0] === 'project' && pathParts[2] === 'issues') {
+    return { projectId: decodeRouteParam(pathParts[1]), issueNum: decodeRouteParam(pathParts[3]) };
+  }
+  return {};
 }
 
 function updateBreadcrumb(issue) {
@@ -22,11 +29,11 @@ function updateBreadcrumb(issue) {
 }
 
 async function loadIssue() {
-  const issueId = getIssueIdFromPath();
+  const parsed = parseIssuePath();
   const container = document.getElementById('issue-detail-content');
   if (!container) return;
 
-  if (!issueId) {
+  if (!parsed.issueId && !parsed.projectId) {
     container.innerHTML = '<div class="error-retry"><span class="error-msg">No issue ID in URL</span><a href="/inbox" class="btn btn-sm">Go to Inbox</a></div>';
     return;
   }
@@ -34,7 +41,12 @@ async function loadIssue() {
   container.innerHTML = '<div class="loading-spinner"><span class="spinner"></span>Loading issue...</div>';
 
   try {
-    const issueRes = await fetch(buildIssueApiPath(issueId), { headers: apiHeaders() });
+    let issueRes;
+    if (parsed.issueId) {
+      issueRes = await fetch(buildIssueApiPath(parsed.issueId), { headers: apiHeaders() });
+    } else {
+      issueRes = await fetch(buildProjectIssueLookupApiPath(parsed.projectId, parsed.issueNum), { headers: apiHeaders() });
+    }
     if (!issueRes.ok) {
       if (issueRes.status === 404) {
         container.innerHTML = '<div class="error-retry"><span class="error-msg">Issue not found</span><a href="/inbox" class="btn btn-sm">Go to Inbox</a></div>';

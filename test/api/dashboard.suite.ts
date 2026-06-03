@@ -257,5 +257,4 @@ export function registerDashboardSuites(
     });
   });
 
-  // ─── Git Integration ───
 }

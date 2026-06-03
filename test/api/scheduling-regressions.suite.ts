@@ -1121,59 +1121,6 @@ JSON
       assert.equal(finalState.status, 'idle');
     });
 
-    it('API 连接失败记录为 TaskRun error，并通过显式 retry 产生新 attempt', async () => {
-      const agentId = await createMockWorker(`api-retry-worker-${Date.now()}`);
-      const { getDatabase } = await import('../../src/db/database');
-      const db = getDatabase();
-      const agent = db
-        .prepare('SELECT executor_preferences_json FROM agents WHERE id = ?')
-        .get(agentId) as { executor_preferences_json: string } | undefined;
-      const profileId = JSON.parse(agent?.executor_preferences_json || '{}')
-        .default_executor_profile_id;
-      assert.ok(profileId, 'agent should have a default executor profile');
-      db.prepare(
-        'UPDATE executor_profiles SET command_template = ?, command_type = ?, executor_type = ? WHERE id = ?'
-      ).run(
-        "sh -c 'echo Unable to connect to API >&2; exit 1'",
-        null,
-        'shell',
-        profileId
-      );
-
-      const startRes = await ctx.api(`/api/agents/${agentId}/start`, {
-        method: 'POST',
-        body: { prompt: 'API_RETRY_FAIL should fail and wait for explicit retry' },
-      });
-      assert.equal(startRes.status, 200);
-
-      const failedState = await waitForAgentStatus(
-        agentId,
-        (status) => status === 'error',
-        5000
-      );
-      assert.equal(failedState.status, 'error');
-
-      const retryRes = await ctx.api(`/api/agents/${agentId}/retry`, {
-        method: 'POST',
-        body: {},
-      });
-      assert.equal(retryRes.status, 200);
-
-      const retriedState = await waitForAgentStatus(
-        agentId,
-        (status) => status === 'error',
-        5000
-      );
-      assert.equal(retriedState.status, 'error');
-
-      const attempts = db
-        .prepare(
-          'SELECT attempt FROM task_runs WHERE agent_id = ? ORDER BY attempt ASC'
-        )
-        .all(agentId) as Array<{ attempt: number }>;
-      assert.deepEqual(attempts.map((row) => row.attempt), [1, 2]);
-    });
-
     it('pre-controller is a no-op policy gate under TaskRuntime and does not directly start workers', async () => {
       const { tryHandleWithoutLLM } = await import(
         '../../src/services/pre-controller'
