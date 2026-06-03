@@ -7,7 +7,7 @@ import {
   subscribeDashboardProjects,
 } from '../shared/dashboard-project-store.js';
 
-const DASHBOARD_NAV_VIEWS = new Set(['overview', 'inbox', 'chat', 'projects', 'usage', 'settings']);
+const DASHBOARD_NAV_VIEWS = new Set(['overview', 'inbox', 'chat', 'compose', 'projects', 'usage', 'settings']);
 let dashboardView = getInitialDashboardView();
 let wsRefreshTimer = null;
 
