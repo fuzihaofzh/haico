@@ -41,7 +41,8 @@ function renderProjectsList(projects) {
     return;
   }
 
-  container.innerHTML = sorted.map(project => {
+  const top10 = sorted.slice(0, 10);
+  container.innerHTML = top10.map(project => {
     const running = project.stats?.runningAgents || 0;
     const openIssues = project.stats?.openIssues || 0;
     const meta = [];
