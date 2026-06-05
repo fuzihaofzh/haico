@@ -277,7 +277,7 @@ export function createProject(
       input.working_directory || null,
       baseConstraints,
       controllerContext,
-      JSON.stringify(['coordination']),
+      JSON.stringify(['issue-tracking', 'knowledge-base', 'direct-message', 'agent-management']),
       executorPreferences,
       commandProfileId,
       controllerCommandConfig.commandTemplate,
@@ -307,7 +307,7 @@ export function createProject(
       ,
       baseConstraints,
       assistantContext,
-      JSON.stringify(['analysis', 'research', 'execution']),
+      JSON.stringify(['issue-tracking', 'knowledge-base', 'direct-message', 'code-edit', 'issue-assigned']),
       executorPreferences
     );
 

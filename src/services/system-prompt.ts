@@ -3,8 +3,8 @@ import { Agent, Project } from '../types';
 import { config } from '../config';
 import { getDirectChildAgents, loadProjectHierarchyAgents } from './agents/hierarchy';
 import { resolveCommandType } from './command-profiles';
-import { ensureAgentKnowledgeEntry } from './knowledge/agent-memory';
 import { deriveAgentRuntimeStatus } from './tasks/runtime-state';
+import { getSkill, parseCapabilities, resolvePromptFragment } from './skills';
 
 const BASE_URL = () => `http://localhost:${config.port}`;
 
@@ -13,7 +13,9 @@ export function buildSystemPrompt(agent: Agent, project: Project): string {
   const base = BASE_URL();
   const effectiveCommand = (agent.command_template || project.command_template || config.defaultCommandTemplate || '').trim().toLowerCase();
   const effectiveCommandType = resolveCommandType(agent.command_type, effectiveCommand);
+  const C = 'env -u LD_PRELOAD curl';
 
+  // ── Header: identity (always present, not skill-driven) ──
   const header = `# Human-Agent Interactive Collaboration Orchestrator (HAICO) — System Instructions
 
 This is agent "${agent.name}" in project "${project.name}".
@@ -26,7 +28,7 @@ This agent runs inside HAICO, the Human-Agent Interactive Collaboration Orchestr
 - **Is Controller**: ${agent.is_controller ? 'Yes' : 'No'}
 - **Project ID**: ${project.id}`;
 
-  // Agent list
+  // ── Agent list + hierarchy (always present, not skill-driven) ──
   const hierarchyAgents = loadProjectHierarchyAgents(db, project.id);
   const hierarchyById = new Map(hierarchyAgents.map((item) => [item.id, item]));
   const agents = db.prepare(`
@@ -35,7 +37,7 @@ This agent runs inside HAICO, the Human-Agent Interactive Collaboration Orchestr
     LEFT JOIN agents parent ON parent.id = a.parent_agent_id
     WHERE a.project_id = ?
     ORDER BY a.is_controller DESC, a.created_at
-  `).all(project.id) as any[];
+  `).all(project.id) as Array<{ id: string; name: string; role: string; is_controller: number; paused: number; constraints_json: string; parent_agent_id: string | null; parent_name: string | null }>;
   const agentList = agents.map(a =>
     `  - ${a.name} (ID: ${a.id}, Role: ${a.role || '-'}, Status: ${deriveAgentRuntimeStatus(db, a)}${a.is_controller ? ', Controller' : ''}${a.parent_name ? `, Parent: ${a.parent_name}` : ''})`
   ).join('\n');
@@ -56,301 +58,31 @@ This agent runs inside HAICO, the Human-Agent Interactive Collaboration Orchestr
 ## Agents
 ${agentList || '  (none)'}${hierarchyNotes.length > 0 ? `\n\n### Hierarchy\n${hierarchyNotes.join('\n')}` : ''}`;
 
-  // Issue API (available to all)
-  // IMPORTANT: use "env -u LD_PRELOAD curl" to bypass any proxy for localhost
-  const C = 'env -u LD_PRELOAD curl';
-  const issueSection = `
-## Issue Tracker API
-All agents share a project-wide issue tracker. Issues are visible to everyone.
-
-**IMPORTANT**: Always use \`env -u LD_PRELOAD curl\` instead of plain \`curl\` to ensure localhost connections work.
-
-**List open issues:**
-\`\`\`bash
-${C} "${base}/api/projects/${project.id}/issues?status=open"
-\`\`\`
-
-**List issues assigned to you:**
-\`\`\`bash
-${C} "${base}/api/projects/${project.id}/issues?assigned_to=${agent.id}"
-\`\`\`
-
-**Create an issue:**
-\`\`\`bash
-${C} -X POST ${base}/api/projects/${project.id}/issues \\
-  -H "Content-Type: application/json" \\
-  -d '{"title":"Issue title","body":"Description","created_by":"${agent.id}","assigned_to":"AGENT_ID_or_user_or_all","labels":"bug,urgent"}'
-\`\`\`
-
-**View issue detail + comments by UUID** (\`issue_id\` means the long UUID, not \`#123\`):
-\`\`\`bash
-${C} ${base}/api/issues/{issue_id}
-\`\`\`
-
-**View issue detail by issue number** (when you only have \`#123\` from a prompt or comment):
-\`\`\`bash
-${C} ${base}/api/projects/${project.id}/issues/number/{issue_number}
-\`\`\`
-
-**Update issue (status, assignment, etc.):**
-\`\`\`bash
-${C} -X PUT ${base}/api/issues/{issue_id} \\
-  -H "Content-Type: application/json" \\
-  -d '{"status":"done","actor":"${agent.id}"}'
-\`\`\`
-Status values: \`open\`, \`in_progress\`, \`pending\` (waiting for sub-issues), \`done\`, \`closed\`
-If you only know an issue number, fetch it via the by-number endpoint first and then use the returned UUID for update/comment APIs.
-
-**Add a comment to an issue:**
-\`\`\`bash
-${C} -X POST ${base}/api/issues/{issue_id}/comments \\
-  -H "Content-Type: application/json" \\
-  -d '{"author_id":"${agent.id}","body":"Comment text"}'
-\`\`\`
-
-**Add issue dependency (blocks/related_to):**
-\`\`\`bash
-${C} -X POST ${base}/api/issues/{issue_id}/relations \\
-  -H "Content-Type: application/json" \\
-  -d '{"type":"blocks","target_issue_id":"TARGET_ISSUE_ID","actor":"${agent.id}"}'
-\`\`\`
-
-**Check agent status / logs:**
-\`\`\`bash
-${C} ${base}/api/agents/{agent_id}/status
-${C} ${base}/api/agents/{agent_id}/logs?limit=50
-\`\`\``;
-
-  // Controller-only management
-  let managementSection = '';
-  if (agent.is_controller) {
-    managementSection = `
-## Agent Management (Controller Only)
-
-**Create agent:**
-\`\`\`bash
-${C} -X POST ${base}/api/projects/${project.id}/agents \\
-  -H "Content-Type: application/json" \\
-  -d '{"name":"agent-name","role":"Role description","working_directory":"/path"}'
-\`\`\`
-
-**Start agent:**
-\`\`\`bash
-${C} -X POST ${base}/api/agents/{agent_id}/start \\
-  -H "Content-Type: application/json" -d '{}'
-\`\`\`
-
-**Stop / Delete agent:**
-\`\`\`bash
-${C} -X POST ${base}/api/agents/{agent_id}/stop
-${C} -X DELETE ${base}/api/agents/{agent_id}
-\`\`\`
-
-**Update agent (role, working_directory, custom_instructions):**
-\`\`\`bash
-${C} -X PUT ${base}/api/agents/{agent_id} \\
-  -H "Content-Type: application/json" \\
-  -d '{"role":"new role","working_directory":"/new/path","custom_instructions":"extra instructions"}'
-\`\`\`
-
-**Update project settings (name, description, task_description):**
-\`\`\`bash
-${C} -X PUT ${base}/api/projects/${project.id} \\
-  -H "Content-Type: application/json" \\
-  -d '{"name":"new-name","description":"new description","task_description":"updated task"}'
-\`\`\`
-
-## Controller Workflow
-1. Review project task and open issues
-2. Create worker agents as needed
-3. Create issues and assign them to workers
-4. Start agents to work on their assigned issues
-5. Monitor progress via issue comments and agent logs
-6. Close completed issues
-7. Create a summary issue for the user when done`;
-  } else {
-    managementSection = `
-## Worker Guidelines
-- Focus on your assigned issues
-- Update issue status to \`in_progress\` when you start working
-- **禁止静默结束**：每次开始处理 issue 后，在本次 run 结束前必须留下明确的 issue 痕迹。至少完成以下之一：(1) 更新 issue 状态，(2) 添加有信息量的进展/总结评论，(3) 创建并关联后续子 issue 或交接 issue。**不允许在 issue 没有任何状态变化、没有任何评论、没有任何后续 issue 的情况下直接结束。**
-- **全自动运行模式**：HAICO 是全自动系统，用户不会在执行过程中实时回复。你必须直接执行、推进或创建后续 issue，不能向用户提问寻求确认。
-- **禁止在评论中提问**：禁止在 issue 评论中以任何形式向用户提问或索要确认，例如“是否需要我先修复...？”、“请确认...” 或任何等价表达。
-- **需要用户决策时的唯一正确做法**：如果任务确实需要用户决定优先级、范围、取舍或补充信息，必须创建一个新的 issue 并 assign 给 \`user\`，在 issue 中清楚说明需要决策的内容；不要在评论里等待用户回复。
-- **IMPORTANT: Before marking an issue as \`done\`, you MUST first add a summary comment** via the comment API explaining: (1) what you did, (2) key results or changes made, (3) any notes or caveats. An issue with no comments from the worker is considered incomplete — the user needs to see what was accomplished. Never set status to \`done\` without leaving at least one substantive comment first.
-- **Modified files**: In your summary comment, always include a list of modified files under a \`### Modified Files\` heading. Use backtick-quoted relative paths, one per line. Example:\n  \`\`\`\n  ### Modified Files\n  - \\\`src/routes/issues.ts\\\`\n  - \\\`public/js/project.js\\\`\n  \`\`\`
-
-## 知识库使用规则
-
-**读代码前先查知识库**：在探索代码之前，先查询 KB 看是否已有描述：
-\`\`\`bash
-${C} "${base}/api/projects/${project.id}/knowledge?q=关键词"
-\`\`\`
-如果 KB 已有足够信息就直接复用，避免重复读文件。
-
-**写入知识库要非常克制**：只有发现了对其他 agent 长期有用的架构级信息，且 KB 中尚无类似条目时，才写入。日常工作进展、实验结果、操作记录等一律写 issue comments，不要写 KB。详见下方"知识库写入规范"。
-
-- Add comments to issues to report progress, implementation notes, blockers, or completion summaries; do not ask the user questions in issue comments
-- Create new issues if you discover problems. If the new issue is a sub-task of your current issue, set \`parent_id\` to link them: \`{"title":"sub-task","parent_id":"<current-issue-id>",...}\`
-- Do not use a \`blocks\` relation as a substitute for \`parent_id\`. If issue B is a decomposition of issue A, issue B must carry \`parent_id = A\` even if you also add dependency links.
-- When all child issues of a parent complete, the system automatically notifies the parent
-- You cannot create or manage other agents — only the controller can`;
+  // ── Skill-driven prompt sections ──
+  const skillIds = parseCapabilities(agent.capabilities_json);
+  const ctx = { agent, project, baseUrl: base, curl: C };
+  const skillSections: string[] = [];
+  for (const skillId of skillIds) {
+    const skill = getSkill(skillId);
+    if (skill) {
+      const fragment = resolvePromptFragment(skill, ctx);
+      if (fragment) skillSections.push(fragment);
+    }
   }
 
-  // Knowledge base: auto-inject active high importance entries
-  const knowledgeEntries = db.prepare(
-    `SELECT title, content
-     FROM knowledge_entries
-     WHERE project_id = ?
-       AND owner_agent_id IS NULL
-       AND importance = 'high'
-       AND status = 'active'
-       AND (expires_at IS NULL OR expires_at >= datetime('now'))
-     ORDER BY updated_at DESC`
-  ).all(project.id) as any[];
-  const knowledgeSection = `
-## Project Knowledge Base
-${knowledgeEntries.length > 0
-    ? knowledgeEntries.map(k => `### ${k.title}\n${k.content}`).join('\n\n')
-    : '(empty)'}
-
-**Query knowledge:**
-\`\`\`bash
-${C} "${base}/api/projects/${project.id}/knowledge?tag=TAG&importance=LEVEL"
-\`\`\`
-
-**Add knowledge** (when you discover important patterns, pitfalls, or conventions):
-\`\`\`bash
-${C} -X POST ${base}/api/projects/${project.id}/knowledge \\
-  -H "Content-Type: application/json" \\
-  -d '{"title":"Title","content":"What you learned","tags":"tag1,tag2","importance":"high","category":"architecture","created_by":"${agent.id}"}'
-\`\`\`
-importance: \`high\` (auto-injected to all agents), \`medium\` (queryable), \`low\`
-category: \`architecture\`, \`convention\`, \`bug\`, \`environment\`, \`code\`, \`reference\`
-
-**Verify knowledge** (when you used an entry and confirmed it is still accurate):
-\`\`\`bash
-${C} -X POST ${base}/api/knowledge/{id}/verify \\
-  -H "Content-Type: application/json" \\
-  -d '{"verified_by":"${agent.id}"}'
-\`\`\`
-
-**Update existing knowledge:**
-\`\`\`bash
-${C} -X PUT ${base}/api/knowledge/{id} \\
-  -H "Content-Type: application/json" \\
-  -d '{"content":"Updated content","importance":"high","category":"architecture","verified_by":"${agent.id}"}'
-\`\`\`
-
-Knowledge maintenance rules:
-- When you query and use a KB entry, call the verify API if the content is still accurate.
-- When you find a KB entry is outdated or conflicts with the current code, update it instead of relying on it.
-- When you create a KB entry, choose a category so the lifecycle policy can expire it correctly.
-
-**Full-text search knowledge:**
-\`\`\`bash
-${C} "${base}/api/projects/${project.id}/knowledge?q=search+terms"
-\`\`\`
-
-## ⚠️ 知识库写入规范（严格遵守 — 违规写入浪费所有 agent 的 token）
-
-知识库的每一条 high importance 条目都会被注入到所有 agent 的 system prompt 中，直接增加每次调用的 token 消耗。因此必须严格控制写入。
-
-### 该写入知识库的（长期有效、跨 session 复用）：
-- **项目架构概览**：项目做什么、核心模块、目录结构（每个项目/子项目最多 1 条）
-- **长期有效的约定和规范**：编码规范、命名约定、工作流程、API 协议
-- **环境陷阱**：GPU 配置、内存限制、离线环境注意事项等长期不变的信息
-- **已验证的结构性结论**：如"某方法已被证明不可行（附原因）"
-
-### 绝对不要写入知识库的：
-- ❌ **操作日志**：几点几分跑了什么命令、结果是什么（这些属于 issue comments）
-- ❌ **Issue 级别的进展快照**：如"issue #123 的实验结果"（这些属于 issue comments）
-- ❌ **审稿/评审结论快照**：如"当前评分 6.5/10"（会过时）
-- ❌ **临时状态**：如"当前 frontier 推进到 xxx"、"当前代码还没整合 xxx"
-- ❌ **代码细节路径**：具体函数名、行号（代码会变，直接读代码更准确）
-- ❌ **重复内容**：写之前先搜索，已有类似条目就更新而不是新建
-
-### 写入前检查清单：
-1. 这条信息 6 个月后还有用吗？→ 否则不要写
-2. 这条信息已经在某个 issue comment 里了吗？→ 是则不要重复写到 KB
-3. KB 里已经有类似条目了吗？→ 有则更新，不要新建
-4. 设为 high importance 是必要的吗？→ 非核心信息用 medium（不会注入 prompt）`;
-
-  const agentKnowledgeEntry = ensureAgentKnowledgeEntry(db, agent);
-  const agentKnowledgeSection = `
-## Your Owned Knowledge Base Item
-### ${agentKnowledgeEntry.title}
-${agentKnowledgeEntry.content || '(empty)'}
-
-**必须长期维护这条 owner knowledge：**
-- 这是你的专属知识项，只注入给你自己，不会注入给其他 agent。
-- 这条知识应该记录：你的主要职责、常做任务、常用资源路径、常用命令、关键代码架构认知、长期有效的注意事项。
-- 开始工作前，先读取这条 knowledge；如果已有相关内容，优先复用，不要每次都重新摸索。
-- **在准备结束当前任务、准备把 issue 标记为 \`done\`、准备输出 final result 之前，必须先更新这条 knowledge。**
-- 不要把一次性进展、实验日志、临时结论写进这条 knowledge；这些内容应该写到 issue comments。
-
-**Read your owned knowledge item:**
-\`\`\`bash
-${C} "${base}/api/agents/${agent.id}/knowledge-memory"
-\`\`\`
-
-**Update your owned knowledge item** (upsert; same item will be rewritten in place):
-\`\`\`bash
-${C} -X PUT ${base}/api/agents/${agent.id}/knowledge-memory \\
-  -H "Content-Type: application/json" \\
-  -d '{"content":"Updated long-term knowledge","tags":"agent-profile,commands,architecture","category":"reference","importance":"medium","verified_by":"${agent.id}"}'
-\`\`\`
-
-**Query your owned knowledge via project KB filter:**
-\`\`\`bash
-${C} "${base}/api/projects/${project.id}/knowledge?owner_agent_id=${agent.id}"
-\`\`\``;
-
-  // Direct messages: inject unread messages
-  const unreadMessages = db.prepare(`
-    SELECT m.id, m.subject, m.body, m.from_agent_id, m.created_at, a.name as from_name
-    FROM agent_messages m
-    LEFT JOIN agents a ON a.id = m.from_agent_id
-    WHERE m.to_agent_id = ? AND m.status = 'unread'
-    ORDER BY m.created_at DESC LIMIT 5
-  `).all(agent.id) as any[];
-
-  const messagesSection = `
-## Direct Messages
-${unreadMessages.length > 0
-    ? `**Unread messages (${unreadMessages.length}):**\n` + unreadMessages.map(m =>
-        `- From **${m.from_name || m.from_agent_id}**: ${m.subject ? `[${m.subject}] ` : ''}${m.body.slice(0, 200)}${m.body.length > 200 ? '...' : ''}`
-      ).join('\n')
-    : '(no unread messages)'}
-
-**Send a message to another agent:**
-\`\`\`bash
-${C} -X POST ${base}/api/agents/${agent.id}/messages/send \\
-  -H "Content-Type: application/json" \\
-  -d '{"to":"TARGET_AGENT_ID","subject":"Subject","body":"Message content"}'
-\`\`\`
-
-**Check inbox:**
-\`\`\`bash
-${C} "${base}/api/agents/${agent.id}/messages?status=unread"
-\`\`\`
-
-**Mark message as read:**
-\`\`\`bash
-${C} -X PUT ${base}/api/agents/${agent.id}/messages/{message_id}
-\`\`\``;
-
+  // ── Tool execution constraints (executor-type dependent, not skill-driven) ──
   const toolExecutionSection = effectiveCommandType === 'codex'
     ? `
 ## Codex 执行约束
 - 对于需要持续运行、后续还要继续交互的命令，第一次就必须使用带 \`tty: true\` 的交互会话。典型例子：dev server、\`tail -f\`、\`watch\`、REPL、\`ssh\`、\`sqlite3\` 交互模式、\`google-chrome --headless --remote-debugging-port=...\`。
 - 只有在拿到交互命令返回的 \`session_id\` 之后，才能继续对该会话调用 \`write_stdin\`。不要对已经结束、没有 tty、或 stdin 已关闭的命令会话继续写入。
 - 如果命令只是一次性执行，不需要后续交互，就不要再调用 \`write_stdin\`；直接等待命令完成并读取输出。
-- 需要后台服务时，优先把“启动 + 检查 + 清理”放进同一个一次性脚本里完成；除非明确需要持续交互，否则不要把浏览器、服务器、调试端口单独常驻后再尝试补写 stdin。
+- 需要后台服务时，优先把"启动 + 检查 + 清理"放进同一个一次性脚本里完成；除非明确需要持续交互，否则不要把浏览器、服务器、调试端口单独常驻后再尝试补写 stdin。
 - 如果你看到 \`stdin is closed for this session\`、\`write_stdin failed\` 或类似提示，立刻放弃旧会话，重新创建新的 tty 会话，不要沿用出错会话。
 - 做 UI/浏览器验证时，优先使用一次性脚本完成完整验证流程；只有在确实需要保持进程存活时才开交互 tty。`
     : '';
 
+  // ── Agent-level sections (not skill-driven) ──
   const customSection = agent.custom_instructions
     ? `\n## Custom Instructions\n${agent.custom_instructions}`
     : '';
@@ -361,12 +93,8 @@ ${C} -X PUT ${base}/api/agents/${agent.id}/messages/{message_id}
 
   return `${header}
 ${agentSection}
-${issueSection}
-${managementSection}
+${skillSections.join('\n')}
 ${customSection}
-${knowledgeSection}
-${agentKnowledgeSection}
-${messagesSection}
 ${toolExecutionSection}
 ${languageSection}
 

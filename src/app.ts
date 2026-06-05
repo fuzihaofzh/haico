@@ -15,6 +15,7 @@ import { clearAllPtyCleanupTimers, handleWebSocketError } from './realtime';
 import { setupErrorHandler } from './middleware/error-handler';
 import { bootstrapDefaultAdmin } from './services/auth/default-admin';
 import { registerAllSubscribers, clearCoalescingTimers } from './events';
+import { registerBuiltinSkills } from './services/skills';
 import { loggerOptions } from './logger';
 
 export interface AppOptions {
@@ -57,6 +58,7 @@ export async function createApp(opts: AppOptions = {}): Promise<FastifyInstance>
   const db = getDatabase();
   bootstrapDefaultAdmin(db);
 
+  registerBuiltinSkills();
   registerAllSubscribers();
 
   await registerRoutes(fastify);

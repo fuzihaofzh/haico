@@ -31,10 +31,12 @@ describe('Worker prompt forbids asking user questions (#247/#248)', () => {
 
     const database = await import('../../src/db/database');
     const prompt = await import('../../src/services/system-prompt');
+    const { registerBuiltinSkills } = await import('../../src/services/skills');
     const db = database.getDatabase(TEST_DB);
 
     closeDatabase = database.closeDatabase;
     buildSystemPrompt = prompt.buildSystemPrompt;
+    registerBuiltinSkills();
 
     db.prepare(
       `
@@ -54,8 +56,8 @@ describe('Worker prompt forbids asking user questions (#247/#248)', () => {
 
     db.prepare(
       `
-      INSERT INTO agents (id, project_id, name, role, is_controller, parent_agent_id, working_directory, custom_instructions, command_template, command_type, status, paused)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO agents (id, project_id, name, role, is_controller, parent_agent_id, working_directory, custom_instructions, command_template, command_type, status, paused, capabilities_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
     ).run(
       'prompt-controller',
@@ -69,13 +71,14 @@ describe('Worker prompt forbids asking user questions (#247/#248)', () => {
       null,
       null,
       'idle',
-      0
+      0,
+      JSON.stringify(['issue-tracking', 'knowledge-base', 'direct-message', 'agent-management'])
     );
 
     db.prepare(
       `
-      INSERT INTO agents (id, project_id, name, role, is_controller, parent_agent_id, working_directory, custom_instructions, command_template, command_type, status, paused)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO agents (id, project_id, name, role, is_controller, parent_agent_id, working_directory, custom_instructions, command_template, command_type, status, paused, capabilities_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
     ).run(
       'prompt-worker',
@@ -89,7 +92,8 @@ describe('Worker prompt forbids asking user questions (#247/#248)', () => {
       null,
       null,
       'idle',
-      0
+      0,
+      JSON.stringify(['issue-tracking', 'knowledge-base', 'direct-message', 'code-edit', 'issue-assigned'])
     );
 
     project = db

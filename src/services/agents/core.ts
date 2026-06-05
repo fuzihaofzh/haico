@@ -160,7 +160,10 @@ export function createAgent(projectId: string, input: CreateAgentInput): Agent {
     custom_instructions: '',
     collaboration_rules: [],
   });
-  const capabilitiesJson = body.capabilities_json || safeJson([]);
+  const defaultCapabilities = is_controller
+    ? ['issue-tracking', 'knowledge-base', 'direct-message', 'agent-management']
+    : ['issue-tracking', 'knowledge-base', 'direct-message', 'code-edit', 'issue-assigned'];
+  const capabilitiesJson = body.capabilities_json || safeJson(defaultCapabilities);
   const executorPreferencesJson = body.executor_preferences_json || safeJson({
     default_executor_profile_id: defaultExecutorProfile.id,
   });

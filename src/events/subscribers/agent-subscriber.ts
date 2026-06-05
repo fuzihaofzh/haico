@@ -1,9 +1,10 @@
 import { eventBus } from '../bus';
-import { autoStartAssignedAgentForIssue, parseMentionsAndStartAgents, autoStartAgentFromUserComment } from '../../services/issue/automation';
+import { parseMentionsAndStartAgents, autoStartAgentFromUserComment } from '../../services/issue/automation';
 import { updateIssue } from '../../services/issue/core';
 import { getDatabase } from '../../db/database';
 import { Agent, Project } from '../../types';
 import { ensureAgentKnowledgeEntry } from '../../services/knowledge/agent-memory';
+import { executeSkillTrigger } from '../../services/skills/executor';
 import type { IssueCreatedEvent, IssueUpdatedEvent, CommentAddedEvent, AgentCreatedEvent } from '../events';
 
 const FALLBACK_CONTROLLER_ID = 'b9b6362c-2d59-40cd-9ffc-fd871a7e811e';
@@ -15,7 +16,10 @@ export function registerAgentSubscribers(): void {
     const db = getDatabase();
 
     if (createdBy === 'user' && assignedTo) {
-      autoStartAssignedAgentForIssue(db, event.projectId, issueNumber, assignedTo, 'issue-create-assignment');
+      executeSkillTrigger('issue-assigned', {
+        projectId: event.projectId,
+        payload: { issueNumber, assignedTo, source: 'issue-create-assignment' },
+      });
     }
     if (body) {
       parseMentionsAndStartAgents(db, body, event.projectId, issueId, issueNumber, title, createdBy);
@@ -28,11 +32,14 @@ export function registerAgentSubscribers(): void {
     const db = getDatabase();
 
     if (actor === 'user' && changes?.assignedTo?.to) {
-      autoStartAssignedAgentForIssue(
-        db, event.projectId, issueNumber,
-        changes.assignedTo.to as string,
-        'issue-update-assignment'
-      );
+      executeSkillTrigger('issue-assigned', {
+        projectId: event.projectId,
+        payload: {
+          issueNumber,
+          assignedTo: changes.assignedTo.to as string,
+          source: 'issue-update-assignment',
+        },
+      });
     }
   });
 

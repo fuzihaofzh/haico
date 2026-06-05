@@ -4,6 +4,7 @@ import { getDatabase, isDatabaseOpen } from '../db/database';
 import { cleanupConversationLogs } from '../db/maintenance';
 import logger from '../logger';
 import { runTaskRunWatchdogScan, runTaskSchedulerTick } from '../services/tasks';
+import { runScheduledCheckTick } from '../services/skills/builtins/scheduled-check';
 import { runIssueRecoveryScan } from '../services/issue/recovery';
 import { purgeOldEvents } from '../events/store';
 import { markExpiredKnowledgeEntries } from '../services/knowledge/lifecycle';
@@ -64,6 +65,7 @@ export function initializeScheduler(): void {
     ) {
       logger.info({ watchdog, scheduler: result }, 'task.runtime.tick');
     }
+    runScheduledCheckTick();
   });
   scheduleTask('issueRecovery', '*/2 * * * *', () => {
     eventBus.publish('scheduler.tick', {
