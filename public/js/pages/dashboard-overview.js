@@ -1,6 +1,5 @@
-import { initDashboardPage, loadDashboardProjects, loadDashboardSummary, setupDashboardWS } from './dashboard-core.js';
+import { initDashboardPage, loadDashboardSummary, setupDashboardWS } from './dashboard-core.js';
 
-let _dashboardProjectsById = {};
 let _summaryData = null;
 let _refreshTimer = null;
 
@@ -17,8 +16,10 @@ async function loadOverviewSummary() {
 }
 
 async function loadProjects() {
-  const projects = await loadDashboardProjects();
-  _dashboardProjectsById = Object.fromEntries(projects.map(p => [p.id, p]));
+  const res = await fetch('/api/projects/page?limit=10&sort=activity&with_stats=1', { headers: apiHeaders() });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const projects = data.projects || [];
   renderProjectsList(projects);
   renderActivityList(projects);
   return projects;
@@ -28,21 +29,12 @@ function renderProjectsList(projects) {
   const container = document.getElementById('overview-projects-list');
   if (!container) return;
 
-  // Sort by last activity
-  const lastActivity = _summaryData?.last_activity || {};
-  const sorted = [...projects].sort((a, b) => {
-    const aTime = lastActivity[a.id] || a.updated_at || '';
-    const bTime = lastActivity[b.id] || b.updated_at || '';
-    return bTime > aTime ? 1 : -1;
-  });
-
-  if (!sorted.length) {
+  if (!projects.length) {
     container.innerHTML = '<div style="padding:16px;color:var(--text-secondary);font-size:12px;text-align:center">No projects yet. Create one to get started.</div>';
     return;
   }
 
-  const top10 = sorted.slice(0, 10);
-  container.innerHTML = top10.map(project => {
+  container.innerHTML = projects.map(project => {
     const running = project.stats?.runningAgents || 0;
     const openIssues = project.stats?.openIssues || 0;
     const meta = [];
@@ -62,9 +54,15 @@ function renderActivityList(projects) {
   if (!container) return;
 
   const lastActivity = _summaryData?.last_activity || {};
-  const entries = projects
-    .map(p => ({ name: p.name, id: p.id, time: lastActivity[p.id] || p.updated_at || '' }))
-    .filter(e => e.time)
+  const projectById = Object.fromEntries(projects.map(p => [p.id, p]));
+
+  // Build entries from last_activity map (covers projects beyond the top 10 page)
+  const entries = Object.entries(lastActivity)
+    .filter(([, time]) => time)
+    .map(([id, time]) => {
+      const p = projectById[id];
+      return { name: p?.name || id, id, time: time! };
+    })
     .sort((a, b) => b.time > a.time ? 1 : -1)
     .slice(0, 10);
 

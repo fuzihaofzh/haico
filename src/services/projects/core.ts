@@ -127,16 +127,51 @@ export function listProjects(
   return attachProjectStats(db, projects);
 }
 
+export function getProjectLastActivityMap(
+  db: Database.Database,
+  projectIds: string[]
+): Record<string, string | null> {
+  const map: Record<string, string | null> = {};
+  if (projectIds.length === 0) return map;
+  const placeholders = buildSqlPlaceholders(projectIds);
+  const rows = db.prepare(
+    `SELECT p.id,
+            MAX(COALESCE(tr.finished_at, tr.started_at, tr.created_at)) as last_agent_activity,
+            MAX(i.updated_at) as last_issue_activity
+     FROM projects p
+     LEFT JOIN task_runs tr ON tr.project_id = p.id
+     LEFT JOIN issues i ON i.project_id = p.id
+     WHERE p.id IN (${placeholders})
+     GROUP BY p.id`
+  ).all(...projectIds) as Array<{ id: string; last_agent_activity: string | null; last_issue_activity: string | null }>;
+  for (const row of rows) {
+    const times = [row.last_agent_activity, row.last_issue_activity].filter(Boolean) as string[];
+    map[row.id] = times.length ? times.sort().pop()! : null;
+  }
+  return map;
+}
+
 export function listProjectsPaged(
   db: Database.Database,
   context: ProjectRequestContext,
-  options: { withStats?: boolean; limit?: number; offset?: number } = {}
+  options: { withStats?: boolean; limit?: number; offset?: number; sort?: 'created' | 'activity' } = {}
 ): { projects: SerializedProject[]; total: number; limit: number; offset: number } {
   const limit = Math.max(1, Math.min(options.limit ?? 8, 100));
   const offset = Math.max(0, options.offset ?? 0);
   const total = countAccessibleProjects(db, context.user);
+  const sort = options.sort === 'activity' ? 'activity' : 'created';
 
-  const allProjects = listAccessibleProjects(db, context.user);
+  let allProjects = listAccessibleProjects(db, context.user);
+
+  if (sort === 'activity') {
+    const lastActivity = getProjectLastActivityMap(db, allProjects.map(p => p.id));
+    allProjects = [...allProjects].sort((a, b) => {
+      const aTime = lastActivity[a.id] || a.updated_at || '';
+      const bTime = lastActivity[b.id] || b.updated_at || '';
+      return bTime > aTime ? 1 : -1;
+    });
+  }
+
   const sliced = allProjects.slice(offset, offset + limit);
   const projects = sliced.map((project) => serializeProject(db, project, context));
 

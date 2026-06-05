@@ -116,6 +116,31 @@ export function registerProjectSuites(
       assert.ok(Array.isArray(body.projects));
     });
 
+    it("GET /api/projects/page sort=activity returns projects", async () => {
+      const { status, body } = await ctx.api("/api/projects/page?limit=10&sort=activity");
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.projects));
+      assert.equal(body.limit, 10);
+    });
+
+    it("GET /api/projects/page defaults sort=created", async () => {
+      const { status: s1, body: b1 } = await ctx.api("/api/projects/page?limit=10");
+      const { status: s2, body: b2 } = await ctx.api("/api/projects/page?limit=10&sort=created");
+      assert.equal(s1, 200);
+      assert.equal(s2, 200);
+      // Both should return same order (created is default)
+      assert.deepEqual(
+        b1.projects.map((p: any) => p.id),
+        b2.projects.map((p: any) => p.id)
+      );
+    });
+
+    it("GET /api/projects/page ignores invalid sort value", async () => {
+      const { status, body } = await ctx.api("/api/projects/page?sort=invalid");
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.projects));
+    });
+
     it("GET /api/projects/:id returns project", async () => {
       const { status, body } = await ctx.api("/api/projects/" + getProjectId());
       assert.equal(status, 200);

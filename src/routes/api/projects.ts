@@ -79,14 +79,16 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     });
   });
 
-  fastify.get<{ Querystring: { limit?: string; offset?: string; with_stats?: string } }>('/projects/page', async (request) => {
+  fastify.get<{ Querystring: { limit?: string; offset?: string; with_stats?: string; sort?: string } }>('/projects/page', async (request) => {
     const db = getDatabase();
     const limit = request.query.limit ? parseInt(request.query.limit, 10) : 8;
     const offset = request.query.offset ? parseInt(request.query.offset, 10) : 0;
+    const sort = request.query.sort === 'activity' ? 'activity' as const : 'created' as const;
     return listProjectsPaged(db, getProjectRequestContext(request), {
       limit,
       offset,
       withStats: request.query.with_stats !== '0',
+      sort,
     });
   });
 

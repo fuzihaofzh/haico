@@ -4,6 +4,7 @@ import { listAccessibleProjectIds, ProjectRequestContext } from '../project-acce
 import { listLatestProjectSetCostRows, parseCostContent, sumCostRows } from './costs';
 import { buildSqlPlaceholders, buildTimeBucketKey, parseBoundedLimit, toFiniteNumber } from './utils';
 import { deriveAgentRuntimeState, summarizeAgentRuntimeStates } from '../tasks/runtime-state';
+import { getProjectLastActivityMap } from './core';
 
 interface RemoteDashboardProjectRef {
   instance: RemoteInstanceRecord;
@@ -114,21 +115,7 @@ export async function getDashboardSummary(
       open_count: issueStats?.open_count || 0,
     };
 
-    const projectActivity = db.prepare(
-      `SELECT p.id,
-              MAX(COALESCE(tr.finished_at, tr.started_at, tr.created_at)) as last_agent_activity,
-              MAX(i.updated_at) as last_issue_activity
-       FROM projects p
-       LEFT JOIN task_runs tr ON tr.project_id = p.id
-       LEFT JOIN issues i ON i.project_id = p.id
-       WHERE p.id IN (${placeholders})
-       GROUP BY p.id`
-    ).all(...projectIds) as any[];
-
-    for (const row of projectActivity) {
-      const times = [row.last_agent_activity, row.last_issue_activity].filter(Boolean);
-      lastActivityMap[row.id] = times.length ? times.sort().pop()! : null;
-    }
+    Object.assign(lastActivityMap, getProjectLastActivityMap(db, projectIds));
   }
 
   const localCostTotals = sumCostRows(listLatestProjectSetCostRows(db, projectIds));

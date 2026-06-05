@@ -3,6 +3,7 @@ export {
   createProject,
   deleteProject,
   getProject,
+  getProjectLastActivityMap,
   listProjects,
   listProjectsPaged,
   normalizeOrchestratorEngine,
