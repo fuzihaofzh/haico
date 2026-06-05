@@ -8,6 +8,7 @@ import { buildProjectExport, buildProjectIssuesCsv, createProject, deleteProject
 import { createRemoteProject, findRemoteInstanceById, generateRemoteProjectMetadata, isLocalTargetInstanceId } from '../../services/remote-instances';
 import { RemoteInstanceNotFoundError, RemoteInstanceDisabledError } from '../../services/remote-instances/errors';
 import { triggerControllerOnDemand } from '../../services/issue/automation';
+import { listProjectExecutorProfiles } from '../../services/executors/profiles';
 
 export function registerProjectRoutes(fastify: FastifyInstance): void {
   fastify.get('/dashboard/summary', async (request) => {
@@ -163,6 +164,11 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
       reply.header('Content-Type', 'text/csv');
       reply.header('Content-Disposition', `attachment; filename="${result.fileName}"`);
       return result.csv;
+    });
+
+    projectReadScope.get<{ Params: { id: string } }>('/projects/:id/executor-profiles', async (request) => {
+      const db = getDatabase();
+      return { profiles: listProjectExecutorProfiles(db, request.params.id) };
     });
   });
 

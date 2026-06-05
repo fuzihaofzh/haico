@@ -125,6 +125,12 @@ export function resolveExecutorProfile(
   return fallback;
 }
 
+export function listProjectExecutorProfiles(db: Database.Database, projectId: string): ExecutorProfile[] {
+  return db.prepare(
+    'SELECT * FROM executor_profiles WHERE project_id = ? ORDER BY created_at'
+  ).all(projectId) as ExecutorProfile[];
+}
+
 export function snapshotExecutorConfig(
   db: Database.Database,
   profile: ExecutorProfile,

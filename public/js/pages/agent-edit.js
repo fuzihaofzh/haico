@@ -1,5 +1,7 @@
 // agent-edit.js — ES module for the agent edit page
-// URL pattern: /project/:pid/agent/:id/edit
+// URL patterns:
+//   /project/:pid/agent/:id/edit  — edit existing agent
+//   /project/:pid/agent/new/edit  — create new agent
 
 import { showToast } from '/public/js/components/toast.js';
 
@@ -7,6 +9,7 @@ import { showToast } from '/public/js/components/toast.js';
 
 let agentId = '';
 let projectId = '';
+let isNew = false;
 let agent = null;
 let project = null;
 let skillsList = [];
@@ -24,7 +27,14 @@ function parsePath() {
     return false;
   }
   projectId = decodeURIComponent(m[1]);
-  agentId = decodeURIComponent(m[2]);
+  const idOrNew = decodeURIComponent(m[2]);
+  if (idOrNew === 'new') {
+    isNew = true;
+    agentId = '';
+  } else {
+    isNew = false;
+    agentId = idOrNew;
+  }
   return true;
 }
 
@@ -43,22 +53,41 @@ async function apiFetch(url) {
 
 async function loadAll() {
   const root = document.getElementById('agent-edit-content');
-  root.innerHTML = renderLoading('Loading agent...');
+  root.innerHTML = renderLoading(isNew ? 'Preparing new agent...' : 'Loading agent...');
 
   try {
-    const [agentData, projectData, skillsData, profilesData, agentsData] = await Promise.all([
-      apiFetch(`/api/agents/${encodeURIComponent(agentId)}`),
+    const [projectData, skillsData, profilesData, agentsData] = await Promise.all([
       apiFetch(`/api/projects/${encodeURIComponent(projectId)}`),
       apiFetch('/api/skills'),
       apiFetch(`/api/projects/${encodeURIComponent(projectId)}/executor-profiles`),
       apiFetch(`/api/projects/${encodeURIComponent(projectId)}/agents`),
     ]);
 
-    agent = agentData;
     project = projectData;
     skillsList = skillsData || [];
-    executorProfiles = profilesData || [];
+    executorProfiles = profilesData?.profiles || profilesData || [];
     projectAgents = agentsData || [];
+
+    if (isNew) {
+      // Default values for new agent
+      const controller = projectAgents.find(a => a.is_controller);
+      agent = {
+        name: '',
+        role: '',
+        custom_instructions: '',
+        working_directory: '',
+        parent_agent_id: controller?.id || null,
+        is_controller: false,
+        paused: false,
+        capabilities_json: '[]',
+        context_json: '{}',
+        constraints_json: '{}',
+        executor_preferences_json: '{}',
+      };
+    } else {
+      const agentData = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`);
+      agent = agentData;
+    }
 
     renderPage();
   } catch (e) {
@@ -101,17 +130,20 @@ function renderPage() {
     projectLink.textContent = project?.name || 'Project';
   }
   if (agentLink) {
-    agentLink.href = `/agents/${encodeURIComponent(agentId)}`;
-    agentLink.textContent = agent.name || 'Agent';
+    agentLink.href = isNew ? `/project/${encodeURIComponent(projectId)}/agents` : `/agents/${encodeURIComponent(agentId)}`;
+    agentLink.textContent = isNew ? 'New Agent' : (agent.name || 'Agent');
   }
+
+  const pageTitle = isNew ? 'New Agent' : esc(agent.name);
+  const pageAvatar = isNew ? '' : html(roleAvatarHtml(agent.name, 32, project?.color));
 
   root.innerHTML = h`
     <div>
       <a class="edit-back-link" href="/project/${encodeURIComponent(projectId)}/agents">← Back to Agents</a>
 
       <div class="edit-page-title">
-        ${html(roleAvatarHtml(agent.name, 32, project?.color))}
-        <h2>${esc(agent.name)}</h2>
+        ${pageAvatar}
+        <h2>${html(pageTitle)}</h2>
         ${html(controllerTag)}
         ${html(statusHtml)}
       </div>
@@ -132,13 +164,13 @@ function renderPage() {
       <div class="tab-panel" data-panel="execution">
         ${html(renderExecutionTab(ro))}
       </div>
-      <div class="tab-panel" data-panel="advanced">
+      <div class="tab-panel" data-panel="advanced" ${isNew ? 'style="display:none"' : ''}>
         ${html(renderAdvancedTab(ro))}
       </div>
 
       <div class="save-bar">
         <button class="btn" id="btn-cancel" ${canManage ? '' : 'disabled'}>Cancel</button>
-        <button class="btn btn-primary" id="btn-save" ${canManage ? '' : 'disabled'}>Save</button>
+        <button class="btn btn-primary" id="btn-save" ${canManage ? '' : 'disabled'}>${isNew ? 'Create' : 'Save'}</button>
       </div>
     </div>
   `;
@@ -482,6 +514,11 @@ async function loadSystemPrompt() {
 // ─── Save Agent ───
 
 async function saveAgent(btn) {
+  if (isNew) {
+    await createNewAgent(btn);
+    return;
+  }
+
   if (dirty.size === 0) {
     showToast('No changes to save', 'info');
     return;
@@ -567,6 +604,61 @@ async function saveAgent(btn) {
       }
     } catch (e) {
       showToast('Failed to save: network error', 'error');
+    }
+  });
+}
+
+async function createNewAgent(btn) {
+  const name = document.getElementById('f-name')?.value?.trim();
+  if (!name) { showToast('Name is required', 'error'); return; }
+  const role = document.getElementById('f-role')?.value?.trim();
+  if (!role) { showToast('Role is required', 'error'); return; }
+
+  const checked = [];
+  document.querySelectorAll('#skills-list input[type="checkbox"][data-skill-id]').forEach(cb => {
+    if (cb.checked) checked.push(cb.dataset.skillId);
+  });
+  const constraints = getConstraints();
+  const val = parseInt(document.getElementById('f-max-concurrent')?.value, 10);
+  constraints.max_concurrent_tasks = isNaN(val) ? 1 : Math.max(1, val);
+  const execPrefs = getExecutorPrefs();
+  execPrefs.default_executor_profile_id = document.getElementById('f-executor-profile')?.value || null;
+  const ctx = getContext();
+  const intervalVal = parseInt(document.getElementById('f-scheduled-check-interval')?.value, 10);
+  if (!isNaN(intervalVal) && intervalVal >= 10) {
+    ctx.scheduled_check_interval_seconds = intervalVal;
+  }
+
+  const body = {
+    name,
+    role,
+    custom_instructions: document.getElementById('f-custom-instructions')?.value?.trim() || undefined,
+    working_directory: document.getElementById('f-workdir')?.value?.trim() || undefined,
+    parent_agent_id: document.getElementById('f-parent-agent')?.value || null,
+    capabilities_json: JSON.stringify(checked),
+    context_json: JSON.stringify(ctx),
+    constraints_json: JSON.stringify(constraints),
+    executor_preferences_json: JSON.stringify(execPrefs),
+  };
+
+  await withLoading(btn, async () => {
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/agents`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        const newAgent = await res.json();
+        showToast('Agent created', 'success');
+        location.href = `/project/${encodeURIComponent(projectId)}/agent/${newAgent.id}/edit`;
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'Failed to create agent', 'error');
+      }
+    } catch (e) {
+      showToast('Failed to create agent: network error', 'error');
     }
   });
 }
