@@ -458,6 +458,7 @@ function bindEvents(canManage) {
   // Cancel button
   const cancelBtn = document.getElementById('btn-cancel');
   if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
       dirty.clear();
       location.href = `/project/${encodeURIComponent(projectId)}/agents`;
     });
