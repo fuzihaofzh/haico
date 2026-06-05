@@ -405,6 +405,10 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('project/issues.html'));
   });
 
+  fastify.get('/project/:id/issues/new', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/issue-new.html'));
+  });
+
   fastify.get('/project/:id/activity', async (_request, reply) => {
     return reply.type('text/html').send(serveHtml('project/activity.html'));
   });

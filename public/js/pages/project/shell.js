@@ -216,6 +216,8 @@ function applyProjectManageState() {
     const el = document.getElementById(id);
     if (el) el.style.display = canManage ? '' : 'none';
   });
+  const newIssueBtn = document.getElementById('btn-new-issue');
+  if (newIssueBtn) newIssueBtn.href = projectPagePath('issues') + '/new';
   const deleteButton = document.getElementById('btn-delete-project');
   if (deleteButton) deleteButton.style.display = canDeleteProject() ? '' : 'none';
 

@@ -181,85 +181,14 @@ function searchIssues() {
 }
 
 
-
-const ISSUE_TEMPLATES = {
-  bug: { labels: 'bug', body: `## Problem Description\n\n## Steps to Reproduce\n1. \n2. \n\n## Expected Behavior\n\n## Actual Behavior\n` },
-  feature: { labels: 'feature', body: `## Background and Motivation\n\n## Requested Feature\n\n## Acceptance Criteria\n` },
-};
-
-function applyIssueTemplate(tpl) {
-  const t = ISSUE_TEMPLATES[tpl];
-  const bodyEl = document.getElementById('issue-body');
-  const labelsEl = document.getElementById('issue-labels');
-  if (t) {
-    bodyEl.value = t.body;
-    if (labelsEl && !labelsEl.value) labelsEl.value = t.labels;
-  } else {
-    bodyEl.value = '';
-  }
-}
-
-function showCreateIssueModal() {
-  if (!requireProjectManageAccess('Insufficient permission to create issue')) return;
-  document.getElementById('issue-title').value = '';
-  document.getElementById('issue-body').value = '';
-  document.getElementById('issue-labels').value = '';
-  const projectSel = document.getElementById('issue-project');
-  if (projectSel && projectData) {
-    projectSel.innerHTML = h`<option value="${projectId}">${projectData.name}</option>`;
-    projectSel.value = projectId;
-  }
-  const tplSel = document.getElementById('issue-template');
-  if (tplSel) tplSel.value = '';
-  const sel = document.getElementById('issue-assign');
-  if (sel) {
-    const controllerId = agentsData.find(a => a.is_controller)?.id || '';
-    sel.value = controllerId || '';
-  }
-  document.getElementById('createIssueModal').classList.add('active');
-  const issueBodyTextarea = document.getElementById('issue-body');
-  if (issueBodyTextarea) setupMentionAutocomplete(issueBodyTextarea, agentsData);
-  document.getElementById('issue-title')?.focus();
-}
-
-async function createIssue() {
-  if (!requireProjectManageAccess('Insufficient permission to create issue')) return;
-  const btn = document.querySelector('#createIssueModal button[onclick="createIssue()"]');
-  await withLoading(btn, async () => {
-    const assignedTo = document.getElementById('issue-assign').value.trim();
-    const body = {
-      title: document.getElementById('issue-title').value.trim(),
-      body: document.getElementById('issue-body').value.trim(),
-      created_by: 'user',
-      assigned_to: assignedTo,
-      labels: document.getElementById('issue-labels').value.trim() || undefined,
-    };
-    if (!assignedTo) { showToast('To is required', 'error'); document.getElementById('issue-assign').focus(); return; }
-    if (!body.title) { showToast('Subject is required', 'error'); return; }
-    const res = await fetch(projectApiPath('/issues'), { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { hideModal('createIssueModal'); loadIssues(); showToast('Issue created', 'success'); } else { const e = await res.json().catch(() => ({})); showToast(e.error || 'Failed to create', 'error'); }
-  });
-}
-
 // ─── Tabs ───
 
 
-async function hydrateIssueAgents(){
-  agentsData = await getProjectAgents().catch(() => []);
-  const sel = document.getElementById("issue-assign");
-  if (!sel) return;
-  const controllerId = agentsData.find(a => a.is_controller)?.id || "";
-  sel.innerHTML = h`<option value="">Select a recipient</option><option value="all">All (broadcast)</option><option value="user">User (me)</option>${html(
-    agentsData.map(a => h`<option value="${a.id}">${a.name}${a.is_controller ? " [controller]" : ""}</option>`).join('')
-  )}`;
-  if (controllerId) sel.value = controllerId;
-}
 let issueCount = 0;
 async function updateTabCounts() {}
 
 (async function initIssuesPage(){
   await loadProjectShell();
-  await hydrateIssueAgents();
   await loadIssues();
   const events = connectProjectEvents(projectId);
   events.on("issue_created", loadIssues);

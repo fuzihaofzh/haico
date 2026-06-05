@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Issue - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js"></script>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <style>
+    .new-issue-page { max-width: 720px; margin: 0 auto; padding: 24px 20px; }
+    .new-issue-page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .new-issue-page-header a { font-size: 13px; color: var(--text-secondary); text-decoration: none; }
+    .new-issue-page-header a:hover { color: var(--accent); }
+    .new-issue-page-header h2 { margin: 0; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <div class="new-issue-page">
+    <div class="new-issue-page-header">
+      <span class="breadcrumb">
+        <a href="/projects">Projects</a>
+        <span>/</span>
+        <a id="project-link" href="#">Project</a>
+        <span>/</span>
+        <a id="issues-link" href="#">Issues</a>
+        <span>/</span>
+        <span>New Issue</span>
+      </span>
+    </div>
+
+    <div class="compose-form">
+      <div class="compose-field">
+        <label for="f-assign">To</label>
+        <select id="f-assign">
+          <option value="">Select a recipient</option>
+        </select>
+      </div>
+      <div class="compose-field compose-subject-field">
+        <label for="f-title">Subject</label>
+        <input type="text" id="f-title" placeholder="Subject">
+      </div>
+      <div class="compose-field compose-body-field">
+        <label for="f-body">Message</label>
+        <textarea id="f-body" rows="10" placeholder="Write a message..."></textarea>
+      </div>
+      <div class="compose-options">
+        <div class="form-group">
+          <label for="f-template">Template</label>
+          <select id="f-template">
+            <option value="">Blank</option>
+            <option value="bug">Bug Report</option>
+            <option value="feature">Feature Request</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="f-labels">Labels (comma-separated)</label>
+          <input type="text" id="f-labels" placeholder="bug, urgent, feature">
+        </div>
+      </div>
+    </div>
+
+    <div class="compose-actions">
+      <a id="cancel-link" class="btn" style="text-decoration:none" href="#">Cancel</a>
+      <button class="btn btn-primary" id="btn-create">Create</button>
+    </div>
+  </div>
+
+  <script src="/public/js/shared/common.js"></script>
+  <script type="module" src="/public/js/components/toast.js"></script>
+  <script type="module" src="/public/js/components/confirm.js"></script>
+  <script type="module" src="/public/js/pages/project/issue-new.js"></script>
+</body>
+</html>
