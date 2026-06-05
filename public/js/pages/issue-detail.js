@@ -11,17 +11,16 @@ function parseIssuePath() {
 }
 
 function updateBreadcrumb(issue) {
-  const issuesLink = document.getElementById('issues-link');
   const projectLink = document.getElementById('project-link');
+  const issuesLink = document.getElementById('issues-link');
   const titleBreadcrumb = document.getElementById('issue-title-breadcrumb');
 
-  if (issuesLink) {
-    // Link back to project issues if we know the project, else inbox
-    issuesLink.href = issue?.project_id ? `/project/${issue.project_id}#issues` : '/inbox';
-  }
   if (projectLink && issue) {
     projectLink.href = `/project/${issue.project_id}`;
     projectLink.textContent = issue.project_name || 'Project';
+  }
+  if (issuesLink && issue) {
+    issuesLink.href = `/project/${issue.project_id}/issues`;
   }
   if (titleBreadcrumb && issue) {
     titleBreadcrumb.textContent = `#${issue.number}`;
