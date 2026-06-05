@@ -4,6 +4,7 @@ export {
   deleteProject,
   getProject,
   listProjects,
+  listProjectsPaged,
   normalizeOrchestratorEngine,
   serializeProject,
   updateProject,

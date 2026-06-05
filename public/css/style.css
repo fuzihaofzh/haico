@@ -4391,3 +4391,91 @@ header h1 span { color: var(--accent); }
 }
 
 /* Chat page layout handled by .chat-page-layout above */
+
+/* ── Pagination ── */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 8px 0;
+}
+.pagination:empty {
+  display: none;
+}
+.pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.pagination-btn:hover:not(.active):not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--text-secondary);
+}
+.pagination-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  cursor: default;
+}
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pagination-ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── Project Card Skeleton ── */
+.project-card-skeleton {
+  pointer-events: none;
+}
+.skeleton-line {
+  height: 14px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+.skeleton-line-title {
+  width: 55%;
+  height: 18px;
+  margin-bottom: 8px;
+}
+.skeleton-line-short {
+  width: 30%;
+  margin-bottom: 6px;
+}
+.skeleton-line-medium {
+  width: 80%;
+}
+.skeleton-line-stats {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+}
+.skeleton-line-stats .skeleton-line {
+  width: 60px;
+  height: 12px;
+}
+@keyframes skeleton-shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

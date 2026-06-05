@@ -87,6 +87,27 @@ export function listAccessibleProjects(
   ).all(user.id, user.id) as Project[];
 }
 
+export function countAccessibleProjects(
+  db: Database.Database,
+  user: User | null | undefined
+): number {
+  if (user?.role === 'admin') {
+    return (db.prepare('SELECT COUNT(*) as cnt FROM projects').get() as { cnt: number }).cnt;
+  }
+
+  if (!user) {
+    return 0;
+  }
+
+  return (db.prepare(
+    `SELECT COUNT(DISTINCT p.id) as cnt
+     FROM projects p
+     LEFT JOIN project_members pm
+       ON pm.project_id = p.id AND pm.user_id = ?
+     WHERE p.owner_id = ? OR pm.user_id IS NOT NULL`
+  ).get(user.id, user.id) as { cnt: number }).cnt;
+}
+
 export function listAccessibleProjectIds(
   db: Database.Database,
   user: User | null | undefined

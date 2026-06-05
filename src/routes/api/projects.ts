@@ -4,7 +4,7 @@ import { CreateProjectInput } from '../../types';
 import { getProjectRequestContext } from '../../middleware/request-context';
 import { assertProjectTaskDescription } from '../../services/projects/core';
 import { requireProjectAccessPrehandler } from '../prehandlers';
-import { buildProjectExport, buildProjectIssuesCsv, createProject, deleteProject, generateProjectMetadata, getDashboardActivityStream, getDashboardSummary, getProject, getProjectActivity, getProjectCosts, getProjectGitLog, getTodayCost, getUsageByProject, listDashboardAgents, listProjectMembers, listProjectOrchestrationRuns, listProjects, removeProjectMember, updateProject, updateProjectMemberRole, upsertProjectMember } from '../../services/projects';
+import { buildProjectExport, buildProjectIssuesCsv, createProject, deleteProject, generateProjectMetadata, getDashboardActivityStream, getDashboardSummary, getProject, getProjectActivity, getProjectCosts, getProjectGitLog, getTodayCost, getUsageByProject, listDashboardAgents, listProjectMembers, listProjectOrchestrationRuns, listProjects, listProjectsPaged, removeProjectMember, updateProject, updateProjectMemberRole, upsertProjectMember } from '../../services/projects';
 import { createRemoteProject, findRemoteInstanceById, generateRemoteProjectMetadata, isLocalTargetInstanceId } from '../../services/remote-instances';
 import { RemoteInstanceNotFoundError, RemoteInstanceDisabledError } from '../../services/remote-instances/errors';
 import { triggerControllerOnDemand } from '../../services/issue/automation';
@@ -76,6 +76,17 @@ export function registerProjectRoutes(fastify: FastifyInstance): void {
     const db = getDatabase();
     return listProjects(db, getProjectRequestContext(request), {
       withStats: request.query.with_stats === '1',
+    });
+  });
+
+  fastify.get<{ Querystring: { limit?: string; offset?: string; with_stats?: string } }>('/projects/page', async (request) => {
+    const db = getDatabase();
+    const limit = request.query.limit ? parseInt(request.query.limit, 10) : 8;
+    const offset = request.query.offset ? parseInt(request.query.offset, 10) : 0;
+    return listProjectsPaged(db, getProjectRequestContext(request), {
+      limit,
+      offset,
+      withStats: request.query.with_stats !== '0',
     });
   });
 

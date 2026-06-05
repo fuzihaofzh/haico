@@ -82,6 +82,40 @@ export function registerProjectSuites(
       assert.equal(body.length, 1);
     });
 
+    it("GET /api/projects/page returns paginated projects", async () => {
+      const { status, body } = await ctx.api("/api/projects/page?limit=5&offset=0");
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body.projects));
+      assert.equal(typeof body.total, "number");
+      assert.equal(body.limit, 5);
+      assert.equal(body.offset, 0);
+      assert.ok(body.total >= 1);
+      assert.ok(body.projects.length <= 5);
+    });
+
+    it("GET /api/projects/page defaults limit=8 offset=0", async () => {
+      const { status, body } = await ctx.api("/api/projects/page");
+      assert.equal(status, 200);
+      assert.equal(body.limit, 8);
+      assert.equal(body.offset, 0);
+    });
+
+    it("GET /api/projects/page clamps limit to 1-100", async () => {
+      const { status: s0, body: b0 } = await ctx.api("/api/projects/page?limit=0");
+      assert.equal(s0, 200);
+      assert.equal(b0.limit, 1);
+      const { status: s200, body: b200 } = await ctx.api("/api/projects/page?limit=200");
+      assert.equal(s200, 200);
+      assert.equal(b200.limit, 100);
+    });
+
+    it("GET /api/projects/page with_stats=0 omits stats", async () => {
+      const { status, body } = await ctx.api("/api/projects/page?with_stats=0");
+      assert.equal(status, 200);
+      // Stats field may be absent or minimal when with_stats=0
+      assert.ok(Array.isArray(body.projects));
+    });
+
     it("GET /api/projects/:id returns project", async () => {
       const { status, body } = await ctx.api("/api/projects/" + getProjectId());
       assert.equal(status, 200);

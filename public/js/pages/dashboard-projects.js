@@ -1,21 +1,20 @@
-import { initDashboardPage, invalidateDashboardProjects, loadDashboardProjects, loadDashboardSummary, setupDashboardWS } from './dashboard-core.js';
+import { initDashboardPage, invalidateDashboardProjects, loadDashboardSummary, setupDashboardWS } from './dashboard-core.js';
 import { showToast } from '../components/toast.js';
 
 let _currentUser = null;
 let _lastActivityMap = {};
 let _dashboardProjectsById = {};
-let _dashboardProjectsLoadPromise = null;
 let _activityStreamData = [];
 let _activityStreamCollapsed = false;
 let _agentBoardFilter = 'running';
 let _agentBoardData = [];
+let _currentPage = 1;
+let _totalCount = 0;
+const PAGE_SIZE = 8;
 
 function openProjectCard(projectId) {
   const project = _dashboardProjectsById[projectId];
   if (project) window.location.href = buildProjectPageHref(project.id);
-}
-function getLocalDashboardProjects() {
-  return Object.values(_dashboardProjectsById || {}).filter((project) => project && !isRemoteProject(project));
 }
 
 const PROJECT_ACCESS_META = {
@@ -66,153 +65,218 @@ async function loadProjectsSummary() {
   if (data) _lastActivityMap = data.last_activity || {};
 }
 
-async function loadProjects(options = {}) {
-  if (_dashboardProjectsLoadPromise) return _dashboardProjectsLoadPromise;
 
-  const container = document.getElementById('projects');
-  _dashboardProjectsLoadPromise = (async () => {
-    try {
-      const projects = await loadDashboardProjects({ force: options.force === true });
-      _dashboardProjectsById = Object.fromEntries(projects.map((project) => [project.id, project]));
-      populateActivityProjectFilter();
-      if (!projects.length) {
-        if (container) container.innerHTML = h`<div class="empty-state">No projects yet. Create one to get started.</div>`;
-        return projects;
-      }
+function renderSkeleton(container) {
+  container.innerHTML = Array.from({ length: PAGE_SIZE }, () => h`
+    <div class="card project-card project-card-skeleton">
+      <div class="skeleton-line skeleton-line-title"></div>
+      <div class="skeleton-line skeleton-line-short"></div>
+      <div class="skeleton-line skeleton-line-medium"></div>
+      <div class="skeleton-line-stats">
+        <div class="skeleton-line"></div>
+        <div class="skeleton-line"></div>
+      </div>
+    </div>
+  `).join('');
+}
 
-      if (!container) return projects;
-      // Preserve quick-cmd input values before re-render
-      const savedInputs = {};
-      container.querySelectorAll('.quick-cmd-input').forEach(input => {
-        if (input.value) savedInputs[input.id] = input.value;
-      });
-      const savedBodies = {};
-      container.querySelectorAll('.quick-cmd-body').forEach(ta => {
-        if (ta.value) savedBodies[ta.id] = ta.value;
-      });
-      const focusedEl = document.activeElement;
-      const focusedId = (focusedEl?.classList.contains('quick-cmd-input') || focusedEl?.classList.contains('quick-cmd-body')) ? focusedEl.id : null;
-
-      container.innerHTML = projects.map(p => {
-        const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
-        const remote = isRemoteProject(p);
-        const link = buildProjectPageHref(p.id);
-        const access = remote
-          ? { badge: 'REMOTE', tone: 'remote', summary: 'Remote instance', detail: `Connected via ${p.remote_instance_name || p.remote_base_url || 'remote instance'}` }
-          : getProjectAccessMeta(p);
-        const ownerName = remote ? (p.remote_instance_name || 'Remote instance') : displayProjectUser(p.owner);
-        const ownerRole = remote ? 'Remote HAICO' : (p.owner?.role === 'admin' ? 'Global Admin' : 'Project Member');
-        const memberCount = Number.isFinite(p.member_count) ? p.member_count : 0;
-        const toggleButton = !remote && p.can_manage
-          ? h`<button data-action="toggle-project-status" data-project-id="${p.id}" data-project-status="${p.status}" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>`
-          : '';
-        const userCount = remote ? 0 : (s.userIssues?.length || 0);
-        const notifBadge = userCount > 0
-          ? h`<a href="${link}/issues" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</a>`
-          : '';
-        const lastAct = remote ? p.updated_at : _lastActivityMap[p.id];
-        const activityText = lastAct ? timeAgo(lastAct) : null;
-        const activityLine = activityText
-          ? h`<div class="last-activity">Last activity: ${activityText}</div>`
-          : '';
-        const remoteSource = remote
-          ? h`<div class="project-card-source">Source: ${p.remote_instance_name || p.remote_base_url || 'Remote instance'}</div>`
-          : '';
-        const remoteChip = remote
-          ? h`<span class="meta-chip meta-chip-remote" title="Remote instance URL">${p.remote_base_url || ''}</span>`
-          : '';
-        const agentError = s.agentError > 0
-          ? h`<span style="color:var(--error)">${s.agentError} error</span>`
-          : '';
-        const quickCmdBar = !remote && p.can_manage ? h`
-          <div class="quick-cmd-bar" data-action="stop-card-open">
-            <div class="quick-cmd-row">
-              <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." data-action="quick-cmd-input" data-project-id="${p.id}">
-              <button class="quick-cmd-btn" data-action="send-quick-cmd" data-project-id="${p.id}" title="Send">&#9654;</button>
-            </div>
-            <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="Details (optional)..." rows="3" data-collapsed></textarea>
-          </div>
-        ` : '';
-        return h`
-        <div class="card project-card" style="cursor:pointer" data-action="open-project-card" data-project-id="${p.id}">
-          <div class="project-card-head">
-            <div class="project-card-main">
-              <strong class="project-card-title">${p.name}${html(notifBadge)}</strong>
-              ${html(remoteSource)}
-              <div class="project-card-tags">
-                <span class="permission-badge permission-${access.tone}" title="${access.summary}">${access.badge}</span>
-                <span class="meta-chip" title="Project owner">
-                  <span class="meta-chip-label">Owner</span>
-                  <span>${ownerName}</span>
-                </span>
-                ${html(remoteChip)}
-                <span class="meta-chip" title="Project member count">
-                  <span class="meta-chip-label">Members</span>
-                  <span>${memberCount}</span>
-                </span>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px">
-              <span class="status-badge status-${p.status}">${p.status}</span>
-              ${html(toggleButton)}
-            </div>
-          </div>
-          <div class="project-card-note">
-            <span>${access.detail}</span>
-            <span>·</span>
-            <span>${ownerRole}</span>
-          </div>
-          <p class="project-card-desc">${p.description || ''}</p>
-          <div class="project-card-stats">
-            <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm5 7c0-2.8-2.2-5-5-5s-5 2.2-5 5h10z"/></svg>
-              <span>${s.running} running</span>
-              <span style="opacity:0.5">/ ${s.agents}</span>
-              ${html(agentError)}
-            </div>
-            <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-              <span>${s.openIssues} open</span>
-              <span style="opacity:0.5">/ ${s.issues}</span>
-            </div>
-          </div>
-          ${html(activityLine)}
-          ${html(quickCmdBar)}
+function renderProjectCard(p) {
+  const s = p.stats || { agents: 0, running: 0, agentError: 0, issues: 0, openIssues: 0, userIssues: [] };
+  const remote = isRemoteProject(p);
+  const link = buildProjectPageHref(p.id);
+  const access = remote
+    ? { badge: 'REMOTE', tone: 'remote', summary: 'Remote instance', detail: `Connected via ${p.remote_instance_name || p.remote_base_url || 'remote instance'}` }
+    : getProjectAccessMeta(p);
+  const ownerName = remote ? (p.remote_instance_name || 'Remote instance') : displayProjectUser(p.owner);
+  const ownerRole = remote ? 'Remote HAICO' : (p.owner?.role === 'admin' ? 'Global Admin' : 'Project Member');
+  const memberCount = Number.isFinite(p.member_count) ? p.member_count : 0;
+  const toggleButton = !remote && p.can_manage
+    ? h`<button data-action="toggle-project-status" data-project-id="${p.id}" data-project-status="${p.status}" title="${p.status === 'active' ? 'Pause' : 'Resume'}" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;padding:2px 6px;line-height:1">${p.status === 'active' ? '⏸' : '▶'}</button>`
+    : '';
+  const userCount = remote ? 0 : (s.userIssues?.length || 0);
+  const notifBadge = userCount > 0
+    ? h`<a href="${link}/issues" style="background:var(--error);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;cursor:pointer;margin-left:6px" title="${userCount} issue(s) need your attention">${userCount}</a>`
+    : '';
+  const lastAct = remote ? p.updated_at : _lastActivityMap[p.id];
+  const activityText = lastAct ? timeAgo(lastAct) : null;
+  const activityLine = activityText
+    ? h`<div class="last-activity">Last activity: ${activityText}</div>`
+    : '';
+  const remoteSource = remote
+    ? h`<div class="project-card-source">Source: ${p.remote_instance_name || p.remote_base_url || 'Remote instance'}</div>`
+    : '';
+  const remoteChip = remote
+    ? h`<span class="meta-chip meta-chip-remote" title="Remote instance URL">${p.remote_base_url || ''}</span>`
+    : '';
+  const agentError = s.agentError > 0
+    ? h`<span style="color:var(--error)">${s.agentError} error</span>`
+    : '';
+  const quickCmdBar = !remote && p.can_manage ? h`
+    <div class="quick-cmd-bar" data-action="stop-card-open">
+      <div class="quick-cmd-row">
+        <input type="text" class="quick-cmd-input" id="quick-cmd-${p.id}" placeholder="Quick command..." data-action="quick-cmd-input" data-project-id="${p.id}">
+        <button class="quick-cmd-btn" data-action="send-quick-cmd" data-project-id="${p.id}" title="Send">&#9654;</button>
+      </div>
+      <textarea class="quick-cmd-body" id="quick-cmd-body-${p.id}" placeholder="Details (optional)..." rows="3" data-collapsed></textarea>
+    </div>
+  ` : '';
+  return h`
+  <div class="card project-card" style="cursor:pointer" data-action="open-project-card" data-project-id="${p.id}">
+    <div class="project-card-head">
+      <div class="project-card-main">
+        <strong class="project-card-title">${p.name}${html(notifBadge)}</strong>
+        ${html(remoteSource)}
+        <div class="project-card-tags">
+          <span class="permission-badge permission-${access.tone}" title="${access.summary}">${access.badge}</span>
+          <span class="meta-chip" title="Project owner">
+            <span class="meta-chip-label">Owner</span>
+            <span>${ownerName}</span>
+          </span>
+          ${html(remoteChip)}
+          <span class="meta-chip" title="Project member count">
+            <span class="meta-chip-label">Members</span>
+            <span>${memberCount}</span>
+          </span>
         </div>
-      `}).join('');
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="status-badge status-${p.status}">${p.status}</span>
+        ${html(toggleButton)}
+      </div>
+    </div>
+    <div class="project-card-note">
+      <span>${access.detail}</span>
+      <span>·</span>
+      <span>${ownerRole}</span>
+    </div>
+    <p class="project-card-desc">${p.description || ''}</p>
+    <div class="project-card-stats">
+      <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm5 7c0-2.8-2.2-5-5-5s-5 2.2-5 5h10z"/></svg>
+        <span>${s.running} running</span>
+        <span style="opacity:0.5">/ ${s.agents}</span>
+        ${html(agentError)}
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <span>${s.openIssues} open</span>
+        <span style="opacity:0.5">/ ${s.issues}</span>
+      </div>
+    </div>
+    ${html(activityLine)}
+    ${html(quickCmdBar)}
+  </div>
+  `;
+}
 
-      // Restore quick-cmd input values after re-render
-      for (const [id, value] of Object.entries(savedInputs)) {
-        const input = document.getElementById(id);
-        if (input) {
-          input.value = value;
-          // Also restore body textarea visibility
-          const pId = id.replace('quick-cmd-', '');
-          const body = document.getElementById('quick-cmd-body-' + pId);
-          if (body) body.removeAttribute('data-collapsed');
-        }
-      }
-      for (const [id, value] of Object.entries(savedBodies)) {
-        const ta = document.getElementById(id);
-        if (ta) ta.value = value;
-      }
-      if (focusedId) {
-        const el = document.getElementById(focusedId);
-        if (el) el.focus();
-      }
-      return projects;
-    } catch (e) {
-      if (container) {
-        container.innerHTML = h`<div class="empty-state"></div>`;
-        container.querySelector('.empty-state').textContent = 'Error loading projects: ' + e.message;
-      }
-      return [];
-    } finally {
-      _dashboardProjectsLoadPromise = null;
+function renderPagination(current, totalPages) {
+  const container = document.getElementById('projects-pagination');
+  if (!container || totalPages <= 1) {
+    if (container) container.innerHTML = '';
+    return;
+  }
+
+  // Build page number list with ellipsis
+  const pages = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (current > 3) pages.push('...');
+    for (let i = Math.max(2, current - 1); i <= Math.min(totalPages - 1, current + 1); i++) {
+      pages.push(i);
     }
-  })();
+    if (current < totalPages - 2) pages.push('...');
+    pages.push(totalPages);
+  }
 
-  return _dashboardProjectsLoadPromise;
+  let html = '';
+  // Previous button
+  html += h`<button class="pagination-btn" data-action="goto-page" data-page="${current - 1}" ${current <= 1 ? 'disabled' : ''}>&larr;</button>`;
+  // Page buttons
+  for (const p of pages) {
+    if (p === '...') {
+      html += h`<span class="pagination-ellipsis">...</span>`;
+    } else {
+      html += h`<button class="pagination-btn ${p === current ? 'active' : ''}" data-action="goto-page" data-page="${p}">${p}</button>`;
+    }
+  }
+  // Next button
+  html += h`<button class="pagination-btn" data-action="goto-page" data-page="${current + 1}" ${current >= totalPages ? 'disabled' : ''}>&rarr;</button>`;
+  container.innerHTML = html;
+}
+
+async function loadProjectsPage(page = 1) {
+  const container = document.getElementById('projects');
+  if (!container) return;
+
+  // Show skeleton while loading
+  renderSkeleton(container);
+  document.getElementById('projects-pagination')?.replaceChildren();
+
+  const offset = (page - 1) * PAGE_SIZE;
+  try {
+    const res = await fetch(`/api/projects/page?limit=${PAGE_SIZE}&offset=${offset}&with_stats=1`, { headers: apiHeaders() });
+    if (!res.ok) throw new Error('Failed to load projects');
+    const data = await res.json();
+    const { projects, total } = data;
+    _totalCount = total;
+    _currentPage = page;
+
+    // Merge into the shared by-id map for activity filter and quick-cmd
+    for (const p of projects) _dashboardProjectsById[p.id] = p;
+    populateActivityProjectFilter();
+
+    const totalPages = Math.ceil(total / PAGE_SIZE);
+    // Clamp page if total decreased
+    if (page > totalPages && totalPages > 0) {
+      return loadProjectsPage(totalPages);
+    }
+
+    if (!projects.length) {
+      container.innerHTML = h`<div class="empty-state">No projects yet. Create one to get started.</div>`;
+      renderPagination(1, totalPages);
+      return;
+    }
+
+    // Preserve quick-cmd input values before re-render
+    const savedInputs = {};
+    container.querySelectorAll('.quick-cmd-input').forEach(input => {
+      if (input.value) savedInputs[input.id] = input.value;
+    });
+    const savedBodies = {};
+    container.querySelectorAll('.quick-cmd-body').forEach(ta => {
+      if (ta.value) savedBodies[ta.id] = ta.value;
+    });
+    const focusedEl = document.activeElement;
+    const focusedId = (focusedEl?.classList.contains('quick-cmd-input') || focusedEl?.classList.contains('quick-cmd-body')) ? focusedEl.id : null;
+
+    container.innerHTML = projects.map(p => renderProjectCard(p)).join('');
+
+    // Restore quick-cmd input values after re-render
+    for (const [id, value] of Object.entries(savedInputs)) {
+      const input = document.getElementById(id);
+      if (input) {
+        input.value = value;
+        const pId = id.replace('quick-cmd-', '');
+        const body = document.getElementById('quick-cmd-body-' + pId);
+        if (body) body.removeAttribute('data-collapsed');
+      }
+    }
+    for (const [id, value] of Object.entries(savedBodies)) {
+      const ta = document.getElementById(id);
+      if (ta) ta.value = value;
+    }
+    if (focusedId) {
+      const el = document.getElementById(focusedId);
+      if (el) el.focus();
+    }
+
+    renderPagination(page, totalPages);
+  } catch (e) {
+    container.innerHTML = h`<div class="empty-state"></div>`;
+    container.querySelector('.empty-state').textContent = 'Error loading projects: ' + e.message;
+  }
 }
 
 async function toggleProjectStatus(projectId, currentStatus) {
@@ -228,7 +292,7 @@ async function toggleProjectStatus(projectId, currentStatus) {
     if (res.ok) {
       invalidateDashboardProjects();
       showToast('Status updated', 'success');
-      loadProjects({ force: true });
+      loadProjectsPage(_currentPage);
     }
     else showToast('Failed to update status', 'error');
   } catch { showToast('Network error', 'error'); }
@@ -269,7 +333,7 @@ async function sendQuickCmd(projectId) {
       body: JSON.stringify({ title: msg, body: bodyText || msg, created_by: 'user', assigned_to: controllerId })
     });
     if (res.ok) {
-      // Re-query DOM elements: loadProjects() may have re-rendered during await,
+      // Re-query DOM elements: loadProjectsPage() may have re-rendered during await,
       // replacing the original elements with new ones
       const curInput = document.getElementById('quick-cmd-' + projectId);
       const curBody = document.getElementById('quick-cmd-body-' + projectId);
@@ -366,17 +430,25 @@ async function loadActivityStream() {
   }
 }
 
-function populateActivityProjectFilter() {
+async function populateActivityProjectFilter() {
   var filter = document.getElementById('activity-project-filter');
   if (!filter) return;
   var current = filter.value;
-  var options = h`<option value="">All Projects</option>`;
-  for (var p of getLocalDashboardProjects()) {
-    var id = p.id;
-    var selectedAttr = id === current ? h` selected` : '';
-    options += h`<option value="${id}"${html(selectedAttr)}>${p.name}</option>`;
+  try {
+    const res = await fetch('/api/projects', { headers: apiHeaders() });
+    if (!res.ok) return;
+    const allProjects = await res.json();
+    var options = h`<option value="">All Projects</option>`;
+    for (var p of allProjects) {
+      if (p.is_remote) continue;
+      var id = p.id;
+      var selectedAttr = id === current ? h` selected` : '';
+      options += h`<option value="${id}"${html(selectedAttr)}>${p.name}</option>`;
+    }
+    filter.innerHTML = options;
+  } catch (e) {
+    console.error('Failed to populate activity filter', e);
   }
-  filter.innerHTML = options;
 }
 
 function toggleActivityStream() {
@@ -476,6 +548,12 @@ function bindProjectsEvents() {
       filterAgentBoard(actionEl.dataset.status || 'running');
     } else if (action === 'toggle-activity-stream') {
       toggleActivityStream();
+    } else if (action === 'goto-page') {
+      const page = parseInt(actionEl.dataset.page || '1', 10);
+      if (page >= 1 && page !== _currentPage) {
+        document.getElementById('projects')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        loadProjectsPage(page);
+      }
     }
   });
   document.body.addEventListener('input', (event) => {
@@ -493,7 +571,7 @@ function bindProjectsEvents() {
 }
 
 async function refreshProjectsPage() {
-  await Promise.all([loadProjectsSummary(), loadProjects({ force: true }), loadAgentBoard(), loadActivityStream()]);
+  await Promise.all([loadProjectsSummary(), loadProjectsPage(_currentPage), loadAgentBoard(), loadActivityStream()]);
 }
 
 function startProjectsPolling() {

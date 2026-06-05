@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { config } from '../../config';
 import { Agent, CommandProfile, CreateProjectInput, OrchestratorEngine, Project } from '../../types';
 import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
-import { getProjectPermission, listAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-access';
+import { getProjectPermission, listAccessibleProjects, countAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-access';
 import logger, { AppLogger } from '../../logger';
 import {
   InvalidProjectOrchestratorEngineError,
@@ -125,6 +125,26 @@ export function listProjects(
 
   if (!options.withStats || projects.length === 0) return projects;
   return attachProjectStats(db, projects);
+}
+
+export function listProjectsPaged(
+  db: Database.Database,
+  context: ProjectRequestContext,
+  options: { withStats?: boolean; limit?: number; offset?: number } = {}
+): { projects: SerializedProject[]; total: number; limit: number; offset: number } {
+  const limit = Math.max(1, Math.min(options.limit ?? 8, 100));
+  const offset = Math.max(0, options.offset ?? 0);
+  const total = countAccessibleProjects(db, context.user);
+
+  const allProjects = listAccessibleProjects(db, context.user);
+  const sliced = allProjects.slice(offset, offset + limit);
+  const projects = sliced.map((project) => serializeProject(db, project, context));
+
+  const result = options.withStats && projects.length > 0
+    ? attachProjectStats(db, projects)
+    : projects;
+
+  return { projects: result, total, limit, offset };
 }
 
 function attachProjectStats(db: Database.Database, projects: SerializedProject[]): SerializedProject[] {
