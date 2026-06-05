@@ -61,7 +61,7 @@ function renderActivityList(projects) {
     .filter(([, time]) => time)
     .map(([id, time]) => {
       const p = projectById[id];
-      return { name: p?.name || id, id, time: time! };
+      return { name: p?.name || id, id, time };
     })
     .sort((a, b) => b.time > a.time ? 1 : -1)
     .slice(0, 10);
