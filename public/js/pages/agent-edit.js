@@ -107,7 +107,7 @@ function renderPage() {
 
   root.innerHTML = h`
     <div>
-      <a class="edit-back-link" href="/agents/${encodeURIComponent(agentId)}">← Back to Agent</a>
+      <a class="edit-back-link" href="/project/${encodeURIComponent(projectId)}/agents">← Back to Agents</a>
 
       <div class="edit-page-title">
         ${html(roleAvatarHtml(agent.name, 32, project?.color))}
@@ -458,9 +458,8 @@ function bindEvents(canManage) {
   // Cancel button
   const cancelBtn = document.getElementById('btn-cancel');
   if (cancelBtn) {
-    cancelBtn.addEventListener('click', () => {
       dirty.clear();
-      renderPage();
+      location.href = `/project/${encodeURIComponent(projectId)}/agents`;
     });
   }
 }
@@ -560,7 +559,7 @@ async function saveAgent(btn) {
       if (res.ok) {
         showToast('Saved', 'success');
         dirty.clear();
-        await loadAll();
+        location.href = `/project/${encodeURIComponent(projectId)}/agents`;
       } else {
         const err = await res.json().catch(() => ({}));
         showToast(err.error || 'Failed to save', 'error');

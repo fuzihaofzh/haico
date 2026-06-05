@@ -495,7 +495,7 @@ async function loadAgents(options) {
         }).join(''))}</div>`
       : (a.status !== 'error' ? h`<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);opacity:0.5">Idle - no active tasks</div>` : '');
     return h`
-    <li class="agent-item" style="cursor:pointer;padding-left:${indent}px;${selected}${pausedStyle}" onclick="viewAgent('${a.id}')">
+    <li class="agent-item" style="cursor:pointer;padding-left:${indent}px;${selected}${pausedStyle}" onclick="location.href='/project/${projectId}/agent/${a.id}/edit'">
       <div style="flex-shrink:0;margin-right:8px">${html(roleAvatarHtml(a.name, 32, projectData?.color))}</div>
       <div class="agent-info">
         <div class="agent-name">${html(spinner)}${a.name}${html(tag)}</div>
@@ -1364,7 +1364,7 @@ function renderHierarchyAgentGraph(container, graphContext) {
     const metaParts = [statusLabel, assignedCount > 0 ? assignedCount + ' tasks' : null, childCount > 0 ? childCount + ' child' : null].filter(Boolean).join(' · ');
     const pausedAttr = agent.paused ? h` stroke-dasharray="4,4"` : '';
 
-    svg += h`<g style="cursor:pointer" onclick="viewAgent('${agent.id}')">
+    svg += h`<g style="cursor:pointer" onclick="location.href='/project/${projectId}/agent/${agent.id}/edit'">
       <rect x="${position.x - nodeW / 2}" y="${position.y - nodeH / 2}" width="${nodeW}" height="${nodeH}" rx="8" fill="${color}22" stroke="${color}" stroke-width="${dispatched ? '2.8' : '2'}"${html(pausedAttr)}>${html(pulse)}</rect>
       <text x="${position.x}" y="${position.y - 2}" text-anchor="middle" fill="var(--fg)" font-size="11" font-weight="600">${agent.name}</text>
       <text x="${position.x}" y="${position.y + 12}" text-anchor="middle" fill="${dispatched ? 'var(--accent)' : color}" font-size="8.5">${metaParts || statusLabel}</text>
@@ -1526,7 +1526,7 @@ window.addEventListener("haico:command-profiles-changed", () => {
   await loadAgents();
   const params = new URLSearchParams(window.location.search);
   const agentId = params.get("agent");
-  if (agentId) viewAgent(agentId);
+  if (agentId) location.href = `/project/${projectId}/agent/${agentId}/edit`;
   setInterval(() => { loadAgents(); }, 30000);
   const events = connectProjectEvents(projectId);
   events.on("agent_status", function(data) {
