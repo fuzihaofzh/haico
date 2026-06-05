@@ -437,6 +437,10 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('agent.html'));
   });
 
+  fastify.get('/project/:pid/agent/:id/edit', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('agent-edit.html'));
+  });
+
   fastify.get('/terminal', async (_request, reply) => {
     return reply.type('text/html').send(serveHtml('terminal.html'));
   });

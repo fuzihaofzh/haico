@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HAICO - Edit Agent</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js"></script>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <style>
+    .edit-page-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .edit-page-title h2 {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .edit-page-title .controller-tag {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .edit-page-title .status-badge {
+      font-size: 11px;
+    }
+    .edit-back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+    }
+    .edit-back-link:hover { color: var(--accent); }
+    .tab-bar { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 20px; gap: 0; }
+    .tab {
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border: none;
+      background: none;
+      border-bottom: 2px solid transparent;
+      font-family: inherit;
+    }
+    .tab:hover { color: var(--fg); background: var(--selected-bg); }
+    .tab.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      opacity: 0.6;
+      margin-bottom: 4px;
+    }
+    .form-group input[type="text"],
+    .form-group input[type="number"],
+    .form-group textarea,
+    .form-group select {
+      width: 100%;
+      padding: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 13px;
+      color: var(--fg);
+      font-family: inherit;
+      outline: none;
+    }
+    .form-group input:focus,
+    .form-group textarea:focus,
+    .form-group select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(38,139,210,0.15);
+    }
+    .form-group textarea { resize: vertical; }
+    .form-group input[readonly],
+    .form-group textarea[readonly],
+    .form-group select[disabled] {
+      opacity: 0.7;
+      cursor: default;
+    }
+    .form-group .hint {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 3px;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    .readonly-info {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .readonly-info-item {
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .readonly-info-item .label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      opacity: 0.6;
+      margin-bottom: 2px;
+    }
+    .readonly-info-item .value {
+      font-size: 13px;
+      color: var(--fg);
+    }
+    .skill-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .skill-item:last-child { border-bottom: none; }
+    .skill-item input[type="checkbox"] {
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+    .skill-item-label {
+      flex: 1;
+      min-width: 0;
+    }
+    .skill-item-label .skill-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--fg);
+    }
+    .skill-item-label .skill-desc {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 1px;
+    }
+    .skill-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .skill-badge.trigger {
+      background: rgba(181,137,0,0.15);
+      color: var(--warning);
+    }
+    .skill-badge.action {
+      background: rgba(38,139,210,0.15);
+      color: var(--accent);
+    }
+    .skill-config {
+      margin: 6px 0 0 22px;
+      display: none;
+    }
+    .skill-config.visible { display: block; }
+    .skill-config input[type="number"] {
+      width: 100px;
+      padding: 4px 8px;
+      font-size: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--fg);
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .toggle-switch {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+    .toggle-switch.on { background: var(--success); border-color: var(--success); }
+    .toggle-knob {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform .15s;
+    }
+    .toggle-switch.on .toggle-knob { transform: translateX(18px); }
+    .copy-id-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .copy-id-row code {
+      font-size: 12px;
+      padding: 4px 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .copy-btn {
+      font-size: 11px;
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--header-bg);
+      color: var(--fg);
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .sysprompt-toggle {
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      opacity: 0.6;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+    .sysprompt-toggle:hover { opacity: 0.8; }
+    .sysprompt-content {
+      padding: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 11px;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--text-secondary);
+      display: none;
+    }
+    .sysprompt-content.visible { display: block; }
+    .save-bar {
+      position: sticky;
+      bottom: 0;
+      background: var(--header-bg);
+      border-top: 1px solid var(--border);
+      padding: 12px 20px;
+      margin: 20px -20px 0;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .save-bar .btn-primary { min-width: 100px; }
+    .debug-textarea {
+      font-family: monospace;
+      font-size: 11px;
+      min-height: 100px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="breadcrumb" style="margin-left:12px">
+      <a href="/projects">Projects</a> / <a id="project-link" href="#">Project</a> / <a id="agent-link" href="#">Agent</a> / <span>Edit</span>
+    </div>
+    <div class="header-right">
+      <div id="user-menu"></div>
+    </div>
+  </header>
+
+  <main class="container" style="max-width:860px;margin:0 auto;padding:24px 20px">
+    <div id="agent-edit-content">
+      Loading...
+    </div>
+  </main>
+
+  <script src="/public/js/shared/common.js"></script>
+  <script type="module" src="/public/js/components/toast.js"></script>
+  <script type="module" src="/public/js/components/confirm.js"></script>
+  <script type="module" src="/public/js/pages/agent-edit.js"></script>
+</body>
+</html>

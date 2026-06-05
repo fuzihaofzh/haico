@@ -10,6 +10,7 @@ import { registerMessageRoutes } from './messages';
 import { registerProjectRoutes } from './projects';
 import { registerRemoteInstanceRoutes } from './remote';
 import { registerSettingsRoutes } from './settings';
+import { registerSkillRoutes } from './skills';
 import { registerTemplateRoutes } from './templates';
 
 // Protected business API routes only.
@@ -28,4 +29,5 @@ export async function registerApiRoutes(fastify: FastifyInstance): Promise<void>
   registerRemoteInstanceRoutes(fastify);
   registerDashboardChatRoutes(fastify);
   registerSettingsRoutes(fastify);
+  registerSkillRoutes(fastify);
 }

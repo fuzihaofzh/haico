@@ -587,6 +587,7 @@ async function viewAgent(agentId) {
     const detailActions = canManage && !isRemoteProjectView
       ? h`
               <button class="btn btn-sm" onclick="openTerminal('${agentId}')" title="Open terminal chat">Chat</button>
+              <a class="btn btn-sm" href="/project/${projectId}/agent/${agentId}/edit" title="Edit agent configuration">Edit</a>
               ${(agent.runtime_state || {}).status === 'error' && (agent.runtime_state || {}).last_task_run_id ? html(h`<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>`) : ''}
       `
       : '';

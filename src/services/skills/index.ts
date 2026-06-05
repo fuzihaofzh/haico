@@ -13,6 +13,7 @@ export type {
 export {
   registerSkill,
   getSkill,
+  listSkills,
   parseCapabilities,
   resolvePromptFragment,
   registerBuiltinSkills,

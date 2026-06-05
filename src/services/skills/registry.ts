@@ -23,6 +23,15 @@ export function getSkill(id: string): SkillDefinition | undefined {
   return skills.get(id);
 }
 
+export function listSkills(): Array<{ id: string; description: string; hasTrigger: boolean; hasAction: boolean }> {
+  return Array.from(skills.values()).map(s => ({
+    id: s.id,
+    description: s.description,
+    hasTrigger: !!s.triggerHandler,
+    hasAction: !!s.actionHandler,
+  }));
+}
+
 /**
  * Resolve the prompt fragment for a skill given a context.
  * Handles both static strings and dynamic builder functions.
