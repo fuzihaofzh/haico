@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Knowledge Entry - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js"></script>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <style>
+    .knowledge-edit-page { max-width: 720px; margin: 0 auto; padding: 24px 20px; }
+    .knowledge-edit-page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .knowledge-edit-page-header a { font-size: 13px; color: var(--text-secondary); text-decoration: none; }
+    .knowledge-edit-page-header a:hover { color: var(--accent); }
+    .knowledge-edit-page-header h2 { margin: 0; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <div class="knowledge-edit-page">
+    <div class="knowledge-edit-page-header">
+      <span class="breadcrumb">
+        <a href="/projects">Projects</a>
+        <span>/</span>
+        <a id="project-link" href="#">Project</a>
+        <span>/</span>
+        <a id="knowledge-link" href="#">Knowledge</a>
+        <span>/</span>
+        <span id="breadcrumb-label">New Entry</span>
+      </span>
+    </div>
+
+    <div class="compose-form">
+      <div class="compose-field compose-subject-field">
+        <label for="f-title">Title</label>
+        <input type="text" id="f-title" placeholder="Knowledge entry title">
+      </div>
+      <div class="compose-field compose-body-field">
+        <label for="f-content">Content</label>
+        <textarea id="f-content" rows="12" placeholder="Knowledge content (Markdown supported)..."></textarea>
+      </div>
+      <div class="compose-options">
+        <div class="form-group">
+          <label for="f-tags">Tags (comma-separated)</label>
+          <input type="text" id="f-tags" placeholder="architecture, convention, api">
+        </div>
+        <div class="form-group">
+          <label for="f-importance">Importance</label>
+          <select id="f-importance">
+            <option value="high">High — auto-injected on agent start</option>
+            <option value="medium" selected>Medium — queryable on demand</option>
+            <option value="low">Low — reference</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="compose-actions">
+      <a id="cancel-link" class="btn" style="text-decoration:none" href="#">Cancel</a>
+      <button class="btn btn-primary" id="btn-save">Save</button>
+    </div>
+  </div>
+
+  <script src="/public/js/shared/common.js"></script>
+  <script type="module" src="/public/js/components/toast.js"></script>
+  <script type="module" src="/public/js/components/confirm.js"></script>
+  <script type="module" src="/public/js/pages/project/knowledge-edit.js"></script>
+</body>
+</html>

@@ -421,6 +421,14 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('project/knowledge.html'));
   });
 
+  fastify.get('/project/:id/knowledge/new', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/knowledge-edit.html'));
+  });
+
+  fastify.get('/project/:id/knowledge/:kid/edit', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('project/knowledge-edit.html'));
+  });
+
   fastify.get('/project/:id/files', async (_request, reply) => {
     return reply.type('text/html').send(serveHtml('project/files.html'));
   });

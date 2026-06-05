@@ -218,6 +218,8 @@ function applyProjectManageState() {
   });
   const newIssueBtn = document.getElementById('btn-new-issue');
   if (newIssueBtn) newIssueBtn.href = projectPagePath('issues') + '/new';
+  const newKnowledgeBtn = document.getElementById('btn-new-knowledge');
+  if (newKnowledgeBtn) newKnowledgeBtn.href = projectPagePath('knowledge') + '/new';
   const deleteButton = document.getElementById('btn-delete-project');
   if (deleteButton) deleteButton.style.display = canDeleteProject() ? '' : 'none';
 

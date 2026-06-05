@@ -84,43 +84,12 @@
             <option value="low">Low</option>
           </select>
         </div>
-        <button class="btn btn-primary" id="btn-new-knowledge" onclick="showCreateKnowledgeModal()" style="display:none">+ Add Knowledge</button>
+        <a class="btn btn-primary" id="btn-new-knowledge" href="#" style="display:none;text-decoration:none">+ Add Knowledge</a>
       </div>
       <div id="knowledge-list" class="card">
         <div class="empty-state">Loading...</div>
       </div>
     </div>
-
-  <div class="modal-overlay" id="knowledgeModal">
-    <div class="modal" style="max-width:600px">
-      <h3 id="knowledge-modal-title">Add Knowledge Entry</h3>
-      <input type="hidden" id="knowledge-edit-id">
-      <div class="form-group">
-        <label>Title</label>
-        <input type="text" id="knowledge-title" placeholder="Knowledge entry title">
-      </div>
-      <div class="form-group">
-        <label>Content</label>
-        <textarea id="knowledge-content" rows="8" placeholder="Knowledge content (Markdown supported)..."></textarea>
-      </div>
-      <div class="form-group">
-        <label>Tags (comma-separated)</label>
-        <input type="text" id="knowledge-tags" placeholder="architecture, convention, api">
-      </div>
-      <div class="form-group">
-        <label>Importance</label>
-        <select id="knowledge-importance">
-          <option value="high">High — auto-injected on agent start</option>
-          <option value="medium" selected>Medium — queryable on demand</option>
-          <option value="low">Low — reference</option>
-        </select>
-      </div>
-      <div class="modal-actions">
-        <button class="btn" onclick="hideModal('knowledgeModal')">Cancel</button>
-        <button class="btn btn-primary" onclick="saveKnowledge()">Save</button>
-      </div>
-    </div>
-  </div>
 
   </main>
 

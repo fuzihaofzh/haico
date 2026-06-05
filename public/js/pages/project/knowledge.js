@@ -54,7 +54,7 @@ function renderKnowledgeEntry(entry, canManage) {
 
   const actions = row.querySelector('[data-slot="actions"]');
   if (canManage) {
-    row.querySelector('[data-action="edit-knowledge"]').addEventListener('click', () => editKnowledge(entry.id));
+    row.querySelector('[data-action="edit-knowledge"]').addEventListener('click', () => { location.href = projectPagePath('knowledge') + '/' + encodeURIComponent(entry.id) + '/edit'; });
     row.querySelector('[data-action="delete-knowledge"]').addEventListener('click', () => deleteKnowledge(entry.id));
   } else {
     actions.remove();
@@ -73,57 +73,6 @@ function createKnowledgeTag(label) {
   return tag;
 }
 
-function showCreateKnowledgeModal() {
-  if (!requireProjectManageAccess('Insufficient permission to add knowledge')) return;
-  document.getElementById('knowledge-modal-title').textContent = 'Add Knowledge Entry';
-  document.getElementById('knowledge-edit-id').value = '';
-  document.getElementById('knowledge-title').value = '';
-  document.getElementById('knowledge-content').value = '';
-  document.getElementById('knowledge-tags').value = '';
-  document.getElementById('knowledge-importance').value = 'medium';
-  document.getElementById('knowledgeModal').classList.add('active');
-}
-
-async function editKnowledge(id) {
-  if (!requireProjectManageAccess('Insufficient permission to edit knowledge')) return;
-  try {
-    const res = await fetch(buildKnowledgeApiPath(id), { headers: apiHeaders() });
-    if (!res.ok) return;
-    const e = await res.json();
-    document.getElementById('knowledge-modal-title').textContent = 'Edit Knowledge Entry';
-    document.getElementById('knowledge-edit-id').value = id;
-    document.getElementById('knowledge-title').value = e.title || '';
-    document.getElementById('knowledge-content').value = e.content || '';
-    document.getElementById('knowledge-tags').value = e.tags || '';
-    document.getElementById('knowledge-importance').value = e.importance || 'medium';
-    document.getElementById('knowledgeModal').classList.add('active');
-  } catch { showToast('Failed to load', 'error'); }
-}
-
-async function saveKnowledge() {
-  if (!requireProjectManageAccess('Insufficient permission to save knowledge')) return;
-  const id = document.getElementById('knowledge-edit-id').value;
-  const body = {
-    title: document.getElementById('knowledge-title').value,
-    content: document.getElementById('knowledge-content').value,
-    tags: document.getElementById('knowledge-tags').value,
-    importance: document.getElementById('knowledge-importance').value,
-  };
-  if (!body.title) { showToast('Title is required', 'error'); return; }
-  try {
-    const url = id ? buildKnowledgeApiPath(id) : projectApiPath('/knowledge');
-    const method = id ? 'PUT' : 'POST';
-    const res = await fetch(url, { method, headers: { ...apiHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (res.ok) {
-      hideModal('knowledgeModal');
-      showToast(id ? 'Updated' : 'Created', 'success');
-      loadKnowledge();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      showToast(err.error || 'Failed to save', 'error');
-    }
-  } catch { showToast('Failed to save', 'error'); }
-}
 
 async function deleteKnowledge(id) {
   if (!requireProjectManageAccess('Insufficient permission to delete knowledge')) return;
