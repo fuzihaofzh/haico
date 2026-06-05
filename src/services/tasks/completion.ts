@@ -3,7 +3,7 @@ import logger from '../../logger';
 import { Agent, Project, Task, TaskRunStatus } from '../../types';
 import { eventBus } from '../../events';
 import { v4 as uuidv4 } from 'uuid';
-import { stopCliTaskRun } from '../executors/cli-executor';
+import { getRunTracker } from '../adapters/run-tracker';
 
 function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -89,7 +89,7 @@ export function handleTaskRunExit(input: {
   failureKind?: string | null;
   failureMessage?: string | null;
 }): void {
-  stopCliTaskRun(input.taskRunId);
+  getRunTracker().stop(input.taskRunId);
   completeTaskRun(input);
 }
 

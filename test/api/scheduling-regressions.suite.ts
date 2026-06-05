@@ -1082,10 +1082,7 @@ JSON
       assert.match(String(promptLog.content || ''), /TAIL_SESSION/);
     });
 
-    it('低产出 run 不触发 cooldown，agent 运行完毕后恢复 idle（cooldown 和低产出跟踪已移除）', async () => {
-      const { isAgentInCooldown } = await import(
-        '../../src/services/process-manager'
-      );
+    it('低产出 run 后 agent 运行完毕恢复 idle（cooldown 和低产出跟踪已移除）', async () => {
       const agentId = await createMockWorker(`cooldown-worker-${Date.now()}`);
 
       const startRes = await ctx.api(`/api/agents/${agentId}/start`, {
@@ -1099,8 +1096,6 @@ JSON
         (status) => status !== 'running' && status !== 'waiting'
       );
       assert.equal(finalState.status, 'idle');
-      // Cooldown is disabled — always returns false
-      assert.equal(isAgentInCooldown(agentId), false);
     });
 
     it('低产出 session 尾巴检测已移除，agent 正常完成后变为 idle', async () => {

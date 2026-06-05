@@ -5,7 +5,7 @@ import { buildSystemPrompt } from '../system-prompt';
 import { getAgentOrThrow, getProjectOrThrow } from '../agents/core';
 import { AgentAlreadyRunningError, AgentPausedError, AgentPromptUnavailableError, AgentRetryPromptMissingError } from '../agents/errors';
 import { resolveExecutorProfile, snapshotExecutorConfig } from '../executors/profiles';
-import { startCliTaskRun } from '../executors/cli-executor';
+import { getAdapterRegistry } from '../adapters';
 import { handleTaskRunExit } from './completion';
 import { getAgentRuntimeState } from './runtime-state';
 
@@ -257,7 +257,12 @@ export function runTaskImmediately(
     throw err;
   }
 
-  const result = startCliTaskRun({
+  const executorSnapshot = claimed.executorSnapshot as any;
+  const adapter = getAdapterRegistry().resolveFromCommand(
+    executorSnapshot.command_template || '',
+    executorSnapshot.command_type,
+  );
+  const result = adapter.start({
     agent: claimed.agent,
     taskId: claimed.task.id,
     taskRunId: claimed.taskRunId,
@@ -265,7 +270,9 @@ export function runTaskImmediately(
     runId: claimed.runId,
     prompt: claimed.task.prompt,
     systemPrompt: claimed.task.system_prompt,
-    executor: claimed.executorSnapshot as any,
+    executor: executorSnapshot,
+  }, {
+    onEvent() {},
   });
 
   return {
@@ -273,7 +280,7 @@ export function runTaskImmediately(
     task_id: claimed.task.id,
     task_run_id: claimed.taskRunId,
     run_id: result.runId,
-    pid: result.pid,
+    pid: result.pid ?? 0,
   };
 }
 

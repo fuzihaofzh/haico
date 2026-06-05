@@ -9,7 +9,7 @@ import { config } from './config';
 import { getDatabase, closeDatabase } from './db/database';
 import { registerRoutes } from './routes/route';
 import { initializeScheduler, stopAllSchedulers } from './scheduler';
-import { stopAllCliTaskRuns } from './services/executors/cli-executor';
+import { getRunTracker } from './services/adapters/run-tracker';
 import { killAllPtySessions } from './services/terminal';
 import { clearAllPtyCleanupTimers, handleWebSocketError } from './realtime';
 import { setupErrorHandler } from './middleware/error-handler';
@@ -85,7 +85,7 @@ export async function destroyApp(fastify: FastifyInstance): Promise<void> {
   clearCoalescingTimers();
 
   stopAllSchedulers();
-  await stopAllCliTaskRuns();
+  await getRunTracker().stopAll();
   clearAllPtyCleanupTimers();
   killAllPtySessions();
   await fastify.close();

@@ -2,7 +2,7 @@ import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { config } from '../config';
 import { getDirectChildAgents, loadProjectHierarchyAgents } from './agents/hierarchy';
-import { resolveCommandType } from './command-profiles';
+import { getAdapterRegistry } from './adapters';
 import { deriveAgentRuntimeStatus } from './tasks/runtime-state';
 import { getSkill, parseCapabilities, resolvePromptFragment } from './skills';
 
@@ -11,8 +11,8 @@ const BASE_URL = () => `http://localhost:${config.port}`;
 export function buildSystemPrompt(agent: Agent, project: Project): string {
   const db = getDatabase();
   const base = BASE_URL();
-  const effectiveCommand = (agent.command_template || project.command_template || config.defaultCommandTemplate || '').trim().toLowerCase();
-  const effectiveCommandType = resolveCommandType(agent.command_type, effectiveCommand);
+  const effectiveCommand = (agent.command_template || project.command_template || config.defaultCommandTemplate || '').trim();
+  const adapter = getAdapterRegistry().resolveFromCommand(effectiveCommand, agent.command_type);
   const C = 'env -u LD_PRELOAD curl';
 
   // ── Header: identity (always present, not skill-driven) ──
@@ -70,17 +70,8 @@ ${agentList || '  (none)'}${hierarchyNotes.length > 0 ? `\n\n### Hierarchy\n${hi
     }
   }
 
-  // ── Tool execution constraints (executor-type dependent, not skill-driven) ──
-  const toolExecutionSection = effectiveCommandType === 'codex'
-    ? `
-## Codex 执行约束
-- 对于需要持续运行、后续还要继续交互的命令，第一次就必须使用带 \`tty: true\` 的交互会话。典型例子：dev server、\`tail -f\`、\`watch\`、REPL、\`ssh\`、\`sqlite3\` 交互模式、\`google-chrome --headless --remote-debugging-port=...\`。
-- 只有在拿到交互命令返回的 \`session_id\` 之后，才能继续对该会话调用 \`write_stdin\`。不要对已经结束、没有 tty、或 stdin 已关闭的命令会话继续写入。
-- 如果命令只是一次性执行，不需要后续交互，就不要再调用 \`write_stdin\`；直接等待命令完成并读取输出。
-- 需要后台服务时，优先把"启动 + 检查 + 清理"放进同一个一次性脚本里完成；除非明确需要持续交互，否则不要把浏览器、服务器、调试端口单独常驻后再尝试补写 stdin。
-- 如果你看到 \`stdin is closed for this session\`、\`write_stdin failed\` 或类似提示，立刻放弃旧会话，重新创建新的 tty 会话，不要沿用出错会话。
-- 做 UI/浏览器验证时，优先使用一次性脚本完成完整验证流程；只有在确实需要保持进程存活时才开交互 tty。`
-    : '';
+  // ── Tool execution constraints (adapter-type dependent, not skill-driven) ──
+  const toolExecutionSection = adapter.buildSystemPromptSection(agent, project);
 
   // ── Agent-level sections (not skill-driven) ──
   const customSection = agent.custom_instructions

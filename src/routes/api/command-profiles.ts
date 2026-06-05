@@ -5,16 +5,15 @@ import {
   createCommandProfile,
   updateCommandProfile,
   deleteCommandProfile,
-  resolveCommandType,
   RemoteCommandProfileCheckError,
 } from '../../services/command-profiles';
+import { getAdapterRegistry } from '../../services/adapters';
 import {
   checkRemoteCommandProfile,
   findRemoteInstanceById,
   isLocalTargetInstanceId,
 } from '../../services/remote-instances';
 import { RemoteInstanceNotFoundError, RemoteInstanceDisabledError } from '../../services/remote-instances/errors';
-import { inspectToolReadiness } from '../../services/tool-readiness';
 import { requireAdminRolePrehandler } from '../prehandlers';
 
 export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
@@ -40,7 +39,7 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
       Body: { command?: string; type?: string | null; target_instance_id?: string | null };
     }>('/command-profiles/check', async (request) => {
       const command = String(request.body?.command || '').trim();
-      const type = resolveCommandType(request.body?.type, command);
+      const adapter = getAdapterRegistry().resolveFromCommand(command, request.body?.type);
       const targetInstanceId = String(request.body?.target_instance_id || '').trim();
 
       if (!isLocalTargetInstanceId(targetInstanceId)) {
@@ -49,7 +48,7 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
         if (!remoteInstance) throw new RemoteInstanceNotFoundError();
         if (!remoteInstance.enabled) throw new RemoteInstanceDisabledError();
 
-        const result = await checkRemoteCommandProfile(remoteInstance, { command, type });
+        const result = await checkRemoteCommandProfile(remoteInstance, { command, type: adapter.type });
         if (!result.ok) {
           throw new RemoteCommandProfileCheckError(
             result.error || 'Failed to inspect CLI on remote instance',
@@ -60,10 +59,7 @@ export function registerCommandProfileRoutes(fastify: FastifyInstance): void {
         return result.data;
       }
 
-      return inspectToolReadiness({
-        commandTemplate: command,
-        commandType: type,
-      });
+      return adapter.inspectReadiness(command);
     });
 
     profileRoutes.register((adminScope, _opts, adminDone) => {

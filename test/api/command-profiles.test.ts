@@ -1,10 +1,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createAgentTask } from '../../src/services/tasks';
-import {
-  buildControllerCommandConfig,
-} from '../../src/services/command-profiles';
-import { buildAgentProcessCommand } from '../../src/services/process-manager/command';
+import { getAdapterRegistry } from '../../src/services/adapters/registry';
 import { getDatabase } from '../../src/db/database';
 import { createApiTestHarness, type ApiTestHarness } from './helpers';
 
@@ -70,9 +67,12 @@ describe('Command profiles', () => {
   });
 
   it('keeps legacy command defaults for empty config and applies structured config when present', () => {
-    const legacyClaude = buildAgentProcessCommand({
-      toolPath: 'cld',
-      resolvedCommandType: 'claude',
+    const registry = getAdapterRegistry();
+    const claudeAdapter = registry.resolveFromCommand('cld', 'claude');
+    const codexAdapter = registry.resolveFromCommand('codex', 'codex');
+
+    const legacyClaude = claudeAdapter.buildProcessCommand({
+      commandTemplate: 'cld',
       sessionId: 'run-1',
       existingSessionId: null,
       commandProfileConfigJson: '{}',
@@ -82,43 +82,33 @@ describe('Command profiles', () => {
       'cld -p --output-format stream-json --verbose --session-id run-1 --dangerously-skip-permissions --allowedTools "Bash Edit Read Write Glob Grep NotebookEdit WebFetch WebSearch Agent"'
     );
 
-    const configuredClaude = buildAgentProcessCommand({
-      toolPath: 'cld',
-      resolvedCommandType: 'claude',
+    const configuredClaude = claudeAdapter.buildProcessCommand({
+      commandTemplate: 'cld',
       sessionId: 'run-1',
       existingSessionId: null,
-      commandProfileConfigJson: { model: 'claude-opus', allowedTools: ['Read', 'Grep'], verbose: true },
+      commandProfileConfigJson: JSON.stringify({ model: 'claude-opus', allowedTools: ['Read', 'Grep'], verbose: true }),
     });
     assert.match(configuredClaude.command, /--model 'claude-opus'/);
     assert.match(configuredClaude.command, /--allowedTools 'Read Grep'/);
     assert.match(configuredClaude.command, /--verbose/);
     assert.doesNotMatch(configuredClaude.command, /NotebookEdit/);
 
-    const configuredCodex = buildAgentProcessCommand({
-      toolPath: 'codex',
-      resolvedCommandType: 'codex',
+    const configuredCodex = codexAdapter.buildProcessCommand({
+      commandTemplate: 'codex',
       sessionId: 'run-1',
       existingSessionId: null,
-      commandProfileConfigJson: { sandbox: 'workspace-write', skipGitRepoCheck: true, bypassApprovals: true },
+      commandProfileConfigJson: JSON.stringify({ sandbox: 'workspace-write', skipGitRepoCheck: true, bypassApprovals: true }),
     });
     assert.equal(
       configuredCodex.command,
       "codex exec --json --sandbox 'workspace-write' --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
     );
 
-    const legacyController = buildControllerCommandConfig({
-      commandTemplate: 'cld',
-      commandType: 'claude',
-      commandProfileConfigJson: '{}',
-    });
-    assert.equal(legacyController.commandTemplate, 'cld --model claude-sonnet-4-6');
+    const legacyController = claudeAdapter.buildControllerCommand('cld', '{}');
+    assert.equal(legacyController, 'cld --model claude-sonnet-4-6');
 
-    const configuredController = buildControllerCommandConfig({
-      commandTemplate: 'cld',
-      commandType: 'claude',
-      commandProfileConfigJson: { model: 'claude-opus' },
-    });
-    assert.equal(configuredController.commandTemplate, "cld --model 'claude-opus'");
+    const configuredController = claudeAdapter.buildControllerCommand('cld', { model: 'claude-opus' });
+    assert.equal(configuredController, "cld --model 'claude-opus'");
   });
 
   it('snapshots latest profile config for new tasks without mutating existing task snapshots', async () => {

@@ -797,8 +797,9 @@ describe('Task runtime', () => {
     const { workerId } = await createProject('sh -c "echo not used"');
     const { createManualAgentTask, runTaskRunWatchdogScan } = await import('../../src/services/tasks');
     const { FINAL_RESULT_KILL_DELAY_MS } = await import('../../src/services/process-manager');
-    const state = await import('../../src/services/process-manager/state');
+    const { getRunningProcesses, getLastActivityTime, getAgentFinalResultTime } = await import('../../src/services/adapters/base-cli-adapter');
     const { getDatabase } = await import('../../src/db/database');
+    const { getRunTracker } = await import('../../src/services/adapters/run-tracker');
     const db = getDatabase();
     const task = createManualAgentTask(workerId, { prompt: 'final result linger task' });
     const taskRunId = 'final-result-linger-run';
@@ -818,9 +819,21 @@ describe('Task runtime', () => {
       'linger-command'
     );
     db.prepare("UPDATE tasks SET status = 'running', current_task_run_id = ? WHERE id = ?").run(taskRunId, task.id);
-    state.runningProcesses.set(taskRunId, { kill() {} } as any);
-    state.lastActivityTime.set(taskRunId, Date.now());
-    state.agentFinalResultTime.set(workerId, Date.now() - FINAL_RESULT_KILL_DELAY_MS - 1000);
+    const runningProcesses = getRunningProcesses();
+    const lastActivityTime = getLastActivityTime();
+    const agentFinalResultTime = getAgentFinalResultTime();
+    runningProcesses.set(taskRunId, { kill() {} } as any);
+    lastActivityTime.set(taskRunId, Date.now());
+    agentFinalResultTime.set(workerId, Date.now() - FINAL_RESULT_KILL_DELAY_MS - 1000);
+
+    // Register a mock adapter in the run-tracker so watchdog sees this as running
+    const mockAdapter = {
+      type: 'mock',
+      isRunning: () => true,
+      getIdleMs: () => 0,
+      stop: () => true,
+    } as any;
+    getRunTracker().register(taskRunId, mockAdapter);
 
     const result = runTaskRunWatchdogScan(db);
     assert.equal(result.completedAfterFinalResult, 1);
@@ -831,8 +844,9 @@ describe('Task runtime', () => {
     assert.equal(taskRun.failure_kind, null);
     assert.equal(completedTask.status, 'completed');
 
-    state.runningProcesses.delete(taskRunId);
-    state.lastActivityTime.delete(taskRunId);
-    state.agentFinalResultTime.delete(workerId);
+    runningProcesses.delete(taskRunId);
+    lastActivityTime.delete(taskRunId);
+    agentFinalResultTime.delete(workerId);
+    getRunTracker().unregister(taskRunId);
   });
 });

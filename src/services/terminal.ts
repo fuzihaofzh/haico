@@ -1,9 +1,8 @@
 
-import path from 'path';
 import { getDatabase } from '../db/database';
 import { Agent, Project } from '../types';
 import { config } from '../config';
-import { resolveCommandType } from './command-profiles';
+import { getAdapterRegistry } from './adapters';
 import { expandHomePath } from './file-management';
 import logger from '../logger';
 
@@ -20,61 +19,6 @@ export interface PtySession {
 // Map of agentId -> active PTY session
 const ptySessions = new Map<string, PtySession>();
 const PTY_OUTPUT_BUFFER_MAX = 200000;
-
-function splitCommandTemplate(template: string): string[] {
-  const tokens: string[] = [];
-  let current = '';
-  let quote: '"' | "'" | null = null;
-  let escape = false;
-
-  for (const ch of template) {
-    if (escape) {
-      current += ch;
-      escape = false;
-      continue;
-    }
-
-    if (quote === "'") {
-      if (ch === "'") quote = null;
-      else current += ch;
-      continue;
-    }
-
-    if (ch === '\\') {
-      escape = true;
-      continue;
-    }
-
-    if (quote === '"') {
-      if (ch === '"') quote = null;
-      else current += ch;
-      continue;
-    }
-
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      continue;
-    }
-
-    if (/\s/.test(ch)) {
-      if (current) {
-        tokens.push(current);
-        current = '';
-      }
-      continue;
-    }
-
-    current += ch;
-  }
-
-  if (escape) current += '\\';
-  if (current) tokens.push(current);
-  return tokens;
-}
-
-function needsShellExecution(template: string): boolean {
-  return /[|&;<>()`$]/.test(template);
-}
 
 /**
  * Get or create a PTY session for an agent.
@@ -123,10 +67,6 @@ export function getOrCreatePtySession(
     }
   }
 
-  const parsed = splitCommandTemplate(commandTemplate);
-  const baseCommand = parsed[0] || 'claude';
-  const baseArgs = parsed.slice(1);
-
   // Task runtime stores CLI continuity in executor_sessions, not legacy agents.session_id.
   const sessionRow = agent
     ? db.prepare(
@@ -134,15 +74,9 @@ export function getOrCreatePtySession(
       ).get(agent.id) as { session_id: string } | undefined
     : undefined;
   const sessionId = sessionRow?.session_id || undefined;
-  const resolvedCommandType = resolveCommandType(commandType, commandTemplate);
-  const isClaudeFamily = resolvedCommandType === 'claude';
-  const sessionArgs: string[] = [];
-  if (isClaudeFamily) {
-    sessionArgs.push('--dangerously-skip-permissions');
-    if (sessionId) {
-      sessionArgs.push('--resume', sessionId);
-    }
-  }
+
+  const adapter = getAdapterRegistry().resolveFromCommand(commandTemplate, commandType);
+  const ptyArgs = adapter.buildPtyArgs(commandTemplate, sessionId);
 
   const ptyOptions = {
     name: 'xterm-256color',
@@ -156,17 +90,15 @@ export function getOrCreatePtySession(
     } as Record<string, string>,
   };
 
-  const finalArgs = [...baseArgs, ...sessionArgs];
   let ptyProcess: import('node-pty').IPty;
 
-  if (needsShellExecution(commandTemplate)) {
-    const escapeArg = (arg: string): string => "'" + arg.replace(/'/g, "'\\''") + "'";
-    const shellCommand = [commandTemplate, ...sessionArgs.map(escapeArg)].join(' ');
+  if (ptyArgs.useShell) {
+    const shellCommand = [ptyArgs.command, ...ptyArgs.args].join(' ');
     logger.info(`Spawning PTY for agent ${agentId} via shell: ${shellCommand} in ${cwd}`);
     ptyProcess = pty.spawn('/bin/sh', ['-lc', shellCommand], ptyOptions);
   } else {
-    logger.info(`Spawning PTY for agent ${agentId}: ${baseCommand} ${finalArgs.join(' ')} in ${cwd}`);
-    ptyProcess = pty.spawn(baseCommand, finalArgs, ptyOptions);
+    logger.info(`Spawning PTY for agent ${agentId}: ${ptyArgs.command} ${ptyArgs.args.join(' ')} in ${cwd}`);
+    ptyProcess = pty.spawn(ptyArgs.command, ptyArgs.args, ptyOptions);
   }
 
   const session: PtySession = {

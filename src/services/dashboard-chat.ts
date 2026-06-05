@@ -4,8 +4,9 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import path from 'path';
 import { config } from '../config';
 import { getDatabase } from '../db/database';
-import { resolveCommandType, shellWords, shellQuote, shellQuoteLiteral, extractCommandBinary, resolveExecutableOnPath, resolveCodexScriptPath, trimString } from './command-profiles';
-import { classifyToolExecutionFailure, inspectToolReadiness } from './tool-readiness';
+import { getAdapterRegistry } from './adapters';
+import { trimString } from './command-profiles';
+import { classifyToolExecutionFailure } from './tool-readiness';
 
 export interface DashboardChatMessage {
   role: 'user' | 'assistant';
@@ -98,16 +99,13 @@ const MAX_HISTORY_MESSAGES = 12;
 const MAX_TOOL_RESULT_CHARS = 6000;
 const DEFAULT_CHAT_TIMEOUT_MS = 180000;
 
-function getDashboardChatTimeoutMs(commandType: string | null): number {
+function getDashboardChatTimeoutMs(commandTemplate: string, commandType: string | null): number {
   const configured = Number.parseInt(String(process.env.HAICO_DASHBOARD_CHAT_TIMEOUT_MS || ''), 10);
   if (Number.isFinite(configured) && configured > 0) {
     return configured;
   }
-
-  if (commandType === 'codex') return 240000;
-  if (commandType === 'claude') return 180000;
-  if (commandType === 'gemini') return 180000;
-  return DEFAULT_CHAT_TIMEOUT_MS;
+  const adapter = getAdapterRegistry().resolveFromCommand(commandTemplate, commandType);
+  return adapter.chatTimeoutMs;
 }
 
 function normalizeMessages(messages: DashboardChatMessage[] | undefined, latestMessage: string): DashboardChatMessage[] {
@@ -515,59 +513,11 @@ function parseAssistantEnvelope(rawOutput: string): AssistantEnvelope {
   throw new Error('The CLI returned an unknown action envelope');
 }
 
-function buildCliCommand(commandTemplate: string, commandType: string | null): { command: string; binary: string } {
-  const binary = extractCommandBinary(commandTemplate);
-  const lowerCommand = trimString(commandTemplate).toLowerCase();
-
-  if (commandType === 'claude') {
-    return { command: `${commandTemplate} -p`, binary };
-  }
-  if (commandType === 'gemini' || lowerCommand.startsWith('gemini')) {
-    return { command: `${commandTemplate} --output-format text -p`, binary };
-  }
-  if (commandType === 'codex') {
-    const words = shellWords(commandTemplate);
-    const hasExplicitExec = words.includes('exec');
-    const codexIndex = words.findIndex((word) => {
-      const base = path.basename(word).toLowerCase();
-      return base === 'codex' || base === 'codex.js';
-    });
-    if (codexIndex >= 0) {
-      const codexScriptPath = resolveCodexScriptPath(words[codexIndex]);
-      if (codexScriptPath) {
-        const launcherIndex = codexIndex > 0 && /^node(?:\.exe)?$/i.test(path.basename(words[codexIndex - 1]))
-          ? codexIndex - 1
-          : -1;
-        const rewrittenWords = [
-          ...words.slice(0, launcherIndex >= 0 ? launcherIndex : codexIndex),
-          process.execPath,
-          codexScriptPath,
-          ...words.slice(codexIndex + 1),
-        ];
-        if (!hasExplicitExec) {
-          rewrittenWords.push('exec', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-');
-        }
-        return {
-          command: rewrittenWords.map(shellQuote).join(' '),
-          binary: 'codex',
-        };
-      }
-    }
-    if (hasExplicitExec) {
-      return { command: commandTemplate, binary: 'codex' };
-    }
-    return {
-      command: `${commandTemplate} exec --sandbox workspace-write --skip-git-repo-check -`,
-      binary: 'codex',
-    };
-  }
-  return { command: commandTemplate, binary };
-}
-
 function runCliTurn(commandTemplate: string, commandType: string | null, prompt: string): string {
   const shell = fs.existsSync('/bin/bash') ? '/bin/bash' : '/bin/sh';
-  const cli = buildCliCommand(commandTemplate, commandType);
-  const timeoutMs = getDashboardChatTimeoutMs(commandType);
+  const adapter = getAdapterRegistry().resolveFromCommand(commandTemplate, commandType);
+  const cli = adapter.buildChatCommand(commandTemplate);
+  const timeoutMs = getDashboardChatTimeoutMs(commandTemplate, commandType);
   const result = spawnSync(shell, ['-lc', cli.command], {
     input: prompt,
     encoding: 'utf-8',
@@ -595,7 +545,7 @@ function runCliTurn(commandTemplate: string, commandType: string | null, prompt:
     const rawFailureText = trimString(output.meaningful || output.full || '');
     const failure = classifyToolExecutionFailure({
       error: rawFailureText || `CLI exited with ${result.status}`,
-      commandType: commandType as any,
+      commandType: adapter.type as any,
       binary: cli.binary,
     });
     const message = failure.code === 'execution_failed'
@@ -1104,7 +1054,7 @@ function resolveCommandSelection(input: DashboardChatInput): CommandSelection {
     }
     return {
       template: trimString(profile.command),
-      type: resolveCommandType(profile.type, profile.command),
+      type: getAdapterRegistry().resolveFromCommand(profile.command, profile.type).type,
       profileId: profile.id,
       profileName: trimString(profile.name) || 'Agent Tool',
     };
@@ -1114,7 +1064,7 @@ function resolveCommandSelection(input: DashboardChatInput): CommandSelection {
   if (inlineCommand) {
     return {
       template: inlineCommand,
-      type: resolveCommandType(input.command_type, inlineCommand),
+      type: getAdapterRegistry().resolveFromCommand(inlineCommand, input.command_type).type,
       profileId: null,
       profileName: 'Custom command',
     };
@@ -1128,7 +1078,7 @@ function resolveCommandSelection(input: DashboardChatInput): CommandSelection {
   if (firstProfile) {
     return {
       template: trimString(firstProfile.command),
-      type: resolveCommandType(firstProfile.type, firstProfile.command),
+      type: getAdapterRegistry().resolveFromCommand(firstProfile.command, firstProfile.type).type,
       profileId: firstProfile.id,
       profileName: trimString(firstProfile.name) || 'Agent Tool',
     };
@@ -1136,7 +1086,7 @@ function resolveCommandSelection(input: DashboardChatInput): CommandSelection {
 
   return {
     template: config.defaultCommandTemplate,
-    type: resolveCommandType(input.command_type, config.defaultCommandTemplate),
+    type: getAdapterRegistry().resolveFromCommand(config.defaultCommandTemplate, input.command_type).type,
     profileId: null,
     profileName: 'Default CLI',
   };
@@ -1153,10 +1103,8 @@ export async function runDashboardChatTurn(
   }
 
   const command = resolveCommandSelection(input);
-  const readiness = inspectToolReadiness({
-    commandTemplate: command.template,
-    commandType: command.type,
-  });
+  const adapter = getAdapterRegistry().resolveFromCommand(command.template, command.type);
+  const readiness = adapter.inspectReadiness(command.template);
   if (!readiness.binary_found) {
     throw new Error(
       readiness.issues.find((issue) => issue.code === 'missing_cli')?.detail

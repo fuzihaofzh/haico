@@ -1,10 +1,6 @@
 export {
   classifyAgentExitStatus,
 } from './exit-status';
-// Process-manager is now a low-level CLI helper surface; business code must use services/tasks.
-export {
-  isAgentInCooldown,
-} from './controls';
 export {
   checkChildCpuActivity,
   clearCpuSnapshot,

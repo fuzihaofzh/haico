@@ -1,6 +1,13 @@
 import fs from 'fs';
 import { CPU_STALE_THRESHOLD } from './policy';
-import { agentFinalResultTime, childCpuSnapshots } from './state';
+import { agentFinalResultTime } from './shared-state';
+
+// ── In-process state (previously in ./state.ts) ──
+interface CpuSnapshot {
+  totalCpuTime: number;
+  staleCount: number;
+}
+const childCpuSnapshots = new Map<string, CpuSnapshot>();
 
 export type ChildCpuActivity = 'active' | 'stale' | 'warming' | 'no_children';
 
@@ -77,4 +84,3 @@ export function getAgentFinalResultAge(agentId: string): number {
   const t = agentFinalResultTime.get(agentId);
   return t ? Date.now() - t : -1;
 }
-

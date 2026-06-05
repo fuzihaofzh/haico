@@ -2,7 +2,8 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../../config';
 import { Agent, CommandProfile, CreateProjectInput, OrchestratorEngine, Project } from '../../types';
-import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
+import { resolveCommandType } from '../command-profiles';
+import { getAdapterRegistry } from '../adapters';
 import { getProjectPermission, listAccessibleProjects, countAccessibleProjects, ProjectPermission, ProjectRequestContext } from '../project-access';
 import logger, { AppLogger } from '../../logger';
 import {
@@ -312,11 +313,10 @@ export function createProject(
 
     const controllerId = uuidv4();
     const controllerRole = input.controller_role || 'Main controller agent that manages and coordinates other agents';
-    const controllerCommandConfig = buildControllerCommandConfig({
-      commandTemplate: tmpl,
-      commandType: resolvedCommandType,
-      commandProfileConfigJson: commandProfile?.config_json,
-    });
+    const adapter = getAdapterRegistry().resolveFromCommand(tmpl, resolvedCommandType);
+    const controllerCommandTemplate = adapter.buildControllerCommand(tmpl, commandProfile?.config_json);
+    // Keep resolved type (not adapter.type) — 'shell' would violate DB CHECK constraint
+    const controllerCommandType = resolvedCommandType;
     db.prepare(`
       INSERT INTO agents (
         id, project_id, name, role, is_controller, working_directory,
@@ -335,8 +335,8 @@ export function createProject(
       JSON.stringify(['issue-tracking', 'knowledge-base', 'direct-message', 'agent-management']),
       executorPreferences,
       commandProfileId,
-      controllerCommandConfig.commandTemplate,
-      controllerCommandConfig.commandType
+      controllerCommandTemplate,
+      controllerCommandType
     );
 
     const assistantId = uuidv4();

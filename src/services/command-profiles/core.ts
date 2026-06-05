@@ -166,56 +166,6 @@ export function appendGeminiConfigArgs(commandTemplate: string, configValue: unk
   return parts.join(' ');
 }
 
-export function buildControllerCommandConfig(input: {
-  commandTemplate?: string | null;
-  commandType?: unknown;
-  commandProfileConfigJson?: string | Record<string, unknown> | null;
-  fallbackCommandTemplate?: string | null;
-  fallbackCommandType?: unknown;
-  fallbackCommandProfileConfigJson?: string | Record<string, unknown> | null;
-}): { commandTemplate: string; commandType: CommandProfileType | null } {
-  const baseCommandTemplate = String(input.commandTemplate || '').trim()
-    || String(input.fallbackCommandTemplate || '').trim()
-    || config.defaultCommandTemplate;
-  const explicitType = input.commandType !== undefined ? input.commandType : input.fallbackCommandType;
-  const commandType = resolveCommandType(explicitType, baseCommandTemplate);
-  const configValue = input.commandProfileConfigJson !== undefined
-    ? input.commandProfileConfigJson
-    : input.fallbackCommandProfileConfigJson;
-
-  if (commandType === 'claude' && isEmptyCommandProfileConfig(configValue) && !hasCommandFlag(baseCommandTemplate, '--model')) {
-    return {
-      commandTemplate: `${baseCommandTemplate} --model claude-sonnet-4-6`,
-      commandType,
-    };
-  }
-
-  if (commandType === 'claude') {
-    return {
-      commandTemplate: appendClaudeConfigArgs(baseCommandTemplate, configValue),
-      commandType,
-    };
-  }
-
-  if (commandType === 'codex') {
-    return {
-      commandTemplate: appendCodexConfigArgs(baseCommandTemplate, configValue),
-      commandType,
-    };
-  }
-
-  if (commandType === 'gemini') {
-    return {
-      commandTemplate: appendGeminiConfigArgs(baseCommandTemplate, configValue),
-      commandType,
-    };
-  }
-
-  return {
-    commandTemplate: baseCommandTemplate,
-    commandType,
-  };
-}
 
 export function resolveEffectiveAgentCommandConfig(
   agent: Pick<Agent, 'command_template' | 'command_type'>,

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import logger from '../../logger';
 import { DEFAULT_IDLE_TIMEOUT_MS, FINAL_RESULT_KILL_DELAY_MS, getAgentFinalResultAge } from '../process-manager';
-import { getCliTaskRunIdleMs, isCliTaskRunRunning, stopCliTaskRun } from '../executors/cli-executor';
+import { getRunTracker } from '../adapters/run-tracker';
 import { handleTaskRunExit } from './completion';
 
 type LogMethod = {
@@ -50,7 +50,7 @@ export function runTaskRunWatchdogScan(
   };
 
   for (const row of rows) {
-    if (!isCliTaskRunRunning(row.id)) {
+    if (!getRunTracker().isRunning(row.id)) {
       handleTaskRunExit({
         taskRunId: row.id,
         status: 'failed',
@@ -88,7 +88,7 @@ export function runTaskRunWatchdogScan(
       continue;
     }
 
-    const idleMs = getCliTaskRunIdleMs(row.id);
+    const idleMs = getRunTracker().getIdleMs(row.id);
     if (idleMs >= 0 && idleMs >= DEFAULT_IDLE_TIMEOUT_MS) {
       handleTaskRunExit({
         taskRunId: row.id,

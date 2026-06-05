@@ -1,10 +1,10 @@
 import Database from 'better-sqlite3';
 import logger from '../logger';
 import {
-  buildControllerCommandConfig,
   detectCommandTypeFromCommand,
   resolveCommandType,
 } from '../services/command-profiles';
+import { getAdapterRegistry } from '../services/adapters';
 import { seedKnowledgeFts, seedLegacyAgentKnowledge, seedProjectOwners, seedBuiltinProjectTemplates } from './seed';
 import { runStartupMaintenance } from './maintenance';
 
@@ -852,17 +852,17 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       const resolvedCommandType = resolveCommandType(agent.command_type, currentCommandTemplate);
 
       if (resolvedCommandType === 'claude' || (!resolvedCommandType && !currentCommandTemplate)) {
-        const desiredCommandConfig = buildControllerCommandConfig({
-          commandTemplate: currentCommandTemplate,
-          commandType: resolvedCommandType || 'claude',
-        });
+        const effectiveType = resolvedCommandType || 'claude';
+        const adapter = getAdapterRegistry().resolveFromCommand(currentCommandTemplate || '', effectiveType);
+        const desiredTemplate = adapter.buildControllerCommand(currentCommandTemplate || '', undefined);
+        const desiredType = adapter.type;
         if (
-          desiredCommandConfig.commandTemplate !== currentCommandTemplate ||
-          desiredCommandConfig.commandType !== agent.command_type
+          desiredTemplate !== currentCommandTemplate ||
+          desiredType !== agent.command_type
         ) {
           updateControllerCommand.run(
-            desiredCommandConfig.commandTemplate,
-            desiredCommandConfig.commandType,
+            desiredTemplate,
+            desiredType,
             agent.id
           );
           normalizedControllerCount += 1;

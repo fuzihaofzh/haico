@@ -1,7 +1,7 @@
 import { execSync } from 'child_process';
 import { config } from '../../config';
-import { resolveCommandType } from '../command-profiles';
-import { classifyToolExecutionFailure, inspectToolReadiness } from '../tool-readiness';
+import { getAdapterRegistry } from '../adapters';
+import { classifyToolExecutionFailure } from '../tool-readiness';
 import {
   MissingProjectMetadataDescriptionError,
   ProjectMetadataInvalidResponseError,
@@ -29,36 +29,14 @@ User's input: "${description.replace(/"/g, '\\"')}"
 Respond with ONLY valid JSON, no markdown, no explanation.`;
 }
 
-function buildMetadataCommand(tool: string, commandType: string | null): string {
-  const lowerTool = tool.toLowerCase();
-  const toolBinary = tool.split(/\s+/).filter(Boolean)[0] || tool;
-
-  if (commandType === 'claude') {
-    return `${tool} -p`;
-  }
-
-  if (lowerTool.startsWith('gemini')) {
-    return `${tool} --output-format text -p`;
-  }
-
-  if (commandType === 'codex') {
-    return `${toolBinary} exec --sandbox workspace-write --skip-git-repo-check -`;
-  }
-
-  return tool;
-}
-
 export function generateProjectMetadata(input: GenerateProjectMetadataInput): any {
   const description = String(input.description || '');
   if (!description) throw new MissingProjectMetadataDescriptionError();
 
   const tool = (input.tool_path || config.defaultCommandTemplate || '').trim() || 'cld';
   const prompt = buildProjectMetadataPrompt(description);
-  const resolvedCommandType = resolveCommandType(input.command_type, tool);
-  const readiness = inspectToolReadiness({
-    commandTemplate: tool,
-    commandType: resolvedCommandType,
-  });
+  const adapter = getAdapterRegistry().resolveFromCommand(tool, input.command_type);
+  const readiness = adapter.inspectReadiness(tool);
 
   if (!readiness.binary_found) {
     throw new ProjectMetadataToolError(
@@ -69,7 +47,7 @@ export function generateProjectMetadata(input: GenerateProjectMetadataInput): an
   }
 
   try {
-    const cmd = buildMetadataCommand(tool, resolvedCommandType);
+    const cmd = adapter.buildMetadataCommand(tool);
     const result = execSync(`echo ${JSON.stringify(prompt)} | ${cmd}`, {
       timeout: 60000,
       encoding: 'utf-8',
@@ -87,7 +65,7 @@ export function generateProjectMetadata(input: GenerateProjectMetadataInput): an
 
     const failure = classifyToolExecutionFailure({
       error,
-      commandType: resolvedCommandType,
+      commandType: adapter.type as any,
       binary: readiness.binary,
     });
     throw new ProjectMetadataToolError(

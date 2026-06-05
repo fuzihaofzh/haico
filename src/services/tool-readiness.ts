@@ -33,7 +33,7 @@ export interface ToolReadinessSummary {
   auth: ToolAuthReadiness;
 }
 
-function resolveBinaryPath(binary: string): string | null {
+export function resolveBinaryPath(binary: string): string | null {
   if (!binary) return null;
   const shellPath = fs.existsSync('/bin/bash') ? '/bin/bash' : '/bin/sh';
   const args = shellPath.endsWith('bash')

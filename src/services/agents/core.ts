@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../../db/database';
-import { Agent, CommandProfile, CreateAgentInput, Project } from '../../types';
+import { Agent, CommandProfile, CommandProfileType, CreateAgentInput, Project } from '../../types';
 import { validateParentAgentAssignment } from './hierarchy';
-import { buildControllerCommandConfig, resolveCommandType } from '../command-profiles';
+import { resolveCommandType } from '../command-profiles';
+import { getAdapterRegistry } from '../adapters';
 import { expandHomePath } from '../file-management';
 import { getGitStatus, getGitLog } from '../git';
 import logger from '../../logger';
@@ -141,16 +142,18 @@ export function createAgent(projectId: string, input: CreateAgentInput): Agent {
     ? resolveCommandType(commandProfile.type, finalCommandTemplate)
     : resolveCommandType(command_type, finalCommandTemplate);
   if (is_controller) {
-    const controllerCommandConfig = buildControllerCommandConfig({
-      commandTemplate: finalCommandTemplate,
-      commandType: commandProfile ? commandProfile.type : command_type,
-      commandProfileConfigJson: commandProfile?.config_json,
-      fallbackCommandTemplate: project.command_template,
-      fallbackCommandType: project.command_type,
-      fallbackCommandProfileConfigJson: inheritedProjectCommandProfile?.config_json,
-    });
-    finalCommandTemplate = controllerCommandConfig.commandTemplate;
-    finalCommandType = controllerCommandConfig.commandType;
+    // Resolve fallback command template if primary is empty
+    if (!finalCommandTemplate) {
+      finalCommandTemplate = String(project.command_template || '').trim();
+      finalCommandType = resolveCommandType(project.command_type, finalCommandTemplate);
+    }
+    // Resolve config JSON: prefer profile config, fall back to project profile config
+    const configJson = commandProfile?.config_json !== undefined
+      ? commandProfile.config_json
+      : inheritedProjectCommandProfile?.config_json;
+    const adapter = getAdapterRegistry().resolveFromCommand(finalCommandTemplate, finalCommandType);
+    finalCommandTemplate = adapter.buildControllerCommand(finalCommandTemplate, configJson);
+    // Keep resolved type (claude/codex/gemini/null); adapter.type may be 'shell' which violates DB CHECK
   }
 
   const defaultExecutorProfile = ensureProjectDefaultExecutorProfile(db, project);
@@ -293,14 +296,12 @@ export function updateAgent(agentId: string, input: UpdateAgentInput): Agent {
       : existing.command_type;
 
   if (existing.is_controller && (hasCommandProfileId || hasCommandTemplate) && nextCommandTemplate) {
-    const controllerCommandConfig = buildControllerCommandConfig({
-      commandTemplate: nextCommandTemplate,
-      commandType: nextCommandProfile ? nextCommandProfile.type : (hasCommandType ? command_type : undefined),
-      commandProfileConfigJson: nextCommandProfile?.config_json,
-      fallbackCommandProfileConfigJson: inheritedProjectCommandProfile?.config_json,
-    });
-    nextCommandTemplate = controllerCommandConfig.commandTemplate;
-    nextCommandType = controllerCommandConfig.commandType;
+    const configJson = nextCommandProfile?.config_json !== undefined
+      ? nextCommandProfile.config_json
+      : inheritedProjectCommandProfile?.config_json;
+    const adapter = getAdapterRegistry().resolveFromCommand(nextCommandTemplate, nextCommandType);
+    nextCommandTemplate = adapter.buildControllerCommand(nextCommandTemplate, configJson);
+    // Keep resolved type; adapter.type may be 'shell' which violates DB CHECK
   }
 
   if (hasCommandProfileId) {

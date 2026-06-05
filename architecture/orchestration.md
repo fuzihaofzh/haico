@@ -31,5 +31,8 @@ database plus project WebSocket events.
 - Issue dispatch and automation live under `src/services/issue/`.
 - Task scheduling/runtime behavior lives under `src/services/tasks/` and
   `src/scheduler/`.
-- CLI execution and process policy live under `src/services/executors/` and
+- Agent type dispatch and CLI execution live in `src/services/adapters/`
+  (see `architecture/adapters.md`). Each tool type is an adapter;
+  the registry resolves type strings to adapter instances.
+- Process policy, watchdog CPU checks, and exit classification live under
   `src/services/process-manager/`.
