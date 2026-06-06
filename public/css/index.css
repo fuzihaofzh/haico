@@ -22,11 +22,9 @@
 @import './layers/blocks/terminal.css' layer(block);
 @import './layers/blocks/file-tree.css' layer(block);
 @import './layers/blocks/auth.css' layer(block);
-@import './layers/blocks/operations.css' layer(block);
 @import './layers/blocks/notifications.css' layer(block);
 @import './layers/blocks/skeleton.css' layer(block);
 @import './layers/blocks/tabs.css' layer(block);
 @import './layers/blocks/agent-edit.css' layer(block);
-@import './layers/blocks/customs-queue.css' layer(block);
 @import './layers/utility.css' layer(utility);
 @import './layers/exception.css' layer(exception);

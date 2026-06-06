@@ -24,24 +24,6 @@ test.describe('project subpage rendering', () => {
     }
   });
 
-  test('operations console page renders lane watch and detail panels', async ({ page, request }) => {
-    const project = await createE2EProject(request);
-    const pageErrors = trackPageErrors(page);
-
-    try {
-      await page.goto(`/project/${project.id}/operations-console`);
-
-      await expect(page.locator('#ops-project-title')).toBeVisible();
-      await expect(page.locator('#lane-list')).toBeVisible();
-      await expect(page.locator('#detail-panel')).toBeVisible();
-      await expect(page.locator('#dispatch-timeline')).toBeVisible();
-      await expect(page.locator('#customer-feed')).toBeVisible();
-
-      await expectNoPageErrors(pageErrors);
-    } finally {
-      await deleteE2EProject(request, project.id);
-    }
-  });
 
   test('terminal page renders toolbar and terminal element', async ({ page, request }) => {
     const project = await createE2EProject(request);

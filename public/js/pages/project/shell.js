@@ -158,29 +158,6 @@ function renderPermissionBadge(meta) {
   return h`<span class="permission-badge permission-${meta.tone}" title="${meta.summary}">${meta.badge}</span>`;
 }
 
-function projectHasOperationsConsole(project) {
-  if (!project) return false;
-  if (project.id === 'project-atlas') return true;
-  const haystack = `${project.name || ''} ${project.task_description || ''}`.toLowerCase();
-  return haystack.includes('atlas freight command')
-    || haystack.includes('route planners')
-    || haystack.includes('dispatchers')
-    || haystack.includes('customer updates');
-}
-
-function refreshOperationsConsoleEntry() {
-  const entry = document.getElementById('btn-open-ops-console');
-  if (!entry) return;
-
-  if (isRemoteProjectView || !projectHasOperationsConsole(projectData)) {
-    entry.style.display = 'none';
-    entry.removeAttribute('href');
-    return;
-  }
-
-  entry.href = `${buildProjectPageHref(projectId)}/operations-console`;
-  entry.style.display = '';
-}
 
 function applyProjectNavigationState() {
   const currentView = getProjectView();
@@ -304,7 +281,6 @@ async function loadProjectShell() {
   if (triggerButton) triggerButton.style.display = projectData.can_manage && projectData.status === 'active' ? '' : 'none';
 
   renderProjectAccessSummary();
-  refreshOperationsConsoleEntry();
   applyProjectNavigationState();
   applyProjectManageState();
   window.dispatchEvent(new CustomEvent('haico:project-ready', { detail: projectData }));
@@ -334,7 +310,6 @@ async function triggerController() {
   });
   if (res.ok) {
     showToast('Controller trigger queued', 'success');
-    refreshOperationsConsoleEntry();
     return;
   }
   const data = await res.json().catch(() => ({}));

@@ -10,8 +10,8 @@ function setWorkflowText(root, slotName, value) {
 }
 
 async function loadWorkflowTab() {
-  await Promise.all([loadWorkflowGraph()]);
-  await Promise.all([loadTreasuryWorkflowLayer(), loadWorkflowActivity()]);
+  await loadWorkflowGraph();
+  await loadWorkflowActivity();
 }
 
 async function loadWorkflowGraph() {
@@ -27,30 +27,6 @@ async function loadWorkflowGraph() {
   }
 }
 
-async function loadTreasuryWorkflowLayer() {
-  var container = document.getElementById('treasury-workflow-layer');
-  if (!container) return;
-  if (!window.HAICOTreasuryWorkflow || typeof window.HAICOTreasuryWorkflow.render !== 'function') {
-    container.innerHTML = h`<div class="empty-state">Treasury workflow layer unavailable.</div>`;
-    return;
-  }
-
-  try {
-    if (!_workflowData) {
-      await loadWorkflowGraph();
-    }
-    const activeIssues = await getProjectActiveIssues({ force: true });
-    const model = window.HAICOTreasuryWorkflow.buildModel({
-      project: projectData,
-      workflow: _workflowData,
-      approvals: [],
-      activeIssues: activeIssues,
-    });
-    container.innerHTML = window.HAICOTreasuryWorkflow.render(model);
-  } catch (e) {
-    container.innerHTML = h`<div class="empty-state">Failed to load treasury workflow layer.</div>`;
-  }
-}
 
 function renderWorkflowGraph(container, data) {
   if (!data || !data.agents || data.agents.length === 0) {
