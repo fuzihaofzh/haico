@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agent Tools - HAICO</title>
+  <title>Edit Agent Tool - HAICO</title>
   <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
   <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
@@ -36,72 +36,58 @@
     <div id="settings-view-panel" class="dashboard-view dashboard-view-settings">
       <div class="settings-page-header">
         <div>
-          <div class="settings-page-eyebrow">Workspace</div>
-          <h2>Agent Tools</h2>
-          <p>Configure the commands HAICO agents use when they run.</p>
+          <div class="settings-page-eyebrow">Workspace <span class="breadcrumb-sep">/</span> Agent Tools <span class="breadcrumb-sep">/</span> Edit</div>
+          <h2>Edit Agent Tool</h2>
         </div>
       </div>
 
       <nav class="settings-section-nav" aria-label="Settings sections">
         <a href="/settings">General</a>
-        <a class="active" href="/settings/agent-tools" aria-current="page">Agent Tools</a>
+        <a href="/settings/agent-tools" aria-current="page">Agent Tools</a>
       </nav>
 
       <section class="agent-tools-panel settings-card-wide">
         <div class="settings-card-header">
-          <div>
-            <h3>Agent Tools</h3>
-            <p>Each Agent Tool maps a user-facing tool name to the command HAICO agents should run.</p>
+          <div class="settings-card-header-start">
+            <a class="btn btn-sm settings-card-back-btn" href="/settings/agent-tools" aria-label="Back to Agent Tools">&larr;</a>
+            <div>
+              <h3>Edit Agent Tool</h3>
+              <p>Update the command and configuration for this Agent Tool.</p>
+            </div>
           </div>
-          <a class="btn btn-primary btn-sm" href="/settings/agent-tools/new">+ New Agent Tool</a>
         </div>
         <div class="settings-section settings-section-page">
-          <div data-command-profiles-root>
-            <div class="setting-group command-profiles-group">
-              <div class="command-profiles-status" data-command-profiles-loading>Loading Agent Tools...</div>
-              <div class="command-profiles-status command-profiles-status-error" data-command-profiles-error hidden></div>
-              <div class="command-profiles-table-wrap">
-                <table class="command-profiles-table">
-                  <thead>
-                    <tr>
-                      <th>Agent Tool</th>
-                      <th>Scenario</th>
-                      <th>Command</th>
-                      <th>Type</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody data-command-profiles-list>
-                    <tr><td colspan="5" class="command-profiles-empty">Loading Agent Tools...</td></tr>
-                  </tbody>
-                </table>
-              </div>
+          <div class="command-profiles-status" data-agent-tools-loading>Loading Agent Tool...</div>
+          <div class="command-profiles-status command-profiles-status-error" data-agent-tools-error hidden></div>
+          <div data-agent-tools-form class="command-profile-form-grid command-profile-form-grid-standalone">
+            <label class="command-profile-form-field">Agent Tool
+              <input type="text" class="command-profile-input" data-field="name" placeholder="New profile">
+            </label>
+            <label class="command-profile-form-field">Scenario
+              <input type="text" class="command-profile-input" data-field="scenario" placeholder="Daily development">
+            </label>
+            <label class="command-profile-form-field command-profile-form-command">Command
+              <input type="text" class="command-profile-input command-profile-command" data-field="command" placeholder="cld --model claude-sonnet-4-6">
+            </label>
+            <label class="command-profile-form-field">Type
+              <select class="command-profile-select" data-field="type"></select>
+            </label>
+            <div class="command-profile-form-field command-profile-form-config">
+              <span>Config</span>
+              <div class="command-profile-config" data-command-profile-config></div>
+            </div>
+            <div class="command-profile-form-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-agent-tools-action="save">Save</button>
+              <button type="button" class="btn btn-sm btn-danger" data-agent-tools-action="delete">Delete</button>
             </div>
           </div>
         </div>
       </section>
     </div>
   </main>
-  <template id="command-profile-row-template">
-    <tr data-command-profile-row="">
-      <td class="command-profile-cell-name" data-cell="name"></td>
-      <td class="command-profile-cell-scenario" data-cell="scenario"></td>
-      <td class="command-profile-cell-command" data-cell="command"></td>
-      <td class="command-profile-cell-type" data-cell="type"><span class="command-profile-type-badge"></span></td>
-      <td class="command-profile-cell-actions">
-        <a class="btn btn-sm" data-action="edit" href="">Edit</a>
-        <button type="button" class="btn btn-sm" data-action="delete">Delete</button>
-      </td>
-    </tr>
-  </template>
-  <template id="command-profile-empty-row-template">
-    <tr>
-      <td colspan="5" class="command-profiles-empty">No Agent Tools yet.</td>
-    </tr>
-  </template>
   <script src="/public/js/shared/common.js"></script>
   <script src="/public/js/components/dashboard-sidebar.js"></script>
   <script src="/public/js/shared/command-profiles.js"></script>
-  <script type="module" src="/public/js/pages/settings/agent-tools.js"></script>
+  <script type="module" src="/public/js/pages/settings/agent-tools-edit.js"></script>
 </body>
 </html>

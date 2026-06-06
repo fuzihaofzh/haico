@@ -70,6 +70,14 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('settings/agent-tools.html'));
   });
 
+  fastify.get('/settings/agent-tools/new', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('settings/agent-tools-new.html'));
+  });
+
+  fastify.get('/settings/agent-tools/:id/edit', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('settings/agent-tools-edit.html'));
+  });
+
   fastify.get('/login', async (request, reply) => {
     let usersConfigured = false;
     try {

@@ -367,19 +367,7 @@
   line-height: 1.5;
   margin-bottom: 10px;
 }
-.command-profile-section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.command-profile-section-heading h4 {
-  margin: 0;
-  color: var(--fg);
-  font-size: 13px;
-  line-height: 1.25;
-}
+
 .command-profiles-status {
   font-size: 11px;
   color: var(--text-secondary);
@@ -394,7 +382,7 @@
 }
 .command-profiles-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 780px;
   border-collapse: collapse;
 }
 .command-profiles-table th,
@@ -405,13 +393,26 @@
   text-align: left;
 }
 .command-profiles-table tbody tr:last-child td { border-bottom: none; }
-.command-profiles-table tbody tr.is-dirty td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+
 .command-profiles-table th {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-secondary);
   background: var(--header-bg);
+}
+
+/* Fixed-width columns: Type (col 4), Actions (col 5) */
+.command-profiles-table th:nth-child(4),
+.command-profiles-table td:nth-child(4) {
+  width: 76px;
+  min-width: 76px;
+}
+.command-profiles-table th:nth-child(5),
+.command-profiles-table td:nth-child(5) {
+  width: 120px;
+  min-width: 120px;
+  white-space: nowrap;
 }
 .command-profile-input,
 .command-profile-select {
@@ -470,12 +471,7 @@
   color: var(--fg);
 }
 .command-profile-tools { min-height: 54px; resize: vertical; }
-.command-profile-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.command-profile-actions .btn[disabled],
+
 .command-profile-form-actions .btn[disabled] {
   cursor: not-allowed;
   opacity: 0.55;
@@ -485,11 +481,7 @@
   color: var(--text-secondary);
   text-align: center;
 }
-.command-profile-create-panel {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
+
 .command-profile-form-grid {
   display: grid;
   grid-template-columns: minmax(150px, 0.8fr) minmax(150px, 0.8fr) minmax(260px, 1.4fr) minmax(120px, 0.6fr);
@@ -510,9 +502,85 @@
 .command-profile-form-field > span { display: block; }
 .command-profile-form-actions {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  gap: 8px;
   justify-content: flex-start;
   min-height: 55px;
+}
+
+/* Breadcrumb */
+.breadcrumb-sep {
+  margin: 0 2px;
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+.settings-page-eyebrow a {
+  color: inherit;
+  text-decoration: none;
+}
+.settings-page-eyebrow a:hover {
+  text-decoration: underline;
+}
+
+/* Card header: back button + content group */
+.settings-card-header-start {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.settings-card-back-btn {
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  text-decoration: none;
+}
+.settings-card-back-btn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--accent);
+}
+
+/* Read-only list cells */
+.command-profile-cell-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.command-profile-cell-scenario {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.command-profile-cell-scenario.command-profile-empty-value {
+  opacity: 0.4;
+  font-style: italic;
+}
+.command-profile-cell-command {
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+  max-width: 320px;
+}
+.command-profile-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.command-profile-cell-actions {
+  white-space: nowrap;
+}
+.command-profile-cell-actions .btn + .btn {
+  margin-left: 6px;
+}
+
+/* Standalone form (new/edit pages) uses a wider grid */
+.command-profile-form-grid-standalone {
+  max-width: 860px;
 }
 
 /* Toggle switch */
