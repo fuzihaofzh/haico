@@ -503,7 +503,7 @@ async function loadAgents(options) {
       <div class="agent-info">
         <div class="agent-name">${html(spinner)}${a.name}${html(tag)}</div>
         <div class="agent-role">${a.role}</div>
-        ${hierarchyMeta ? html(h`<div style="margin-top:3px;font-size:10px;color:var(--text-secondary)">${html(hierarchyMeta)}</div>`) : ''}
+        ${hierarchyMeta ? html(`<div style="margin-top:3px;font-size:10px;color:var(--text-secondary)">${hierarchyMeta}</div>`) : ''}
         ${html(issuePills)}
         ${html(errBox)}
       </div>
@@ -591,7 +591,7 @@ async function viewAgent(agentId) {
       ? h`
               <button class="btn btn-sm" onclick="openTerminal('${agentId}')" title="Open terminal chat">Chat</button>
               <a class="btn btn-sm" href="/project/${projectId}/agent/${agentId}/edit" title="Edit agent configuration">Edit</a>
-              ${(agent.runtime_state || {}).status === 'error' && (agent.runtime_state || {}).last_task_run_id ? html(h`<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>`) : ''}
+              ${(agent.runtime_state || {}).status === 'error' && (agent.runtime_state || {}).last_task_run_id ? html(`<button class="btn btn-sm" onclick="retryAgent('${agentId}')" style="color:var(--warning)">Retry</button>`) : ''}
       `
       : '';
     const saveSettingsButton = canManage

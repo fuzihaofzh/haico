@@ -21,9 +21,10 @@
         canWrite: options.canWrite !== false,
         pendingFile: null,
       };
-
       this.handleWindowResize = this.handleWindowResize.bind(this);
       this.handleSaveShortcut = this.handleSaveShortcut.bind(this);
+      this._handleTreeClick = this._handleTreeClick.bind(this);
+      this._handleRichPreviewClick = this._handleRichPreviewClick.bind(this);
       window.addEventListener('resize', this.handleWindowResize);
       window.addEventListener('keydown', this.handleSaveShortcut);
     }
@@ -338,11 +339,11 @@
             : this._fileIconClass(entry.name);
           const icon = h`<span class="ft-icon codicon ${iconClass}"></span>`;
 
-          const downloadBtn = isDir ? '' : h`<button class="ft-action-btn" title="Download" onclick="event.stopPropagation();${this.apiName}.downloadFile('${encodedPath}')"><span class="codicon codicon-cloud-download"></span></button>`;
+          const downloadBtn = isDir ? '' : h`<button class="ft-action-btn" title="Download" data-action="download" data-path="${encodedPath}"><span class="codicon codicon-cloud-download"></span></button>`;
           const meta = isDir ? '' : h`<span class="ft-meta">${this.formatBytes(entry.size)}</span>`;
 
           rows.push(
-            h`<div class="ft-row${isSelected ? ' selected' : ''}${isLoading ? ' loading' : ''}" onclick="${this.apiName}.handleTreeClick('${encodedPath}')" data-path="${encodedPath}">
+            h`<div class="ft-row${isSelected ? ' selected' : ''}${isLoading ? ' loading' : ''}" data-path="${encodedPath}">
               ${html(guides)}${html(chevron)}${html(icon)}
               <span class="ft-label">${entry.name}</span>
               ${html(meta)}${html(downloadBtn)}
@@ -368,6 +369,10 @@
 
       pushEntries('', 0);
       tree.innerHTML = rows.join('');
+      if (!this._treeDelegated) {
+        tree.addEventListener('click', this._handleTreeClick);
+        this._treeDelegated = true;
+      }
     }
 
     async loadDirectory(dirPath) {
@@ -541,6 +546,7 @@
       container.className = 'files-rich-preview';
       container.style.cssText = 'width:100%;height:100%;overflow:auto;background:#fff;color:#222;padding:16px;box-sizing:border-box;font-size:14px;';
       container.innerHTML = contentHtml;
+      container.addEventListener('click', this._handleRichPreviewClick);
       editorEl.appendChild(container);
       this.state.previewMode = label;
       this.updateSaveButton();
@@ -637,23 +643,24 @@
           return;
         } else if (mode === 'xlsx') {
           const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-          previewHtml = h`<div>`;
+          const parts = [h`<div>`];
           // Sheet tabs
           if (workbook.SheetNames.length > 1) {
-            previewHtml += h`<div style="margin-bottom:12px;display:flex;gap:4px;flex-wrap:wrap">`;
+            parts.push(h`<div style="margin-bottom:12px;display:flex;gap:4px;flex-wrap:wrap">`);
             workbook.SheetNames.forEach((name, i) => {
-              previewHtml += h`<button onclick="this.closest('.files-rich-preview').querySelectorAll('.xlsx-sheet').forEach((s,j)=>{s.style.display=j===${i}?'block':'none'});this.parentElement.querySelectorAll('button').forEach((b,j)=>{b.style.background=j===${i}?'#0366d6':'#e1e4e8';b.style.color=j===${i}?'#fff':'#222'})" style="padding:4px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;${i === 0 ? 'background:#0366d6;color:#fff' : 'background:#e1e4e8;color:#222'}">${name}</button>`;
+              parts.push(h`<button data-sheet-index="${i}" style="padding:4px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;${i === 0 ? 'background:#0366d6;color:#fff' : 'background:#e1e4e8;color:#222'}">${name}</button>`);
             });
-            previewHtml += h`</div>`;
+            parts.push(h`</div>`);
           }
           workbook.SheetNames.forEach((name, i) => {
             const sheet = workbook.Sheets[name];
             const sheetHtml = XLSX.utils.sheet_to_html(sheet, { editable: false });
-            previewHtml += h`<div class="xlsx-sheet" style="display:${i === 0 ? 'block' : 'none'};overflow-x:auto">${html(sheetHtml)}</div>`;
+            parts.push(h`<div class="xlsx-sheet" style="display:${i === 0 ? 'block' : 'none'};overflow-x:auto">${html(sheetHtml)}</div>`);
           });
-          previewHtml += h`</div>`;
+          parts.push(h`</div>`);
           // Style the generated tables
-          previewHtml += h`<style>.files-rich-preview table{border-collapse:collapse;font-size:13px;min-width:100%}.files-rich-preview td,.files-rich-preview th{border:1px solid #d0d7de;padding:4px 8px;text-align:left;white-space:nowrap}.files-rich-preview tr:first-child td,.files-rich-preview th{background:#f6f8fa;font-weight:600}</style>`;
+          parts.push(h`<style>.files-rich-preview table{border-collapse:collapse;font-size:13px;min-width:100%}.files-rich-preview td,.files-rich-preview th{border:1px solid #d0d7de;padding:4px 8px;text-align:left;white-space:nowrap}.files-rich-preview tr:first-child td,.files-rich-preview th{background:#f6f8fa;font-weight:600}</style>`);
+          previewHtml = parts.join('');
         } else if (mode === 'pptx') {
           // Basic PPTX info — extract slide count from [Content_Types].xml inside the zip
           previewHtml = await this._renderPptxPreview(arrayBuffer);
@@ -677,8 +684,8 @@
       const slideFiles = Object.keys(zip.files).filter(f => /^ppt\/slides\/slide\d+\.xml$/.test(f)).sort();
       const slideCount = slideFiles.length;
 
-      let previewHtml = h`<div style="max-width:800px;margin:0 auto">`;
-      previewHtml += h`<div style="margin-bottom:16px;font-size:16px;font-weight:600">PowerPoint Presentation — ${slideCount} slide${slideCount !== 1 ? 's' : ''}</div>`;
+      const parts = [h`<div style="max-width:800px;margin:0 auto">`];
+      parts.push(h`<div style="margin-bottom:16px;font-size:16px;font-weight:600">PowerPoint Presentation — ${slideCount} slide${slideCount !== 1 ? 's' : ''}</div>`);
 
       // Extract text content from each slide
       for (let i = 0; i < slideFiles.length; i++) {
@@ -687,17 +694,17 @@
         const textMatches = xmlContent.match(/<a:t>([^<]*)<\/a:t>/g) || [];
         const texts = textMatches.map(m => m.replace(/<\/?a:t>/g, '')).filter(t => t.trim());
 
-        previewHtml += h`<div style="border:1px solid #d0d7de;border-radius:8px;padding:16px;margin-bottom:12px;background:#f6f8fa">`;
-        previewHtml += h`<div style="font-size:12px;color:#656d76;margin-bottom:8px;font-weight:600">Slide ${i + 1}</div>`;
+        parts.push(h`<div style="border:1px solid #d0d7de;border-radius:8px;padding:16px;margin-bottom:12px;background:#f6f8fa">`);
+        parts.push(h`<div style="font-size:12px;color:#656d76;margin-bottom:8px;font-weight:600">Slide ${i + 1}</div>`);
         if (texts.length > 0) {
-          previewHtml += h`<div style="line-height:1.5">${html(texts.map(t => h`<div>${t}</div>`).join(''))}</div>`;
+          parts.push(h`<div style="line-height:1.5">${html(texts.map(t => h`<div>${t}</div>`).join(''))}</div>`);
         } else {
-          previewHtml += h`<div style="color:#8b949e;font-style:italic">No text content</div>`;
+          parts.push(h`<div style="color:#8b949e;font-style:italic">No text content</div>`);
         }
-        previewHtml += h`</div>`;
+        parts.push(h`</div>`);
       }
-      previewHtml += h`</div>`;
-      return previewHtml;
+      parts.push(h`</div>`);
+      return parts.join('');
     }
 
     async showSqlitePreview(filePath) {
@@ -711,16 +718,16 @@
         }
         const data = await res.json();
         const tables = data.tables || [];
-
-        let previewHtml = h`<div style="max-width:100%;margin:0 auto" id="sqlite-preview-root">`;
-        previewHtml += h`<div style="margin-bottom:16px;font-size:16px;font-weight:600">SQLite Database — ${tables.length} table${tables.length !== 1 ? 's' : ''}</div>`;
-        previewHtml += h`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px">`;
+        const parts = [h`<div style="max-width:100%;margin:0 auto" id="sqlite-preview-root">`];
+        parts.push(h`<div style="margin-bottom:16px;font-size:16px;font-weight:600">SQLite Database — ${tables.length} table${tables.length !== 1 ? 's' : ''}</div>`);
+        parts.push(h`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px">`);
         tables.forEach((t, i) => {
-          previewHtml += h`<button data-table="${t.name}" onclick="window['${this.apiName}']._sqliteLoadTable(this)" style="padding:4px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;${i === 0 ? 'background:#0366d6;color:#fff' : 'background:#e1e4e8;color:#222'}">${t.name} (${t.rowCount})</button>`;
+          parts.push(h`<button data-table="${t.name}" style="padding:4px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;${i === 0 ? 'background:#0366d6;color:#fff' : 'background:#e1e4e8;color:#222'}">${t.name} (${t.rowCount})</button>`);
         });
-        previewHtml += h`</div>`;
-        previewHtml += h`<div id="sqlite-table-content" style="overflow-x:auto"></div>`;
-        previewHtml += h`</div>`;
+        parts.push(h`</div>`);
+        parts.push(h`<div id="sqlite-table-content" style="overflow-x:auto"></div>`);
+        parts.push(h`</div>`);
+        const previewHtml = parts.join('');
 
         this.removeRichPreview();
         this.removePreviewIframe();
@@ -728,8 +735,6 @@
 
         // Store state for table loading
         this._sqliteFilePath = filePath;
-        // Expose for onclick
-        window[this.apiName]._sqliteLoadTable = (btn) => this._sqliteLoadTable(btn);
 
         // Load first table automatically
         if (tables.length > 0) {
@@ -765,25 +770,25 @@
         if (!res.ok) throw new Error('Failed to load table');
         const data = await res.json();
 
-        let tableHtml = h`<div style="font-size:12px;color:#656d76;margin-bottom:8px">${data.totalRows} rows total (showing ${data.rows.length})</div>`;
-        tableHtml += h`<table style="border-collapse:collapse;font-size:13px;min-width:100%"><thead><tr>`;
+        const parts = [h`<div style="font-size:12px;color:#656d76;margin-bottom:8px">${data.totalRows} rows total (showing ${data.rows.length})</div>`];
+        parts.push(h`<table style="border-collapse:collapse;font-size:13px;min-width:100%"><thead><tr>`);
         data.columns.forEach(col => {
-          tableHtml += h`<th style="border:1px solid #d0d7de;padding:4px 8px;background:#f6f8fa;font-weight:600;white-space:nowrap">${col.name}<span style="color:#8b949e;font-weight:400;margin-left:4px;font-size:11px">${col.type}</span></th>`;
+          parts.push(h`<th style="border:1px solid #d0d7de;padding:4px 8px;background:#f6f8fa;font-weight:600;white-space:nowrap">${col.name}<span style="color:#8b949e;font-weight:400;margin-left:4px;font-size:11px">${col.type}</span></th>`);
         });
-        tableHtml += h`</tr></thead><tbody>`;
+        parts.push(h`</tr></thead><tbody>`);
         data.rows.forEach(row => {
-          tableHtml += h`<tr>`;
+          parts.push(h`<tr>`);
           data.columns.forEach(col => {
             const val = row[col.name];
             const display = val === null
               ? h`<span style="color:#8b949e">NULL</span>`
               : h`${String(val).length > 200 ? String(val).slice(0, 200) + '…' : String(val)}`;
-            tableHtml += h`<td style="border:1px solid #d0d7de;padding:4px 8px;white-space:nowrap;max-width:400px;overflow:hidden;text-overflow:ellipsis">${html(display)}</td>`;
+            parts.push(h`<td style="border:1px solid #d0d7de;padding:4px 8px;white-space:nowrap;max-width:400px;overflow:hidden;text-overflow:ellipsis">${html(display)}</td>`);
           });
-          tableHtml += h`</tr>`;
+          parts.push(h`</tr>`);
         });
-        tableHtml += h`</tbody></table>`;
-        contentEl.innerHTML = tableHtml;
+        parts.push(h`</tbody></table>`);
+        contentEl.innerHTML = parts.join('');
       } catch (error) {
         contentEl.innerHTML = h`<div style="color:#f85149;padding:8px">${error.message || 'Failed to load table'}</div>`;
       }
@@ -989,6 +994,37 @@
         return;
       }
       this.openFile(entry.path);
+    }
+    _handleTreeClick(e) {
+      const downloadBtn = e.target.closest('[data-action="download"]');
+      if (downloadBtn) {
+        e.stopPropagation();
+        this.downloadFile(downloadBtn.dataset.path);
+        return;
+      }
+      const row = e.target.closest('.ft-row[data-path]');
+      if (row) {
+        this.handleTreeClick(row.dataset.path);
+      }
+    }
+
+    _handleRichPreviewClick(e) {
+      // XLSX sheet tab click
+      const sheetBtn = e.target.closest('[data-sheet-index]');
+      if (sheetBtn) {
+        const idx = Number(sheetBtn.dataset.sheetIndex);
+        const preview = sheetBtn.closest('.files-rich-preview');
+        if (preview) {
+          preview.querySelectorAll('.xlsx-sheet').forEach((s, j) => { s.style.display = j === idx ? 'block' : 'none'; });
+          sheetBtn.parentElement.querySelectorAll('button').forEach((b, j) => { b.style.background = j === idx ? '#0366d6' : '#e1e4e8'; b.style.color = j === idx ? '#fff' : '#222'; });
+        }
+        return;
+      }
+      // SQLite table tab click
+      const sqliteBtn = e.target.closest('[data-table]');
+      if (sqliteBtn && sqliteBtn.closest('#sqlite-preview-root')) {
+        this._sqliteLoadTable(sqliteBtn);
+      }
     }
 
     toggleHiddenFiles(checked) {

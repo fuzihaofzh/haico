@@ -54,7 +54,7 @@ function setStatus(text, state) {
   // state: 'connected' | 'connecting' | 'disconnected' | 'error'
   const colors = { connected: '#3fb950', connecting: '#d29922', disconnected: '#8b949e', error: '#f85149' };
   const color = colors[state] || colors.disconnected;
-  el.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle"></span>${text}`;
+  el.innerHTML = h`${html(`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle"></span>`)}${text}`;
 }
 
 function showReconnectUI(seconds) {
@@ -66,8 +66,7 @@ function showReconnectUI(seconds) {
       connectWebSocket(false);
       return;
     }
-    statusEl.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#d29922;margin-right:6px;vertical-align:middle"></span>` +
-      `Reconnecting in ${reconnectCountdown}s... <button onclick="connectWebSocket(false)" style="margin-left:8px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--header-bg);color:var(--fg);cursor:pointer;font-size:12px">Reconnect now</button>`;
+    statusEl.innerHTML = h`${html('<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#d29922;margin-right:6px;vertical-align:middle"></span>')}Reconnecting in ${reconnectCountdown}s... ${html('<button onclick="connectWebSocket(false)" style="margin-left:8px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--header-bg);color:var(--fg);cursor:pointer;font-size:12px">Reconnect now</button>')}`;
     reconnectCountdown--;
     reconnectTimer = setTimeout(updateCountdown, 1000);
   };
@@ -212,7 +211,7 @@ async function loadAgentInfo() {
 
 // Init
 if (!agentId) {
-  document.body.innerHTML = '<div style="padding:40px;color:var(--error)">Error: No agentId provided</div>';
+  document.body.innerHTML = h`<div style="padding:40px;color:var(--error)">Error: No agentId provided</div>`;
 } else {
   initTerminal();
   loadAgentInfo();

@@ -89,11 +89,6 @@ document.addEventListener('DOMContentLoaded', initUserMenu);
 
 // ─── Shared utility functions ───
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s || '';
-  return d.innerHTML;
-}
 
 function html(value) {
   return { __html: String(value == null ? '' : value) };
@@ -104,7 +99,7 @@ function h(parts, ...vals) {
     const value = vals[i];
     if (value == null) return acc + part;
     if (value && value.__html != null) return acc + part + value.__html;
-    return acc + part + esc(value);
+    return acc + part + String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }, '');
 }
 

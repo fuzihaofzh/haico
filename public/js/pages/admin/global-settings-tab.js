@@ -1,3 +1,5 @@
+import { initRemoteInstancesPanel } from './remote-instances.js';
+
 // Load current settings from API
 async function initGlobalSettingsTab() {
   try {
@@ -59,6 +61,8 @@ async function initGlobalSettingsTab() {
       }
     });
   }
+  // Remote instances panel (replaces htmx partial)
+  initRemoteInstancesPanel();
 }
 
 // Self-initialize — this file is loaded directly as a page module

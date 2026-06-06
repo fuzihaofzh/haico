@@ -20,11 +20,9 @@ async function loadSystemStatus() {
       { label: 'DB Size', value: data.db_size ?? '-' },
       { label: 'Uptime', value: data.uptime ?? '-' },
     ];
-    el.innerHTML = '<div class="info-panel">' +
-      items.map(i => `<dt>${i.label}</dt><dd>${i.value}</dd>`).join('') +
-      '</div>';
+    el.innerHTML = h`<div class="info-panel">${html(items.map(i => h`<dt>${i.label}</dt><dd>${i.value}</dd>`).join(''))}</div>`;
   } catch {
-    el.innerHTML = '<p style="color:var(--error);font-size:13px">Failed to load system status.</p>';
+    el.innerHTML = h`<p style="color:var(--error);font-size:13px">Failed to load system status.</p>`;
   }
 }
 

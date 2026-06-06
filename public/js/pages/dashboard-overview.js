@@ -30,7 +30,7 @@ function renderProjectsList(projects) {
   if (!container) return;
 
   if (!projects.length) {
-    container.innerHTML = '<div style="padding:16px;color:var(--text-secondary);font-size:12px;text-align:center">No projects yet. Create one to get started.</div>';
+    container.innerHTML = h`<div style="padding:16px;color:var(--text-secondary);font-size:12px;text-align:center">No projects yet. Create one to get started.</div>`;
     return;
   }
 
@@ -67,7 +67,7 @@ function renderActivityList(projects) {
     .slice(0, 10);
 
   if (!entries.length) {
-    container.innerHTML = '<div style="padding:16px;color:var(--text-secondary);font-size:12px;text-align:center">No recent activity</div>';
+    container.innerHTML = h`<div style="padding:16px;color:var(--text-secondary);font-size:12px;text-align:center">No recent activity</div>`;
     return;
   }
 

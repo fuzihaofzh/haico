@@ -309,21 +309,12 @@ export function registerAuthSuites(
       assert.equal(status, 401);
     });
 
-    it("settings remote instances partial requires admin session", async () => {
-      const unauthenticated = await ctx.inject({
-        url: "/settings/partials/remote-instances",
-        headers: { cookie: "" },
-      });
-      assert.equal(unauthenticated.statusCode, 302);
-      assert.equal(unauthenticated.headers.location, "/login");
-
-      const authenticated = await ctx.inject({
+    it("settings remote instances partial route is removed (migrated to frontend)", async () => {
+      const res = await ctx.inject({
         url: "/settings/partials/remote-instances",
         headers: { cookie: `haico-auth=${getSessionToken()}` },
       });
-      assert.equal(authenticated.statusCode, 200);
-      assert.ok(authenticated.headers["content-type"]?.includes("text/html"));
-      assert.ok(authenticated.body.includes("No remote HAICO instances yet."));
+      assert.equal(res.statusCode, 404);
     });
 
     it("admin page routes serve HTML", async () => {

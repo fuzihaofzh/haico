@@ -368,7 +368,7 @@
     const container = document.getElementById('dispatch-timeline');
     const status = document.getElementById('dispatch-sync-status');
     if (!lane) {
-      container.innerHTML = '<div class="empty-copy">Select a lane to inspect dispatch activity.</div>';
+      container.innerHTML = h`<div class="empty-copy">Select a lane to inspect dispatch activity.</div>`;
       status.textContent = 'Awaiting selection';
       return;
     }
@@ -396,7 +396,7 @@
     const container = document.getElementById('customer-feed');
     const status = document.getElementById('customer-sync-status');
     if (!lane) {
-      container.innerHTML = '<div class="empty-copy">No customer update context yet.</div>';
+      container.innerHTML = h`<div class="empty-copy">No customer update context yet.</div>`;
       status.textContent = 'No lane selected';
       return;
     }

@@ -87,7 +87,7 @@ async function loadIssues() {
     ];
     tabs.innerHTML = filters.map(f =>
       h`<span onclick="setIssueFilter('${f.key}')" style="cursor:pointer;padding:4px 10px;border-radius:6px;${currentIssueFilter===f.key?'background:var(--selected-bg);font-weight:600':'color:var(--text-secondary)'}">
-        ${f.icon ? html(h`<svg width="14" height="14" viewBox="0 0 16 16" style="vertical-align:-2px">${html(f.icon)}</svg>`) : ''}
+        ${f.icon ? html(`<svg width="14" height="14" viewBox="0 0 16 16" style="vertical-align:-2px">${f.icon}</svg>`) : ''}
         ${f.count} ${f.label}
       </span>`
     ).join('');

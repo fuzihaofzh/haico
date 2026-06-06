@@ -131,7 +131,7 @@ async function checkCostAlert() {
 
     if (data.today_cost_usd > COST_ALERT_THRESHOLD) {
       var projectBreakdown = Object.values(data.by_project).map(function(p) {
-        return esc(p.name) + ': $' + p.cost.toFixed(2);
+        return p.name + ': $' + p.cost.toFixed(2);
       }).join(', ');
       text.textContent = "Today's spending: $" + data.today_cost_usd.toFixed(2) + ' (threshold: $' + COST_ALERT_THRESHOLD.toFixed(2) + ')' + (projectBreakdown ? ' — ' + projectBreakdown : '');
       banner.style.display = '';

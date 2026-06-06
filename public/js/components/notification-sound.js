@@ -92,8 +92,7 @@ export function createNotificationSoundToggle() {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'notif-sound-toggle topbar-sound-toggle';
-  btn.innerHTML = `
-    <span class="sound-toggle-track" aria-hidden="true">
+  btn.innerHTML = h`<span class="sound-toggle-track" aria-hidden="true">
       <svg class="sound-icon sound-icon-on" viewBox="0 0 24 24">
         <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
         <path d="M16 8.5a5 5 0 0 1 0 7"></path>
@@ -105,8 +104,7 @@ export function createNotificationSoundToggle() {
         <path d="M21 9l-4 4"></path>
       </svg>
       <span class="sound-toggle-knob"></span>
-    </span>
-  `;
+    </span>`;
   btn.addEventListener('click', toggleNotificationSound);
   return btn;
 }

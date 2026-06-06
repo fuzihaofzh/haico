@@ -129,7 +129,7 @@ var IssueRenderer = (function() {
   function highlightMentionsInSegment(text, agentNameLookup) {
     return text.replace(/(^|[^\w./+-])@([\w-]+)/g, function(match, prefix, name) {
       if (!agentNameLookup[name]) return match;
-      return prefix + '<span style="color:#61afef;font-weight:500;background:#61afef18;padding:0 4px;border-radius:3px">@' + name + '</span>';
+      return prefix + h`<span style="color:#61afef;font-weight:500;background:#61afef18;padding:0 4px;border-radius:3px">@${name}</span>`;
     });
   }
 

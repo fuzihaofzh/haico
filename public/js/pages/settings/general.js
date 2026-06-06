@@ -1,4 +1,4 @@
-import { initDashboardPage, invalidateDashboardProjects } from '../dashboard-core.js';
+import { initDashboardPage } from '../dashboard-core.js';
 import { syncNotificationSoundToggles, toggleNotificationSound } from '../../components/notification-sound.js';
 import { showToast } from '../../components/toast.js';
 
@@ -67,11 +67,6 @@ async function loadAccountSummary() {
 }
 
 function bindSettingsEvents() {
-  document.body.addEventListener('htmx:afterSwap', (event) => {
-    if (event.detail?.target?.id === 'remote-instances-settings') {
-      invalidateDashboardProjects({ invalidateRemoteOptions: true });
-    }
-  });
   window.addEventListener('haico:user-ready', (event) => {
     renderAccountSummary(event.detail);
   });

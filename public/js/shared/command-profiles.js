@@ -1,4 +1,6 @@
 (function() {
+  const h = window.h;
+  const html = window.html;
   const CUSTOM_PROFILE_VALUE = '__custom__';
   let commandProfiles = [];
   let profilesLoaded = false;
@@ -114,18 +116,18 @@
 
     const items = [];
     if (includeProjectDefault) {
-      items.push(`<option value="">${esc(projectDefaultLabel)}</option>`);
+      items.push(h`<option value="">${projectDefaultLabel}</option>`);
     }
     if (includeCustom) {
-      items.push(`<option value="${CUSTOM_PROFILE_VALUE}">${esc(customLabel)}</option>`);
+      items.push(h`<option value="${CUSTOM_PROFILE_VALUE}">${customLabel}</option>`);
     }
     commandProfiles.forEach((profile) => {
       items.push(
-        `<option value="${profile.id}">${esc(formatProfileLabel(profile))}</option>`
+        h`<option value="${profile.id}">${formatProfileLabel(profile)}</option>`
       );
     });
     if (commandProfiles.length === 0 && !includeProjectDefault && !includeCustom) {
-      items.push(`<option value="" disabled>${esc(emptyLabel)}</option>`);
+      items.push(h`<option value="" disabled>${emptyLabel}</option>`);
     }
     select.innerHTML = items.join('');
   }

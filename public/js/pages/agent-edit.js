@@ -119,8 +119,8 @@ function renderPage() {
   const root = document.getElementById('agent-edit-content');
   const canManage = !!project?.can_manage;
   const ro = canManage ? '' : 'disabled';
-  const controllerTag = agent.is_controller ? '<span class="controller-tag">[controller]</span>' : '';
-  const statusHtml = agent.status ? `<span class="status-badge status-${agent.status}">${esc(agent.status)}</span>` : '';
+  const controllerTag = agent.is_controller ? h`<span class="controller-tag">[controller]</span>` : '';
+  const statusHtml = agent.status ? h`<span class="status-badge status-${agent.status}">${agent.status}</span>` : '';
 
   // Breadcrumb links
   const projectLink = document.getElementById('project-link');
@@ -134,7 +134,7 @@ function renderPage() {
     agentLink.textContent = isNew ? 'New Agent' : (agent.name || 'Agent');
   }
 
-  const pageTitle = isNew ? 'New Agent' : esc(agent.name);
+  const pageTitle = isNew ? 'New Agent' : agent.name || '';
   const pageAvatar = isNew ? '' : html(roleAvatarHtml(agent.name, 32, project?.color));
 
   root.innerHTML = h`
@@ -143,7 +143,7 @@ function renderPage() {
 
       <div class="edit-page-title">
         ${pageAvatar}
-        <h2>${html(pageTitle)}</h2>
+        <h2>${pageTitle}</h2>
         ${html(controllerTag)}
         ${html(statusHtml)}
       </div>
@@ -190,17 +190,17 @@ function renderIdentityTab(ro) {
   return h`
     <div class="form-group">
       <label for="f-name">Name</label>
-      <input type="text" id="f-name" value="${esc(agent.name || '')}" ${ro} data-field="name">
+      <input type="text" id="f-name" value="${agent.name || ''}" ${ro} data-field="name">
     </div>
 
     <div class="form-group">
       <label for="f-role">Role</label>
-      <textarea id="f-role" rows="3" ${ro} data-field="role">${esc(agent.role || '')}</textarea>
+      <textarea id="f-role" rows="3" ${ro} data-field="role">${agent.role || ''}</textarea>
     </div>
 
     <div class="form-group">
       <label for="f-custom-instructions">Custom Instructions</label>
-      <textarea id="f-custom-instructions" rows="4" ${ro} data-field="custom_instructions" placeholder="Extra instructions appended to system prompt...">${esc(agent.custom_instructions || '')}</textarea>
+      <textarea id="f-custom-instructions" rows="4" ${ro} data-field="custom_instructions" placeholder="Extra instructions appended to system prompt...">${agent.custom_instructions || ''}</textarea>
       <div class="hint">Appended to the auto-generated system prompt</div>
     </div>
 
@@ -211,11 +211,11 @@ function renderIdentityTab(ro) {
       </div>
       <div class="readonly-info-item">
         <div class="label">Parent Agent</div>
-        <div class="value">${parentAgent ? esc(parentAgent.name) : 'None'}</div>
+        <div class="value">${parentAgent ? parentAgent.name : 'None'}</div>
       </div>
       <div class="readonly-info-item">
         <div class="label">Direct Reports</div>
-        <div class="value">${childAgents.length > 0 ? childAgents.map(c => esc(c.name)).join(', ') : 'None'}</div>
+        <div class="value">${childAgents.length > 0 ? childAgents.map(c => c.name).join(', ') : 'None'}</div>
       </div>
       <div class="readonly-info-item">
         <div class="label">Created</div>
@@ -251,10 +251,10 @@ function renderSkillsTab(ro) {
 
     return h`
       <div class="skill-item">
-        <input type="checkbox" id="f-skill-${esc(skill.id)}" data-skill-id="${esc(skill.id)}" ${checked ? 'checked' : ''} ${ro}>
+        <input type="checkbox" id="f-skill-${skill.id}" data-skill-id="${skill.id}" ${checked ? 'checked' : ''} ${ro}>
         <div class="skill-item-label">
-          <div class="skill-name">${esc(skill.id)} ${html(triggerBadge)} ${html(actionBadge)}</div>
-          <div class="skill-desc">${esc(skill.description)}</div>
+          <div class="skill-name">${skill.id} ${html(triggerBadge)} ${html(actionBadge)}</div>
+          <div class="skill-desc">${skill.description}</div>
         </div>
       </div>
       ${html(configHtml)}
@@ -277,7 +277,7 @@ function renderExecutionTab(ro) {
   const currentProfileId = execPrefs.default_executor_profile_id || '';
 
   const profileOptions = executorProfiles.map(p =>
-    `<option value="${esc(p.id)}" ${p.id === currentProfileId ? 'selected' : ''}>${esc(p.name)}</option>`
+    h`<option value="${p.id}" ${p.id === currentProfileId ? 'selected' : ''}>${p.name}</option>`
   ).join('');
 
   const maxConcurrent = constraints.max_concurrent_tasks ?? 1;
@@ -286,7 +286,7 @@ function renderExecutionTab(ro) {
   return h`
     <div class="form-group">
       <label for="f-workdir">Working Directory</label>
-      <input type="text" id="f-workdir" value="${esc(agent.working_directory || '')}" ${ro} data-field="working_directory" style="font-family:monospace" placeholder="(default)">
+      <input type="text" id="f-workdir" value="${agent.working_directory || ''}" ${ro} data-field="working_directory" style="font-family:monospace" placeholder="(default)">
     </div>
 
     <div class="form-row">
@@ -329,7 +329,7 @@ function renderAdvancedTab(ro) {
   const descendantIds = getDescendantIds(agentId);
   const parentOptions = projectAgents
     .filter(a => a.id !== agentId && !descendantIds.has(a.id))
-    .map(a => `<option value="${esc(a.id)}" ${a.id === agent.parent_agent_id ? 'selected' : ''}>${esc(a.name)}${a.is_controller ? ' [controller]' : ''}</option>`)
+    .map(a => h`<option value="${a.id}" ${a.id === agent.parent_agent_id ? 'selected' : ''}>${a.name}${a.is_controller ? ' [controller]' : ''}</option>`)
     .join('');
 
   const contextJsonStr = JSON.stringify(ctx, null, 2);
@@ -356,27 +356,27 @@ function renderAdvancedTab(ro) {
       <div class="form-group">
         <label>Agent ID</label>
         <div class="copy-id-row">
-          <code>${esc(agentId)}</code>
-          <button class="copy-btn" data-copy="${esc(agentId)}">Copy</button>
+          <code>${agentId}</code>
+          <button class="copy-btn" data-copy="${agentId}">Copy</button>
         </div>
       </div>
       <div class="form-group">
         <label>Project ID</label>
         <div class="copy-id-row">
-          <code>${esc(projectId)}</code>
-          <button class="copy-btn" data-copy="${esc(projectId)}">Copy</button>
+          <code>${projectId}</code>
+          <button class="copy-btn" data-copy="${projectId}">Copy</button>
         </div>
       </div>
     </div>
 
     <div class="form-group">
       <label>context_json</label>
-      <textarea class="debug-textarea" rows="8" readonly>${esc(contextJsonStr)}</textarea>
+      <textarea class="debug-textarea" rows="8" readonly>${contextJsonStr}</textarea>
     </div>
 
     <div class="form-group">
       <label>constraints_json</label>
-      <textarea class="debug-textarea" rows="4" readonly>${esc(constraintsJsonStr)}</textarea>
+      <textarea class="debug-textarea" rows="4" readonly>${constraintsJsonStr}</textarea>
     </div>
   `;
 }

@@ -33,11 +33,11 @@ async function loadIssue() {
   if (!container) return;
 
   if (!parsed.issueId && !parsed.projectId) {
-    container.innerHTML = '<div class="error-retry"><span class="error-msg">No issue ID in URL</span><a href="/inbox" class="btn btn-sm">Go to Inbox</a></div>';
+    container.innerHTML = h`<div class="error-retry"><span class="error-msg">No issue ID in URL</span><a href="/inbox" class="btn btn-sm">Go to Inbox</a></div>`;
     return;
   }
 
-  container.innerHTML = '<div class="loading-spinner"><span class="spinner"></span>Loading issue...</div>';
+  container.innerHTML = h`<div class="loading-spinner"><span class="spinner"></span>Loading issue...</div>`;
 
   try {
     let issueRes;
@@ -48,7 +48,7 @@ async function loadIssue() {
     }
     if (!issueRes.ok) {
       if (issueRes.status === 404) {
-        container.innerHTML = '<div class="error-retry"><span class="error-msg">Issue not found</span><a href="/inbox" class="btn btn-sm">Go to Inbox</a></div>';
+        container.innerHTML = h`<div class="error-retry"><span class="error-msg">Issue not found</span><a href="/inbox" class="btn btn-sm">Go to Inbox</a></div>`;
       } else {
         container.innerHTML = renderError({ status: issueRes.status });
       }

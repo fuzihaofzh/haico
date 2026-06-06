@@ -1,14 +1,6 @@
 let currentUser = null;
 let users = [];
 
-function esc(str) {
-  return window.esc ? window.esc(str) : String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function timeAgo(dateStr) {
-  return window.timeAgo ? window.timeAgo(dateStr) : dateStr;
-}
-
 async function loadCurrentUser() {
   try {
     const res = await fetch('/api/auth/me');
@@ -23,7 +15,7 @@ async function loadUsers() {
   try {
     const res = await fetch('/api/auth/users');
     if (res.status === 403) {
-      document.getElementById('users-list').innerHTML = '<p style="color:var(--error)">Admin access required.</p>';
+      document.getElementById('users-list').innerHTML = h`<p style="color:var(--error)">Admin access required.</p>`;
       return;
     }
     const data = await res.json();
@@ -37,10 +29,29 @@ async function loadUsers() {
 function renderUsers() {
   const el = document.getElementById('users-list');
   if (!users.length) {
-    el.innerHTML = '<p style="color:var(--text-secondary)">No users yet.</p>';
+    el.innerHTML = h`<p style="color:var(--text-secondary)">No users yet.</p>`;
     return;
   }
-  el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+  const rows = users.map(u => {
+    const actionButtons = (currentUser && u.id === currentUser.id)
+      ? h`<span style="color:var(--text-secondary)">you</span>`
+      : h`<button data-action="reset-password" data-user-id="${u.id}" data-username="${u.username}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;font-family:inherit;margin-right:8px">Reset PW</button>` +
+        h`<button data-action="delete-user" data-user-id="${u.id}" data-username="${u.username}" style="background:none;border:none;color:var(--error);cursor:pointer;font-size:12px;font-family:inherit">Delete</button>`;
+    return h`<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 12px">${u.username}</td>
+      <td style="padding:8px 12px">${u.display_name || '-'}</td>
+      <td style="padding:8px 12px">
+        <select data-action="change-role" data-user-id="${u.id}" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px;font-family:inherit"${currentUser && u.id === currentUser.id ? ' disabled' : ''}>
+          <option value="member"${u.role==='member'?' selected':''}>member</option>
+          <option value="admin"${u.role==='admin'?' selected':''}>admin</option>
+        </select>
+      </td>
+      <td style="padding:8px 12px;color:var(--text-secondary)">${u.created_at ? timeAgo(u.created_at) : '-'}</td>
+      <td style="padding:8px 12px;color:var(--text-secondary)">${u.last_login_at ? timeAgo(u.last_login_at) : 'Never'}</td>
+      <td style="padding:8px 12px;white-space:nowrap">${actionButtons}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = h`<table style="width:100%;border-collapse:collapse;font-size:13px">
     <thead><tr style="border-bottom:2px solid var(--border);text-align:left">
       <th style="padding:8px 12px">Username</th>
       <th style="padding:8px 12px">Display Name</th>
@@ -49,24 +60,7 @@ function renderUsers() {
       <th style="padding:8px 12px">Last Login</th>
       <th style="padding:8px 12px">Actions</th>
     </tr></thead>
-    <tbody>${users.map(u => `<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:8px 12px">${esc(u.username)}</td>
-      <td style="padding:8px 12px">${esc(u.display_name || '-')}</td>
-      <td style="padding:8px 12px">
-        <select data-action="change-role" data-user-id="${esc(u.id)}" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px;font-family:inherit"${currentUser && u.id === currentUser.id ? ' disabled' : ''}>
-          <option value="member"${u.role==='member'?' selected':''}>member</option>
-          <option value="admin"${u.role==='admin'?' selected':''}>admin</option>
-        </select>
-      </td>
-      <td style="padding:8px 12px;color:var(--text-secondary)">${u.created_at ? timeAgo(u.created_at) : '-'}</td>
-      <td style="padding:8px 12px;color:var(--text-secondary)">${u.last_login_at ? timeAgo(u.last_login_at) : 'Never'}</td>
-      <td style="padding:8px 12px;white-space:nowrap">${
-        currentUser && u.id === currentUser.id
-          ? '<span style="color:var(--text-secondary)">you</span>'
-          : `<button data-action="reset-password" data-user-id="${esc(u.id)}" data-username="${esc(u.username)}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;font-family:inherit;margin-right:8px">Reset PW</button>` +
-            `<button data-action="delete-user" data-user-id="${esc(u.id)}" data-username="${esc(u.username)}" style="background:none;border:none;color:var(--error);cursor:pointer;font-size:12px;font-family:inherit">Delete</button>`
-      }</td>
-    </tr>`).join('')}</tbody>
+    <tbody>${html(rows)}</tbody>
   </table>`;
 }
 

@@ -1,22 +1,16 @@
-function escapeHtml(value) {
-  const d = document.createElement('div');
-  d.textContent = value || '';
-  return d.innerHTML;
-}
-
 function renderConfirmModal(opts, messageHtml) {
   const tone = opts.tone;
-  return `<div class="modal confirm-modal confirm-modal-${tone}" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  return h`<div class="modal confirm-modal confirm-modal-${tone}" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <div class="confirm-modal-header">
         <div class="confirm-modal-eyebrow">${tone === 'danger' ? 'Danger zone' : 'Confirmation'}</div>
-        <h3 id="confirm-title" class="confirm-modal-title">${escapeHtml(opts.title)}</h3>
+        <h3 id="confirm-title" class="confirm-modal-title">${opts.title}</h3>
       </div>
       <div class="confirm-modal-body">
-        <div class="confirm-modal-message">${messageHtml}</div>
+        <div class="confirm-modal-message">${html(messageHtml)}</div>
       </div>
       <div class="modal-actions confirm-modal-actions">
-        <button class="btn btn-sm" id="confirm-cancel" type="button">${escapeHtml(opts.cancelLabel)}</button>
-        <button class="btn btn-sm ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}" id="confirm-ok" type="button">${escapeHtml(opts.confirmLabel)}</button>
+        <button class="btn btn-sm" id="confirm-cancel" type="button">${opts.cancelLabel}</button>
+        <button class="btn btn-sm ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}" id="confirm-ok" type="button">${opts.confirmLabel}</button>
       </div>
     </div>`;
 }
@@ -30,7 +24,7 @@ export function showConfirm(message, options) {
     confirmLabel: input.confirmLabel || (tone === 'danger' ? 'Delete' : 'Confirm'),
     cancelLabel: input.cancelLabel || 'Cancel',
   };
-  const messageHtml = escapeHtml(message || '').replace(/\n/g, '<br>');
+  const messageHtml = String(message || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>');
 
   return new Promise((resolve) => {
     let overlay = document.getElementById('confirm-overlay');

@@ -188,7 +188,7 @@ function renderChatMain() {
 
 function renderCreatePanel(container) {
   const profileOptions = _profiles.length > 0
-    ? _profiles.map((p) => h`<option value="${p.id}">${esc(getProfileLabel(p))}</option>`).join('')
+    ? _profiles.map((p) => h`<option value="${p.id}">${getProfileLabel(p)}</option>`).join('')
     : h`<option value="" selected>Default CLI</option>`;
 
   const projects = Object.values(_projectsById).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -196,7 +196,7 @@ function renderCreatePanel(container) {
     h`<option value="" selected>Global</option>`,
     ...projects.map((p) => {
       const remoteSuffix = p.is_remote ? ` · ${p.remote_instance_name || 'remote'}` : '';
-      return h`<option value="${p.id}">${esc(p.name)}${remoteSuffix}</option>`;
+      return h`<option value="${p.id}">${p.name}${remoteSuffix}</option>`;
     }),
   ].join('');
 
@@ -220,9 +220,9 @@ function renderCreatePanel(container) {
 
 function renderActiveChat(container, conv) {
   container.innerHTML = h`<div class="chat-context-header">
-    <span class="chat-context-header-name">${esc(conv.profileName)}</span>
+    <span class="chat-context-header-name">${conv.profileName}</span>
     <span class="chat-context-header-dot"></span>
-    <span>${esc(conv.projectName)}</span>
+    <span>${conv.projectName}</span>
   </div>
   <div class="dashboard-chat-transcript" id="dashboard-chat-transcript" style="flex:1;overflow-y:auto"></div>
   <div class="dashboard-chat-composer">
@@ -243,7 +243,7 @@ function renderActiveChat(container, conv) {
 // ── Rendering: transcript ──
 
 function formatChatMessage(content) {
-  return esc(content || '').replace(/\n/g, '<br>');
+  return String(content || '').split('\n').map(line => h`${line}`).join('<br>');
 }
 
 function renderTranscript(conv) {
@@ -292,7 +292,7 @@ function renderEmptyState(conv) {
   const scopeLabel = conv.projectName || 'all projects';
   return h`<div class="dashboard-chat-empty">
     <div class="dashboard-chat-empty-icon">&#128172;</div>
-    <div class="dashboard-chat-empty-title">Ask HAICO about ${esc(scopeLabel)}</div>
+    <div class="dashboard-chat-empty-title">Ask HAICO about ${scopeLabel}</div>
     <div class="dashboard-chat-empty-copy">I can look up project progress, inspect issues, update records, and delegate longer work as a new issue.</div>
   </div>`;
 }

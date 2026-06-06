@@ -92,7 +92,7 @@
           <h3>Remote HAICO Instances</h3>
         </div>
         <div class="admin-scrollable">
-          <div id="remote-instances-settings" hx-get="/settings/partials/remote-instances" hx-trigger="load, remote-instances-refresh from:body" hx-swap="innerHTML">
+          <div id="remote-instances-settings">
             <div class="empty-state">Loading remote instances...</div>
           </div>
         </div>
@@ -100,7 +100,6 @@
     </div>
   </main>
 
-  <script src="/public/vendor/htmx.min.js"></script>
   <script src="/public/js/shared/common.js"></script>
   <script src="/public/js/components/dashboard-sidebar.js"></script>
   <script type="module" src="/public/js/pages/admin/global-settings-tab.js"></script>

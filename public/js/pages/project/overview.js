@@ -145,7 +145,7 @@ async function loadDashboard(options) {
       <div style="padding:12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
         <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;margin-bottom:4px">${label}</div>
         <div style="font-size:22px;font-weight:700;color:${color || 'var(--fg)'}">${value}</div>
-        ${sub ? html(h`<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${html(sub)}</div>`) : ''}
+        ${sub ? html(`<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${sub}</div>`) : ''}
       </div>`;
 
     const costValue = cost?.total_cost_usd > 0 ? fmtCostOverview(cost.total_cost_usd) : (cost?.total_input_tokens > 0 ? fmtTokensOverview(cost.total_input_tokens) + '↑' + fmtTokensOverview(cost.total_output_tokens) + '↓' : '$0');
@@ -153,7 +153,7 @@ async function loadDashboard(options) {
 
     el.innerHTML =
       card('Agents', `${running}/${agents.length}`, running > 0 ? 'var(--success)' : 'var(--fg)',
-        h`${errors > 0 ? html(h`<span style="color:var(--error)">${errors} error</span>`) : ''}${paused > 0 ? html(h` <span style="color:var(--warning)">${paused} paused</span>`) : ''}`) +
+        `${errors > 0 ? `<span style="color:var(--error)">${errors} error</span>` : ''}${paused > 0 ? `<span style="color:var(--warning)">${paused} paused</span>` : ''}`) +
       card('Open Issues', openIssues, openIssues > 0 ? 'var(--warning)' : 'var(--fg)', `${doneIssues} completed`) +
       card(costLabel, costValue, 'var(--accent)', cost ? `${cost.total_runs || 0} runs` : '') +
       card('Issues Progress', totalIssues > 0 ? Math.round(doneIssues / totalIssues * 100) + '%' : '-', 'var(--fg)', `${doneIssues}/${totalIssues} total`);
@@ -232,7 +232,7 @@ function renderAgentCostComparison(byAgent, colorMap) {
       <div style="width:40px;font-size:10px;color:var(--text-secondary);text-align:right">${pct}%</div>
     </div>`;
   }).join('') +
-  `<div style="margin-top:8px;font-size:12px;color:var(--fg);font-weight:600">Total: ${hasCost ? '$' + (totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)) : fmtTokensComp(totalTokens) + ' tokens'}</div>`;
+  h`<div style="margin-top:8px;font-size:12px;color:var(--fg);font-weight:600">Total: ${hasCost ? '$' + (totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)) : fmtTokensComp(totalTokens) + ' tokens'}</div>`;
 }
 
 function renderStackedBarChart(agents, totalSeries, width, height, colorMap) {
