@@ -80,9 +80,11 @@ function registerBuiltinAdapters(registry: AdapterRegistryImpl): void {
   const { CodexCliAdapter } = require('./codex') as typeof import('./codex');
   const { GeminiCliAdapter } = require('./gemini') as typeof import('./gemini');
   const { ShellAdapter } = require('./shell') as typeof import('./shell');
+  const { OmpCliAdapter } = require('./omp') as typeof import('./omp');
 
   registry.register(new ClaudeCliAdapter());
   registry.register(new CodexCliAdapter());
   registry.register(new GeminiCliAdapter());
   registry.register(new ShellAdapter());
+  registry.register(new OmpCliAdapter());
 }

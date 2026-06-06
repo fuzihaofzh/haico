@@ -1,5 +1,5 @@
 export type OrchestratorEngine = 'native' | 'langgraph';
-export type CommandProfileType = 'claude' | 'codex' | 'gemini';
+export type CommandProfileType = 'claude' | 'codex' | 'gemini' | 'omp';
 export type ExecutorType = CommandProfileType | 'shell';
 
 export interface Project {

@@ -9,13 +9,13 @@ import {
   MissingCommandProfileNameError,
 } from './errors';
 
-export const COMMAND_PROFILE_TYPES = ['claude', 'codex', 'gemini'] as const;
+export const COMMAND_PROFILE_TYPES = ['claude', 'codex', 'gemini', 'omp'] as const;
 
 export type CommandProfileType = (typeof COMMAND_PROFILE_TYPES)[number];
 export type CommandProfileConfig = Record<string, unknown>;
 
 export function isCommandProfileType(value: unknown): value is CommandProfileType {
-  return value === 'claude' || value === 'codex' || value === 'gemini';
+  return value === 'claude' || value === 'codex' || value === 'gemini' || value === 'omp';
 }
 
 export function normalizeCommandProfileType(value: unknown): CommandProfileType | null {
@@ -39,7 +39,9 @@ export function detectCommandTypeFromCommand(commandTemplate: string | null | un
   if (normalized.startsWith('gemini')) {
     return 'gemini';
   }
-
+  if (normalized.startsWith('omp')) {
+    return 'omp';
+  }
   return null;
 }
 
@@ -163,6 +165,34 @@ export function appendGeminiConfigArgs(commandTemplate: string, configValue: unk
     parts.push('--approval-mode', shellQuote(approvalMode));
   }
 
+  return parts.join(' ');
+}
+export function appendOmpConfigArgs(commandTemplate: string, configValue: unknown): string {
+  const config = normalizeCommandProfileConfig(configValue);
+  if (Object.keys(config).length === 0) return commandTemplate;
+  const parts = [commandTemplate];
+  const model = stringValue(config.model);
+  if (model && !hasCommandFlag(commandTemplate, '--model')) {
+    parts.push('--model', shellQuote(model));
+  }
+  const thinking = stringValue(config.thinking);
+  if (thinking && !hasCommandFlag(commandTemplate, '--thinking')) {
+    parts.push('--thinking', shellQuote(thinking));
+  }
+  const tools = stringListValue(config.tools);
+  if (tools.length > 0 && !hasCommandFlag(commandTemplate, '--tools')) {
+    parts.push('--tools', shellQuote(tools.join(',')));
+  }
+  if (booleanValue(config.noLsp) === true && !hasCommandFlag(commandTemplate, '--no-lsp')) {
+    parts.push('--no-lsp');
+  }
+  if (booleanValue(config.autoApprove) === true && !hasCommandFlag(commandTemplate, '--auto-approve')) {
+    parts.push('--auto-approve');
+  }
+  const approvalMode = stringValue(config.approvalMode);
+  if (approvalMode && !hasCommandFlag(commandTemplate, '--approval-mode')) {
+    parts.push('--approval-mode', shellQuote(approvalMode));
+  }
   return parts.join(' ');
 }
 

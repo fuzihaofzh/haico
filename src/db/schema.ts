@@ -33,7 +33,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
       name TEXT NOT NULL,
       command TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'claude' CHECK(type IN ('claude', 'codex', 'gemini')),
+      type TEXT NOT NULL DEFAULT 'claude' CHECK(type IN ('claude', 'codex', 'gemini', 'omp')),
       scenario TEXT DEFAULT NULL,
       config_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT DEFAULT (datetime('now')),
@@ -47,7 +47,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       task_description TEXT NOT NULL,
       command_profile_id TEXT REFERENCES command_profiles(id) ON DELETE SET NULL,
       command_template TEXT DEFAULT 'cld',
-      command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
+      command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini', 'omp')),
       orchestrator_engine TEXT DEFAULT 'langgraph' CHECK(orchestrator_engine IN ('native', 'langgraph')),
       schedule_hours TEXT DEFAULT '',
       status TEXT DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed')),
@@ -78,7 +78,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       session_resume_timeout INTEGER DEFAULT 300,
       command_profile_id TEXT REFERENCES command_profiles(id) ON DELETE SET NULL,
       command_template TEXT DEFAULT NULL,
-      command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
+      command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini', 'omp')),
       status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error')),
       paused BOOLEAN DEFAULT 0,
       pid INTEGER,
@@ -148,9 +148,9 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
-      executor_type TEXT NOT NULL DEFAULT 'claude' CHECK(executor_type IN ('claude', 'codex', 'gemini', 'shell')),
+      executor_type TEXT NOT NULL DEFAULT 'claude' CHECK(executor_type IN ('claude', 'codex', 'gemini', 'shell', 'omp')),
       command_template TEXT NOT NULL,
-      command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
+      command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini', 'omp')),
       working_directory TEXT,
       env_json TEXT DEFAULT '{}',
       session_policy_json TEXT DEFAULT '{}',
@@ -510,7 +510,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
     logger.info('Migration: added color column to projects table');
   }
   if (!projectCols.find((c: any) => c.name === 'command_type')) {
-    db.exec("ALTER TABLE projects ADD COLUMN command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini'))");
+    db.exec("ALTER TABLE projects ADD COLUMN command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini', 'omp'))");
     logger.info('Migration: added command_type column to projects table');
   }
 
@@ -545,7 +545,11 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
   `);
 
   // Migration: add 'editor' to project_members role CHECK constraint
-  // SQLite can't ALTER CHECK constraints, so recreate the table if needed
+  // SQLite can't ALTER CHECK constraints, so recreate the table if needed.
+  // Temporarily disable FK enforcement so the test INSERT doesn't fail on
+  // missing parent rows (the old code used dummy project_id/user_id).
+  const savedFkState = db.pragma('foreign_keys', { simple: true }) as number;
+  db.pragma('foreign_keys = OFF');
   try {
     // Test if 'editor' is accepted — if not, the old CHECK constraint is in place
     db.exec("INSERT INTO project_members (id, project_id, user_id, role) VALUES ('__test_editor__', '__none__', '__none__', 'editor')");
@@ -568,6 +572,8 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
     `);
     logger.info('Migration: updated project_members role constraint to include editor');
+  } finally {
+    db.pragma(`foreign_keys = ${savedFkState}`);
   }
 
   // Migration: normalize invalid orchestrator_engine values
@@ -751,7 +757,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
 
   // Migration: fix agents CHECK constraint to include 'waiting' status and expanded command_type values
   const agentsTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agents'").get() as any;
-  if (agentsTableSql && (!agentsTableSql.sql.includes("'waiting'") || !agentsTableSql.sql.includes("'gemini'"))) {
+  if (agentsTableSql && (!agentsTableSql.sql.includes("'waiting'") || !agentsTableSql.sql.includes("'omp'"))) {
     db.pragma('foreign_keys = OFF');
     db.exec(`
       ALTER TABLE agents RENAME TO agents_old;
@@ -777,7 +783,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
         session_resume_timeout INTEGER DEFAULT 300,
         command_profile_id TEXT REFERENCES command_profiles(id) ON DELETE SET NULL,
         command_template TEXT DEFAULT NULL,
-        command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini')),
+        command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini', 'omp')),
         status TEXT DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'waiting', 'error')),
         paused BOOLEAN DEFAULT 0,
         pid INTEGER,
@@ -837,6 +843,133 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
     logger.info('Migration: rebuilt conversation_logs table to fix FK references');
   }
 
+  // Migration: fix broken FK references in tasks, task_runs, executor_sessions, knowledge_entries
+  // (Same root cause as conversation_logs: agents table rename left dangling "agents_old" refs)
+  const tasksTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any;
+  if (tasksTableSql && tasksTableSql.sql.includes('agents_old')) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE tasks RENAME TO tasks_old;
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        target_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        source TEXT NOT NULL,
+        source_ref TEXT,
+        task_type TEXT NOT NULL,
+        reason TEXT DEFAULT '',
+        prompt TEXT NOT NULL,
+        system_prompt TEXT,
+        priority INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'blocked', 'running', 'completed', 'failed', 'cancelled', 'stale')),
+        scheduled_at DATETIME,
+        claimed_at DATETIME,
+        started_at DATETIME,
+        finished_at DATETIME,
+        executor_profile_id TEXT REFERENCES executor_profiles(id) ON DELETE SET NULL,
+        executor_snapshot_json TEXT DEFAULT '{}',
+        context_snapshot_json TEXT DEFAULT '{}',
+        metadata_json TEXT DEFAULT '{}',
+        dedupe_key TEXT,
+        current_task_run_id TEXT,
+        failure_kind TEXT,
+        failure_message TEXT,
+        created_at DATETIME DEFAULT (datetime('now')),
+        updated_at DATETIME DEFAULT (datetime('now'))
+      );
+      INSERT INTO tasks SELECT * FROM tasks_old;
+      DROP TABLE tasks_old;
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: rebuilt tasks table to fix FK references');
+  }
+
+  const taskRunsTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='task_runs'").get() as any;
+  if (taskRunsTableSql && taskRunsTableSql.sql.includes('agents_old')) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE task_runs RENAME TO task_runs_old;
+      CREATE TABLE task_runs (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        executor_profile_id TEXT REFERENCES executor_profiles(id) ON DELETE SET NULL,
+        run_id TEXT NOT NULL,
+        attempt INTEGER DEFAULT 1,
+        status TEXT DEFAULT 'starting' CHECK(status IN ('starting', 'running', 'completed', 'failed', 'cancelled')),
+        pid INTEGER,
+        session_id TEXT,
+        prompt_snapshot TEXT NOT NULL,
+        command_snapshot TEXT NOT NULL,
+        exit_code INTEGER,
+        failure_kind TEXT,
+        failure_message TEXT,
+        started_at DATETIME,
+        finished_at DATETIME,
+        created_at DATETIME DEFAULT (datetime('now'))
+      );
+      INSERT INTO task_runs SELECT * FROM task_runs_old;
+      DROP TABLE task_runs_old;
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: rebuilt task_runs table to fix FK references');
+  }
+
+  const execSessionsTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='executor_sessions'").get() as any;
+  if (execSessionsTableSql && execSessionsTableSql.sql.includes('agents_old')) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE executor_sessions RENAME TO executor_sessions_old;
+      CREATE TABLE executor_sessions (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        executor_profile_id TEXT NOT NULL REFERENCES executor_profiles(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL,
+        run_count INTEGER DEFAULT 0,
+        token_count INTEGER DEFAULT 0,
+        last_used_at DATETIME DEFAULT (datetime('now')),
+        reset_reason TEXT DEFAULT '',
+        created_at DATETIME DEFAULT (datetime('now')),
+        updated_at DATETIME DEFAULT (datetime('now')),
+        UNIQUE(agent_id, executor_profile_id)
+      );
+      INSERT INTO executor_sessions SELECT * FROM executor_sessions_old;
+      DROP TABLE executor_sessions_old;
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: rebuilt executor_sessions table to fix FK references');
+  }
+
+  const knowledgeTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='knowledge_entries'").get() as any;
+  if (knowledgeTableSql && knowledgeTableSql.sql.includes('agents_old')) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE knowledge_entries RENAME TO knowledge_entries_old;
+      CREATE TABLE knowledge_entries (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        owner_agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        tags TEXT DEFAULT '',
+        importance TEXT DEFAULT 'medium' CHECK(importance IN ('high', 'medium', 'low')),
+        category TEXT DEFAULT 'architecture',
+        expires_at DATETIME,
+        last_verified_at DATETIME,
+        verified_by TEXT,
+        status TEXT DEFAULT 'active',
+        created_by TEXT DEFAULT 'user',
+        created_at DATETIME DEFAULT (datetime('now')),
+        updated_at DATETIME DEFAULT (datetime('now'))
+      );
+      INSERT INTO knowledge_entries SELECT * FROM knowledge_entries_old;
+      DROP TABLE knowledge_entries_old;
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: rebuilt knowledge_entries table to fix FK references');
+  }
+
   // Migration: normalize controller command_type and only add Sonnet defaults for Claude controllers.
   const controllerAgents = db.prepare(
     'SELECT id, command_template, command_type FROM agents WHERE is_controller = 1'
@@ -887,6 +1020,79 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
     db.exec("ALTER TABLE sessions ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
     db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)");
     logger.info('Migration: added user_id column to sessions table');
+  }
+  // Migration: add 'omp' to CHECK constraints in command_profiles, projects, executor_profiles tables
+  const cpTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='command_profiles'").get() as any;
+  if (cpTableSql && !cpTableSql.sql.includes("'omp'")) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE command_profiles RENAME TO command_profiles_old;
+      CREATE TABLE command_profiles (
+        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+        name TEXT NOT NULL,
+        command TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'claude' CHECK(type IN ('claude', 'codex', 'gemini', 'omp')),
+        scenario TEXT DEFAULT NULL,
+        config_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      INSERT INTO command_profiles SELECT * FROM command_profiles_old;
+      DROP TABLE command_profiles_old;
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: added omp to command_profiles CHECK constraint');
+  }
+  const projTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'").get() as any;
+  if (projTableSql && !projTableSql.sql.includes("'omp'")) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE projects RENAME TO projects_old;
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        task_description TEXT NOT NULL,
+        command_profile_id TEXT REFERENCES command_profiles(id) ON DELETE SET NULL,
+        command_template TEXT DEFAULT 'cld',
+        command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini', 'omp')),
+        orchestrator_engine TEXT DEFAULT 'langgraph' CHECK(orchestrator_engine IN ('native', 'langgraph')),
+        schedule_hours TEXT DEFAULT '',
+        status TEXT DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed')),
+        owner_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        color TEXT DEFAULT '#4A90E2',
+        created_at DATETIME DEFAULT (datetime('now')),
+        updated_at DATETIME DEFAULT (datetime('now'))
+      );
+      INSERT INTO projects SELECT * FROM projects_old;
+      DROP TABLE projects_old;
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: added omp to projects CHECK constraint');
+  }
+  const epTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='executor_profiles'").get() as any;
+  if (epTableSql && !epTableSql.sql.includes("'omp'")) {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      ALTER TABLE executor_profiles RENAME TO executor_profiles_old;
+      CREATE TABLE executor_profiles (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        executor_type TEXT NOT NULL DEFAULT 'claude' CHECK(executor_type IN ('claude', 'codex', 'gemini', 'shell', 'omp')),
+        command_template TEXT NOT NULL,
+        command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini', 'omp')),
+        working_directory TEXT,
+        env_json TEXT DEFAULT '{}',
+        session_policy_json TEXT DEFAULT '{}',
+        created_at DATETIME DEFAULT (datetime('now')),
+        updated_at DATETIME DEFAULT (datetime('now'))
+      );
+      INSERT INTO executor_profiles SELECT * FROM executor_profiles_old;
+      DROP TABLE executor_profiles_old;
+    `);
+    db.pragma('foreign_keys = ON');
+    logger.info('Migration: added omp to executor_profiles CHECK constraint');
   }
 
   // Seed data and maintenance tasks

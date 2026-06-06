@@ -15,6 +15,7 @@ const PROFILE_TYPE_OPTIONS = [
   { value: 'claude', label: 'Claude' },
   { value: 'codex', label: 'Codex' },
   { value: 'gemini', label: 'Gemini' },
+  { value: 'omp', label: 'OMP' },
 ];
 
 export function getProfileTypeOptions() {
@@ -123,6 +124,48 @@ export function renderConfigFields(row, type, config) {
     syncConfigState(row);
     return;
   }
+  if (type === 'omp') {
+    container.innerHTML = h`
+      <div class="command-profile-config-summary" data-config-summary></div>
+      <label class="command-profile-config-field">Model
+        <input type="text" class="command-profile-input" data-config-field="model" placeholder="zai-org/GLM-5.1-FP8">
+      </label>
+      <label class="command-profile-config-field">Thinking
+        <select class="command-profile-select" data-config-field="thinking">
+          <option value="">Default</option>
+          <option value="off">off</option>
+          <option value="minimal">minimal</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+          <option value="xhigh">xhigh</option>
+        </select>
+      </label>
+      <label class="command-profile-config-field">Allowed tools
+        <textarea class="command-profile-input command-profile-tools" data-config-field="tools" placeholder="Bash,Edit,Read"></textarea>
+      </label>
+      <label class="command-profile-check"><input type="checkbox" data-config-field="noLsp"> No LSP</label>
+      <label class="command-profile-check"><input type="checkbox" data-config-field="autoApprove"> Auto-approve</label>
+      <label class="command-profile-config-field">Approval mode
+        <select class="command-profile-select" data-config-field="approvalMode">
+          <option value="">Default</option>
+          <option value="always-ask">always-ask</option>
+          <option value="write">write</option>
+          <option value="yolo">yolo</option>
+        </select>
+      </label>
+    `;
+    container.querySelector('[data-config-field="model"]').value = cfg.model || '';
+    container.querySelector('[data-config-field="thinking"]').value = cfg.thinking || '';
+    container.querySelector('[data-config-field="tools"]').value = Array.isArray(cfg.tools)
+      ? cfg.tools.join(', ')
+      : (cfg.tools || '');
+    container.querySelector('[data-config-field="noLsp"]').checked = Boolean(cfg.noLsp);
+    container.querySelector('[data-config-field="autoApprove"]').checked = Boolean(cfg.autoApprove);
+    container.querySelector('[data-config-field="approvalMode"]').value = cfg.approvalMode || '';
+    syncConfigState(row);
+    return;
+  }
 
   // Default: claude
   container.innerHTML = h`
@@ -163,6 +206,20 @@ export function readConfigFields(row) {
     const approvalMode = row.querySelector('[data-config-field="approvalMode"]')?.value?.trim() || '';
     if (outputFormat) config.outputFormat = outputFormat;
     if (row.querySelector('[data-config-field="sandbox"]')?.checked) config.sandbox = true;
+    if (approvalMode) config.approvalMode = approvalMode;
+    return config;
+  }
+  if (type === 'omp') {
+    const model = row.querySelector('[data-config-field="model"]')?.value?.trim() || '';
+    const thinking = row.querySelector('[data-config-field="thinking"]')?.value?.trim() || '';
+    const toolsRaw = row.querySelector('[data-config-field="tools"]')?.value || '';
+    const approvalMode = row.querySelector('[data-config-field="approvalMode"]')?.value?.trim() || '';
+    if (model) config.model = model;
+    if (thinking) config.thinking = thinking;
+    const tools = toolsRaw.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean);
+    if (tools.length) config.tools = tools;
+    if (row.querySelector('[data-config-field="noLsp"]')?.checked) config.noLsp = true;
+    if (row.querySelector('[data-config-field="autoApprove"]')?.checked) config.autoApprove = true;
     if (approvalMode) config.approvalMode = approvalMode;
     return config;
   }
