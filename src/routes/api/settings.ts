@@ -9,7 +9,7 @@ const VALID_LANDING_PAGES: Record<string, true> = {
 };
 
 export function registerSettingsRoutes(fastify: FastifyInstance): void {
-  fastify.get('/api/settings/default-landing-page', async (request, reply) => {
+  fastify.get('/settings/default-landing-page', async (request, reply) => {
     const userId = request.user?.id;
     if (!userId) return reply.code(401).send({ error: 'Not authenticated' });
     const db = getDatabase();
@@ -20,7 +20,7 @@ export function registerSettingsRoutes(fastify: FastifyInstance): void {
     return reply.send({ value });
   });
 
-  fastify.put('/api/settings/default-landing-page', async (request, reply) => {
+  fastify.put('/settings/default-landing-page', async (request, reply) => {
     const userId = request.user?.id;
     if (!userId) return reply.code(401).send({ error: 'Not authenticated' });
     const body = request.body as { value?: string };
