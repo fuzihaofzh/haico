@@ -1,0 +1,27 @@
+/* ===========================
+   Layer: block — tabs + empty state
+   =========================== */
+
+.workspace-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.workspace-tab {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 14px;
+  transition: background 0.15s, color 0.15s;
+}
+.workspace-tab:hover { background: var(--selected-bg); color: var(--fg); }
+.workspace-tab.active { background: var(--accent); color: var(--color-on-accent); border-color: var(--accent); }
+.workspace-panel { display: none; }
+.workspace-panel.active { display: block; }
+
+.tab-bar { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab { padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-secondary); font-size: 13px; }
+.tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+
+.empty-state { text-align: center; padding: 40px; color: var(--text-secondary); }

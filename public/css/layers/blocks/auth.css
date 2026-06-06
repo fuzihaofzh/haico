@@ -1,0 +1,66 @@
+/* ===========================
+   Layer: block — auth pages
+   Scoped to body.auth-page to avoid leaking bare selectors globally
+   =========================== */
+
+@scope (body.auth-page) {
+  :scope {
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', Menlo, monospace;
+    background: var(--bg, #0d1117);
+    color: var(--fg, #e6edf3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+
+  .card {
+    background: var(--header-bg, #161b22);
+    border: 1px solid var(--border, #30363d);
+    border-radius: 12px;
+    padding: 2rem;
+    width: 100%;
+    max-width: 360px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+
+  h1 { font-size: 1.5rem; margin-bottom: 0.5rem; text-align: center; }
+  h1 span { color: var(--accent, #58a6ff); }
+  .subtitle { font-size: 0.875rem; color: var(--text-secondary, #8b949e); text-align: center; margin-bottom: 1.5rem; }
+  label { display: block; margin-bottom: 0.5rem; font-size: 0.875rem; color: var(--text-secondary, #8b949e); }
+
+  input[type='password'], input[type='text'] {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border, #30363d);
+    border-radius: 8px;
+    background: var(--bg, #0d1117);
+    color: var(--fg, #e6edf3);
+    font-size: 1rem;
+    outline: none;
+    margin-bottom: 0.75rem;
+    font-family: inherit;
+  }
+  input[type='password']:focus, input[type='text']:focus { border-color: var(--accent, #58a6ff); }
+
+  button {
+    width: 100%;
+    padding: 0.75rem;
+    margin-top: 0.5rem;
+    border: none;
+    border-radius: 8px;
+    background: #238636;
+    color: var(--color-on-accent, #fff);
+    font-size: 1rem;
+    cursor: pointer;
+    font-weight: 600;
+    font-family: inherit;
+  }
+  button:hover { background: #2ea043; }
+
+  .auth-form.htmx-request button { opacity: 0.7; pointer-events: none; }
+  .auth-link { text-align: center; margin-top: 1rem; font-size: 0.875rem; color: var(--text-secondary, #8b949e); }
+  .auth-link a { color: var(--accent, #58a6ff); }
+  .error { color: var(--error, #f85149); font-size: 0.875rem; margin-top: 0.75rem; text-align: center; display: none; }
+  .success { color: var(--accent, #58a6ff); font-size: 0.875rem; margin-top: 0.75rem; text-align: center; display: none; }
+}

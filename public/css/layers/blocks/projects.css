@@ -1,0 +1,96 @@
+/* ===========================
+   Layer: block — projects
+   =========================== */
+
+/* Project cards */
+.project-card { display: flex; flex-direction: column; gap: 10px; }
+.project-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.project-card-main { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.project-card-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 15px; }
+.project-card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.project-card-source { font-size: 11px; color: var(--text-secondary); }
+.project-card-note { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12px; }
+.project-card-desc { color: var(--text-secondary); font-size: 13px; margin: 0; min-height: 38px; }
+.project-card-stats { display: flex; gap: 16px; font-size: 12px; flex-wrap: wrap; }
+
+/* Project header */
+.project-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.project-header-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.project-section-nav { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.project-section-nav a { display: inline-flex; align-items: center; padding: 8px 14px; border-bottom: 2px solid transparent; color: var(--text-secondary); white-space: nowrap; }
+.project-section-nav a.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--selected-bg); }
+.project-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.project-access-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.project-inline-note { color: var(--text-secondary); font-size: 12px; }
+.project-readonly-banner { padding: 10px 12px; background: rgba(38, 139, 210, 0.08); border: 1px solid rgba(38, 139, 210, 0.22); border-radius: 6px; color: var(--accent); font-size: 12px; }
+
+/* Project members & sharing */
+.project-members-modal { width: min(720px, 94vw); max-width: 720px; }
+.project-sharing-page { max-width: 920px; }
+.project-sharing-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 4px 0 18px; border-bottom: 1px solid var(--border); }
+.project-sharing-header h3 { margin: 0 0 6px; }
+.project-sharing-content { display: flex; flex-direction: column; gap: 16px; padding-top: 18px; }
+.project-members-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.project-share-form { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(140px, 180px) auto; gap: 12px; align-items: start; }
+.project-share-form .form-group { min-width: 0; margin-bottom: 0; }
+.project-share-submit-field { min-width: max-content; }
+.project-share-submit-label { visibility: hidden; }
+.project-share-form input, .project-share-form select { width: 100%; height: 35px; box-sizing: border-box; }
+.project-share-form .btn { display: inline-flex; justify-content: center; align-items: center; height: 35px; min-height: 0; padding-top: 0; padding-bottom: 0; white-space: nowrap; box-sizing: border-box; }
+.project-members-list { display: flex; flex-direction: column; gap: 10px; }
+.project-member-item { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.project-member-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.project-member-name-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.project-member-meta { color: var(--text-secondary); font-size: 12px; }
+.project-member-actions { flex-shrink: 0; }
+.project-member-static { color: var(--text-secondary); font-size: 12px; }
+
+/* Project creation forms */
+.project-new-page { max-width: 1120px; }
+.project-new-header { margin-bottom: 18px; }
+.project-new-header h2 { margin: 4px 0; font-size: 24px; }
+.project-new-header p { margin: 0; color: var(--text-secondary); max-width: 720px; }
+.project-new-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.project-new-form { padding: 18px; }
+.project-new-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.project-new-help { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+.project-new-actions { margin-top: 18px; }
+
+/* Path picker */
+.path-picker-inline { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); padding: 12px; margin: 4px 0 12px; }
+.path-picker-root-group { margin-bottom: 0; min-width: min(420px, 100%); }
+.path-picker-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.path-picker-current { min-width: 0; flex: 1; font-size: 12px; color: var(--text-secondary); font-family: monospace; word-break: break-all; }
+.path-picker-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.path-picker-list { border: 1px solid var(--border); border-radius: 8px; background: var(--bg); max-height: 320px; overflow: auto; }
+.path-picker-entry { width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--fg); text-align: left; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.path-picker-entry:last-child { border-bottom: 0; }
+.path-picker-entry:hover { background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
+.path-picker-entry-name { font-size: 13px; font-weight: 600; }
+.path-picker-entry-path { font-size: 11px; color: var(--text-secondary); font-family: monospace; }
+
+/* Project readiness checks */
+.create-project-readiness { border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--header-bg) 88%, var(--bg)); padding: 12px; margin-top: 8px; }
+.create-project-readiness-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.create-project-readiness-head strong { display: block; font-size: 13px; }
+.create-project-readiness-subtitle { color: var(--text-secondary); font-size: 11px; margin-top: 2px; }
+.create-project-readiness-body { display: flex; flex-direction: column; gap: 8px; }
+.create-project-readiness-empty { color: var(--text-secondary); font-size: 12px; padding: 4px 0; }
+.create-project-check { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--bg); }
+.create-project-check-icon { width: 10px; height: 10px; border-radius: 999px; margin-top: 4px; flex: 0 0 auto; background: var(--text-secondary); }
+.create-project-check-ok .create-project-check-icon { background: var(--success); }
+.create-project-check-warn .create-project-check-icon { background: var(--warning); }
+.create-project-check-error .create-project-check-icon { background: var(--error); }
+.create-project-check-copy { min-width: 0; flex: 1; }
+.create-project-check-title { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+.create-project-check-detail { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.create-project-check-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.create-project-inline-code { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font-size: 11px; }
+.create-project-path-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+
+/* ── Knowledge edit page (public/project/knowledge-edit.html) ── */
+.knowledge-edit-page { max-width: 720px; margin: 0 auto; padding: 24px 20px; }
+.knowledge-edit-page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.knowledge-edit-page-header a { font-size: 13px; color: var(--text-secondary); text-decoration: none; }
+.knowledge-edit-page-header a:hover { color: var(--accent); }
+.knowledge-edit-page-header h2 { margin: 0; font-size: 18px; }

@@ -1,0 +1,25 @@
+/* ===========================
+   Layer: exception — overrides & patches
+   Codicon icon colors and display overrides live here
+   to override block layer without !important
+   =========================== */
+
+/* Dashboard page visibility — lives in highest layer to override block/utility */
+.dashboard-shell[data-dashboard-page="overview"] .dashboard-view:not(.dashboard-view-overview),
+.dashboard-shell[data-dashboard-page="inbox"] .dashboard-view:not(.dashboard-view-inbox),
+.dashboard-shell[data-dashboard-page="chat"] .dashboard-view:not(.dashboard-view-chat),
+.dashboard-shell[data-dashboard-page="compose"] .dashboard-view:not(.dashboard-view-compose),
+.dashboard-shell[data-dashboard-page="projects"] .dashboard-view:not(.dashboard-view-projects),
+.dashboard-shell[data-dashboard-page="usage"] .dashboard-view:not(.dashboard-view-usage),
+.dashboard-shell[data-dashboard-page="settings"] .dashboard-view:not(.dashboard-view-settings),
+.dashboard-shell[data-dashboard-page="admin"] .dashboard-view:not(.dashboard-view-admin),
+.dashboard-shell[data-dashboard-view="overview"] .dashboard-view:not(.dashboard-view-overview),
+.dashboard-shell[data-dashboard-view="inbox"] .dashboard-view:not(.dashboard-view-inbox),
+.dashboard-shell[data-dashboard-view="chat"] .dashboard-view:not(.dashboard-view-chat),
+.dashboard-shell[data-dashboard-view="compose"] .dashboard-view:not(.dashboard-view-compose),
+.dashboard-shell[data-dashboard-view="projects"] .dashboard-view:not(.dashboard-view-projects),
+.dashboard-shell[data-dashboard-view="usage"] .dashboard-view:not(.dashboard-view-usage),
+.dashboard-shell[data-dashboard-view="settings"] .dashboard-view:not(.dashboard-view-settings),
+.dashboard-shell[data-dashboard-view="admin"] .dashboard-view:not(.dashboard-view-admin) {
+  display: none;
+}

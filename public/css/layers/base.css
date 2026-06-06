@@ -1,0 +1,174 @@
+/* ===========================
+   Layer: base
+   CSS variables, typography, scrollbar, @font-face
+   =========================== */
+
+:root {
+  /* Colors — Solarized Light */
+  --bg: #fdf6e3;
+  --fg: #073642;
+  --header-bg: #eee8d5;
+  --drawer-bg: #eee8d5;
+  --border: #c9bba3;
+  --text-secondary: #586e75;
+  --accent: #268bd2;
+  --success: #859900;
+  --warning: #b58900;
+  --error: #dc322f;
+  --selected-bg: #e8dcc8;
+
+  /* Previously missing — now defined */
+  --panel: #fdf6e3;
+  --bg-secondary: #eee8d5;
+
+  /* Semantic aliases (for future dark mode) */
+  --color-on-accent: #ffffff;
+
+  /* Breakpoints (semantic, for reference; actual use via @media) */
+  --bp-sm: 480px;
+  --bp-md: 768px;
+  --bp-lg: 960px;
+  --bp-xl: 1220px;
+
+  /* Spacing scale (advisory — migrate gradually) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* File-icon colors (formerly !important codicon overrides) */
+  --ft-icon-folder: #dcb67a;
+  --ft-icon-folder-open: #dcb67a;
+  --ft-icon-js: #e8d44d;
+  --ft-icon-ts: #3178c6;
+  --ft-icon-py: #3572a5;
+  --ft-icon-rb: #cc342d;
+  --ft-icon-go: #00add8;
+  --ft-icon-rs: #dea584;
+  --ft-icon-java: #b07219;
+  --ft-icon-c: #555555;
+  --ft-icon-cs: #68217a;
+  --ft-icon-php: #4f5d95;
+  --ft-icon-html: #e34c26;
+  --ft-icon-css: #563d7c;
+  --ft-icon-json: #e8d44d;
+  --ft-icon-xml: #e37933;
+  --ft-icon-yaml: #cb171e;
+  --ft-icon-md: #519aba;
+  --ft-icon-txt: var(--text-secondary);
+  --ft-icon-sh: #89e051;
+}
+
+@font-face {
+  font-display: block;
+  font-family: codicon;
+  src: url(/public/fonts/codicon.ttf) format('truetype');
+}
+
+body {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', Menlo, monospace;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.5;
+  height: 100vh;
+  overflow-x: hidden;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+body.dashboard-shell,
+body.project-shell {
+  padding-left: 56px;
+  padding-left: calc(56px + env(safe-area-inset-left, 0px));
+  min-height: 100vh;
+}
+
+.dashboard-shell #main-content {
+  max-width: none;
+  margin: 0;
+  width: 100%;
+  min-height: calc(100vh - 42px);
+}
+
+.container {
+  max-width: 1600px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+body.dashboard-shell[data-dashboard-page="inbox"],
+body.dashboard-shell[data-dashboard-view="inbox"] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Global: prevent horizontal scroll on ALL containers */
+html, body, .container, .card, .modal,
+.mail-detail-pane, .mail-detail-body, .mail-detail-view,
+.issue-detail-main, .issue-body-content, .timeline-comment-body,
+.markdown-body, .mail-conv-body, .mail-detail-content,
+.mail-panel, .mail-container, .mail-list-pane,
+.info-panel, .agent-item, .project-card, .project-header,
+.activity-item, .stat-card, .drawer-content,
+.issue-list-item, .issue-main, .issue-detail-layout,
+.modal-overlay, .issue-panel-modal {
+  overflow-x: hidden;
+}
+
+/* Ensure all text content areas wrap properly */
+body, .container, .card, .mail-detail-body, .issue-body-content,
+.timeline-comment-body, .markdown-body, .mail-conv-body,
+.mail-detail-view, .mail-detail-subject, .issue-detail-title,
+.issue-title, .activity-text, .project-card-desc,
+.agent-role, .sidebar-value, .mail-item-content,
+.issue-body, .timeline-comment {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Markdown tables: constrain width, allow cell text to wrap */
+.markdown-body table {
+  table-layout: fixed;
+  width: 100%;
+  max-width: 100%;
+}
+
+.markdown-body th,
+.markdown-body td {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Long URLs and links in content areas must break */
+.markdown-body a,
+.mail-detail-body a,
+.mail-detail-view a,
+.timeline-comment-body a,
+.issue-body-content a,
+.mail-conv-body a {
+  word-break: break-all;
+}
+
+/* Exception: code blocks retain horizontal scroll */
+pre, .markdown-body pre {
+  overflow-x: auto;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }

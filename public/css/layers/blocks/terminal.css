@@ -1,0 +1,97 @@
+/* ===========================
+   Layer: block — terminal
+   =========================== */
+
+/* Dashboard inline terminal (agent view) */
+.terminal-container {
+  width: 100%;
+  height: 500px;
+  background: var(--bg);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.workspace-card { padding-top: 12px; }
+
+/* ===========================
+   Terminal page (public/terminal.html)
+   =========================== */
+
+/* Page-level body layout — overrides base.css body for standalone terminal page */
+body.terminal-page {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.terminal-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px 12px;
+  overflow: hidden;
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.terminal-toolbar .agent-name {
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.terminal-toolbar .status {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+#terminal {
+  flex: 1;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Session chooser dialog */
+.session-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.session-dialog .dialog-box {
+  background: var(--header-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+}
+
+.session-dialog h3 {
+  margin: 0 0 16px;
+}
+
+.session-dialog .actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.session-dialog .actions button {
+  flex: 1;
+}

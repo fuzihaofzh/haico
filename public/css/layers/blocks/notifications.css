@@ -1,0 +1,90 @@
+/* ===========================
+   Layer: block — notifications (user menu, badges, toast)
+   =========================== */
+
+/* User Menu */
+.topbar-sound-toggle {
+  position: relative;
+  width: 46px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex: 0 0 auto;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+.topbar-sound-toggle.on {
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--color-on-accent);
+}
+.topbar-sound-toggle:hover { border-color: var(--accent); }
+.topbar-sound-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.sound-toggle-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.sound-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.28);
+  transition: transform 0.18s ease;
+  z-index: 2;
+}
+.topbar-sound-toggle.on .sound-toggle-knob { transform: translateX(22px); }
+.topbar-sound-toggle .sound-icon {
+  position: absolute;
+  top: 5px;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  z-index: 1;
+}
+.topbar-sound-toggle .sound-icon-on { left: 7px; display: block; }
+.topbar-sound-toggle .sound-icon-off { right: 7px; display: none; }
+.topbar-sound-toggle.muted .sound-icon-on { display: none; }
+.topbar-sound-toggle.muted .sound-icon-off { display: block; }
+
+.user-menu { position: relative; margin-left: 0; flex-shrink: 0; }
+.user-menu-btn { background: none; border: 1px solid var(--border); border-radius: 50%; width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: var(--fg); font-family: inherit; }
+.user-menu-btn:hover { border-color: var(--accent); }
+.user-menu-dropdown { display: none; position: absolute; right: 0; top: 36px; background: var(--header-bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); min-width: 200px; z-index: 500; padding: 4px 0; }
+.user-menu-dropdown.open { display: block; }
+.user-menu-info { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.user-menu-info .name { font-weight: 600; font-size: 13px; }
+.user-menu-info .role { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; }
+.user-menu-dropdown a, .user-menu-dropdown button.menu-item { display: block; width: 100%; text-align: left; padding: 8px 14px; font-size: 13px; color: var(--fg); text-decoration: none; background: none; border: none; cursor: pointer; font-family: inherit; }
+.user-menu-dropdown a:hover, .user-menu-dropdown button.menu-item:hover { background: var(--selected-bg); }
+.user-menu-dropdown .divider { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* Toast notifications */
+.toast-container { position: fixed; top: 16px; right: 16px; z-index: 10000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.toast { pointer-events: auto; padding: 10px 16px; border-radius: 6px; font-size: 13px; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.3); cursor: pointer; animation: toast-in 0.25s ease-out, toast-out 0.3s ease-in forwards; animation-delay: 0s, 2.7s; max-width: 320px; word-break: break-word; }
+.toast-success { background: var(--success); }
+.toast-error { background: var(--error); }
+.toast-info { background: var(--accent); }
+@keyframes toast-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes toast-out { from { opacity: 1; } to { opacity: 0; transform: translateY(-10px); } }
+
+/* Notification badge pulse */
+@keyframes badge-pulse { 0% { transform: scale(1); } 50% { transform: scale(1.25); } 100% { transform: scale(1); } }
+.notif-badge.pulse { animation: badge-pulse 0.4s ease-in-out; }
