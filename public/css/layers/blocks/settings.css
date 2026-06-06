@@ -375,30 +375,23 @@
 }
 .command-profiles-status-error { color: var(--error); }
 .command-profiles-table-wrap {
+  /* inherits .data-table-wrap when both classes used; kept for standalone use */
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface, var(--bg));
 }
 .command-profiles-table {
-  width: 100%;
   min-width: 780px;
-  border-collapse: collapse;
 }
 .command-profiles-table th,
 .command-profiles-table td {
   padding: 8px;
-  vertical-align: top;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
 }
-.command-profiles-table tbody tr:last-child td { border-bottom: none; }
-
 .command-profiles-table th {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--text-secondary);
   background: var(--header-bg);
 }
 
@@ -413,6 +406,14 @@
   width: 120px;
   min-width: 120px;
   white-space: nowrap;
+}
+
+/* Admin Users table (variant of .data-table) */
+.admin-users-table th {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  background: var(--header-bg);
 }
 .command-profile-input,
 .command-profile-select {

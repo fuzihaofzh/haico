@@ -34,34 +34,34 @@ function renderUsers() {
   }
   const rows = users.map(u => {
     const actionButtons = (currentUser && u.id === currentUser.id)
-      ? h`<span style="color:var(--text-secondary)">you</span>`
-      : h`<button data-action="reset-password" data-user-id="${u.id}" data-username="${u.username}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;font-family:inherit;margin-right:8px">Reset PW</button>` +
-        h`<button data-action="delete-user" data-user-id="${u.id}" data-username="${u.username}" style="background:none;border:none;color:var(--error);cursor:pointer;font-size:12px;font-family:inherit">Delete</button>`;
-    return h`<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:8px 12px">${u.username}</td>
-      <td style="padding:8px 12px">${u.display_name || '-'}</td>
-      <td style="padding:8px 12px">
-        <select data-action="change-role" data-user-id="${u.id}" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px;font-family:inherit"${currentUser && u.id === currentUser.id ? ' disabled' : ''}>
+      ? html(h`<span class="text-secondary">you</span>`)
+      : html(h`<button data-action="reset-password" data-user-id="${u.id}" data-username="${u.username}" class="btn btn-sm">Reset PW</button>` +
+        h`<button data-action="delete-user" data-user-id="${u.id}" data-username="${u.username}" class="btn btn-sm btn-danger">Delete</button>`);
+    return h`<tr>
+      <td>${u.username}</td>
+      <td>${u.display_name || '-'}</td>
+      <td>
+        <select data-action="change-role" data-user-id="${u.id}" class="data-table-select"${currentUser && u.id === currentUser.id ? ' disabled' : ''}>
           <option value="member"${u.role==='member'?' selected':''}>member</option>
           <option value="admin"${u.role==='admin'?' selected':''}>admin</option>
         </select>
       </td>
-      <td style="padding:8px 12px;color:var(--text-secondary)">${u.created_at ? timeAgo(u.created_at) : '-'}</td>
-      <td style="padding:8px 12px;color:var(--text-secondary)">${u.last_login_at ? timeAgo(u.last_login_at) : 'Never'}</td>
-      <td style="padding:8px 12px;white-space:nowrap">${actionButtons}</td>
+      <td class="text-secondary">${u.created_at ? timeAgo(u.created_at) : '-'}</td>
+      <td class="text-secondary">${u.last_login_at ? timeAgo(u.last_login_at) : 'Never'}</td>
+      <td class="data-table-actions">${actionButtons}</td>
     </tr>`;
   }).join('');
-  el.innerHTML = h`<table style="width:100%;border-collapse:collapse;font-size:13px">
-    <thead><tr style="border-bottom:2px solid var(--border);text-align:left">
-      <th style="padding:8px 12px">Username</th>
-      <th style="padding:8px 12px">Display Name</th>
-      <th style="padding:8px 12px">Role</th>
-      <th style="padding:8px 12px">Created</th>
-      <th style="padding:8px 12px">Last Login</th>
-      <th style="padding:8px 12px">Actions</th>
+  el.innerHTML = h`<div class="data-table-wrap"><table class="data-table admin-users-table">
+    <thead><tr>
+      <th>Username</th>
+      <th>Display Name</th>
+      <th>Role</th>
+      <th>Created</th>
+      <th>Last Login</th>
+      <th>Actions</th>
     </tr></thead>
     <tbody>${html(rows)}</tbody>
-  </table>`;
+  </table></div>`;
 }
 
 async function changeRole(id, role) {

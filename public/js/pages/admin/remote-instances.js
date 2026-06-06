@@ -111,8 +111,8 @@ function renderRemoteInstancesPanel(instances, { editingId, error, notice, isAdm
       </div>
       ${error ? html(h`<div class="command-profiles-status command-profiles-status-error">${error}</div>`) : ''}
       ${notice ? html(h`<div class="command-profiles-status">${notice}</div>`) : ''}
-      <div class="command-profiles-table-wrap">
-        <table class="command-profiles-table remote-instances-table">
+      <div class="command-profiles-table-wrap data-table-wrap">
+        <table class="command-profiles-table remote-instances-table data-table">
           <thead>
             <tr>
               <th>Instance</th>

@@ -270,3 +270,29 @@ header h1 span { color: var(--accent); }
   .settings-action-link { width: 100%; justify-content: center; }
   .treasury-region-header, .treasury-evidence-row { flex-direction: column; }
 }
+/* ── Data tables ── */
+.data-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface, var(--bg));
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.data-table th,
+.data-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table th {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.data-table-actions { white-space: nowrap; display: flex; gap: 6px; }
+.data-table-select { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 12px; font-family: inherit; }

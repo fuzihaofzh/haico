@@ -426,3 +426,7 @@
   color: var(--text-secondary);
   margin-top: 8px;
 }
+
+/* Plain text-link button (no chrome, colored text) */
+.btn-link { background: none; border: none; cursor: pointer; font-size: 12px; font-family: inherit; padding: 0; }
+.text-secondary { color: var(--text-secondary); }
