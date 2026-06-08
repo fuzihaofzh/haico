@@ -1,10 +1,13 @@
 import { FastifyInstance } from 'fastify';
-import { DashboardChatInput, runDashboardChatTurn } from '../../services/dashboard-chat';
+import { getProjectRequestContext } from '../../middleware/request-context';
+import type { DashboardChatInput } from '../../services/dashboard-chat';
+import { runDashboardChatTurn } from '../../services/dashboard-chat';
 
 export function registerDashboardChatRoutes(fastify: FastifyInstance): void {
   fastify.post<{ Body: DashboardChatInput }>('/dashboard-chat', async (request, reply) => {
     try {
-      return await runDashboardChatTurn(fastify, request, request.body || { message: '' });
+      const userContext = getProjectRequestContext(request);
+      return await runDashboardChatTurn(userContext, fastify.log, request.body || { message: '' });
     } catch (error: any) {
       const message = String(error?.message || error || 'Dashboard chat failed');
       fastify.log.error({ err: error }, 'Dashboard chat failed');
