@@ -29,7 +29,9 @@ _Admin entry only rendered when user role is admin_
 | `/projects/new` | `projects-new.html` | `project-new.js` | Create new project |
 | `/usage` | `usage.html` | `usage.js` | Usage/cost dashboard |
 | `/settings` | `settings/general.html` | `settings/general.js` | Settings |
-| `/admin` | `admin.html` | `admin.js` | Admin page with tabs: Users / Global Settings / System (admin-only) |
+| `/admin/users` | `views/admin/users.ts` (SSR) | `shared/admin-htmx.js` | User management (admin-only, htmx) |
+| `/admin/global-settings` | `views/admin/settings.ts` (SSR) | `shared/admin-htmx.js` | Global settings + remote instances (admin-only, htmx) |
+| `/admin/system` | `views/admin/system.ts` (SSR) | `shared/admin-htmx.js` | System status + maintenance (admin-only, htmx) |
 
 ## Route Conventions
 
@@ -62,6 +64,10 @@ Each dashboard page follows:
   <main id="main-content">...</main>
 </body>
 ```
+
+### Htmx Fragment Endpoints
+
+Admin pages (`/admin/*`) use htmx for server-state interactions. The first-paint shell is SSR via `renderAdminShell()` in `src/views/shell.ts`; subsequent interactions hit `/ui/admin/*` fragment endpoints that return `<main>`-internal HTML fragments (no shell, no `<html>`/`<head>`/`<body>`). Errors in the `/ui/admin` scope return HTML error fragments + 4xx/5xx (not JSON), via a scope-level `setErrorHandler`. See `src/routes/ui-admin.ts`.
 
 Project sub-pages additionally share `project/shell.js` which:
 - Extracts `projectId` from URL via `getProjectIdFromPath()`

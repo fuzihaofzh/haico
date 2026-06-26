@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { setupAuth } from '../middleware/auth';
 import { registerAuthRoutes } from './auth';
 import { registerApiRoutes } from './api/route';
+import { registerAdminUIRoutes } from './ui-admin';
 import { registerUIRoutes } from './ui';
 import { registerWebSocketRoutes } from './ws';
 
@@ -19,5 +20,6 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
 
   await fastify.register(registerApiRoutes, { prefix: API_PREFIX });
   registerUIRoutes(fastify);
+  registerAdminUIRoutes(fastify);
   registerWebSocketRoutes(fastify);
 }

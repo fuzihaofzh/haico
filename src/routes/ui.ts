@@ -179,21 +179,4 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('issue.html'));
   });
 
-  fastify.get('/admin', async (_request, reply) => {
-    return reply.redirect('/admin/users');
-  });
-
-  const adminPages: Record<string, string> = {
-    '/admin/users': 'admin-users.html',
-    '/admin/global-settings': 'admin-global-settings.html',
-    '/admin/system': 'admin-system.html',
-  };
-  for (const [path, file] of Object.entries(adminPages)) {
-    fastify.get(path, async (request, reply) => {
-      if (!request.user || request.user.role !== 'admin') {
-        return reply.redirect('/overview');
-      }
-      return reply.type('text/html').send(serveHtml(file));
-    });
-  }
 }

@@ -117,4 +117,4 @@ fastify.register(async (projectScope) => {
 
 ### UI Routes (ui.ts)
 
-SSR/HTMX partial routes that return HTML do NOT use the preHandler pattern. They use the `isRequestAdmin(request)` helper instead, because error responses must be HTML partials (not JSON from error-mapper).
+Admin page routes in `ui.ts` (`/admin/users`, `/admin/global-settings`, `/admin/system`) currently use an **inline** `request.user.role !== 'admin'` check inside the handler (redirecting non-admins to `/overview`), not the preHandler + scope pattern. They serve static HTML shells via `serveHtml(file)` which are hydrated client-side; they are not SSR/HTMX partial fragment routes. There is no `isRequestAdmin` helper — any reference to it was a documentation error. When these routes are next touched, they should migrate to the standard preHandler + scope pattern (`requireAdminRolePrehandler()`).

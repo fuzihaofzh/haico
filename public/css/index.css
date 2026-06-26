@@ -25,6 +25,7 @@
 @import './layers/blocks/notifications.css' layer(block);
 @import './layers/blocks/skeleton.css' layer(block);
 @import './layers/blocks/tabs.css' layer(block);
+@import './layers/blocks/admin.css' layer(block);
 @import './layers/blocks/agent-edit.css' layer(block);
 @import './layers/utility.css' layer(utility);
 @import './layers/exception.css' layer(exception);

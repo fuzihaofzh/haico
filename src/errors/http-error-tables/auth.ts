@@ -26,6 +26,6 @@ export const authErrorHttpEntries = [
   ],
   [
     AdminRoleRequiredError,
-    (error) => ({ statusCode: 403, message: error.message }),
+    (error) => ({ statusCode: 403, message: error.message, redirect: '/overview' }),
   ],
 ] satisfies readonly ErrorHttpEntry[];
