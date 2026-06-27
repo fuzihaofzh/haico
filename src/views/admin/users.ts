@@ -1,4 +1,4 @@
-import { h, html } from '../html';
+import { h, type HtmlFragment } from '../html';
 import { renderAdminNav, renderAdminPageHeader } from './nav';
 import type { PublicUser } from '../../services/auth/users';
 
@@ -23,10 +23,10 @@ function timeAgo(dateStr: string | null | undefined): string {
  * via htmx on page load; add-user and reset-password use <dialog> modals
  * loaded by htmx.
  */
-export function renderUsersPage(path: string): string {
+export function renderUsersPage(path: string): HtmlFragment {
   return h`<div id="admin-view-panel" class="dashboard-view dashboard-view-admin">
-  ${html(renderAdminPageHeader())}
-  ${html(renderAdminNav(path))}
+  ${renderAdminPageHeader()}
+  ${renderAdminNav(path)}
   <div class="admin-page-bar">
     <h3>Users</h3>
     <button class="btn btn-primary btn-sm" hx-get="/ui/admin/users/add" hx-target="#modal-mount" hx-swap="innerHTML">+ Add User</button>
@@ -43,23 +43,20 @@ export interface UserRowOptions {
 }
 
 /** A single user table row. Self-row shows "you" instead of action buttons. */
-export function renderUserRow(user: PublicUser, opts: UserRowOptions): string {
+export function renderUserRow(user: PublicUser, opts: UserRowOptions): HtmlFragment {
   const isSelf = user.id === opts.currentUserId;
-  const actions = isSelf
-    ? html(h`<span class="text-secondary">you</span>`)
-    : html(
-        h`<button class="btn btn-sm" hx-get="/ui/admin/users/${user.id}/reset-password" hx-target="#modal-mount" hx-swap="innerHTML">Reset PW</button>` +
-          h`<button class="btn btn-sm btn-danger" hx-delete="/ui/admin/users/${user.id}" hx-confirm='Delete user "${user.username}"? This cannot be undone.' hx-target="#users-list" hx-swap="innerHTML">Delete</button>`,
-      );
+  const actions: HtmlFragment = isSelf
+    ? h`<span class="text-secondary">you</span>`
+    : h`<button class="btn btn-sm" hx-get="/ui/admin/users/${user.id}/reset-password" hx-target="#modal-mount" hx-swap="innerHTML">Reset PW</button><button class="btn btn-sm btn-danger" hx-delete="/ui/admin/users/${user.id}" hx-confirm='Delete user "${user.username}"? This cannot be undone.' hx-target="#users-list" hx-swap="innerHTML">Delete</button>`;
 
-  const roleSelect = isSelf
+  const roleSelect: HtmlFragment = isSelf
     ? h`<select class="data-table-select" disabled><option value="member"${user.role === 'member' ? ' selected' : ''}>member</option><option value="admin"${user.role === 'admin' ? ' selected' : ''}>admin</option></select>`
     : h`<select class="data-table-select" name="role" hx-put="/ui/admin/users/${user.id}/role" hx-trigger="change" hx-swap="none"><option value="member"${user.role === 'member' ? ' selected' : ''}>member</option><option value="admin"${user.role === 'admin' ? ' selected' : ''}>admin</option></select>`;
 
   return h`<tr>
   <td>${user.username}</td>
   <td>${user.display_name || '-'}</td>
-  <td>${html(roleSelect)}</td>
+  <td>${roleSelect}</td>
   <td class="text-secondary">${user.created_at ? timeAgo(user.created_at) : '-'}</td>
   <td class="text-secondary">${user.last_login_at ? timeAgo(user.last_login_at) : 'Never'}</td>
   <td class="data-table-actions">${actions}</td>
@@ -67,10 +64,10 @@ export function renderUserRow(user: PublicUser, opts: UserRowOptions): string {
 }
 
 /** The user list fragment swapped into #users-list. */
-export function renderUserList(users: PublicUser[], currentUserId: string): string {
+export function renderUserList(users: PublicUser[], currentUserId: string): HtmlFragment {
   const rows = users.length
-    ? users.map((u) => renderUserRow(u, { currentUserId })).join('')
-    : '<tr><td colspan="6" class="command-profiles-empty">No users yet.</td></tr>';
+    ? users.map((u) => renderUserRow(u, { currentUserId }))
+    : [h`<tr><td colspan="6" class="command-profiles-empty">No users yet.</td></tr>`];
 
   return h`<div class="data-table-wrap"><table class="data-table admin-users-table">
   <thead><tr>
@@ -81,12 +78,12 @@ export function renderUserList(users: PublicUser[], currentUserId: string): stri
     <th>Last Login</th>
     <th>Actions</th>
   </tr></thead>
-  <tbody>${html(rows)}</tbody>
+  <tbody>${rows}</tbody>
 </table></div>`;
 }
 
 /** Add-user <dialog> fragment loaded into #modal-mount. */
-export function renderAddUserDialog(): string {
+export function renderAddUserDialog(): HtmlFragment {
   return h`<dialog open class="admin-modal">
   <div class="admin-modal-card">
     <h3 class="admin-modal-title">Add User</h3>
@@ -110,7 +107,7 @@ export function renderAddUserDialog(): string {
 }
 
 /** Reset-password <dialog> fragment loaded into #modal-mount. */
-export function renderResetPasswordDialog(userId: string, username: string): string {
+export function renderResetPasswordDialog(userId: string, username: string): HtmlFragment {
   return h`<dialog open class="admin-modal">
   <div class="admin-modal-card">
     <h3 class="admin-modal-title">Reset Password</h3>
@@ -127,7 +124,7 @@ export function renderResetPasswordDialog(userId: string, username: string): str
 }
 
 /** Success fragment returned after reset-password — closes the modal + toast. */
-export function renderResetPasswordSuccess(): string {
+export function renderResetPasswordSuccess(): HtmlFragment {
   return h`<script>
   document.getElementById('modal-mount').innerHTML='';
   document.body.dispatchEvent(new CustomEvent('showToast', { detail: 'Password reset successfully' }));

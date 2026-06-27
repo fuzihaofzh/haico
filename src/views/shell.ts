@@ -1,9 +1,9 @@
-import { h, html } from './html';
+import { h, type HtmlFragment } from './html';
 
 export interface AdminShellOptions {
   title: string;
   /** Inner HTML of <main id="main-content">. */
-  body: string;
+  body: HtmlFragment;
 }
 
 /**
@@ -11,7 +11,7 @@ export interface AdminShellOptions {
  * (hydrated client-side by dashboard-sidebar.js) and loads htmx + the admin
  * htmx event listeners. Page content is SSR-injected via `body`.
  */
-export function renderAdminShell({ title, body }: AdminShellOptions): string {
+export function renderAdminShell({ title, body }: AdminShellOptions): HtmlFragment {
   return h`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -45,7 +45,7 @@ export function renderAdminShell({ title, body }: AdminShellOptions): string {
     </div>
   </header>
 
-  <main id="main-content" class="container">${html(body)}</main>
+  <main id="main-content" class="container">${body}</main>
 
   <script src="/public/js/shared/common.js"></script>
   <script src="/public/js/components/dashboard-sidebar.js"></script>

@@ -1,4 +1,4 @@
-import { h, html } from '../html';
+import { h, type HtmlFragment } from '../html';
 import { renderAdminNav, renderAdminPageHeader } from './nav';
 import type { AdminSettings } from '../../services/admin/settings';
 
@@ -7,13 +7,13 @@ import type { AdminSettings } from '../../services/admin/settings';
  * values are SSR-injected; the remote-instances panel is loaded via htmx
  * on page load into #remote-instances-settings.
  */
-export function renderGlobalSettingsPage(path: string, settings: AdminSettings): string {
+export function renderGlobalSettingsPage(path: string, settings: AdminSettings): HtmlFragment {
   return h`<div id="admin-view-panel" class="dashboard-view dashboard-view-admin">
-  ${html(renderAdminPageHeader())}
-  ${html(renderAdminNav(path))}
+  ${renderAdminPageHeader()}
+  ${renderAdminNav(path)}
   <div class="settings-page-grid">
-    ${html(renderLogRetentionSection(settings))}
-    ${html(renderEventLogToggle(settings))}
+    ${renderLogRetentionSection(settings)}
+    ${renderEventLogToggle(settings)}
   </div>
   <div class="admin-fullwidth-section">
     <div class="admin-page-bar">
@@ -28,7 +28,7 @@ export function renderGlobalSettingsPage(path: string, settings: AdminSettings):
 </div>`;
 }
 
-function renderLogRetentionSection(settings: AdminSettings): string {
+function renderLogRetentionSection(settings: AdminSettings): HtmlFragment {
   return h`<section class="card settings-card settings-card-wide">
   <div class="settings-card-header">
     <div>
@@ -50,7 +50,7 @@ function renderLogRetentionSection(settings: AdminSettings): string {
  * (hx-vals carries the target value), and the endpoint returns a fresh button
  * reflecting the new state — so the client holds no on/off state at all.
  */
-function renderEventLogToggle(settings: AdminSettings): string {
+function renderEventLogToggle(settings: AdminSettings): HtmlFragment {
   const nextState = !settings.event_log_enabled;
   const onClass = settings.event_log_enabled ? ' on' : '';
   const checked = settings.event_log_enabled ? 'true' : 'false';
@@ -77,7 +77,7 @@ function renderEventLogToggle(settings: AdminSettings): string {
 }
 
 /** Re-rendered toggle button returned by the event-log endpoint. */
-export function renderEventLogToggleButton(enabled: boolean): string {
+export function renderEventLogToggleButton(enabled: boolean): HtmlFragment {
   const nextState = !enabled;
   const onClass = enabled ? ' on' : '';
   const checked = enabled ? 'true' : 'false';

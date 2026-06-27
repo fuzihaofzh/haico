@@ -67,7 +67,7 @@ fastify.register(async (fragmentScope) => {
   });
 
   fragmentScope.get('/admin/users/list', async (request) => {
-    return renderUserList(listUsers(getDatabase()), request.user!.id);
+    return renderToString(renderUserList(listUsers(getDatabase()), request.user!.id));
   });
   // ...更多片段端点
 }, { prefix: '/ui' });
@@ -75,7 +75,7 @@ fastify.register(async (fragmentScope) => {
 
 - **scope 级 `setErrorHandler` 覆盖全局 JSON handler**：任何抛出的领域错误在这里映射成 HTML 片段 + HTTP status。
 - 复用与 shell scope 相同的 preHandler —— 权限检查不重复。
-- 片段端点只做：解析 params/body → 调 service → 调 view 函数 → return string (Fastify 自动 `text/html`)。
+- 片段端点只做：解析 params/body → 调 service → 调 view 函数 → `renderToString()` → return string (Fastify 自动 `text/html`)。
 
 ---
 
@@ -83,7 +83,7 @@ fastify.register(async (fragmentScope) => {
 
 `src/views/` 下的函数：
 
-- **只接收 ViewData (plain data) + 配置，返回 string**。
+- **只接收 ViewData (plain data) + 配置，返回 `HtmlFragment`** (`h\`...\`` 的返回类型)。Route 边界用 `renderToString()` 转 string。
 - **禁止 import Fastify / DB / service**。View 是纯函数，可独立单测。
 - 需要 DB 数据时，由 route handler 调 service 拿到数据，再传给 view。
 - 需要当前用户 ID 等请求上下文时，由 handler 从 `request.user` 取出后作为参数传入 (如 `renderUserList(users, currentUserId)`)。
@@ -103,54 +103,71 @@ src/views/
 
 ---
 
-## 5. `h` / `html` helper 与转义陷阱 (最重要)
+## 5. `h` / `html` / `renderToString` helper
 
-`src/views/html.ts` 提供两个函数：
+`src/views/html.ts` 提供三个函数：
 
-- `h\`...\``  — tagged template，**自动转义**插值。普通数据 `${value}` 安全。
-- `html(str)` — 标记字符串为已转义的安全 HTML，`h` 遇到 `HtmlFragment` 对象会原样输出。
+- `h\`...\``  — tagged template，**自动转义**插值。返回 **`HtmlFragment`** (不是 string)。
+- `html(str)` — 标记字符串为已转义的安全 HTML，返回 `HtmlFragment`。用于插入原始 HTML 字符串 (如 `.join('')` 产物)。
+- `renderToString(fragment)` — 在 route 边界把 `HtmlFragment` 转成 `string`，供 Fastify 发送。
 
-### 5.1 致命陷阱：子片段组合时漏包 `html()`
+### 5.1 `h` 返回 `HtmlFragment`：转义陷阱已结构性消除
 
-**这是本次迁移中出现三次的 bug，是最高频错误。**
+**历史背景**：`h` 原本返回 `string`。当外层 `h\`...\`` 插值一个子 view 的返回值 (也是 string) 时，`h` 无法区分"这是安全 HTML"和"这是用户输入"，统一转义 → `<span>` 变成 `&lt;span&gt;`，页面显示原始标签文字。此 bug 在本次迁移中出现三次 (system.ts、users.ts roleSelect、users.ts actions)。
 
-当外层 `h\`...\`` 模板里插值一个**本身是 HTML 的字符串**时，必须用 `html()` 包，否则 `h` 会把它当普通数据转义，`<span>` 变成 `&lt;span&gt;`，页面上显示原始标签文字。
+**修复**：`h` 改为返回 `HtmlFragment` (`{ __html: string }`)。`h` 的插值逻辑已有 `HtmlFragment` 识别分支 (pass-through 不转义)。所以子 view 返回 `HtmlFragment` 后，外层 `h` **自动**原样输出，无需任何包裹：
 
-**错误** (bug 现场)：
 ```ts
+// 以前 (h 返回 string，需要 html() 包裹)：
 const actions = isSelf
-  ? h`<span class="text-secondary">you</span>`      // 返回 string
-  : html(h`<button>...</button>`);                    // 返回 HtmlFragment
-
-return h`<tr><td>${actions}</td></tr>`;
-//                              ^^^^^^^
-// isSelf 分支：actions 是 plain string → h 转义 → 页面显示 "&lt;span...&gt;you&lt;/span&gt;"
-// 非 self 分支：actions 是 HtmlFragment → h 原样输出 → 正确
-```
-
-**正确**：
-```ts
-const actions = isSelf
-  ? html(h`<span class="text-secondary">you</span>`)  // 包一层 html()
+  ? html(h`<span class="text-secondary">you</span>`)  // 必须包 html()
   : html(h`<button>...</button>`);
+return h`<tr><td>${actions}</td></tr>`;
+
+// 现在 (h 返回 HtmlFragment，直接插值)：
+const actions: HtmlFragment = isSelf
+  ? h`<span class="text-secondary">you</span>`        // 无需 html()
+  : h`<button>...</button>`;
+return h`<tr><td>${actions}</td></tr>`;               // h 识别 __html，pass-through
 ```
 
-### 5.2 组合站点清单
+### 5.2 数组原生支持
 
-任何 `${someRenderFunction()}` 或 `${someHtmlString}` 出现在 `h\`...\`` 里，都要检查那个值是否已经是 `HtmlFragment`：
+`h` 的插值逻辑增加 `Array.isArray` 分支：数组中每个元素走同一套 `renderValue` 规则 (null 跳过 / HtmlFragment 透传 / string 转义)，然后 join。**不需要 `.join('')` 或 `html()` 包裹**：
 
-| 场景 | 正确写法 |
-|---|---|
-| 调子 view 函数 | `${html(renderAdminNav(path))}` |
-| 条件返回 HTML 字符串 | 两分支都用 `html(...)` 包，或在外层组合站点包 |
-| 数组 join 后的 HTML | `${html(items.map(renderRow).join(''))}` |
-| 已经是 `h\`...\`` 产生的 string | 必须 `html(...)` 再包一层 |
+```ts
+// 以前：
+return h`<tbody>${html(items.map(renderRow).join(''))}</tbody>`;
 
-**自检规则**：只要 `h\`...\`` 里出现 `${`，且插值内容是 HTML 片段而非纯文本数据，就要 `html()`。
+// 现在：
+return h`<tbody>${items.map(renderRow)}</tbody>`;
+```
 
-### 5.3 为什么不直接让 `h` 返回 HtmlFragment
+条件渲染用数组字面量也自然工作：
+```ts
+const rows = users.length
+  ? users.map((u) => renderUserRow(u, { currentUserId }))
+  : [h`<tr><td colspan="6">No users yet.</td></tr>`];
+return h`<tbody>${rows}</tbody>`;
+```
 
-`h` 返回 `string` 是刻意的 —— 与客户端 `public/js/shared/common.js` 的 `h` 行为一致，便于前后端两套实现保持同步。`html()` 是显式的"我确认这是安全 HTML"opt-in，避免误把用户输入当 HTML。
+### 5.3 `html()` 何时仍需使用
+
+`html()` 仍用于**原始 HTML 字符串** (非 `h` 产出的) —— 例如第三方库返回的 HTML、硬编码的 SVG 片段。在 admin views 中目前已无此类场景，`html()` 基本不再出现。
+
+### 5.4 route 边界：`renderToString`
+
+View 函数返回 `HtmlFragment`，Fastify 需要 `string`。所有 route handler 用 `renderToString()` 转换：
+
+```ts
+fragmentScope.get('/admin/users/list', async (request) => {
+  return renderToString(renderUserList(listUsers(getDatabase()), request.user!.id));
+});
+```
+
+### 5.5 与客户端 `h` 的关系
+
+客户端 `public/js/shared/common.js` 的 `h` 仍返回 `string` (浏览器环境 `innerHTML` 赋值需要 string)。服务端 `h` 返回 `HtmlFragment`。两套实现独立 (CommonJS ↔ ESM 边界)，转义行为一致，但返回类型不同。
 
 ---
 
@@ -161,14 +178,13 @@ const actions = isSelf
 - 保留 sidebar/header 骨架 (客户端 `dashboard-sidebar.js` hydrate)。
 - 加载 htmx (`<script defer src="/public/vendor/htmx.min.js">`)。
 - 加载片段事件监听 (`<script type="module" src="/public/js/shared/admin-htmx.js">`)。
-- body 通过 `${html(body)}` 注入 `<main>` —— 注意这里 body 是 string，必须 `html()` 包。
+- body 通过 `${body}` 注入 `<main>` —— `body` 类型是 `HtmlFragment`，`h` 自动透传，无需 `html()` 包。
 
 页面 view 函数 (如 `renderUsersPage`) 返回 `<main>` 内部内容，不含 shell。Shell route 组合：
 
 ```ts
-const body = renderUsersPage('/admin/users');
-reply.type('text/html').send(renderAdminShell({ title: 'Admin - Users - HAICO', body }));
-```
+const body = renderUsersPage('/admin/users');  // HtmlFragment
+reply.type('text/html').send(renderToString(renderAdminShell({ title: 'Admin - Users - HAICO', body })));
 
 ---
 
@@ -187,7 +203,7 @@ reply.type('text/html').send(renderAdminShell({ title: 'Admin - Users - HAICO', 
 ```ts
 // 片段端点
 fragmentScope.get('/admin/users/list', async (request) => {
-  return renderUserList(listUsers(getDatabase()), request.user!.id);
+  return renderToString(renderUserList(listUsers(getDatabase()), request.user!.id));
 });
 ```
 
@@ -195,7 +211,7 @@ CRUD 操作后返回**新的完整列表**，swap 回同一容器：
 ```ts
 fragmentScope.delete('/admin/users/:id', async (request) => {
   deleteUser(getDatabase(), (request.params as { id: string }).id);
-  return renderUserList(listUsers(getDatabase()), request.user!.id);
+  return renderToString(renderUserList(listUsers(getDatabase()), request.user!.id));
 });
 ```
 
@@ -208,8 +224,7 @@ fragmentScope.delete('/admin/users/:id', async (request) => {
 <button hx-get="/ui/admin/users/add" hx-target="#modal-mount" hx-swap="innerHTML">Add User</button>
 ```
 ```ts
-fragmentScope.get('/admin/users/add', async () => renderAddUserDialog());
-// renderAddUserDialog 返回 <dialog open class="admin-modal">...</dialog>
+fragmentScope.get('/admin/users/add', async () => renderToString(renderAddUserDialog()));
 ```
 
 表单提交后：
@@ -236,7 +251,7 @@ fragmentScope.post('/admin/users/add', async (request, reply) => {
 
 ```ts
 // View: 按钮携带 nextState (当前取反)
-function renderEventLogToggleButton(enabled: boolean): string {
+function renderEventLogToggleButton(enabled: boolean): HtmlFragment {
   const nextState = !enabled;
   return h`<button ... hx-post="/ui/admin/settings/event-log"
     hx-vals='{"event_log_enabled": ${nextState}}'
@@ -245,8 +260,8 @@ function renderEventLogToggleButton(enabled: boolean): string {
 
 // Endpoint: 应用后返回新按钮
 fragmentScope.post('/admin/settings/event-log', async (request) => {
-  const enabled = applyEventLogEnabled((request.body as any)?.event_log_enabled);
-  return renderEventLogToggleButton(enabled);
+  const enabled = applyEventLogEnabled((request.body as { event_log_enabled?: unknown } | undefined)?.event_log_enabled);
+  return renderToString(renderEventLogToggleButton(enabled));
 });
 ```
 
@@ -268,11 +283,11 @@ fragmentScope.post('/admin/settings/event-log', async (request) => {
 fragmentScope.post('/admin/remote-instances', async (request) => {
   try {
     await createRemoteInstance(getDatabase(), { ... }, logger);
-    return renderRemotePanel(remoteViews(), { notice: 'Remote instance added' });
+    return renderToString(renderRemotePanel(remoteViews(), { notice: 'Remote instance added' }));
   } catch (err) {
-    return renderRemotePanel(remoteViews(), {
+    return renderToString(renderRemotePanel(remoteViews(), {
       error: err instanceof Error ? err.message : 'Failed',
-    });
+    }));
   }
 });
 ```
@@ -307,7 +322,7 @@ return h`
 
 ```ts
 fragmentScope.put('/admin/settings/log-retention', async (request, reply) => {
-  const value = applyLogRetention((request.body as any)?.log_retention_days);
+  const value = applyLogRetention((request.body as { log_retention_days?: unknown } | undefined)?.log_retention_days);
   reply.header('HX-Trigger', JSON.stringify({ showToast: `Log retention set to ${value} days` }));
   return '';
 });
@@ -339,7 +354,7 @@ View 侧：`hx-put="..." hx-trigger="change" hx-swap="none"`。
 
 ```ts
 it('shows "you" instead of action buttons for self', () => {
-  const html = renderUserRow(sampleUser, { currentUserId: 'u-1' });
+  const html = renderToString(renderUserRow(sampleUser, { currentUserId: 'u-1' }));
   // 必须断言真实 HTML 标签，不能只断言文字内容 —— 否则转义 bug 会漏过
   assert.match(html, /<span class="text-secondary">you<\/span>/);
   assert.doesNotMatch(html, /&lt;span/);
@@ -363,10 +378,10 @@ it('shows "you" instead of action buttons for self', () => {
 对新页面做 CSR → htmx 迁移时按此走：
 
 1. **抽取 service**：把 inline 在 route 里的业务逻辑下沉到 `src/services/<area>/<feature>.ts`，`/api/` 和 `/ui/` 共用。
-2. **建 view 文件**：`src/views/<area>/<feature>.ts`，函数接收 ViewData 返回 string，禁止 import Fastify/DB。
-3. **建 shell route** (如有新 shell)：`/admin/*` scope，调 view → `renderAdminShell` → `text/html`。复用现有 shell 则跳过。
+2. **建 view 文件**：`src/views/<area>/<feature>.ts`，函数接收 ViewData 返回 `HtmlFragment`，禁止 import Fastify/DB。
+3. **建 shell route** (如有新 shell)：`/admin/*` scope，调 view → `renderAdminShell` → `renderToString` → `text/html`。复用现有 shell 则跳过。
 4. **建片段端点**：`/ui/admin/*` scope (带 `setErrorHandler` → HTML 错误片段)。
-5. **写 view 函数**：每个交互 (list/modal/toggle/panel) 一个 render 函数。**所有子片段组合站点检查 `html()` 包裹**。
+5. **写 view 函数**：每个交互 (list/modal/toggle/panel) 一个 render 函数。`h` 返回 `HtmlFragment`，子 view 直接 `${child()}` 插值无需 `html()` 包裹；数组直接 `${items.map(fn)}` 无需 `.join('')`。
 6. **CSS**：新样式归入 `public/css/layers/blocks/admin.css`，复用现有 class。
 7. **删旧 CSR**：删除 `public/<page>.html` + `public/js/pages/<page>.js`。
 8. **单元测试**：view 函数全覆盖，断言真实标签结构 + 反向断言转义。
@@ -379,10 +394,10 @@ it('shows "you" instead of action buttons for self', () => {
 
 | 症状 | 原因 | 修复 |
 |---|---|---|
-| 页面显示 `&lt;span...&gt;` 原文 | 子片段 string 未包 `html()` | 组合站点 `${html(fragment)}` |
+| 页面显示 `&lt;span...&gt;` 原文 | 子片段被当 string 转义 (历史 bug，`h` 返回 `string` 时) | 已修复：`h` 返回 `HtmlFragment`，子 view 直接插值。若仍出现，检查是否用了 `html(plainString)` 传入了非 `h` 产出的字符串 |
 | htmx 把 JSON 错误塞进 DOM | `/ui/` scope 没设 `setErrorHandler` | 加 scope 级 handler 返回 HTML 片段 |
 | 片段返回了完整 HTML 文档 | 片段端点误调 `renderAdminShell` | 片段只返回 `<main>` 内部内容 |
 | 非管理员看到 JSON 401 | shell scope 用了片段 handler | shell scope 不设 handler，走全局 redirect |
 | Modal 提交后列表没刷新 | target 指错 | 表单 `hx-target="#users-list"` 而非 `#modal-mount` |
 | Toggle 点一次就坏 | POST 了当前值而非反值 | `hx-vals` 携带 `nextState = !current` |
-| `: any` lint 报错 | body 解析用了 any | 用具体类型或无标注 `as { field?: string }` |
+| `: any` lint 报错 | body 解析用了 any | 用 `as { field?: unknown }` narrowing 或具体类型 |

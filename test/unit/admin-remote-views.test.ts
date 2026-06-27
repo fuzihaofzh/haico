@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { renderToString } from '../../src/views/html';
 import {
   renderRemotePanel,
   deriveRemoteInstanceName,
@@ -40,12 +41,12 @@ describe('deriveRemoteInstanceName', () => {
 
 describe('renderRemotePanel', () => {
   it('renders an empty state when no instances', () => {
-    const html = renderRemotePanel([]);
+    const html = renderToString(renderRemotePanel([]));
     assert.match(html, /No remote HAICO instances yet\./);
   });
 
   it('renders instance rows with edit/check/delete buttons', () => {
-    const html = renderRemotePanel([sampleInstance]);
+    const html = renderToString(renderRemotePanel([sampleInstance]));
     assert.match(html, /remote-host/);
     assert.match(html, /hx-get="\/ui\/admin\/remote-instances\?editing=inst-1"/);
     assert.match(html, /hx-post="\/ui\/admin\/remote-instances\/inst-1\/check"/);
@@ -54,33 +55,33 @@ describe('renderRemotePanel', () => {
   });
 
   it('renders the add-new form row by default', () => {
-    const html = renderRemotePanel([]);
+    const html = renderToString(renderRemotePanel([]));
     assert.match(html, /hx-post="\/ui\/admin\/remote-instances"/);
     assert.match(html, /name="base_url"/);
   });
 
   it('renders the edit form row when editingId matches', () => {
-    const html = renderRemotePanel([sampleInstance], { editingId: 'inst-1' });
+    const html = renderToString(renderRemotePanel([sampleInstance], { editingId: 'inst-1' }));
     assert.match(html, /hx-put="\/ui\/admin\/remote-instances\/inst-1"/);
     assert.match(html, /value="https:\/\/remote.example.com"/);
     assert.match(html, /Cancel/);
   });
 
   it('does not render the edit row when editingId does not match', () => {
-    const html = renderRemotePanel([sampleInstance], { editingId: 'other-id' });
+    const html = renderToString(renderRemotePanel([sampleInstance], { editingId: 'other-id' }));
     // Should still show the add-new form, not the edit form
     assert.match(html, /hx-post="\/ui\/admin\/remote-instances"/);
     assert.doesNotMatch(html, /hx-put="\/ui\/admin\/remote-instances\/inst-1"/);
   });
 
   it('renders an error message when provided', () => {
-    const html = renderRemotePanel([], { error: 'base_url is required' });
+    const html = renderToString(renderRemotePanel([], { error: 'base_url is required' }));
     assert.match(html, /command-profiles-status-error/);
     assert.match(html, /base_url is required/);
   });
 
   it('renders a notice when provided', () => {
-    const html = renderRemotePanel([], { notice: 'Remote instance added' });
+    const html = renderToString(renderRemotePanel([], { notice: 'Remote instance added' }));
     assert.match(html, /command-profiles-status"/);
     assert.match(html, /Remote instance added/);
   });
@@ -90,7 +91,7 @@ describe('renderRemotePanel', () => {
       ...sampleInstance,
       name: '<script>alert(1)</script>',
     };
-    const html = renderRemotePanel([malicious]);
+    const html = renderToString(renderRemotePanel([malicious]));
     assert.ok(!html.includes('<script>'));
     assert.match(html, /&lt;script&gt;/);
   });

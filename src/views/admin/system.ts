@@ -1,4 +1,4 @@
-import { h, html } from '../html';
+import { h, type HtmlFragment } from '../html';
 import { renderAdminNav, renderAdminPageHeader } from './nav';
 import type { SystemStatus } from '../../services/admin/system-status';
 import type { MaintenanceResult } from '../../services/admin/maintenance';
@@ -7,10 +7,10 @@ import type { MaintenanceResult } from '../../services/admin/maintenance';
  * Full <main> inner content for the system admin page. Sections are wired to
  * htmx fragment endpoints under /ui/admin/system/* — no page-specific JS.
  */
-export function renderSystemPage(path: string): string {
+export function renderSystemPage(path: string): HtmlFragment {
   return h`<div id="admin-view-panel" class="dashboard-view dashboard-view-admin">
-  ${html(renderAdminPageHeader())}
-  ${html(renderAdminNav(path))}
+  ${renderAdminPageHeader()}
+  ${renderAdminNav(path)}
   <div class="settings-page-grid">
     <section class="card settings-card settings-card-wide">
       <div class="settings-card-header">
@@ -56,7 +56,7 @@ export function renderSystemPage(path: string): string {
 }
 
 /** System status fragment swapped into #system-status-overview on load. */
-export function renderSystemStatus(status: SystemStatus): string {
+export function renderSystemStatus(status: SystemStatus): HtmlFragment {
   const items = [
     { label: 'Users', value: status.total_users },
     { label: 'Projects', value: status.total_projects },
@@ -64,12 +64,10 @@ export function renderSystemStatus(status: SystemStatus): string {
     { label: 'DB Size', value: status.db_size },
     { label: 'Uptime', value: status.uptime },
   ];
-  return h`<div class="info-panel">${html(
-    items.map((i) => h`<dt>${i.label}</dt><dd>${i.value}</dd>`).join(''),
-  )}</div>`;
+  return h`<div class="info-panel">${items.map((i) => h`<dt>${i.label}</dt><dd>${i.value}</dd>`)}</div>`;
 }
 
 /** Maintenance/reset result fragment swapped into the action result div. */
-export function renderMaintenanceResult(result: MaintenanceResult): string {
+export function renderMaintenanceResult(result: MaintenanceResult): HtmlFragment {
   return h`<span class="admin-result-success">${result.message}</span>`;
 }

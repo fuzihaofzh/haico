@@ -1,4 +1,4 @@
-import { h, html } from '../html';
+import { h, type HtmlFragment } from '../html';
 
 /** Serialized remote instance shape consumed by the admin views. Mirrors the
  * JSON-safe output of serializeRemoteInstance() but is declared here so the
@@ -22,9 +22,8 @@ export function deriveRemoteInstanceName(baseUrl: string, fallback = ''): string
   const raw = String(baseUrl || '').trim();
   if (!raw) return String(fallback || '').trim();
   try {
-    const normalized = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `http://${raw}`;
-    const url = new URL(normalized);
-    return url.host || String(fallback || '').trim() || raw;
+    const url = new URL(raw.startsWith('http') ? raw : `http://${raw}`);
+    return url.hostname || String(fallback || '').trim() || raw;
   } catch {
     return String(fallback || '').trim() || raw;
   }
@@ -36,7 +35,7 @@ function remoteStatusLabel(status: string | undefined): string {
   return 'Unchecked';
 }
 
-function renderRemoteRow(instance: RemoteInstanceView): string {
+function renderRemoteRow(instance: RemoteInstanceView): HtmlFragment {
   return h`
     <tr>
       <td>
@@ -53,7 +52,7 @@ function renderRemoteRow(instance: RemoteInstanceView): string {
         <div class="remote-table-status">
           <span class="remote-status-badge" data-status="${instance.last_status || 'unknown'}">${remoteStatusLabel(instance.last_status)}</span>
           <div class="remote-server-meta-inline">${instance.last_checked_at ? `Checked ${instance.last_checked_at}` : 'Never checked'}</div>
-          ${instance.last_error ? html(h`<div class="remote-server-meta-inline">${instance.last_error}</div>`) : ''}
+          ${instance.last_error ? h`<div class="remote-server-meta-inline">${instance.last_error}</div>` : ''}
         </div>
       </td>
       <td>
@@ -66,7 +65,7 @@ function renderRemoteRow(instance: RemoteInstanceView): string {
     </tr>`;
 }
 
-function renderRemoteFormRow(editing: RemoteInstanceView | null): string {
+function renderRemoteFormRow(editing: RemoteInstanceView | null): HtmlFragment {
   if (editing) {
     const formId = `remote-form-${editing.id}`;
     return h`
@@ -81,7 +80,7 @@ function renderRemoteFormRow(editing: RemoteInstanceView | null): string {
       <td>
         <div class="remote-table-status">
           <div class="remote-server-meta-inline">Editing ${editing.name}</div>
-          ${editing.has_api_token ? html(h`<div class="remote-server-meta-inline">Saved login: ${editing.api_token_preview}</div>`) : ''}
+          ${editing.has_api_token ? h`<div class="remote-server-meta-inline">Saved login: ${editing.api_token_preview}</div>` : ''}
         </div>
       </td>
       <td>
@@ -128,22 +127,22 @@ export interface RemotePanelOptions {
 export function renderRemotePanel(
   instances: RemoteInstanceView[],
   opts: RemotePanelOptions = {},
-): string {
+): HtmlFragment {
   const editing = opts.editingId
     ? instances.find((i) => i.id === opts.editingId) || null
     : null;
 
   const rows = instances.length
-    ? instances.map(renderRemoteRow).join('')
-    : '<tr><td colspan="4" class="command-profiles-empty">No remote HAICO instances yet.</td></tr>';
+    ? instances.map(renderRemoteRow)
+    : [h`<tr><td colspan="4" class="command-profiles-empty">No remote HAICO instances yet.</td></tr>`];
 
   return h`
     <div class="remote-settings-shell">
       <div class="remote-settings-note">
         Add another HAICO machine here. HAICO will sign in once, store the remote session token on the server, and merge that machine's projects into this dashboard.
       </div>
-      ${opts.error ? html(h`<div class="command-profiles-status command-profiles-status-error">${opts.error}</div>`) : ''}
-      ${opts.notice ? html(h`<div class="command-profiles-status">${opts.notice}</div>`) : ''}
+      ${opts.error ? h`<div class="command-profiles-status command-profiles-status-error">${opts.error}</div>` : ''}
+      ${opts.notice ? h`<div class="command-profiles-status">${opts.notice}</div>` : ''}
       <div class="command-profiles-table-wrap data-table-wrap">
         <table class="command-profiles-table remote-instances-table data-table">
           <thead>
@@ -155,8 +154,8 @@ export function renderRemotePanel(
             </tr>
           </thead>
           <tbody>
-            ${html(rows)}
-            ${html(renderRemoteFormRow(editing))}
+            ${rows}
+            ${renderRemoteFormRow(editing)}
           </tbody>
         </table>
       </div>
