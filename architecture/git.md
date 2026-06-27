@@ -1,4 +1,7 @@
 # Git Service
+<!-- depends-on: AGENTS.md -->
+<!-- L1: Architecture (含规则) -->
+<!-- L2: Shared Helpers, Read Operations, Write Operations, Call Map, Implementation Boundaries -->
 
 ## Architecture
 

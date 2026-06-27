@@ -1,4 +1,7 @@
 # Error Handling
+<!-- depends-on: AGENTS.md, conventions.md#路由约定 -->
+<!-- L1: Error Categories, HTTP Mapping, Development And Production Responses -->
+<!-- L2: Current Migration Strategy, PreHandler Pattern, UI Routes, Global Error Handler -->
 
 HAICO backend error handling follows a layered model:
 
@@ -118,3 +121,26 @@ fastify.register(async (projectScope) => {
 ### UI Routes (ui.ts)
 
 Admin page routes in `ui.ts` (`/admin/users`, `/admin/global-settings`, `/admin/system`) currently use an **inline** `request.user.role !== 'admin'` check inside the handler (redirecting non-admins to `/overview`), not the preHandler + scope pattern. They serve static HTML shells via `serveHtml(file)` which are hydrated client-side; they are not SSR/HTMX partial fragment routes. There is no `isRequestAdmin` helper — any reference to it was a documentation error. When these routes are next touched, they should migrate to the standard preHandler + scope pattern (`requireAdminRolePrehandler()`).
+
+
+---
+
+## Global Error Handler
+
+`setupErrorHandler(fastify)` (`src/middleware/error-handler.ts`) 注册全局 `setErrorHandler`，是所有未被 route scope handler 捕获的错误的最后兜底：
+
+1. 调 `mapErrorToHttp(error)` 拿到 `{ statusCode, message, redirect?, extra? }`
+2. `statusCode >= 500` → `request.log.error`；否则 `request.log.debug`
+3. **浏览器重定向分支**：GET 请求且 URL 不以 `/api/` 或 `/ws` 开头且 `mapped.redirect` 存在 → `reply.redirect(redirect)`。用于认证错误将浏览器导向 `/login`、`/register`、`/overview`
+4. **默认 JSON 分支**：`reply.code(statusCode).send({ error: message, ...extra })`
+
+<!-- code-fact: redirect 规则 = GET && !startsWith('/api/') && !startsWith('/ws') && mapped.redirect 存在 -->
+当前带 redirect 的错误映射（见 `src/errors/http-error-tables/auth.ts`）：
+
+| 错误 | statusCode | redirect |
+|---|---|---|
+| `AuthenticationRequiredError` | 401 | `/login` |
+| `NoAuthenticationConfiguredError` | 401 | `/register` |
+| `AdminRoleRequiredError` | 403 | `/overview` |
+
+**与 `/ui/` scope handler 的关系**：`/ui/` 片段 scope 注册了自己的 `setErrorHandler` 返回 HTML 错误片段（见 `htmx-ssr-fragments-impl.md` §路由文件结构），覆盖此全局 handler。全局 handler 只处理 `/api/` JSON 路径和 shell GET 路径。

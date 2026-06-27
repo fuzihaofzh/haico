@@ -1,4 +1,8 @@
 # Agent Adapter Architecture
+<!-- depends-on: AGENTS.md, event-bus.md#事件定义 -->
+<!-- L1: §1 Overview, §2 Core Concepts, §4 Key Interfaces, §5 Adding New Agent Type -->
+<!-- L2: §3 Directory Structure, §6 Known Remaining Work -->
+<!-- code-fact: adapter types = registry.listTypes() → claude, codex, gemini, shell -->
 
 ## 1. Overview
 

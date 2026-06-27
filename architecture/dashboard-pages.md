@@ -1,4 +1,7 @@
 # Dashboard Pages
+<!-- depends-on: AGENTS.md, frontend.md#基础形态 -->
+<!-- L1: Route Conventions -->
+<!-- L2: Sidebar Navigation, Pages, Default Landing Page, Shared Infrastructure, Page Pattern, Htmx Fragment Endpoints -->
 
 ## Sidebar Navigation
 

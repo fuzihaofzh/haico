@@ -1,4 +1,7 @@
 # Orchestration
+<!-- depends-on: AGENTS.md, adapters.md#Key Interfaces, event-bus.md#事件定义 -->
+<!-- L1: Agent Hierarchy, Issue Automation -->
+<!-- L2: Implementation Boundaries -->
 
 HAICO is issue-driven: controller agents decompose work into issues, worker
 agents execute assigned issues, and project state is coordinated through the

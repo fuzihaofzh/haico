@@ -1,4 +1,7 @@
 # Domain Event Bus
+<!-- depends-on: AGENTS.md, conventions.md#Service约定 -->
+<!-- L1: 何时使用EventBus, 架构, 事件定义, 中间件, task.requested模式, 删除事件模式, 防止循环依赖 -->
+<!-- L2: 新增事件, 自定义中间件, Coalescing, 事件日志, 调试, 日志清理, 测试 -->
 
 HAICO 使用进程内事件总线（`src/events/`）解耦领域服务之间的副作用。当 Issue 被创建、更新，或 Task 完成时，发布者只发出一个领域事件，由注册的订阅者分别处理 WebSocket 推送、Agent 启动、Controller 触发等副作用。
 
@@ -76,6 +79,7 @@ src/services/        ← 发布者，只依赖 events/bus 的 publish
 
 所有领域事件定义在 `src/events/events.ts`。每个事件有类型化的 `type`、`projectId`、`payload` 和 `meta`。
 
+<!-- code-fact: events = Object.keys(HaicoEventMap) in src/events/events.ts -->
 当前已定义的事件：
 
 | 事件 | 发布者 | Payload 关键字段 |
@@ -112,6 +116,7 @@ src/services/        ← 发布者，只依赖 events/bus 的 publish
 
 ## 中间件
 
+<!-- code-fact: middlewares 注册顺序见 src/events/middleware.ts -->
 中间件在事件到达订阅者之前执行，按注册顺序组成洋葱模型。当前中间件：
 
 | 中间件 | 作用 |
