@@ -56,7 +56,7 @@ describe('Frontend UI English copy (#540)', () => {
   });
 
   it('representative UI strings are translated to English', () => {
-    const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings/general.html', 'settings/agent-tools.html', 'projects-new.html']
+    const dashboardHtml = ['inbox.html', 'projects.html', 'usage.html', 'settings/general.html', 'settings/agent-tools.html']
       .map((name) => fs.readFileSync(path.join(publicDir, name), 'utf-8'))
       .join('\n');
     const projectHtml = ['overview', 'agents', 'issues', 'activity', 'git', 'knowledge', 'files', 'workflow', 'sharing']
@@ -86,13 +86,8 @@ describe('Frontend UI English copy (#540)', () => {
       .filter((filePath) => filePath.endsWith('.js'))
       .map((filePath) => fs.readFileSync(filePath, 'utf-8'))
       .join('\n');
-    const projectNewJs = fs.readFileSync(
-      path.join(jsDir, 'pages', 'project-new.js'),
-      'utf-8'
-    );
 
     assert.ok(dashboardHtml.includes('Search issues...'));
-    assert.ok(dashboardHtml.includes('Create New Project'));
     assert.ok(dashboardHtml.includes('Browser Notifications'));
     assert.ok(dashboardHtml.includes('Sound Alerts'));
     assert.ok(dashboardHtml.includes('Control browser alerts and local sound preferences.'));
@@ -112,7 +107,6 @@ describe('Frontend UI English copy (#540)', () => {
     assert.ok(dashboardInboxJs.includes('No notifications'));
     assert.ok(dashboardProjectStoreJs.includes('haico.dashboard.projects.v1'));
     assert.ok(projectJs.includes('No knowledge entries yet.'));
-    assert.ok(projectNewJs.includes('No Agent Tool is configured yet.'));
   });
 
   it('notification permission and sound controls stay decoupled', () => {

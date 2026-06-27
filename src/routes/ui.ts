@@ -4,6 +4,7 @@ import fs from 'fs';
 import { isDefaultAdminEnabled } from '../services/auth/default-admin';
 import { hasAnyUsers } from '../services/auth/users';
 import { getDatabase } from '../db/database';
+import { registerProjectNewUIRoutes } from './ui-projects';
 
 export function registerUIRoutes(fastify: FastifyInstance): void {
   // Resolve public dir relative to project root (works from both src/ and dist/)
@@ -103,10 +104,6 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('change-password.html'));
   });
 
-  fastify.get('/projects/new', async (_request, reply) => {
-    return reply.type('text/html').send(serveHtml('projects-new.html'));
-  });
-
   fastify.get('/project/:id', async (_request, reply) => {
     return reply.type('text/html').send(serveHtml('project/overview.html'));
   });
@@ -179,4 +176,5 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('issue.html'));
   });
 
+  registerProjectNewUIRoutes(fastify);
 }
