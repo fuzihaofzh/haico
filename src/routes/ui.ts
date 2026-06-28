@@ -79,6 +79,10 @@ export function registerUIRoutes(fastify: FastifyInstance): void {
     return reply.type('text/html').send(serveHtml('settings/agent-tools-edit.html'));
   });
 
+  fastify.get('/settings/pi-providers', async (_request, reply) => {
+    return reply.type('text/html').send(serveHtml('settings/pi-providers.html'));
+  });
+
   fastify.get('/login', async (request, reply) => {
     let usersConfigured = false;
     try {

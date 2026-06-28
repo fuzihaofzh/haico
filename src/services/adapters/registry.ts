@@ -30,12 +30,17 @@ class AdapterRegistryImpl implements AdapterRegistry {
   /**
    * Resolve an adapter from the command template and optional explicit type.
    * Falls back to shell adapter if no type matches.
+   * For 'pi-ai' type, awaits the lazy-loaded PiAiAdapter if needed.
    */
   resolveFromCommand(commandTemplate: string, explicitType?: string | null): Adapter {
     // 1. Explicit type takes precedence
     if (explicitType) {
       const adapter = this.adapters.get(explicitType);
       if (adapter) return adapter;
+      // If pi-ai type is requested but not loaded yet, throw to signal async load
+      if (explicitType === 'pi-ai') {
+        throw new Error('Pi-AI adapter not yet loaded — retry the request');
+      }
     }
 
     // 2. Detect from command template
@@ -61,6 +66,10 @@ function ensureRegistry(): AdapterRegistryImpl {
   if (!globalRegistry) {
     globalRegistry = new AdapterRegistryImpl();
     registerBuiltinAdapters(globalRegistry);
+    // PiAiAdapter is loaded asynchronously to avoid ESM/CJS interop issues
+    ensurePiAiAdapter(globalRegistry).catch(() => {
+      // Non-fatal: pi-ai adapter simply won't be available
+    });
   }
   return globalRegistry;
 }
@@ -72,6 +81,7 @@ export function getAdapterRegistry(): AdapterRegistry {
 /** Reset the registry (for tests only) */
 export function resetAdapterRegistry(): void {
   globalRegistry = null;
+  piAiAdapterPromise = null;
 }
 
 /** Register all built-in adapters */
@@ -87,4 +97,17 @@ function registerBuiltinAdapters(registry: AdapterRegistryImpl): void {
   registry.register(new GeminiCliAdapter());
   registry.register(new ShellAdapter());
   registry.register(new OmpCliAdapter());
+}
+
+/** Lazy-load PiAiAdapter to avoid ESM/CJS interop issues with @earendil-works/pi-ai */
+let piAiAdapterPromise: Promise<void> | null = null;
+async function ensurePiAiAdapter(registry: AdapterRegistryImpl): Promise<void> {
+  if (piAiAdapterPromise) return piAiAdapterPromise;
+  piAiAdapterPromise = (async () => {
+    // CJS module loaded via ESM dynamic import wraps exports in .default
+    const mod = await import('./pi-ai') as any;
+    const PiAiAdapter = mod.default?.PiAiAdapter ?? mod.PiAiAdapter;
+    registry.register(new PiAiAdapter());
+  })();
+  return piAiAdapterPromise;
 }

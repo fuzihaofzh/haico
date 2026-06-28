@@ -30,4 +30,8 @@ export async function registerApiRoutes(fastify: FastifyInstance): Promise<void>
   registerDashboardChatRoutes(fastify);
   registerSettingsRoutes(fastify);
   registerSkillRoutes(fastify);
+  // Pi-AI routes loaded lazily to avoid CJS/ESM interop issue with @earendil-works/pi-ai
+  const piAiModule = await import('./pi-ai');
+  const registerPiAiRoutes = (piAiModule as any).default?.registerPiAiRoutes ?? (piAiModule as any).registerPiAiRoutes;
+  registerPiAiRoutes(fastify);
 }

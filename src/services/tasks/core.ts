@@ -260,7 +260,7 @@ export function runTaskImmediately(
   const executorSnapshot = claimed.executorSnapshot as any;
   const adapter = getAdapterRegistry().resolveFromCommand(
     executorSnapshot.command_template || '',
-    executorSnapshot.command_type,
+    executorSnapshot.executor_type ?? executorSnapshot.command_type,
   );
   const result = adapter.start({
     agent: claimed.agent,

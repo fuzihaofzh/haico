@@ -1,6 +1,6 @@
 export type OrchestratorEngine = 'native' | 'langgraph';
 export type CommandProfileType = 'claude' | 'codex' | 'gemini' | 'omp';
-export type ExecutorType = CommandProfileType | 'shell';
+export type ExecutorType = CommandProfileType | 'shell' | 'pi-ai';
 
 export interface Project {
   id: string;
@@ -155,6 +155,43 @@ export interface ExecutorSession {
   reset_reason: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface PiExecutorConfig {
+  id: string;
+  executor_profile_id: string;
+  provider_id: string;
+  model_id: string;
+  temperature: number;
+  max_tokens: number;
+  system_prompt: string;
+  reasoning_effort: string | null;
+  extra_params_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PiProvider {
+  id: string;
+  name: string;
+  provider_type: string;
+  base_url: string | null;
+  extra_headers_json: string;
+  is_builtin: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PiModel {
+  id: string;
+  provider_id: string;
+  model_id: string;
+  display_name: string | null;
+  context_window: number | null;
+  max_tokens: number | null;
+  supports_reasoning: number;
+  supports_vision: number;
+  created_at: string;
 }
 
 export interface Issue {

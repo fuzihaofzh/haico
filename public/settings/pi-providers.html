@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pi-AI Providers - HAICO</title>
+  <link rel="icon" type="image/svg+xml" href="/public/brand/haico-mark.svg">
+  <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32.png">
+  <link rel="apple-touch-icon" href="/public/apple-touch-icon.png">
+  <script src="/public/js/shared/theme.js"></script>
+  <link rel="stylesheet" href="/public/css/index.css">
+</head>
+<body class="dashboard-shell" data-dashboard-page="settings">
+  <div data-dashboard-sidebar>
+    <nav class="vertical-sidebar dashboard-sidebar-skeleton" aria-hidden="true">
+      <span class="sidebar-logo sidebar-skeleton-logo"></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+      <span class="sidebar-nav-item sidebar-nav-settings sidebar-skeleton-item"><span class="sidebar-skeleton-icon"></span><span class="sidebar-skeleton-label"></span></span>
+    </nav>
+  </div>
+
+  <header>
+    <div class="header-right">
+      <a class="btn btn-primary btn-sm" href="/projects/new">+ New Project</a>
+      <span class="header-user-skeleton" aria-hidden="true">
+        <span class="header-skeleton-sound"></span>
+        <span class="header-skeleton-avatar"></span>
+      </span>
+    </div>
+  </header>
+
+  <main id="main-content" class="container">
+    <div id="settings-view-panel" class="dashboard-view dashboard-view-settings">
+      <div class="settings-page-header">
+        <div>
+          <div class="settings-page-eyebrow">Workspace</div>
+          <h2>Pi-AI Providers</h2>
+          <p>Configure LLM API providers for Pi-AI executors. Each provider connects to an LLM API; you then select which models to make available from each provider.</p>
+        </div>
+        <div>
+          <button type="button" class="btn btn-primary" id="btn-new-provider">+ New Provider</button>
+        </div>
+      </div>
+
+      <nav class="settings-section-nav" aria-label="Settings sections">
+        <a href="/settings">General</a>
+        <a href="/settings/agent-tools">Agent Tools</a>
+        <a class="active" href="/settings/pi-providers" aria-current="page">Pi-AI Providers</a>
+      </nav>
+
+      <section class="settings-card-wide">
+        <div class="settings-card-header">
+          <div>
+            <h3>Configured Providers</h3>
+            <p>Each provider needs an API key to be used by Pi-AI executors. Built-in providers (OpenAI, Anthropic, etc.) can also use environment variables.</p>
+          </div>
+        </div>
+        <div class="settings-section settings-section-page">
+          <div id="pi-providers-root">
+            <div class="pi-providers-status" id="pi-providers-loading">Loading providers...</div>
+            <div class="pi-providers-status pi-providers-error" id="pi-providers-error" hidden></div>
+            <div class="pi-providers-list" id="pi-providers-list"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Provider credential/edit dialog -->
+  <dialog id="pi-credential-dialog" class="dialog">
+    <form method="dialog">
+      <h3 id="dialog-title">Configure Provider</h3>
+      <div class="form-group" id="dialog-name-group">
+        <label for="dialog-provider-name">Provider Name</label>
+        <input type="text" id="dialog-provider-name" class="form-input" placeholder="My VLLM Server" autocomplete="off">
+      </div>
+      <div class="form-group" id="dialog-type-group">
+        <label for="dialog-provider-type">Provider Type</label>
+        <select id="dialog-provider-type" class="form-input">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="google">Google Gemini</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="groq">Groq</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="xai">xAI</option>
+          <option value="custom">Custom (OpenAI-compatible)</option>
+        </select>
+        <p class="form-help">Choose "Custom (OpenAI-compatible)" for self-hosted LLM APIs like vLLM, Ollama, LiteLLM.</p>
+      </div>
+      <div class="form-group" id="dialog-base-url-group">
+        <label for="dialog-base-url">Base URL</label>
+        <input type="text" id="dialog-base-url" class="form-input" placeholder="https://api.openai.com/v1">
+        <p class="form-help">Leave empty for default. Required for Custom providers.</p>
+      </div>
+      <div class="form-group">
+        <label for="dialog-api-key">API Key</label>
+        <input type="password" id="dialog-api-key" class="form-input" placeholder="sk-..." autocomplete="off">
+        <p class="form-help">Or set the corresponding environment variable (e.g. OPENAI_API_KEY) and restart HAICO.</p>
+      </div>
+      <footer class="dialog-actions">
+        <button type="button" class="btn" id="dialog-cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="dialog-save">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Model selection dialog -->
+  <dialog id="pi-models-dialog" class="dialog dialog-wide">
+    <form method="dialog">
+      <h3 id="models-dialog-title">Available Models</h3>
+      <p id="models-dialog-provider" class="form-help"></p>
+
+      <div class="pi-models-status" id="pi-models-loading">Loading models...</div>
+      <div class="pi-models-status pi-providers-error" id="pi-models-error" hidden></div>
+
+      <div id="pi-models-available">
+        <h4>Available from API</h4>
+        <div id="pi-models-api-list"></div>
+      </div>
+
+      <hr>
+
+      <div id="pi-models-selected-section">
+        <h4>Selected Models</h4>
+        <div id="pi-models-selected-list"></div>
+      </div>
+
+      <hr>
+
+      <div>
+        <h4>Add Custom Model</h4>
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <input type="text" id="dialog-custom-model-id" class="form-input" placeholder="Model ID (e.g. llama3.2:8b)">
+          </div>
+          <div class="form-group" style="flex:1">
+            <input type="number" id="dialog-custom-model-ctx" class="form-input" placeholder="Context window">
+          </div>
+          <div class="form-group" style="flex:1">
+            <input type="number" id="dialog-custom-model-max" class="form-input" placeholder="Max tokens">
+          </div>
+          <button type="button" class="btn btn-sm" id="btn-add-custom-model">+ Add</button>
+        </div>
+      </div>
+
+      <footer class="dialog-actions">
+        <button type="button" class="btn" id="models-dialog-close">Close</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script src="/public/js/shared/common.js"></script>
+  <script src="/public/js/components/dashboard-sidebar.js"></script>
+  <script type="module" src="/public/js/pages/settings/pi-providers.js"></script>
+</body>
+</html>

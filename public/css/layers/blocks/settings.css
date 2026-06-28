@@ -611,3 +611,65 @@
   transition: transform 0.2s;
 }
 .toggle-switch.on .toggle-knob { transform: translateX(16px); }
+
+/* ── Pi-AI Provider cards ── */
+.pi-provider-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: var(--surface, var(--bg));
+}
+.pi-provider-card:last-child { margin-bottom: 0; }
+.pi-provider-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pi-provider-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.pi-provider-id {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.pi-provider-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.pi-provider-status.status-configured {
+  color: #166534;
+  background: #dcfce7;
+}
+.pi-provider-status.status-unconfigured {
+  color: var(--text-secondary);
+  background: var(--bg);
+}
+.pi-provider-env-hint {
+  font-size: 11px;
+  color: var(--text-tertiary, #999);
+}
+.pi-provider-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.pi-providers-status {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+.pi-providers-status.pi-providers-error {
+  color: var(--error, #dc2626);
+  font-weight: 500;
+}

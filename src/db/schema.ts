@@ -148,7 +148,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
-      executor_type TEXT NOT NULL DEFAULT 'claude' CHECK(executor_type IN ('claude', 'codex', 'gemini', 'shell', 'omp')),
+      executor_type TEXT NOT NULL DEFAULT 'claude' CHECK(executor_type IN ('claude', 'codex', 'gemini', 'shell', 'omp', 'pi-ai')),
       command_template TEXT NOT NULL,
       command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini', 'omp')),
       working_directory TEXT,
@@ -355,6 +355,29 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
     CREATE INDEX IF NOT EXISTS idx_logs_stream_run ON conversation_logs(stream, run_id, id);
     CREATE INDEX IF NOT EXISTS idx_orch_runs_project_created ON orchestration_runs(project_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_executor_profiles_project ON executor_profiles(project_id);
+
+    CREATE TABLE IF NOT EXISTS pi_credentials (
+      provider_id     TEXT PRIMARY KEY,
+      credential_json TEXT NOT NULL,
+      created_at      DATETIME DEFAULT (datetime('now')),
+      updated_at      DATETIME DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS pi_executor_configs (
+      id                   TEXT PRIMARY KEY,
+      executor_profile_id  TEXT NOT NULL REFERENCES executor_profiles(id) ON DELETE CASCADE,
+      provider_id          TEXT NOT NULL,
+      model_id             TEXT NOT NULL,
+      temperature          REAL DEFAULT 0.7,
+      max_tokens           INTEGER DEFAULT 4096,
+      system_prompt        TEXT DEFAULT '',
+      reasoning_effort     TEXT DEFAULT NULL,
+      extra_params_json    TEXT DEFAULT '{}',
+      created_at           DATETIME DEFAULT (datetime('now')),
+      updated_at           DATETIME DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_pi_executor_configs_profile ON pi_executor_configs(executor_profile_id);
+
     CREATE INDEX IF NOT EXISTS idx_tasks_project_status ON tasks(project_id, status, priority, created_at);
     CREATE INDEX IF NOT EXISTS idx_tasks_agent_status ON tasks(target_agent_id, status);
     CREATE INDEX IF NOT EXISTS idx_tasks_dedupe_key ON tasks(dedupe_key);
@@ -1071,7 +1094,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
     logger.info('Migration: added omp to projects CHECK constraint');
   }
   const epTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='executor_profiles'").get() as any;
-  if (epTableSql && !epTableSql.sql.includes("'omp'")) {
+  if (epTableSql && !epTableSql.sql.includes("'pi-ai'")) {
     db.pragma('foreign_keys = OFF');
     db.exec(`
       ALTER TABLE executor_profiles RENAME TO executor_profiles_old;
@@ -1079,7 +1102,7 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
-        executor_type TEXT NOT NULL DEFAULT 'claude' CHECK(executor_type IN ('claude', 'codex', 'gemini', 'shell', 'omp')),
+        executor_type TEXT NOT NULL DEFAULT 'claude' CHECK(executor_type IN ('claude', 'codex', 'gemini', 'shell', 'omp', 'pi-ai')),
         command_template TEXT NOT NULL,
         command_type TEXT DEFAULT NULL CHECK(command_type IN ('claude', 'codex', 'gemini', 'omp')),
         working_directory TEXT,
@@ -1092,7 +1115,97 @@ export function initializeDatabase(db: Database.Database, options: InitializeDat
       DROP TABLE executor_profiles_old;
     `);
     db.pragma('foreign_keys = ON');
-    logger.info('Migration: added omp to executor_profiles CHECK constraint');
+    logger.info('Migration: added pi-ai to executor_profiles CHECK constraint');
+  }
+
+  // Migration: create pi-ai tables
+  const piCredTableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pi_credentials'").get();
+  if (!piCredTableCheck) {
+    db.exec(`
+      CREATE TABLE pi_credentials (
+        provider_id     TEXT PRIMARY KEY,
+        credential_json TEXT NOT NULL,
+        created_at      DATETIME DEFAULT (datetime('now')),
+        updated_at      DATETIME DEFAULT (datetime('now'))
+      );
+    `);
+    logger.info('Migration: created pi_credentials table');
+  }
+  const piExecConfigCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pi_executor_configs'").get();
+  if (!piExecConfigCheck) {
+    db.exec(`
+      CREATE TABLE pi_executor_configs (
+        id                   TEXT PRIMARY KEY,
+        executor_profile_id  TEXT NOT NULL REFERENCES executor_profiles(id) ON DELETE CASCADE,
+        provider_id          TEXT NOT NULL,
+        model_id             TEXT NOT NULL,
+        temperature          REAL DEFAULT 0.7,
+        max_tokens           INTEGER DEFAULT 4096,
+        system_prompt        TEXT DEFAULT '',
+        reasoning_effort     TEXT DEFAULT NULL,
+        extra_params_json    TEXT DEFAULT '{}',
+        created_at           DATETIME DEFAULT (datetime('now')),
+        updated_at           DATETIME DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_pi_executor_configs_profile ON pi_executor_configs(executor_profile_id);
+    `);
+    logger.info('Migration: created pi_executor_configs table');
+  }
+
+  // Migration: create pi_providers table
+  const piProvidersCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pi_providers'").get();
+  if (!piProvidersCheck) {
+    db.exec(`
+      CREATE TABLE pi_providers (
+        id                  TEXT PRIMARY KEY,
+        name                TEXT NOT NULL,
+        provider_type       TEXT NOT NULL,
+        base_url            TEXT DEFAULT NULL,
+        extra_headers_json  TEXT DEFAULT '{}',
+        is_builtin          INTEGER DEFAULT 0,
+        created_at          DATETIME DEFAULT (datetime('now')),
+        updated_at          DATETIME DEFAULT (datetime('now'))
+      );
+    `);
+    logger.info('Migration: created pi_providers table');
+    // Seed 7 built-in providers
+    const insertProvider = db.prepare(
+      "INSERT INTO pi_providers (id, name, provider_type, is_builtin) VALUES (?, ?, ?, 1)"
+    );
+    const builtins = [
+      ['openai', 'OpenAI', 'openai'],
+      ['anthropic', 'Anthropic', 'anthropic'],
+      ['google', 'Google Gemini', 'google'],
+      ['deepseek', 'DeepSeek', 'deepseek'],
+      ['groq', 'Groq', 'groq'],
+      ['openrouter', 'OpenRouter', 'openrouter'],
+      ['xai', 'xAI', 'xai'],
+    ];
+    for (const [id, name, type] of builtins) {
+      insertProvider.run(id, name, type);
+    }
+    logger.info('Migration: seeded 7 built-in pi-ai providers');
+  }
+
+  // Migration: create pi_models table
+  const piModelsCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pi_models'").get();
+  if (!piModelsCheck) {
+    db.exec(`
+      CREATE TABLE pi_models (
+        id                  TEXT PRIMARY KEY,
+        provider_id         TEXT NOT NULL REFERENCES pi_providers(id) ON DELETE CASCADE,
+        model_id            TEXT NOT NULL,
+        display_name        TEXT DEFAULT NULL,
+        context_window      INTEGER DEFAULT NULL,
+        max_tokens          INTEGER DEFAULT NULL,
+        supports_reasoning  INTEGER DEFAULT 0,
+        supports_vision     INTEGER DEFAULT 0,
+        created_at          DATETIME DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_model_provider ON pi_models(provider_id, model_id);
+      CREATE INDEX IF NOT EXISTS idx_pi_models_provider ON pi_models(provider_id);
+    `);
+    logger.info('Migration: created pi_models table');
   }
 
   // Seed data and maintenance tasks
